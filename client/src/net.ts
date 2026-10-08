@@ -1,4 +1,4 @@
-import type { ClientMsg, Intent, LobbyView, PlayerView, ServerMsg } from '@stcp/shared';
+import type { ClientMsg, Intent, LeaderboardEntry, LobbyView, PlayerView, ServerMsg } from '@stcp/shared';
 
 /** Per-tab secret: survives refresh (sessionStorage) but differs between tabs, so one browser can host several test players. */
 function getToken(): string {
@@ -21,6 +21,8 @@ export class Net {
   name = localStorage.getItem('stcp-name') ?? '';
   onError: (msg: string) => void = () => {};
   onLobby: (lobby: LobbyView | null) => void = () => {};
+  /** The Hall of Fortune (top players by total gold extracted). */
+  leaderboard: LeaderboardEntry[] = [];
   /** Called on every snapshot. Used by dev playtest scripts: unlike timers, these aren't throttled in background tabs. */
   viewHooks: ((view: PlayerView) => void)[] = [];
 
@@ -65,6 +67,9 @@ export class Net {
         break;
       case 'error':
         this.onError(msg.msg);
+        break;
+      case 'leaderboard':
+        this.leaderboard = msg.entries;
         break;
       case 'view':
         this.prev = this.cur;

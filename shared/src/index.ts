@@ -13,6 +13,7 @@ export * from './bots/tuning';
 export * from './content/abilities';
 export * from './content/enemies';
 export * from './content/items';
+export * from './content/titles';
 export * from './sim/loot';
 export * from './sim/escalation';
 export * from './sim/events';

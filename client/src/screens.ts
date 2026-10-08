@@ -1,4 +1,4 @@
-import { CLASS_IDS, CLASSES, type LobbyView } from '@stcp/shared';
+import { CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } from '@stcp/shared';
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
 
@@ -6,6 +6,15 @@ const root = () => document.getElementById('screen')!;
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** The Hall of Fortune table (shared by the menu and the results screen). */
+export function hallOfFortune(entries: LeaderboardEntry[], you: string): string {
+  if (!entries.length) return '<div class="hof muted small">No one has made it out alive yet. Be the first.</div>';
+  const rows = entries.map((e, i) => `<tr class="${e.name.toLowerCase() === you.toLowerCase() ? 'me' : ''}">
+    <td>${i + 1}.</td><td>${esc(e.name)} <span class="title-tag">${esc(e.title)}</span></td>
+    <td class="gold">${e.gold}</td><td class="muted">${e.escapes}/${e.runs} out · best ${e.best}</td></tr>`).join('');
+  return `<div class="hof"><div class="hof-head">⛀ Hall of Fortune</div><table>${rows}</table></div>`;
 }
 
 /** Menu (no lobby) and lobby-room screens. The game itself is the map canvas + HUD. */
@@ -58,6 +67,7 @@ export class Screens {
         <input id="code-input" maxlength="4" placeholder="CODE" class="code">
         <button data-act="join">Join</button>
       </div>
+      ${hallOfFortune(this.net.leaderboard, this.net.name)}
     </div>`;
   }
 
@@ -74,7 +84,7 @@ export class Screens {
       const cls = m.cls ? CLASSES[m.cls] : null;
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
-        <span class="slot-name">${esc(m.name)}${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
+        <span class="slot-name">${esc(m.name)} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
         <span class="muted">${cls?.name ?? 'choosing…'}</span>
         <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span>
       </li>`);

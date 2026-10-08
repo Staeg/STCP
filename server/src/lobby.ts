@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import { Stash } from './persistence';
 import {
-  addToPile, buildView, CLASS_IDS, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
+  addToPile, buildView, CLASS_IDS, titleFor, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
   type ClassId, type ClientMsg, type LobbyState, type LobbyView, type PlayerSlot, type ServerMsg,
 } from '@stcp/shared';
 
@@ -45,7 +45,9 @@ export class Lobby {
       hostId: this.members.find((m) => m.token === this.hostToken)?.id ?? '',
       state: this.state,
       maxPlayers: MAX_PLAYERS,
-      members: this.members.map((m) => ({ id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name) })),
+      members: this.members.map((m) => ({
+        id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
+      })),
     };
   }
 
@@ -75,12 +77,17 @@ export class Lobby {
     for (let i = 0; i < this.speed; i++) this.game.tick(SERVER_TICK);
     if (this.game.world.phase !== 'running' && !this.banked) {
       this.banked = true;
-      for (const m of this.members) {
-        const h = this.game.world.heroes[m.id];
-        if (h?.extracted) this.stash.add(m.name, h.gold);
+      // Fast-forwarded (debug) games don't count toward anyone's career.
+      if (this.speed === 1) {
+        for (const m of this.members) {
+          const h = this.game.world.heroes[m.id];
+          if (h) this.stash.recordRun(m.name, h.extracted, h.gold);
+        }
       }
       console.log(`[${this.code}] run over (${this.game.world.phase})`);
       this.broadcast();
+      const board: ServerMsg = { t: 'leaderboard', entries: this.stash.leaderboard() };
+      for (const m of this.members) if (m.ws) send(m.ws, board);
     }
     for (const m of this.members) {
       if (m.ws && this.game.world.heroes[m.id]) send(m.ws, { t: 'view', view: buildView(this.game.world, m.id) });
@@ -109,6 +116,7 @@ export class LobbyManager {
 
     switch (msg.t) {
       case 'hello': {
+        send(ws, { t: 'leaderboard', entries: this.stash.leaderboard() });
         if (found) {
           if (found.member.ws && found.member.ws !== ws) found.member.ws.close(4000, 'Connected elsewhere');
           found.member.ws = ws;

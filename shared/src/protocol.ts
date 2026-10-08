@@ -3,6 +3,7 @@ import { ENEMIES, type EnemyId } from './content/enemies';
 import { ITEMS, type ItemId } from './content/items';
 import { EVENTS, type EventKind } from './content/events';
 import type { CombatAction } from './sim/combat';
+import type { LeaderboardEntry } from './content/titles';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 
@@ -14,8 +15,9 @@ export interface LobbyMemberView {
   cls: ClassId | null;
   ready: boolean;
   connected: boolean;
-  /** Gold banked across runs (out-of-dungeon currency). */
+  /** Total gold extracted across all runs (bragging rights). */
   stash: number;
+  title: string;
 }
 
 export interface LobbyView {
@@ -55,7 +57,9 @@ export type ServerMsg =
   | { t: 'pong'; id: number }
   | { t: 'lobby'; lobby: LobbyView | null }
   | { t: 'error'; msg: string }
-  | { t: 'view'; view: PlayerView };
+  | { t: 'view'; view: PlayerView }
+  /** The Hall of Fortune: top players by total gold extracted. */
+  | { t: 'leaderboard'; entries: LeaderboardEntry[] };
 
 const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item'];
 

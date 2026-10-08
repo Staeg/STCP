@@ -385,3 +385,11 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #flash.alarm { animation: flash 1.6s ease-out; background: radial-gradient(ellipse at center, transparent 30%, rgba(220, 40, 20, 0.6)); }
 @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
 .class-sprite { width: 64px; height: 64px; image-rendering: pixelated; float: right; margin: -2px -2px 0 4px; }
+
+/* ---- Hall of Fortune & titles ---- */
+.title-tag { color: #c9a8ff; font-size: 15px; border: 1px solid #5c3c8c; padding: 0 4px; margin-left: 2px; }
+.hof { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
+.hof-head { color: var(--gold); font-size: 22px; }
+.hof table { width: 100%; border-collapse: collapse; font-size: 18px; }
+.hof td { padding: 1px 6px; }
+.hof tr.me td { background: #2a2018; }

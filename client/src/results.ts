@@ -1,4 +1,5 @@
-import { CLASSES, type PlayerView } from '@stcp/shared';
+import { CLASSES, nextTitle, type PlayerView } from '@stcp/shared';
+import { hallOfFortune } from './screens';
 import { fmtTime } from './hud';
 import type { Net } from './net';
 
@@ -36,7 +37,9 @@ export class ResultsUi {
       : view.phase === 'collapsed' ? 'The dungeon has collapsed.'
       : 'The expedition is over.';
     const isHost = this.net.lobby?.hostId === this.net.lobby?.youId;
-    const stash = this.net.lobby?.members.find((m) => m.id === view.you.id)?.stash;
+    const member = this.net.lobby?.members.find((m) => m.id === view.you.id);
+    const stash = member?.stash;
+    const next = stash !== undefined ? nextTitle(stash) : null;
     const rows = res.heroes
       .slice()
       .sort((a, b) => Number(b.outcome === 'escaped') - Number(a.outcome === 'escaped') || b.gold - a.gold)
@@ -52,8 +55,9 @@ export class ResultsUi {
       .join('');
     const html = `<div class="card wide results-card">
       <h1 class="${me.outcome}">${esc(title)}</h1>
-      <div class="muted">${sub}${stash !== undefined ? ` · Your stash: <span class="gold">${stash} gold</span>` : ''}</div>
+      <div class="muted">${sub}${stash !== undefined ? ` · Career: <span class="gold">${stash} gold</span> · <span class="title-tag">${esc(member!.title)}</span>${next ? ` (${next.at - stash} more for ${esc(next.title)})` : ''}` : ''}</div>
       <table class="fates">${rows}</table>
+      ${hallOfFortune(this.net.leaderboard, this.net.name)}
       <h3>What really happened</h3>
       <div class="chronicle">${story}</div>
       <div class="row">
