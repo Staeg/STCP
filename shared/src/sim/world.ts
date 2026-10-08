@@ -1,6 +1,6 @@
 import { CLASSES, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
-import { corridorBetween, generateDungeon, neighbours, otherEnd, type Dungeon } from '../dungeon/gen';
+import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, type Dungeon } from '../dungeon/gen';
 
 export type HeroPos =
   | { kind: 'room'; room: number }
@@ -20,6 +20,16 @@ export interface Hero {
   explored: number[];
   /** Rooms this hero knows the name and kind of (explored + glimpsed neighbours + the exit). */
   seen: number[];
+  isBot: boolean;
+  /** Where this hero last saw each other hero, and when. */
+  lastKnown: Record<string, Sighting>;
+  /** Chalk marks this hero has read, per crossroads room: heroId → corridor id they left by. */
+  knownChalk: Record<number, Record<string, number>>;
+}
+
+export interface Sighting {
+  pos: HeroPos;
+  time: number;
 }
 
 export type WorldPhase = 'running' | 'collapsed';
@@ -30,6 +40,8 @@ export interface World {
   dungeon: Dungeon;
   heroes: Record<string, Hero>;
   phase: WorldPhase;
+  /** Physical chalk marks at crossroads: room → heroId → corridor they last left by. */
+  chalk: Record<number, Record<string, number>>;
 }
 
 export type Intent =
@@ -38,13 +50,16 @@ export type Intent =
   | { type: 'stop' };
 
 export function createWorld(seed: number): World {
-  return { seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running' };
+  return { seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {} };
 }
 
-export function addHero(world: World, opts: { id: string; name: string; cls: ClassId }): Hero {
+export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean }): Hero {
   const d = world.dungeon;
   const hero: Hero = {
     ...opts,
+    isBot: opts.isBot ?? false,
+    lastKnown: {},
+    knownChalk: {},
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -54,6 +69,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
   };
   world.heroes[hero.id] = hero;
   explore(world, hero, d.entrance);
+  updateKnowledge(world);
   return hero;
 }
 
@@ -64,6 +80,7 @@ export function step(world: World, dt: number): void {
     hero.light = Math.max(0, hero.light - LIGHT_DRAIN * dt);
     advance(world, hero, dt);
   }
+  updateKnowledge(world);
   if (world.time >= COLLAPSE_AT) world.phase = 'collapsed';
 }
 
@@ -101,6 +118,7 @@ function advance(world: World, hero: Hero, dt: number) {
         return;
       }
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0 };
+      if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
     } else {
       const need = d.corridors[pos.corridor].length - pos.t;
       if (remaining < need) {
@@ -112,6 +130,35 @@ function advance(world: World, hero: Hero, dt: number) {
       explore(world, hero, pos.to);
     }
   }
+}
+
+/** Refresh every hero's sightings of others and the chalk marks they can read. */
+function updateKnowledge(world: World) {
+  const heroes = Object.values(world.heroes);
+  for (const a of heroes) {
+    for (const b of heroes) {
+      if (a !== b && canSee(world, a, b)) a.lastKnown[b.id] = { pos: { ...b.pos }, time: world.time };
+    }
+    if (a.pos.kind === 'room' && world.chalk[a.pos.room]) a.knownChalk[a.pos.room] = { ...world.chalk[a.pos.room] };
+  }
+}
+
+/** Same room, same corridor, a corridor touching your room, or (if you have light) an adjacent room. */
+export function canSee(world: World, a: Hero, b: Hero): boolean {
+  const d = world.dungeon;
+  const pa = a.pos;
+  const pb = b.pos;
+  if (pa.kind === 'room' && pb.kind === 'room') {
+    if (pa.room === pb.room) return true;
+    return a.light >= LIGHT_DIM && corridorBetween(d, pa.room, pb.room) !== undefined;
+  }
+  if (pa.kind === 'corridor' && pb.kind === 'corridor') return pa.corridor === pb.corridor;
+  const roomPos = pa.kind === 'room' ? pa : pb;
+  const corrPos = pa.kind === 'corridor' ? pa : pb;
+  if (roomPos.kind !== 'room' || corrPos.kind !== 'corridor') return false;
+  const room = roomPos.room;
+  const c = d.corridors[corrPos.corridor];
+  return c.a === room || c.b === room;
 }
 
 function turnAround(world: World, hero: Hero) {

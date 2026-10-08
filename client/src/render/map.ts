@@ -49,12 +49,15 @@ export class MapRenderer {
   }
 
   private layout(view: PlayerView) {
+    // Keep clear of the left HUD column (clock + roster) and the top-right status panel.
+    const left = 300;
     const top = 110;
-    const pad = 50;
-    const w = innerWidth - pad * 2;
-    const h = innerHeight - top - pad * 2;
+    const right = 30;
+    const bottom = 70;
+    const w = innerWidth - left - right;
+    const h = innerHeight - top - bottom;
     const s = Math.min(w / view.width, h / view.height);
-    this.x = { s, ox: (innerWidth - view.width * s) / 2, oy: top + (innerHeight - top - view.height * s) / 2 - pad / 2 };
+    this.x = { s, ox: left + (w - view.width * s) / 2, oy: top + (h - view.height * s) / 2 };
   }
 
   private sx(x: number) {
@@ -68,18 +71,42 @@ export class MapRenderer {
     return Math.max(22, 34 * this.x.s);
   }
 
-  /** Interpolated screen position of your hero. */
-  heroScreenPos(): { x: number; y: number } | null {
+  /** Interpolated world position of a hero (you, or a live ally) between the last two snapshots. */
+  private smoothXY(id: string, curPos: HeroPos): { x: number; y: number } {
     const { cur, prev, curAt } = this.net;
-    if (!cur) return null;
-    const b = posXY(cur, cur.you.pos);
-    let p = b;
-    if (prev) {
-      const a = posXY(prev, prev.you.pos);
-      const alpha = Math.min(1, (performance.now() - curAt) / 100);
-      if (Math.hypot(a.x - b.x, a.y - b.y) < 80) p = { x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha };
+    const b = posXY(cur!, curPos);
+    if (!prev) return b;
+    const prevPos = id === prev.you.id ? prev.you.pos : prev.allies.find((a) => a.id === id && a.live)?.pos;
+    if (!prevPos) return b;
+    const a = posXY(prev, prevPos);
+    const alpha = Math.min(1, (performance.now() - curAt) / 100);
+    return Math.hypot(a.x - b.x, a.y - b.y) < 80 ? { x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha } : b;
+  }
+
+  /** Screen positions for every hero token, spreading out tokens that would overlap. */
+  private tokenPositions(view: PlayerView): Map<string, { x: number; y: number }> {
+    const entries: { id: string; pos: HeroPos }[] = [{ id: view.you.id, pos: view.you.pos }, ...view.allies];
+    const raw = entries.map((e) => {
+      const p = this.smoothXY(e.id, e.pos);
+      return { id: e.id, x: this.sx(p.x), y: this.sy(p.y) };
+    });
+    // Greedy clustering: tokens within a few px of a cluster's anchor share a ring.
+    const clusters: (typeof raw)[] = [];
+    for (const t of raw) {
+      const c = clusters.find((cl) => Math.hypot(cl[0].x - t.x, cl[0].y - t.y) < 8);
+      if (c) c.push(t);
+      else clusters.push([t]);
     }
-    return { x: this.sx(p.x), y: this.sy(p.y) };
+    const out = new Map<string, { x: number; y: number }>();
+    const spread = this.roomSize() * 0.26;
+    for (const cl of clusters) {
+      cl.forEach((t, i) => {
+        if (cl.length === 1) return out.set(t.id, { x: t.x, y: t.y });
+        const ang = -Math.PI / 2 + (i / cl.length) * Math.PI * 2;
+        out.set(t.id, { x: cl[0].x + Math.cos(ang) * spread, y: cl[0].y + Math.sin(ang) * spread });
+      });
+    }
+    return out;
   }
 
   /** Room under a screen point, using the most recent layout. */
@@ -127,8 +154,40 @@ export class MapRenderer {
       }
     }
 
+    // Chalk marks at crossroads: a tick per hero on the corridor they left by.
+    const colorOf = new Map([[you.id, you.color], ...view.allies.map((a) => [a.id, a.color] as [string, string])]);
+    const allCorridors = new Map([...view.corridors, ...view.ghostCorridors].map((c) => [c.id, c]));
+    for (const chalk of view.chalk) {
+      const room = rooms.get(chalk.room);
+      if (!room) continue;
+      const perCorridor = new Map<number, string[]>();
+      for (const m of chalk.marks) (perCorridor.get(m.corridor) ?? perCorridor.set(m.corridor, []).get(m.corridor)!).push(m.heroId);
+      for (const [cid, heroes] of perCorridor) {
+        const c = allCorridors.get(cid);
+        const other = c && rooms.get(c.a === chalk.room ? c.b : c.a);
+        if (!other) continue;
+        const dx = this.sx(other.x) - this.sx(room.x);
+        const dy = this.sy(other.y) - this.sy(room.y);
+        const len = Math.hypot(dx, dy);
+        const [ux, uy] = [dx / len, dy / len];
+        const d = size / 2 + 10;
+        heroes.forEach((h, i) => {
+          const off = (i - (heroes.length - 1) / 2) * 9;
+          const x = this.sx(room.x) + ux * d - uy * off;
+          const y = this.sy(room.y) + uy * d + ux * off;
+          ctx.fillStyle = colorOf.get(h) ?? '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1.5;
+          ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
+          ctx.strokeRect(x - 3.5, y - 3.5, 7, 7);
+        });
+      }
+    }
+
+    const tokens = this.tokenPositions(view);
+    const hp = tokens.get(you.id)!;
+
     // Planned path
-    const hp = this.heroScreenPos();
     if (hp && you.path.length + (you.pos.kind === 'corridor' ? 1 : 0) > 0) {
       ctx.strokeStyle = you.color;
       ctx.globalAlpha = 0.7;
@@ -150,19 +209,36 @@ export class MapRenderer {
     const t = performance.now() / 1000;
     for (const r of view.rooms) this.drawRoom(r, size, r.id === this.hover, r.id === curRoom, t);
 
-    // Hero
-    if (hp) {
-      ctx.fillStyle = you.color;
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 3;
+    // Heroes: ghosts first, then live allies, then you on top.
+    const r = Math.max(6, 9 * this.x.s);
+    const ordered = [...view.allies].sort((a, b) => Number(a.live) - Number(b.live));
+    for (const a of ordered) {
+      const p = tokens.get(a.id)!;
+      ctx.globalAlpha = a.live ? 1 : 0.45;
       ctx.beginPath();
-      ctx.arc(hp.x, hp.y, Math.max(6, 9 * this.x.s), 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(p.x, p.y, r * (a.live ? 0.85 : 0.8), 0, Math.PI * 2);
+      ctx.fillStyle = a.live ? a.color : '#2a2622';
       ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = a.live ? '#000' : a.color;
+      if (!a.live) ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
+    ctx.fillStyle = you.color;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(hp.x, hp.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // Light vignette around the hero
-    if (hp) {
+    {
       const frac = you.light / 100;
       const r0 = 90 + frac * 520;
       const g = ctx.createRadialGradient(hp.x, hp.y, r0 * 0.35, hp.x, hp.y, r0);
@@ -170,6 +246,19 @@ export class MapRenderer {
       g.addColorStop(1, `rgba(0,0,0,${view.dim ? 0.9 : 0.3 + 0.45 * (1 - frac)})`);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, innerWidth, innerHeight);
+    }
+
+    // Ally labels above the vignette, so you can always find them
+    ctx.font = '15px VT323, monospace';
+    ctx.textAlign = 'center';
+    for (const a of view.allies) {
+      const p = tokens.get(a.id)!;
+      const ago = Math.floor(view.time - a.seenAt);
+      const label = a.live ? a.name : `${a.name} · ${ago >= 60 ? `${Math.floor(ago / 60)}m` : `${ago}s`} ago`;
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, p.x + 1, p.y + r + 12);
+      ctx.fillStyle = a.live ? a.color : COLORS.muted;
+      ctx.fillText(label, p.x, p.y + r + 11);
     }
 
     // Hover label drawn last so it sits above the vignette
@@ -253,11 +342,11 @@ function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number,
 }
 
 export function posXY(view: PlayerView, pos: HeroPos): { x: number; y: number } {
-  const room = (id: number) => view.rooms.find((r) => r.id === id)!;
+  const room = (id: number) => view.rooms.find((r) => r.id === id) ?? { x: 0, y: 0 };
   if (pos.kind === 'room') return room(pos.room);
   const a = room(pos.from);
   const b = room(pos.to);
-  const len = view.corridors.find((c) => c.id === pos.corridor)!.length;
-  const f = pos.t / len;
+  const len = (view.corridors.find((c) => c.id === pos.corridor) ?? view.ghostCorridors.find((c) => c.id === pos.corridor))?.length;
+  const f = len ? pos.t / len : 0.5;
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 }

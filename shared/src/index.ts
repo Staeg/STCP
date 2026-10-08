@@ -5,3 +5,5 @@ export * from './dungeon/gen';
 export * from './sim/world';
 export * from './sim/views';
 export * from './protocol';
+export * from './sim/game';
+export * from './bots/explorer';

@@ -39,6 +39,9 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Players | 1–4 humans. Empty slots are filled by bots of *mediocre* ability. |
 | Escalation | Every **2:00** the dungeon tier goes up by 1 (T0 to T6). |
 | Ports | Vite dev client on **5180** (5173 is used by something else on this machine). Game server on **3001**, configured with `GAME_PORT` (not `PORT`, which the preview tool sets). |
+| Identity | Each tab holds a secret token in sessionStorage, so refreshing resumes the same hero and separate tabs act as separate players. Other clients only ever see a public id. Leaving mid-run hands your hero to a bot. |
+| Visibility | You see an ally if you're in the same room or corridor, they're in a corridor touching your room, or (while not Dim) they're in an adjacent room. Chalk marks are physical: you only learn a crossroads' marks by standing in it, and you see them as they were on your last visit. |
+| Debug | `npm run dev` starts the server with `--debug`, which enables `{t:'debugSkip', seconds}` (fast-forward). Use `__net.send({t:'debugSkip', seconds: 300})` from the browser console. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -176,11 +179,11 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - **Mini-playtest:** walk from entrance to exit in the browser. Does a corridor take a satisfying amount of time? Is the map legible?
 
 ### M2. Lobby, multiplayer & bot slots
-- [ ] Create/join a lobby by 4-letter code, set a name, pick a class (no duplicate classes in v1), ready up, host starts. Empty slots become bots.
-- [ ] Multiple heroes in the world. Live allies when in the same or an adjacent room, greyed **last-known ghosts** otherwise.
-- [ ] **Chalk marks** at crossroads showing which exits allies have taken (colour-coded by hero).
-- [ ] Basic bot exploration (wander + head to the exit at a time chosen by its greed value).
-- [ ] Reconnect: refreshing the tab with the same name and lobby resumes control of your hero.
+- [x] Create/join a lobby by 4-letter code, set a name, pick a class (no duplicate classes in v1), ready up, host starts. Empty slots become bots.
+- [x] Multiple heroes in the world. Live allies when in the same or an adjacent room, greyed **last-known ghosts** otherwise.
+- [x] **Chalk marks** at crossroads showing which exits allies have taken (colour-coded by hero).
+- [x] Basic bot exploration (wander + head to the exit at a time chosen by its greed value).
+- [x] Reconnect: refreshing the tab resumes control of your hero (per-tab token in sessionStorage, not the name).
 - **Mini-playtest:** open 2–3 browser tabs as different players and confirm fog, ghosts and chalk marks behave correctly for each.
 
 ### M3. Combat core
@@ -265,6 +268,11 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M2 done.** Lobbies (4-letter codes, `?lobby=CODE` links, class picker with no duplicates, ready/start, host handover), `Game` wrapper in shared (world + bots, reused by the future headless sim), bot explorer brain (fog-fair: it plans only from its own PlayerView, with a greed-based return time from 7:00 to 11:00 and a preference for exits not already chalked), sightings/ghosts, chalk marks, roster panel ("last seen 1:41 ago · Collapsed Pit"), collapse → host "Return to lobby". 27 tests, including server lobby tests with fake sockets (flow, token secrecy, reconnect, kick duplicate, full lobby, leave → bot).
+  - Mini-playtest (2 tabs + 2 bots): lobby flow works end to end. Bots split up immediately. Ghosts and chalk read correctly for each player. Reload resumes the same hero. Fast-forwarding to 13:00 showed the collapse; returning to the lobby works.
+  - Perf: bots only build a view when idle in a room. A 4-bot 13-minute game simulates in ~0.1s, which is good for M8.
+  - Known/minor: ghost labels can still stack when 2+ ghosts share a spot. Lobby buttons shift when Ready↔Not ready changes width. Bots with nothing left to explore just wait at the exit (fine until M5 adds extraction).
+  - Next: M3 (combat core).
 - 2026-10-08 · **M0 + M1 done.** Monorepo (shared/server/client), WS server at 10 Hz with a fog-filtered `buildView`, Vite canvas client with a map, HUD (clock, tier, exit countdown, light bar), click-to-path and turn-back. The generator is tested over 500 seeds; there are 17 unit tests. For now the server runs a single shared dev world with one hero per connection; this gets replaced by lobbies in M2.
   - Mini-playtest: walking works and reads clearly. Fog/glimpse/crossroads markers render. An exploring walk reached the rendezvous at ~1:00 having explored 10 rooms (light 88). **Watch in M8:** the direct entrance→exit route is ~45–60s, so the "late to rendezvous" tension must come from content (fights, loot, events) and from the exit being far from the loot. If it doesn't, lengthen corridors or raise EXIT_DISTANCE.
   - Playtest tooling: in dev builds `window.__net` exposes the client connection (`__net.cur` = latest view, `__net.intent(...)`). Use it from the browser tool to script walks. Long-running scripts must be fire-and-forget (store results on `window`), because a hidden browser pane throttles timers.

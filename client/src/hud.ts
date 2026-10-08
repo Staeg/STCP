@@ -14,7 +14,9 @@ export class Hud {
 
   constructor(private net: Net) {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
+    $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
     addEventListener('keydown', (e) => {
+      if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -55,6 +57,9 @@ export class Hud {
     $('location').textContent = locationText(view);
 
     $('btn-turn').hidden = you.pos.kind !== 'corridor';
+    $('roster').innerHTML = rosterHtml(view);
+    const isHost = net.lobby?.hostId === net.lobby?.youId;
+    $('btn-lobby').hidden = !(view.phase !== 'running' && isHost);
 
     // Tier-change banner
     if (view.tier > this.lastTier) {
@@ -65,6 +70,13 @@ export class Hud {
     if (view.phase === 'collapsed') this.showBanner('THE DUNGEON COLLAPSES', 0);
   }
 
+  /** Called when leaving the game view (back to lobby). */
+  reset() {
+    this.lastTier = 0;
+    $('banner').hidden = true;
+    $('btn-lobby').hidden = true;
+  }
+
   private showBanner(html: string, ms: number) {
     const b = $('banner');
     b.innerHTML = html;
@@ -72,6 +84,21 @@ export class Hud {
     clearTimeout(this.bannerTimer);
     if (ms > 0) this.bannerTimer = window.setTimeout(() => (b.hidden = true), ms);
   }
+}
+
+function rosterHtml(view: PlayerView): string {
+  const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'somewhere unknown';
+  const rows = view.allies.map((a) => {
+    let status: string;
+    const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
+    if (a.live) status = sameRoom ? 'with you' : 'in sight';
+    else {
+      const where = a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
+      status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
+    }
+    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}<div class="ally-status">${escape(status)}</div></div>`;
+  });
+  return rows.join('');
 }
 
 function locationText(view: PlayerView): string {

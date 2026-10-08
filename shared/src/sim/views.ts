@@ -1,6 +1,7 @@
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
-import { knowsCorridor, type Hero, type World, type WorldPhase } from './world';
+import type { ClassId } from '../content/classes';
+import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
 export type RoomKnowledge = 'explored' | 'seen' | 'unknown';
@@ -16,6 +17,23 @@ export interface RoomView {
   corridors: number[];
 }
 
+export interface AllyView {
+  id: string;
+  name: string;
+  cls: ClassId;
+  color: string;
+  isBot: boolean;
+  /** True if you can see them right now; otherwise `pos` is where you last saw them. */
+  live: boolean;
+  pos: HeroPos;
+  seenAt: number;
+}
+
+export interface ChalkView {
+  room: number;
+  marks: { heroId: string; corridor: number }[];
+}
+
 export interface PlayerView {
   time: number;
   tier: number;
@@ -28,6 +46,9 @@ export interface PlayerView {
   dim: boolean;
   rooms: RoomView[];
   corridors: Corridor[];
+  allies: AllyView[];
+  chalk: ChalkView[];
+  ghostCorridors: Corridor[];
 }
 
 /**
@@ -43,6 +64,24 @@ export function buildView(world: World, heroId: string): PlayerView {
     roomIds.add(c.a);
     roomIds.add(c.b);
   }
+
+  const allies: AllyView[] = [];
+  for (const [id, sighting] of Object.entries(you.lastKnown)) {
+    const h = world.heroes[id];
+    if (!h) continue;
+    const live = sighting.time === world.time;
+    allies.push({ id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, seenAt: sighting.time });
+    // Make sure the client can place them, even in a room you only know the position of.
+    for (const r of posRooms(sighting.pos)) roomIds.add(r);
+  }
+  const extraCorridors = allies
+    .map((a) => (a.pos.kind === 'corridor' ? d.corridors[a.pos.corridor] : null))
+    .filter((c): c is Corridor => !!c && !corridors.includes(c));
+
+  const chalk: ChalkView[] = Object.entries(you.knownChalk).map(([room, marks]) => ({
+    room: Number(room),
+    marks: Object.entries(marks).map(([heroId, corridor]) => ({ heroId, corridor })),
+  }));
   const rooms: RoomView[] = [...roomIds].map((id) => {
     const r = d.rooms[id];
     const knowledge: RoomKnowledge = you.explored.includes(id) ? 'explored' : you.seen.includes(id) ? 'seen' : 'unknown';
@@ -68,5 +107,13 @@ export function buildView(world: World, heroId: string): PlayerView {
     dim: you.light < LIGHT_DIM,
     rooms,
     corridors,
+    allies,
+    chalk,
+    /** Corridors an ally was seen in that you don't otherwise know; position only. */
+    ghostCorridors: extraCorridors,
   };
+}
+
+function posRooms(pos: HeroPos): number[] {
+  return pos.kind === 'room' ? [pos.room] : [pos.from, pos.to];
 }
