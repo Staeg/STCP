@@ -35,6 +35,10 @@ export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: num
 
 /** How the dungeon gets worse (see sim/escalation.ts). Seconds unless noted. */
 export const ESCALATION = {
+  /** Chance that a normal room starts with monsters. */
+  roomMonsterChance: 0.3,
+  /** Monster HP and damage scale by (1 + this × tier). */
+  tierScaling: 0.07,
   respawnEvery: 45,
   respawnEveryLate: 30,
   wandererEvery: 60,
@@ -46,14 +50,10 @@ export const ESCALATION = {
   waveEveryLate: 25,
   /** Max live monsters = capBase + capPerTier × tier. */
   capBase: 8,
-  capPerTier: 3,
+  capPerTier: 1.5,
   /** Packs walk corridors this many times slower than heroes. */
   packSlowness: 1.5,
   /** Light drains this much faster from tier 4. */
   lateLightDrain: 1.5,
 };
 
-/** Chance that a normal room starts with monsters. */
-export const ROOM_MONSTER_CHANCE = 0.3;
-/** Monster HP and damage scale by (1 + this × tier). */
-export const TIER_SCALING = 0.1;

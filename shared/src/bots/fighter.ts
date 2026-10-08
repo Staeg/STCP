@@ -1,11 +1,10 @@
 import { ABILITIES } from '../content/abilities';
 import type { ItemId } from '../content/items';
 import type { Rng } from '../rng';
+import { BOTS } from './tuning';
 import type { Choice, CombatAction } from '../sim/combat';
 import type { CombatUnitView, EncounterView, PlayerView } from '../sim/views';
 
-/** How often a bot just does something random-but-legal instead of its heuristic. */
-export const BOT_BLUNDER = 0.25;
 
 /**
  * Combat brain for bots: a sensible heuristic, deliberately flawed by random blunders
@@ -19,7 +18,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
 
   const options = legalChoices(view, enc);
   if (options.length === 0) return { action: 'brace' };
-  if (rng.chance(BOT_BLUNDER)) return rng.pick(options);
+  if (rng.chance(BOTS.blunder)) return rng.pick(options);
 
   const allies = enc.heroes.filter((h) => !h.downed && !h.joining);
   const downed = enc.heroes.filter((h) => h.downed);

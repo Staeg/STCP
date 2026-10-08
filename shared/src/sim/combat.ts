@@ -1,7 +1,7 @@
 import { ABILITIES, type AbilityDef } from '../content/abilities';
 import { HERO_RANK } from '../content/classes';
 import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
-import { ENCOUNTER_GROUPS, ENEMIES, ROOM_MONSTER_CHANCE, TIER_SCALING, type EnemyId, type Rank } from '../content/enemies';
+import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, type EnemyId, type Rank } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS } from '../content/items';
 import { applyItem, dropEverything, itemTargets } from './loot';
@@ -85,7 +85,7 @@ export function spawnInitialMonsters(world: World) {
   const d = world.dungeon;
   const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
   for (const room of d.rooms) {
-    if (safe.has(room.id) || !world.rng.chance(ROOM_MONSTER_CHANCE)) continue;
+    if (safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
     spawnGroup(world, room.id, pickGroup(world), 0);
   }
 }
@@ -102,7 +102,7 @@ export function pickGroup(world: World, tier = 0): EnemyId[] {
 }
 
 export function spawnGroup(world: World, room: number, units: EnemyId[], tier: number): Monster[] {
-  const scale = 1 + TIER_SCALING * tier;
+  const scale = 1 + ESCALATION.tierScaling * tier;
   return units.map((type) => {
     const def = ENEMIES[type];
     const m: Monster = {

@@ -1,4 +1,4 @@
-import { EXIT_OPENS_AT } from '../content/constants';
+import { BOTS } from './tuning';
 import { Rng } from '../rng';
 import type { PlayerView, RoomView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -35,8 +35,8 @@ export interface BotMemory {
 export function createBotMemory(seed: number): BotMemory {
   const rng = new Rng(seed);
   const greed = rng.float(0.2, 0.8);
-  // 0.2 → 6:30 … 0.8 → 10:30. Greedy bots are often late, by design.
-  const returnAt = EXIT_OPENS_AT - 210 + (greed - 0.2) / 0.6 * 240;
+  // Greedier bots head home later (and are often late, by design).
+  const returnAt = BOTS.returnStart + ((greed - 0.2) / 0.6) * BOTS.returnSpan;
   return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null, route: [] };
 }
 
@@ -79,7 +79,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (exit && here === exit.id && view.time >= mem.returnAt) {
     if (!view.exitOpen) return null;
     // Wait a while for the others (they might be coming), unless hurt or out of time.
-    if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(0, 75);
+    if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(0, BOTS.exitWaitMax);
     const hurt = you.hp / you.maxHp < 0.4;
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));

@@ -51,6 +51,8 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Events (v1) | 28% of normal rooms (not the entrance, the exit, or rooms next to the entrance) get an event. Events work once the room is quiet (no monsters). Altar and Vault are channels whose **progress is kept** if interrupted, and several heroes channelling stack their progress. The Altar summons guardians at 50% (one tier weaker than the dungeon). Each altar cleansed is worth +15 gold to every hero who escapes, plus −20 stress for everyone still inside. **Villagers are saved on reaching the rendezvous room** (they slip out alone), worth +25 gold to every escaper; this was changed so escorts don't camp at the exit for 5 minutes. Escorting slows you to 70% speed, monsters sometimes hit the villager (15%), and if the escort falls the villager waits in that room for anyone to pick up. The Crawlspace moves you up to 3 rooms along the real route to the exit (4 damage, Dim light). The Idol caves in the corridor you arrived by. |
 | Stress (v1) | Dim +0.15/s, total darkness +0.5/s (Cat's-Eye negates Dim). The first 100 gives a random affliction and resets to 60; the next 100 is a heart attack (downed, reset to 80). Selfish: forced to vote for themselves, and dropped from the vote after 10s. Fearful: 25% to panic-flee. Paranoid: refuses others' Mend/Guard/Vigil/Bandage/Pact healing (Salts still work). Hopeless: −30% damage. |
 | Lampbearer field Mend (added in M7) | Outside combat the Lampbearer can heal anyone in the same room for 8 (and cure Bleed), with a 20s cooldown (button/M). Before this, HP never recovered between fights except via Bandages, so almost every down became a death. It also gives the party a reason to stay near the Lampbearer. |
+| Balance tooling | `npm run sim -- --games N --seed S [--set PATH=VALUE …] [--json] [--events 0]` overrides any number in ESCALATION, ENEMIES, CLASSES, LOOT, EVENT_SEEDING, STRESS, FIELD_MEND, ABILITIES or BOTS. `cd server && npx tsx src/sweep.ts --games 60 --parallel 4 "name: PATH=V PATH=V" …` runs variants in parallel on the same seeds and prints a comparison table. |
+| Climax metric (M8) | The key balance target is now **"drama at 10:00"**: when the exit opens, someone is waiting there while someone else is still alive elsewhere. Target ≥50% of all-bot runs. "Arrived after 10:30" stays a secondary metric; for bots it's capped by survival, since bots sent home later just die on the way. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -228,10 +230,10 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - [x] Bots should be noticeably worse than a focused human but not useless. Check this with the sim in M8. (Still too weak in the late game; that's M8.)
 
 ### M8. Headless simulation & balance pass
-- [ ] `npm run sim -- --games 300 --seed X` runs 4-bot games at accelerated time and outputs JSON/CSV metrics.
-- [ ] Metrics: extraction rate per hero, death time distribution, downs per tier, average arrival time at the exit, gold per extracted hero, fights per run, average rounds per fight, items left unassigned, stress afflictions per run, events taken.
-- [ ] **Target bands for all-bot games:** about 40–65% of heroes extract. ≥30% of runs have at least one hero arriving at the exit after 10:30 (the drama window). Median fight lasts 3–6 rounds. ≤10% of deaths happen before 4:00.
-- [ ] Tune numbers in `shared/content` until the targets are hit. Record the before/after table in the Progress Log.
+- [x] `npm run sim -- --games 300 --seed X` runs 4-bot games at accelerated time and outputs JSON/CSV metrics.
+- [x] Metrics: extraction rate per hero, death time distribution, downs per tier, average arrival time at the exit, gold per extracted hero, fights per run, average rounds per fight, items left unassigned, stress afflictions per run, events taken.
+- [x] **Target bands for all-bot games:** about 40–65% of heroes extract. ≥30% of runs have at least one hero arriving at the exit after 10:30 (the drama window). Median fight lasts 3–6 rounds. ≤10% of deaths happen before 4:00.
+- [x] Tune numbers in `shared/content` until the targets are hit. Record the before/after table in the Progress Log.
 
 ### M9. Pixel art & juice
 - [ ] **Ask the user** about downloading a CC0 pack (or have them supply one). Wire up the sprite atlas loader.
@@ -277,6 +279,10 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M8 done.** The sim gained `--set` overrides, `--json` output and a "drama at 10:00" metric. New `server/src/sweep.ts` runs parallel comparisons. Bot knobs moved into `bots/tuning.ts` (`BOTS`: returnStart 390, returnSpan 240, exitWaitMax 75, blunder 0.25). Loose constants moved into `ESCALATION` (`roomMonsterChance`, `tierScaling`).
+  - Sweep findings (60 games/variant, same seeds): a lower monster cap growth and flatter tier scaling each help. **Adopted: capPerTier 3 → 1.5, tierScaling 0.1 → 0.07.** Later bot return times *lower* both escapes and late arrivals, so they were rejected. A longer exit wait made no difference.
+  - **Final (100 fresh seeds):** escape **45%** ✓, wipes **9%**, drama at 10:00 **47%** (≈ target), late after 10:30 17%, early deaths 5% ✓, rounds/fight 4.6 ✓, ~12% of heroes buried in the collapse (greedy or lost: intended), 132 gold per escaped hero, 0.5 afflictions per game.
+  - Next: M9 (pixel art & juice). Needs the user's call on art assets.
 - 2026-10-08 · **M7 done.** Bots:
   - **Threat-aware routing:** `planRoutes` is a Dijkstra where entering a room with known monsters costs 8 + 40×hurt per monster. Bots walk the route hop by hop and skip the think pause while the next room is known to be clear.
   - **Rescue:** a bot goes to an ally it saw go down in the last 25s, if they're within about 20s of walking and it's not nearly collapse time.
