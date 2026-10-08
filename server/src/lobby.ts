@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import {
-  buildView, CLASS_IDS, Game, MAX_PLAYERS, Rng, SERVER_TICK,
+  buildView, CLASS_IDS, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
   type ClassId, type ClientMsg, type LobbyState, type LobbyView, type PlayerSlot, type ServerMsg,
 } from '@stcp/shared';
 
@@ -161,6 +161,18 @@ export class LobbyManager {
       case 'intent':
         lobby.game?.intent(member.id, msg.intent);
         return;
+      case 'debugSpawn': {
+        if (!DEBUG) return err('Debug commands are disabled.');
+        const w = lobby.game?.world;
+        const h = w?.heroes[member.id];
+        if (!w || !h || h.pos.kind !== 'room') return;
+        h.hp = h.maxHp;
+        h.downedAt = null;
+        h.dead = false;
+        spawnGroup(w, h.pos.room, msg.enemies, tierAt(w.time));
+        onHeroInRoom(w, h, h.pos.room);
+        return;
+      }
       case 'debugSkip':
         if (!DEBUG) return err('Debug commands are disabled.');
         if (lobby.game) for (let t = 0; t < msg.seconds; t += SERVER_TICK) lobby.game.tick(SERVER_TICK);

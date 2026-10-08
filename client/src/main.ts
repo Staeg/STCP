@@ -1,3 +1,4 @@
+import { CombatUi } from './combat';
 import { Hud } from './hud';
 import { Net } from './net';
 import { MapRenderer } from './render/map';
@@ -7,6 +8,7 @@ const net = new Net();
 const map = new MapRenderer(document.getElementById('map') as HTMLCanvasElement, net);
 const hud = new Hud(net);
 const screens = new Screens(net);
+const combat = new CombatUi(net);
 
 // Lobby links: ?lobby=CODE joins automatically, and the URL tracks the lobby you're in so refresh/share works.
 const urlCode = new URLSearchParams(location.search).get('lobby');
@@ -32,16 +34,25 @@ net.onError = (msg) => {
 const gameUi = ['hud', 'actions', 'help'].map((id) => document.getElementById(id)!);
 let inGame = false;
 
-function frame() {
+function render() {
   const covered = screens.update();
   if (covered && inGame) hud.reset();
   inGame = !covered;
   for (const el of gameUi) el.hidden = covered;
   map.draw();
   if (!covered) hud.update();
+  combat.update(covered ? null : net.cur);
+}
+
+function frame() {
+  render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+// rAF stops in hidden tabs; keep the DOM roughly current anyway (cheap, and lets scripted playtests drive the UI).
+setInterval(() => {
+  if (document.hidden) render();
+}, 250);
 
 // Dev-only hook for automated playtesting from the browser console.
 if (import.meta.env.DEV) (window as unknown as { __net: Net }).__net = net;

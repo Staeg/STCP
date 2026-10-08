@@ -1,6 +1,11 @@
 import { CLASSES, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, type Dungeon } from '../dungeon/gen';
+import { Rng } from '../rng';
+import {
+  isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
+  type Choice, type Encounter, type Monster, type Statuses,
+} from './combat';
 
 export type HeroPos =
   | { kind: 'room'; room: number }
@@ -25,14 +30,38 @@ export interface Hero {
   lastKnown: Record<string, Sighting>;
   /** Chalk marks this hero has read, per crossroads room: heroId → corridor id they left by. */
   knownChalk: Record<number, Record<string, number>>;
+  /** Monster count per room, as of when this hero last saw it. */
+  knownThreat: Record<number, number>;
+
+  hp: number;
+  maxHp: number;
+  stress: number;
+  st: Statuses;
+  /** Ability id → rounds until usable. Reset after each fight. */
+  cooldowns: Record<string, number>;
+  /** Time this hero went down, or null if standing. */
+  downedAt: number | null;
+  dead: boolean;
+  diedAt: number | null;
+  /** Room id of the fight this hero is in. */
+  encounter: number | null;
+  /** The room this hero last left (fleeing goes back there). */
+  prevRoom: number | null;
+  /** An out-of-combat action in progress. */
+  channel: { kind: 'revive'; target: string; until: number } | null;
 }
 
 export interface Sighting {
   pos: HeroPos;
   time: number;
+  hp: number;
+  maxHp: number;
+  downed: boolean;
+  dead: boolean;
 }
 
-export type WorldPhase = 'running' | 'collapsed';
+/** 'wiped' = every hero is dead. */
+export type WorldPhase = 'running' | 'collapsed' | 'wiped';
 
 export interface World {
   seed: number;
@@ -42,15 +71,33 @@ export interface World {
   phase: WorldPhase;
   /** Physical chalk marks at crossroads: room → heroId → corridor they last left by. */
   chalk: Record<number, Record<string, number>>;
+  monsters: Record<string, Monster>;
+  /** Active fights, keyed by room. */
+  encounters: Record<number, Encounter>;
+  rng: Rng;
+  nextId: number;
 }
 
 export type Intent =
   | { type: 'goto'; room: number }
   | { type: 'turnBack' }
-  | { type: 'stop' };
+  | { type: 'stop' }
+  | { type: 'combat'; choice: Choice }
+  /** Out of combat: spend a few seconds getting a downed ally in your room back up. */
+  | { type: 'revive'; target: string };
 
-export function createWorld(seed: number): World {
-  return { seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {} };
+export interface WorldOptions {
+  /** Default true. Tests of pure movement turn monsters off. */
+  monsters?: boolean;
+}
+
+export function createWorld(seed: number, opts: WorldOptions = {}): World {
+  const world: World = {
+    seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
+    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1,
+  };
+  if (opts.monsters !== false) spawnInitialMonsters(world);
+  return world;
 }
 
 export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean }): Hero {
@@ -60,6 +107,18 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     isBot: opts.isBot ?? false,
     lastKnown: {},
     knownChalk: {},
+    knownThreat: {},
+    hp: CLASSES[opts.cls].maxHp,
+    maxHp: CLASSES[opts.cls].maxHp,
+    stress: 0,
+    st: {},
+    cooldowns: {},
+    downedAt: null,
+    dead: false,
+    diedAt: null,
+    encounter: null,
+    prevRoom: null,
+    channel: null,
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -77,28 +136,62 @@ export function step(world: World, dt: number): void {
   if (world.phase !== 'running') return;
   world.time += dt;
   for (const hero of Object.values(world.heroes)) {
+    if (hero.dead) continue;
     hero.light = Math.max(0, hero.light - LIGHT_DRAIN * dt);
-    advance(world, hero, dt);
+    if (hero.channel) tickChannel(world, hero);
+    else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
   }
+  tickDowned(world);
+  tickCombat(world);
   updateKnowledge(world);
-  if (world.time >= COLLAPSE_AT) world.phase = 'collapsed';
+  const heroes = Object.values(world.heroes);
+  if (heroes.length > 0 && heroes.every((h) => h.dead)) world.phase = 'wiped';
+  else if (world.time >= COLLAPSE_AT) world.phase = 'collapsed';
 }
 
 export function applyIntent(world: World, heroId: string, intent: Intent): void {
   const hero = world.heroes[heroId];
-  if (!hero || world.phase !== 'running') return;
+  if (!hero || world.phase !== 'running' || !isConscious(hero)) return;
+  if (intent.type === 'combat') {
+    submitChoice(world, hero, intent.choice);
+    return;
+  }
+  if (hero.encounter !== null) return; // movement is locked during a fight
   switch (intent.type) {
+    case 'revive': {
+      const t = world.heroes[intent.target];
+      if (t && t !== hero && !t.dead && t.downedAt !== null && hero.pos.kind === 'room' && sameRoom(hero, t)) {
+        hero.path = [];
+        hero.channel = { kind: 'revive', target: t.id, until: world.time + REVIVE_CHANNEL };
+      }
+      return;
+    }
     case 'stop':
       hero.path = [];
+      hero.channel = null;
       return;
     case 'turnBack':
+      hero.channel = null;
       if (hero.pos.kind === 'corridor') turnAround(world, hero);
       hero.path = [];
       return;
     case 'goto':
+      hero.channel = null;
       goto(world, hero, intent.room);
       return;
   }
+}
+
+function sameRoom(a: Hero, b: Hero) {
+  return a.pos.kind === 'room' && b.pos.kind === 'room' && a.pos.room === b.pos.room;
+}
+
+function tickChannel(world: World, hero: Hero) {
+  const ch = hero.channel!;
+  if (world.time < ch.until) return;
+  hero.channel = null;
+  const t = world.heroes[ch.target];
+  if (t && !t.dead && t.downedAt !== null && sameRoom(hero, t)) reviveHero(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +211,7 @@ function advance(world: World, hero: Hero, dt: number) {
         return;
       }
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0 };
+      hero.prevRoom = pos.room;
       if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
     } else {
       const need = d.corridors[pos.corridor].length - pos.t;
@@ -128,6 +222,8 @@ function advance(world: World, hero: Hero, dt: number) {
       remaining -= need;
       hero.pos = { kind: 'room', room: pos.to };
       explore(world, hero, pos.to);
+      onHeroInRoom(world, hero, pos.to);
+      if (hero.encounter !== null) return;
     }
   }
 }
@@ -137,9 +233,17 @@ function updateKnowledge(world: World) {
   const heroes = Object.values(world.heroes);
   for (const a of heroes) {
     for (const b of heroes) {
-      if (a !== b && canSee(world, a, b)) a.lastKnown[b.id] = { pos: { ...b.pos }, time: world.time };
+      if (a !== b && canSee(world, a, b)) {
+        a.lastKnown[b.id] = { pos: { ...b.pos }, time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead };
+      }
     }
-    if (a.pos.kind === 'room' && world.chalk[a.pos.room]) a.knownChalk[a.pos.room] = { ...world.chalk[a.pos.room] };
+    if (a.dead) continue;
+    if (a.pos.kind === 'room') {
+      const room = a.pos.room;
+      if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
+      a.knownThreat[room] = monstersIn(world, room).length;
+      if (a.light >= LIGHT_DIM) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
+    }
   }
 }
 

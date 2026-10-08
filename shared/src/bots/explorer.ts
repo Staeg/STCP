@@ -15,6 +15,9 @@ export interface BotMemory {
   returnAt: number;
   /** Bots pause briefly in each room, as a human would. */
   thinkUntil: number;
+  /** Combat: which round we're deciding for, and when we'll commit. */
+  combatKey: string;
+  decideAt: number;
 }
 
 export function createBotMemory(seed: number): BotMemory {
@@ -22,7 +25,7 @@ export function createBotMemory(seed: number): BotMemory {
   const greed = rng.float(0.2, 0.8);
   // 0.2 → 7:00 … 0.8 → 11:00. Greedy bots are often late, by design.
   const returnAt = EXIT_OPENS_AT - 180 + (greed - 0.2) / 0.6 * 240;
-  return { rng, greed, returnAt, thinkUntil: 0 };
+  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0 };
 }
 
 export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
@@ -32,6 +35,10 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   mem.thinkUntil = view.time + mem.rng.float(0.4, 1.6);
 
   const here = you.pos.room;
+  // Get a downed ally in this room back up before anything else.
+  const downed = view.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
+  if (downed) return { type: 'revive', target: downed.id };
+
   const exit = view.rooms.find((r) => r.kind === 'exit');
   if (exit && here === exit.id) return null;
   const costs = viewDistances(view, here);
@@ -53,7 +60,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (frontier.length === 0) return exit && costs.has(exit.id) ? { type: 'goto', room: exit.id } : null;
   const roomById = new Map(view.rooms.map((r) => [r.id, r]));
   const best = minBy(frontier, (r) => {
-    let score = costs.get(r.id)! + mem.rng.float(0, 6);
+    let score = costs.get(r.id)! + mem.rng.float(0, 6) + (r.threat ?? 0) * 3;
     const firstCorridor = firstStepCorridor(view, here, r.id, costs, roomById);
     if (firstCorridor !== null && chalked.has(firstCorridor)) score += 6;
     return score;

@@ -1,4 +1,6 @@
 import { CLASS_IDS, type ClassId } from './content/classes';
+import { ENEMIES, type EnemyId } from './content/enemies';
+import type { CombatAction } from './sim/combat';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 
@@ -35,13 +37,17 @@ export type ClientMsg =
   | { t: 'toLobby' }
   | { t: 'intent'; intent: Intent }
   /** Dev-only (server started with --debug): fast-forward the game clock. */
-  | { t: 'debugSkip'; seconds: number };
+  | { t: 'debugSkip'; seconds: number }
+  /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
+  | { t: 'debugSpawn'; enemies: EnemyId[] };
 
 export type ServerMsg =
   | { t: 'pong'; id: number }
   | { t: 'lobby'; lobby: LobbyView | null }
   | { t: 'error'; msg: string }
   | { t: 'view'; view: PlayerView };
+
+const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace'];
 
 export const MAX_PLAYERS = 4;
 export const NAME_MAX = 16;
@@ -83,11 +89,22 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: msg.t };
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
+    case 'debugSpawn':
+      return Array.isArray(msg.enemies) && msg.enemies.length <= 4 && msg.enemies.every((e) => e in ENEMIES)
+        ? { t: 'debugSpawn', enemies: msg.enemies as EnemyId[] }
+        : null;
     case 'intent': {
       const i = msg.intent as Record<string, unknown> | undefined;
       if (!i || typeof i !== 'object') return null;
       if (i.type === 'goto' && Number.isInteger(i.room)) return { t: 'intent', intent: { type: 'goto', room: i.room as number } };
       if (i.type === 'turnBack' || i.type === 'stop') return { t: 'intent', intent: { type: i.type } };
+      if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
+      if (i.type === 'combat' && i.choice && typeof i.choice === 'object') {
+        const c = i.choice as Record<string, unknown>;
+        if (!COMBAT_ACTIONS.includes(c.action as CombatAction)) return null;
+        if (c.target !== undefined && !str(c.target, 32)) return null;
+        return { t: 'intent', intent: { type: 'combat', choice: { action: c.action as CombatAction, target: c.target as string | undefined } } };
+      }
       return null;
     }
   }

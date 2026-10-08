@@ -225,6 +225,7 @@ export class MapRenderer {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
+      if (a.downed || a.dead) this.drawCross(p.x, p.y, r, a.dead);
     }
     ctx.fillStyle = you.color;
     ctx.strokeStyle = '#000';
@@ -236,6 +237,7 @@ export class MapRenderer {
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
     ctx.stroke();
+    if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
 
     // Light vignette around the hero
     {
@@ -274,6 +276,19 @@ export class MapRenderer {
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
     }
+  }
+
+  /** X over a downed hero (red) or a dead one (grey). */
+  private drawCross(x: number, y: number, r: number, dead: boolean) {
+    const { ctx } = this;
+    ctx.strokeStyle = dead ? '#888' : '#ff4a3a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x - r, y - r);
+    ctx.lineTo(x + r, y + r);
+    ctx.moveTo(x + r, y - r);
+    ctx.lineTo(x - r, y + r);
+    ctx.stroke();
   }
 
   private drawRoom(r: RoomView, size: number, hover: boolean, current: boolean, t: number) {
@@ -318,6 +333,17 @@ export class MapRenderer {
       ctx.fillStyle = COLORS.entrance;
       ctx.font = '16px VT323, monospace';
       ctx.fillText('ENTRANCE', cx, y + size + 10);
+    }
+
+    // Monsters you last saw here
+    if (r.threat) {
+      ctx.font = '16px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#000';
+      ctx.fillText(`☠${r.threat}`, x + size - 3, y + size + 1);
+      ctx.fillStyle = '#e05a4a';
+      ctx.fillText(`☠${r.threat}`, x + size - 4, y + size);
+      ctx.textAlign = 'center';
     }
 
     // Crossroads marker

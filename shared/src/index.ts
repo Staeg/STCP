@@ -7,3 +7,7 @@ export * from './sim/views';
 export * from './protocol';
 export * from './sim/game';
 export * from './bots/explorer';
+export * from './sim/combat';
+export * from './bots/fighter';
+export * from './content/abilities';
+export * from './content/enemies';

@@ -9,7 +9,7 @@ function run(world: World, seconds: number, dt = 0.1) {
 }
 
 function setup() {
-  const world = createWorld(12345);
+  const world = createWorld(12345, { monsters: false });
   const hero = addHero(world, { id: 'h1', name: 'Mara', cls: 'warden' });
   return { world, hero, d: world.dungeon };
 }

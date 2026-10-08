@@ -41,7 +41,8 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Ports | Vite dev client on **5180** (5173 is used by something else on this machine). Game server on **3001**, configured with `GAME_PORT` (not `PORT`, which the preview tool sets). |
 | Identity | Each tab holds a secret token in sessionStorage, so refreshing resumes the same hero and separate tabs act as separate players. Other clients only ever see a public id. Leaving mid-run hands your hero to a bot. |
 | Visibility | You see an ally if you're in the same room or corridor, they're in a corridor touching your room, or (while not Dim) they're in an adjacent room. Chalk marks are physical: you only learn a crossroads' marks by standing in it, and you see them as they were on your last visit. |
-| Debug | `npm run dev` starts the server with `--debug`, which enables `{t:'debugSkip', seconds}` (fast-forward). Use `__net.send({t:'debugSkip', seconds: 300})` from the browser console. |
+| Debug | `npm run dev` starts the server with `--debug`, which enables `{t:'debugSkip', seconds}` (fast-forward) and `{t:'debugSpawn', enemies:['ghoul',…]}` (spawns monsters in your room, starts a fight, and fully heals/resurrects you). Use `__net.send(...)` from the browser console. |
+| Combat rules (v1) | Monsters never attack downed heroes; the fight ends when no conscious hero remains, but the monsters stay in the room. Anyone arriving later starts a new fight that includes the downed heroes, so a rescue is always possible until bleed-out. Cooldown N = N rounds unusable. Guard, Smoke and Brace apply before anyone acts. Heroes' cooldowns and statuses (except Bleed) reset after each fight. Stress (0–100) exists now: Acolyte Whisper, allies falling (+15) or dying (+25), Rally/Vigil to reduce it. Afflictions come in M6. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -187,12 +188,12 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - **Mini-playtest:** open 2–3 browser tabs as different players and confirm fog, ghosts and chalk marks behave correctly for each.
 
 ### M3. Combat core
-- [ ] Encounter state machine: start, join mid-fight, 5s rounds with early resolve, speed order, Brace on timeout, Flee.
-- [ ] All 4 classes × 3 abilities, cooldowns, statuses (Stun, Bleed, Mark, Block, Guard, Weakened).
-- [ ] Ghoul, Crawler and Acolyte (Brute can wait until M5).
-- [ ] Downed → bleed-out → death, Revive action, items dropped on death.
-- [ ] Combat scene: two ranks, sprites/placeholders, HP bars, a cooldown display on the ability buttons, a visible 5s timer ring, target selection, and a resolution animation with a combat log.
-- [ ] Bot combat AI (mediocre).
+- [x] Encounter state machine: start, join mid-fight, 5s rounds with early resolve, speed order, Brace on timeout, Flee.
+- [x] All 4 classes × 3 abilities, cooldowns, statuses (Stun, Bleed, Mark, Block, Guard, Weakened).
+- [x] Ghoul, Crawler and Acolyte (the Bone Brute is implemented too; M5 only has to start spawning it).
+- [x] Downed → bleed-out → death, Revive action (in combat, plus a 3s channel out of combat). Items dropped on death moves to M4, since items don't exist yet.
+- [x] Combat scene: two ranks, sprites/placeholders, HP bars, a cooldown display on the ability buttons, a visible 5s timer ring, target selection, and a resolution animation with a combat log.
+- [x] Bot combat AI (mediocre).
 - **Mini-playtest:** fight 5 encounters with each class. Can you decide in 5 seconds? Does each class feel distinct?
 
 ### M4. Loot, items & gold
@@ -268,6 +269,12 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M3 done.** `shared/src/sim/combat.ts` (encounters, resolution, statuses, downed/bleed-out/death, flee, out-of-combat revive channel), content files for abilities and enemies, `bots/fighter.ts` (heuristic + 25% blunders, 1–3s think delay), encounter/threat/ally-HP in views, DOM combat panel (`client/src/combat.ts`) with a replay of each round's events, floating numbers, HP bars that move in step with the replay, targeting mode, hotkeys 1/2/3/R/F/B. HUD gained HP/stress bars, downed/dead banners, a Revive button, ☠N threat markers on rooms and X marks on downed/dead allies. 37 tests.
+  - Mini-playtest: the UI flow works end to end (key → target highlight → click → locked in → replay). Cooldowns behave. In an unplanned moment, three bots wandered into my fight while I was down, revived me, mended, guarded, and won. That's exactly the intended rescue drama.
+  - **Balance flags for M8:** all-bot games currently lose about 50% of heroes even without escalation (no healing items yet). Solo heroes are fragile: two Crawlers' stacked Bleed killed a bracing Hexer in ~5 rounds. Revisit once items (M4) exist.
+  - **Testing note:** the browser pane is usually hidden, which pauses `requestAnimationFrame`. `main.ts` now also renders every 250ms while `document.hidden`. Screenshots take 2–5s while rounds last 5s, so drive combat from a single JS call (dispatch `keydown` with `code: 'Digit1'`, then `pointerdown` on `#combat [data-unit=…]`) and use screenshots only for visuals.
+  - Known/minor: ghost labels still stack at shared spots. HUD HP updates before the combat replay finishes.
+  - Next: M4 (loot, items, gold, item voting).
 - 2026-10-08 · **M2 done.** Lobbies (4-letter codes, `?lobby=CODE` links, class picker with no duplicates, ready/start, host handover), `Game` wrapper in shared (world + bots, reused by the future headless sim), bot explorer brain (fog-fair: it plans only from its own PlayerView, with a greed-based return time from 7:00 to 11:00 and a preference for exits not already chalked), sightings/ghosts, chalk marks, roster panel ("last seen 1:41 ago · Collapsed Pit"), collapse → host "Return to lobby". 27 tests, including server lobby tests with fake sockets (flow, token secrecy, reconnect, kick duplicate, full lobby, leave → bot).
   - Mini-playtest (2 tabs + 2 bots): lobby flow works end to end. Bots split up immediately. Ghosts and chalk read correctly for each player. Reload resumes the same hero. Fast-forwarding to 13:00 showed the collapse; returning to the lobby works.
   - Perf: bots only build a view when idle in a room. A 4-bot 13-minute game simulates in ~0.1s, which is good for M8.

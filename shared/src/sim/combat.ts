@@ -1,0 +1,685 @@
+import { ABILITIES, type AbilityDef } from '../content/abilities';
+import { HERO_RANK } from '../content/classes';
+import { LIGHT_MAX } from '../content/constants';
+import { ENCOUNTER_GROUPS, ENEMIES, ROOM_MONSTER_CHANCE, TIER_SCALING, type EnemyId, type Rank } from '../content/enemies';
+import { corridorBetween, neighbours } from '../dungeon/gen';
+import type { Hero, World } from './world';
+
+export const ROUND_TIME = 5;
+export const BLEED_OUT = 30;
+export const REVIVE_CHANNEL = 3;
+export const REVIVE_HP_FRACTION = 0.3;
+export const FLEE_CHANCE = 0.7;
+export const STRESS_MAX = 100;
+
+export interface Statuses {
+  stun?: boolean;
+  bleed?: { dmg: number; rounds: number };
+  /** Rounds remaining. */
+  mark?: number;
+  block?: number;
+  /** Deals half damage; rounds remaining. */
+  weak?: number;
+  /** Immune to stress; rounds remaining. */
+  calm?: number;
+  // ---- This round only ----
+  guardedBy?: string;
+  dodge?: boolean;
+  brace?: boolean;
+}
+
+export interface Monster {
+  id: string;
+  type: EnemyId;
+  room: number;
+  hp: number;
+  maxHp: number;
+  rank: Rank;
+  dmgMult: number;
+  st: Statuses;
+}
+
+export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace';
+
+export interface Choice {
+  action: CombatAction;
+  target?: string;
+}
+
+export type CombatEventKind = 'damage' | 'heal' | 'miss' | 'status' | 'flee' | 'down' | 'death' | 'info' | 'stress';
+
+export interface CombatEvent {
+  actor: string;
+  kind: CombatEventKind;
+  text: string;
+  target?: string;
+  amount?: number;
+  crit?: boolean;
+}
+
+export interface Encounter {
+  room: number;
+  round: number;
+  phase: 'choosing' | 'resolving';
+  deadline: number;
+  resolveUntil: number;
+  /** Heroes taking part this round (downed ones included, they just can't act). */
+  heroes: string[];
+  /** Arrived mid-round; they act from the next round. */
+  joining: string[];
+  choices: Record<string, Choice>;
+  /** Events from the most recent resolution, for animation. */
+  events: CombatEvent[];
+  log: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Spawning
+
+export function spawnInitialMonsters(world: World) {
+  const d = world.dungeon;
+  const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
+  for (const room of d.rooms) {
+    if (safe.has(room.id) || !world.rng.chance(ROOM_MONSTER_CHANCE)) continue;
+    spawnGroup(world, room.id, pickGroup(world), 0);
+  }
+}
+
+function pickGroup(world: World): EnemyId[] {
+  const total = ENCOUNTER_GROUPS.reduce((s, g) => s + g.weight, 0);
+  let roll = world.rng.float(0, total);
+  for (const g of ENCOUNTER_GROUPS) {
+    roll -= g.weight;
+    if (roll <= 0) return g.units;
+  }
+  return ENCOUNTER_GROUPS[0].units;
+}
+
+export function spawnGroup(world: World, room: number, units: EnemyId[], tier: number): Monster[] {
+  const scale = 1 + TIER_SCALING * tier;
+  return units.map((type) => {
+    const def = ENEMIES[type];
+    const m: Monster = {
+      id: `m${world.nextId++}`,
+      type,
+      room,
+      hp: Math.round(def.maxHp * scale),
+      maxHp: Math.round(def.maxHp * scale),
+      rank: def.rank,
+      dmgMult: scale,
+      st: {},
+    };
+    world.monsters[m.id] = m;
+    return m;
+  });
+}
+
+export function monstersIn(world: World, room: number): Monster[] {
+  return Object.values(world.monsters).filter((m) => m.room === room);
+}
+
+// ---------------------------------------------------------------------------
+// Hero helpers
+
+export function isConscious(h: Hero): boolean {
+  return !h.dead && h.downedAt === null;
+}
+
+export function heroRank(h: Hero): Rank {
+  return HERO_RANK[h.cls];
+}
+
+function addStress(h: Hero, amount: number) {
+  if (amount > 0 && h.st.calm) return 0;
+  const before = h.stress;
+  h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
+  return h.stress - before;
+}
+
+export function reviveHero(h: Hero) {
+  h.downedAt = null;
+  h.hp = Math.max(1, Math.ceil(h.maxHp * REVIVE_HP_FRACTION));
+}
+
+// ---------------------------------------------------------------------------
+// Encounter lifecycle
+
+/** A hero has arrived in a room (or is in one). Starts or joins a fight if monsters are present. */
+export function onHeroInRoom(world: World, hero: Hero, room: number) {
+  if (hero.dead || hero.encounter !== null) return;
+  if (monstersIn(world, room).length === 0) return;
+  let enc = world.encounters[room];
+  if (!enc) {
+    enc = {
+      room, round: 1, phase: 'choosing', deadline: world.time + ROUND_TIME, resolveUntil: 0,
+      heroes: [], joining: [], choices: {}, events: [], log: [],
+    };
+    world.encounters[room] = enc;
+    // Everyone already standing here is pulled in, including the downed.
+    for (const h of Object.values(world.heroes)) {
+      if (!h.dead && h.pos.kind === 'room' && h.pos.room === room) enlist(enc, h, false);
+    }
+    const names = monstersIn(world, room).map((m) => ENEMIES[m.type].name).join(', ');
+    enc.log.push(`Ambush! ${names}.`);
+  } else {
+    enlist(enc, hero, enc.phase === 'resolving' || Object.keys(enc.choices).length > 0 || world.time > enc.deadline - ROUND_TIME + 1);
+    enc.log.push(`${hero.name} joins the fight.`);
+  }
+}
+
+function enlist(enc: Encounter, h: Hero, late: boolean) {
+  if (enc.heroes.includes(h.id) || enc.joining.includes(h.id)) return;
+  (late ? enc.joining : enc.heroes).push(h.id);
+  h.encounter = enc.room;
+  h.path = [];
+  h.channel = null;
+}
+
+function leaveEncounter(world: World, enc: Encounter, h: Hero) {
+  enc.heroes = enc.heroes.filter((id) => id !== h.id);
+  enc.joining = enc.joining.filter((id) => id !== h.id);
+  delete enc.choices[h.id];
+  resetAfterFight(h);
+}
+
+function resetAfterFight(h: Hero) {
+  h.encounter = null;
+  h.cooldowns = {};
+  const bleed = h.st.bleed;
+  h.st = bleed ? { bleed } : {};
+}
+
+function endEncounter(world: World, enc: Encounter) {
+  for (const id of [...enc.heroes, ...enc.joining]) {
+    const h = world.heroes[id];
+    if (h) resetAfterFight(h);
+  }
+  for (const m of monstersIn(world, enc.room)) m.st = {};
+  delete world.encounters[enc.room];
+}
+
+export function tickCombat(world: World) {
+  for (const enc of Object.values(world.encounters)) {
+    const heroes = enc.heroes.map((id) => world.heroes[id]);
+    if (enc.phase === 'choosing') {
+      const active = heroes.filter(isConscious);
+      if (active.length === 0 && enc.joining.length === 0) {
+        endEncounter(world, enc);
+        continue;
+      }
+      if (active.length > 0 && (active.every((h) => enc.choices[h.id]) || world.time >= enc.deadline)) {
+        resolveRound(world, enc);
+      } else if (active.length === 0) {
+        nextRound(world, enc);
+      }
+    } else if (world.time >= enc.resolveUntil) {
+      if (monstersIn(world, enc.room).length === 0) endEncounter(world, enc);
+      else nextRound(world, enc);
+    }
+  }
+}
+
+function nextRound(world: World, enc: Encounter) {
+  enc.round++;
+  enc.choices = {};
+  enc.heroes.push(...enc.joining);
+  enc.joining = [];
+  enc.heroes = enc.heroes.filter((id) => !world.heroes[id].dead);
+  if (!enc.heroes.some((id) => isConscious(world.heroes[id]))) {
+    endEncounter(world, enc);
+    return;
+  }
+  enc.phase = 'choosing';
+  enc.deadline = world.time + ROUND_TIME;
+}
+
+// ---------------------------------------------------------------------------
+// Choices
+
+export function abilityOf(h: Hero, action: CombatAction): AbilityDef | null {
+  const abilities: readonly AbilityDef[] = ABILITIES[h.cls];
+  const idx = action === 'a0' ? 0 : action === 'a1' ? 1 : action === 'a2' ? 2 : -1;
+  return abilities[idx] ?? null;
+}
+
+/** Ids of units this hero could target with the given action, or [] if it needs no target. */
+export function validTargets(world: World, enc: Encounter, h: Hero, action: CombatAction): string[] {
+  const monsters = monstersIn(world, enc.room);
+  const allies = [...enc.heroes, ...enc.joining].map((id) => world.heroes[id]).filter(isConscious);
+  if (action === 'revive') return enc.heroes.map((id) => world.heroes[id]).filter((x) => !x.dead && x.downedAt !== null).map((x) => x.id);
+  const ab = abilityOf(h, action);
+  if (!ab) return [];
+  switch (ab.target) {
+    case 'enemy':
+      return monsters.map((m) => m.id);
+    case 'enemyFront': {
+      const front = monsters.filter((m) => m.rank === 'front');
+      return (front.length ? front : monsters).map((m) => m.id);
+    }
+    case 'ally':
+      return allies.map((x) => x.id);
+    case 'otherAlly':
+      return allies.filter((x) => x.id !== h.id).map((x) => x.id);
+    default:
+      return [];
+  }
+}
+
+export function needsTarget(h: Hero, action: CombatAction): boolean {
+  if (action === 'revive') return true;
+  const ab = abilityOf(h, action);
+  return !!ab && ['enemy', 'enemyFront', 'ally', 'otherAlly'].includes(ab.target);
+}
+
+/** Returns an error string, or null if the choice was accepted. */
+export function submitChoice(world: World, h: Hero, choice: Choice): string | null {
+  const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+  if (!enc || enc.phase !== 'choosing') return 'Not your turn.';
+  if (!enc.heroes.includes(h.id) || !isConscious(h)) return 'You cannot act.';
+  const ab = abilityOf(h, choice.action);
+  if (ab && (h.cooldowns[ab.id] ?? 0) > 0) return `${ab.name} is on cooldown.`;
+  if (needsTarget(h, choice.action)) {
+    const targets = validTargets(world, enc, h, choice.action);
+    if (targets.length === 0) return 'No valid target.';
+    if (!choice.target || !targets.includes(choice.target)) return 'Pick a valid target.';
+  } else if (ab && ab.target === 'otherAlly') {
+    return 'No valid target.';
+  }
+  enc.choices[h.id] = { action: choice.action, target: needsTarget(h, choice.action) ? choice.target : undefined };
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Resolution
+
+type Actor = { kind: 'hero'; h: Hero; init: number } | { kind: 'monster'; m: Monster; init: number };
+
+function resolveRound(world: World, enc: Encounter) {
+  const rng = world.rng;
+  const events: CombatEvent[] = [];
+  const heroes = enc.heroes.map((id) => world.heroes[id]);
+  const active = heroes.filter(isConscious);
+
+  // Cooldowns tick before this round's actions, so "cooldown N" means N rounds unusable.
+  for (const h of heroes) for (const k of Object.keys(h.cooldowns)) h.cooldowns[k] = Math.max(0, h.cooldowns[k] - 1);
+
+  for (const h of active) {
+    if (!enc.choices[h.id]) {
+      enc.choices[h.id] = { action: 'brace' };
+      events.push({ actor: h.id, kind: 'info', text: `${h.name} hesitates and braces.` });
+    }
+  }
+
+  // Pre-phase: protective effects apply before anyone acts, regardless of speed.
+  let smoke = false;
+  for (const h of active) {
+    const c = enc.choices[h.id];
+    const ab = abilityOf(h, c.action);
+    if (c.action === 'brace') h.st.brace = true;
+    if (ab?.id === 'guard' && c.target) world.heroes[c.target].st.guardedBy = h.id;
+    if (ab?.id === 'smoke') {
+      smoke = true;
+      for (const x of active) x.st.dodge = true;
+    }
+  }
+
+  const actors: Actor[] = [
+    ...active.map((h) => ({ kind: 'hero' as const, h, init: speedOf(h) + rng.int(0, 3) + 0.5 })),
+    ...monstersIn(world, enc.room).map((m) => ({ kind: 'monster' as const, m, init: ENEMIES[m.type].speed + rng.int(0, 3) })),
+  ].sort((a, b) => b.init - a.init);
+
+  for (const actor of actors) {
+    if (monstersIn(world, enc.room).length === 0) break;
+    if (actor.kind === 'hero') {
+      const h = actor.h;
+      if (!isConscious(h) || h.encounter !== enc.room) continue;
+      if (h.st.stun) {
+        h.st.stun = false;
+        events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
+        continue;
+      }
+      heroAct(world, enc, h, enc.choices[h.id], smoke, events);
+    } else {
+      const m = actor.m;
+      if (!world.monsters[m.id]) continue;
+      if (m.st.stun) {
+        m.st.stun = false;
+        events.push({ actor: m.id, kind: 'status', text: `${ENEMIES[m.type].name} is stunned!` });
+        continue;
+      }
+      monsterAct(world, enc, m, events);
+    }
+  }
+
+  // End of round: bleeding, timers, one-round effects.
+  const units: { name: string; id: string; st: Statuses; hurt: (n: number) => void }[] = [
+    ...enc.heroes.map((id) => world.heroes[id]).filter(isConscious).map((h) => ({
+      name: h.name, id: h.id, st: h.st, hurt: (n: number) => applyHeroDamage(world, enc, h, n, events),
+    })),
+    ...monstersIn(world, enc.room).map((m) => ({
+      name: ENEMIES[m.type].name, id: m.id, st: m.st, hurt: (n: number) => applyMonsterDamage(world, m, n, events),
+    })),
+  ];
+  for (const u of units) {
+    if (u.st.bleed) {
+      events.push({ actor: u.id, kind: 'damage', target: u.id, amount: u.st.bleed.dmg, text: `${u.name} bleeds for ${u.st.bleed.dmg}.` });
+      const dmg = u.st.bleed.dmg;
+      if (--u.st.bleed.rounds <= 0) delete u.st.bleed;
+      u.hurt(dmg);
+    }
+    for (const k of ['mark', 'weak', 'calm'] as const) {
+      if (u.st[k] !== undefined && --u.st[k]! <= 0) delete u.st[k];
+    }
+    delete u.st.guardedBy;
+    delete u.st.dodge;
+    delete u.st.brace;
+  }
+
+  enc.events = events;
+  enc.log.push(...events.map((e) => e.text));
+  if (enc.log.length > 40) enc.log.splice(0, enc.log.length - 40);
+  enc.phase = 'resolving';
+  enc.resolveUntil = world.time + Math.min(3.5, 0.8 + 0.35 * events.length);
+}
+
+function speedOf(h: Hero) {
+  return ({ warden: 2, cutthroat: 5, lampbearer: 3, hexer: 4 } as const)[h.cls];
+}
+
+function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolean, events: CombatEvent[]) {
+  const rng = world.rng;
+  const room = enc.room;
+  const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  const enemies = () => monstersIn(world, room);
+  /** Re-pick a target if the chosen one died before our turn. */
+  const pickEnemy = (front: boolean): Monster | null => {
+    const chosen = c.target ? world.monsters[c.target] : undefined;
+    if (chosen && chosen.room === room) return chosen;
+    const pool = enemies();
+    const fr = pool.filter((m) => m.rank === 'front');
+    const list = front && fr.length ? fr : pool;
+    return list.length ? rng.pick(list) : null;
+  };
+  const pickAlly = (): Hero | null => {
+    const t = c.target ? world.heroes[c.target] : undefined;
+    return t && isConscious(t) && t.encounter === room ? t : null;
+  };
+
+  if (c.action === 'brace') {
+    events.push({ actor: h.id, kind: 'info', text: `${h.name} braces.` });
+    return;
+  }
+  if (c.action === 'flee') {
+    if (smoke || rng.chance(FLEE_CHANCE)) {
+      flee(world, enc, h);
+      addStress(h, 5);
+      events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
+    } else {
+      events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
+    }
+    return;
+  }
+  if (c.action === 'revive') {
+    const t = c.target ? world.heroes[c.target] : undefined;
+    if (t && !t.dead && t.downedAt !== null) {
+      reviveHero(t);
+      events.push({ actor: h.id, kind: 'heal', target: t.id, amount: t.hp, text: `${h.name} drags ${t.name} back to their feet.` });
+    }
+    return;
+  }
+
+  const ab = abilityOf(h, c.action)!;
+  h.cooldowns[ab.id] = ab.cooldown;
+  switch (ab.id) {
+    case 'bash': {
+      const t = pickEnemy(true);
+      if (!t) return;
+      if (heroHits(world, enc, h, t, 6, events, ab.name) && world.monsters[t.id] && rng.chance(0.5)) {
+        t.st.stun = true;
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
+      }
+      return;
+    }
+    case 'guard': {
+      const t = pickAlly();
+      if (t) events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} guards ${t.name}.` });
+      return;
+    }
+    case 'rally':
+      for (const a of allies()) {
+        a.st.block = (a.st.block ?? 0) + 4;
+        addStress(a, -10);
+      }
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+4 Block, −10 stress)` });
+      return;
+    case 'backstab': {
+      const t = pickEnemy(false);
+      if (!t) return;
+      const crit = !!(t.st.stun || t.st.mark);
+      heroHits(world, enc, h, t, crit ? 16 : 8, events, ab.name, crit);
+      return;
+    }
+    case 'poison': {
+      const t = pickEnemy(false);
+      if (!t) return;
+      if (heroHits(world, enc, h, t, 4, events, ab.name) && world.monsters[t.id]) {
+        t.st.bleed = { dmg: 3, rounds: 3 };
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is bleeding.` });
+      }
+      return;
+    }
+    case 'smoke':
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb!` });
+      return;
+    case 'mend': {
+      const t = pickAlly();
+      if (!t) return;
+      const healed = heal(t, 10);
+      delete t.st.bleed;
+      events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
+      return;
+    }
+    case 'flare':
+      for (const x of Object.values(world.heroes)) {
+        if (!x.dead && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 15);
+      }
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} ignites a flare! (+15 light)` });
+      for (const m of enemies()) {
+        if (heroHits(world, enc, h, m, 4, events, ab.name) && world.monsters[m.id] && ENEMIES[m.type].undead) m.st.mark = 3;
+      }
+      return;
+    case 'vigil': {
+      const t = pickAlly();
+      if (!t) return;
+      addStress(t, -15);
+      t.st.calm = 2;
+      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t.name}. (−15 stress)` });
+      return;
+    }
+    case 'hex': {
+      const t = pickEnemy(false);
+      if (!t) return;
+      if (heroHits(world, enc, h, t, 5, events, ab.name) && world.monsters[t.id]) t.st.mark = 3;
+      return;
+    }
+    case 'wither': {
+      const t = pickEnemy(false);
+      if (!t) return;
+      t.st.weak = 2;
+      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} withers the ${ENEMIES[t.type].name}.` });
+      return;
+    }
+    case 'pact': {
+      h.hp = Math.max(1, h.hp - 6);
+      events.push({ actor: h.id, kind: 'damage', target: h.id, amount: 6, text: `${h.name} spills their own blood.` });
+      const targets = enemies();
+      const each = Math.ceil(12 / Math.max(1, targets.length));
+      for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
+      const weakest = allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      if (weakest) {
+        const healed = heal(weakest, 6);
+        events.push({ actor: h.id, kind: 'heal', target: weakest.id, amount: healed, text: `${weakest.name} is restored (+${healed}).` });
+      }
+      return;
+    }
+  }
+}
+
+function heal(h: Hero, n: number): number {
+  const before = h.hp;
+  h.hp = Math.min(h.maxHp, h.hp + n);
+  return h.hp - before;
+}
+
+/** Hero damages a monster. Returns true if it connected. */
+function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
+  let dmg = base;
+  if (h.st.weak) dmg *= 0.5;
+  dmg = Math.max(1, Math.round(dmg));
+  if (m.st.block) {
+    const absorbed = Math.min(m.st.block, dmg);
+    m.st.block -= absorbed;
+    dmg -= absorbed;
+  }
+  events.push({
+    actor: h.id, kind: 'damage', target: m.id, amount: dmg, crit,
+    text: `${h.name}'s ${what} ${crit ? 'CRITS' : 'hits'} ${ENEMIES[m.type].name} for ${dmg}.`,
+  });
+  applyMonsterDamage(world, m, dmg, events);
+  return true;
+}
+
+function applyMonsterDamage(world: World, m: Monster, dmg: number, events: CombatEvent[]) {
+  m.hp -= dmg;
+  if (m.hp <= 0) {
+    delete world.monsters[m.id];
+    events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
+  }
+}
+
+function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEvent[]) {
+  const rng = world.rng;
+  const name = ENEMIES[m.type].name;
+  const conscious = enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  if (conscious.length === 0) return;
+  const front = conscious.filter((h) => heroRank(h) === 'front');
+  const back = conscious.filter((h) => heroRank(h) === 'back');
+  const frontOrAny = () => rng.pick(front.length ? front : conscious);
+
+  switch (m.type) {
+    case 'ghoul':
+      monsterHits(world, enc, m, frontOrAny(), 5, 'claws', events);
+      return;
+    case 'crawler': {
+      const t = monsterHits(world, enc, m, frontOrAny(), 3, 'bites', events);
+      if (t && isConscious(t)) t.st.bleed = { dmg: 2, rounds: 3 };
+      return;
+    }
+    case 'acolyte':
+      if (rng.chance(0.5)) {
+        const t = rng.pick(conscious);
+        const added = addStress(t, 6);
+        events.push({
+          actor: m.id, kind: 'stress', target: t.id, amount: added,
+          text: added > 0 ? `${name} whispers to ${t.name}. (+${added} stress)` : `${name} whispers, but ${t.name} is unshaken.`,
+        });
+      } else {
+        monsterHits(world, enc, m, rng.pick(back.length ? back : conscious), 4, 'curses', events);
+      }
+      return;
+    case 'brute':
+      if (enc.round % 2 === 1) {
+        events.push({ actor: m.id, kind: 'info', text: `${name} gathers itself…` });
+        return;
+      }
+      for (const t of front.length ? front : [frontOrAny()]) monsterHits(world, enc, m, t, 9, 'slams', events);
+      return;
+  }
+}
+
+/** Monster attacks a hero, honouring Guard, dodge, brace, Block and darkness. Returns who was actually hit. */
+function monsterHits(world: World, enc: Encounter, m: Monster, target: Hero, base: number, verb: string, events: CombatEvent[]): Hero | null {
+  const name = ENEMIES[m.type].name;
+  let t = target;
+  const guard = t.st.guardedBy ? world.heroes[t.st.guardedBy] : undefined;
+  if (guard && isConscious(guard) && guard.encounter === enc.room && guard !== t) {
+    events.push({ actor: guard.id, kind: 'info', target: t.id, text: `${guard.name} steps in front of ${t.name}!` });
+    t = guard;
+  }
+  if (t.st.dodge && world.rng.chance(0.5)) {
+    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });
+    return null;
+  }
+  let dmg = base * m.dmgMult;
+  if (m.st.weak) dmg *= 0.5;
+  if (t.light <= 0) dmg *= 1.25;
+  if (t.cls === 'warden' && heroRank(t) === 'front') dmg *= 0.8;
+  if (t.st.brace) dmg *= 0.7;
+  dmg = Math.max(1, Math.round(dmg));
+  if (t.st.block) {
+    const absorbed = Math.min(t.st.block, dmg);
+    t.st.block -= absorbed;
+    dmg -= absorbed;
+    if (t.st.block <= 0) delete t.st.block;
+  }
+  events.push({
+    actor: m.id, kind: 'damage', target: t.id, amount: dmg,
+    text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but it's blocked.`,
+  });
+  applyHeroDamage(world, enc, t, dmg, events);
+  return t;
+}
+
+function applyHeroDamage(world: World, enc: Encounter, h: Hero, dmg: number, events: CombatEvent[]) {
+  if (!isConscious(h)) return;
+  h.hp -= dmg;
+  if (h.hp <= 0) downHero(world, h, events, enc);
+}
+
+export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter) {
+  h.hp = 0;
+  h.downedAt = world.time;
+  h.st = {};
+  h.channel = null;
+  events?.push({ actor: h.id, kind: 'down', target: h.id, text: `${h.name} falls!` });
+  const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
+  for (const w of witnesses) {
+    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, 15);
+  }
+}
+
+function sameRoom(a: Hero, b: Hero) {
+  return a.pos.kind === 'room' && b.pos.kind === 'room' && a.pos.room === b.pos.room;
+}
+
+function flee(world: World, enc: Encounter, h: Hero) {
+  leaveEncounter(world, enc, h);
+  const d = world.dungeon;
+  const from = enc.room;
+  let to = h.prevRoom;
+  if (to === null || !corridorBetween(d, from, to)) to = world.rng.pick(neighbours(d, from));
+  const c = corridorBetween(d, from, to)!;
+  h.pos = { kind: 'corridor', corridor: c.id, from, to, t: 0 };
+  h.path = [];
+}
+
+/** Bleed-out and death for downed heroes. Called every tick. */
+export function tickDowned(world: World) {
+  for (const h of Object.values(world.heroes)) {
+    if (h.dead || h.downedAt === null) continue;
+    if (world.time - h.downedAt >= BLEED_OUT) {
+      h.dead = true;
+      h.diedAt = world.time;
+      const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+      if (enc) {
+        enc.log.push(`${h.name} has died.`);
+        enc.heroes = enc.heroes.filter((id) => id !== h.id);
+      }
+      h.encounter = null;
+      for (const w of Object.values(world.heroes)) {
+        if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, 25);
+      }
+    }
+  }
+}
+

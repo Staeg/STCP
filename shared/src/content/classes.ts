@@ -1,3 +1,5 @@
+import type { Rank } from './enemies';
+
 export type ClassId = 'warden' | 'cutthroat' | 'lampbearer' | 'hexer';
 
 export interface ClassDef {
@@ -23,3 +25,11 @@ export const CLASSES: Record<ClassId, ClassDef> = {
 };
 
 export const CLASS_IDS = Object.keys(CLASSES) as ClassId[];
+
+/** Which combat rank each class fights from. */
+export const HERO_RANK: Record<ClassId, Rank> = {
+  warden: 'front',
+  cutthroat: 'front',
+  lampbearer: 'back',
+  hexer: 'back',
+};

@@ -1,4 +1,4 @@
-import { CLASSES, type PlayerView } from '@stcp/shared';
+import { BLEED_OUT, CLASSES, type PlayerView } from '@stcp/shared';
 import type { Net } from './net';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -11,12 +11,19 @@ export function fmtTime(seconds: number): string {
 export class Hud {
   private lastTier = 0;
   private bannerTimer = 0;
+  private persistentBanner = false;
 
   constructor(private net: Net) {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
+    $('btn-revive').addEventListener('click', () => {
+      const id = $('btn-revive').dataset.target;
+      if (id) net.intent({ type: 'revive', target: id });
+    });
     addEventListener('keydown', (e) => {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
+      if (net.cur.encounter) return; // combat has its own keys
+      if (e.code === 'KeyR') $('btn-revive').click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -50,13 +57,29 @@ export class Hud {
     const you = view.you;
     const cls = CLASSES[you.cls];
     $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    $('hp-text').textContent = `${Math.max(0, Math.ceil(you.hp))}/${you.maxHp}`;
+    $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
+    $('stress-text').textContent = `${Math.round(you.stress)}`;
+    $('stress-fill').style.width = `${you.stress}%`;
     $('light-text').textContent = view.dim ? '(DIM)' : '';
     const fill = $('light-fill');
     fill.style.width = `${you.light}%`;
     fill.classList.toggle('dim', view.dim);
     $('location').textContent = locationText(view);
 
-    $('btn-turn').hidden = you.pos.kind !== 'corridor';
+    $('btn-turn').hidden = you.pos.kind !== 'corridor' || you.downedAt !== null || you.dead;
+
+    // Out-of-combat revive: a downed ally in your room.
+    const reviveBtn = $('btn-revive');
+    const here = you.pos.kind === 'room' ? you.pos.room : -1;
+    const downed = !view.encounter && you.downedAt === null && !you.dead
+      ? view.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here)
+      : undefined;
+    reviveBtn.hidden = !downed;
+    if (downed) {
+      reviveBtn.dataset.target = downed.id;
+      reviveBtn.innerHTML = you.channel ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (3s) <kbd>R</kbd>`;
+    }
     $('roster').innerHTML = rosterHtml(view);
     const isHost = net.lobby?.hostId === net.lobby?.youId;
     $('btn-lobby').hidden = !(view.phase !== 'running' && isHost);
@@ -68,6 +91,15 @@ export class Hud {
     }
     this.lastTier = view.tier;
     if (view.phase === 'collapsed') this.showBanner('THE DUNGEON COLLAPSES', 0);
+    else if (view.phase === 'wiped') this.showBanner('ALL HEROES HAVE FALLEN', 0);
+    else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
+    else if (you.downedAt !== null && !view.encounter) {
+      const left = Math.max(0, BLEED_OUT - (view.time - you.downedAt));
+      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Bleeding out in ${Math.ceil(left)}s — an ally must reach you.</span>`, 0);
+    } else if (this.persistentBanner) {
+      $('banner').hidden = true;
+    }
+    this.persistentBanner = view.phase !== 'running' || you.dead || (you.downedAt !== null && !view.encounter);
   }
 
   /** Called when leaving the game view (back to lobby). */
@@ -90,12 +122,14 @@ function rosterHtml(view: PlayerView): string {
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'somewhere unknown';
   const rows = view.allies.map((a) => {
     let status: string;
+    const hp = a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${Math.max(0, Math.ceil(a.hp))}/${a.maxHp} HP`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
     if (a.live) status = sameRoom ? 'with you' : 'in sight';
     else {
       const where = a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
+    status += hp;
     return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}<div class="ally-status">${escape(status)}</div></div>`;
   });
   return rows.join('');
