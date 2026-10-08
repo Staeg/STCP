@@ -135,3 +135,34 @@ function trueNextHop(world: World, from: number, to: number): number {
   while (prev.get(cur) !== from) cur = prev.get(cur)!;
   return cur;
 }
+
+describe('auto-pathing', () => {
+  it('detours around rooms with known monsters when another way exists', () => {
+    // Search seeds for a room reachable two different ways.
+    for (let seed = 1; seed < 200; seed++) {
+      const world = createWorld(seed, { monsters: false, escalation: false });
+      const hero = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
+      const d = world.dungeon;
+      hero.explored = d.rooms.map((r) => r.id);
+      for (const a of d.rooms) {
+        for (const b of neighbours(d, a.id)) {
+          for (const c of neighbours(d, b)) {
+            if (c === a.id) continue;
+            const x = neighbours(d, a.id).find((n) => n !== b && neighbours(d, n).includes(c));
+            if (x === undefined) continue;
+            hero.pos = { kind: 'room', room: a.id };
+            hero.knownThreat = { [b]: 2 };
+            applyIntent(world, 'h', { type: 'goto', room: c });
+            expect(hero.path).not.toContain(b);
+            // ...but walking straight into the monster room is allowed if that's where you clicked.
+            applyIntent(world, 'h', { type: 'goto', room: b });
+            expect(hero.path).toEqual([b]);
+            return;
+          }
+        }
+      }
+    }
+    throw new Error('no loop found in 200 seeds');
+  });
+});
+

@@ -499,7 +499,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     case 'bash': {
       const t = pickEnemy(true);
       if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(0.5)) {
+      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(0.35)) {
         t.st.stun = true;
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
@@ -546,9 +546,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     }
     case 'flare':
       for (const x of Object.values(world.heroes)) {
-        if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 15);
+        if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 10);
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} ignites a flare! (+15 light)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} ignites a flare! (+10 light)` });
       for (const m of enemies()) {
         if (heroHits(world, enc, h, m, ab.power, events, ab.name) && world.monsters[m.id] && ENEMIES[m.type].undead) m.st.mark = 3;
       }

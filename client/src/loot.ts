@@ -133,7 +133,8 @@ export class LootUi {
   private feed(view: PlayerView) {
     for (const m of view.you.messages) {
       const key = `${m.time}|${m.text}`;
-      if (m.time < this.feedSince || this.shown.has(key)) continue;
+      // Skip old news (e.g. a background tab catching up): toasts are for the last few seconds.
+      if (m.time < this.feedSince || m.time < view.time - 4 || this.shown.has(key)) continue;
       this.shown.add(key);
       this.toast(m.text);
     }

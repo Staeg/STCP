@@ -3,7 +3,7 @@ import { ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { downHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { notify } from './notify';
-import { chronicle, type World } from './world';
+import { chronicle, explore, type World } from './world';
 
 /** A group of monsters that walks the halls. While travelling, its monsters have room = -1. */
 export interface Pack {
@@ -197,6 +197,8 @@ export function collapseCorridor(world: World, cid: number, reason = 'A tunnel c
       const back = pos.t < c.length / 2 ? pos.from : pos.to;
       h.pos = { kind: 'room', room: back };
       h.path = [];
+      // You may land in the room you were heading for: you now know it (and its exits).
+      explore(world, h, back);
       h.knownCollapsed.push(cid);
       notify(world, h, 'The tunnel caves in around you!');
       if (h.downedAt === null) {
@@ -217,9 +219,40 @@ function collapseRandomCorridor(world: World) {
   const d = world.dungeon;
   // Any tunnel can go, but not one someone is already digging out.
   const digging = new Set(Object.values(world.heroes).map((h) => (h.channel?.kind === 'dig' ? h.channel.corridor : -1)));
-  const candidates = d.corridors.filter((c) => !world.collapsed.includes(c.id) && !digging.has(c.id));
+  const fresh = (cid: number) => world.time - (world.clearedAt[cid] ?? -Infinity) < 60;
+  const candidates = d.corridors.filter((c) => !world.collapsed.includes(c.id) && !digging.has(c.id) && !fresh(c.id));
   if (candidates.length === 0) return;
-  collapseCorridor(world, world.rng.pick(candidates).id);
+  // Mostly bring down tunnels that leave another way round; sometimes cut people off for real.
+  const loops = candidates.filter((c) => !cutsOff(world, c.id));
+  const pool = loops.length && world.rng.chance(ESCALATION.collapsePreferLoops) ? loops : candidates;
+  collapseCorridor(world, world.rng.pick(pool).id);
+}
+
+/** Would losing this tunnel split the dungeon (given what's already collapsed)? */
+function cutsOff(world: World, cid: number): boolean {
+  const d = world.dungeon;
+  const blocked = new Set([...world.collapsed, cid]);
+  const seen = new Set([d.exit]);
+  const q = [d.exit];
+  while (q.length) {
+    const cur = q.shift()!;
+    for (const id of d.rooms[cur].corridors) {
+      if (blocked.has(id)) continue;
+      const n = otherEnd(d.corridors[id], cur);
+      if (!seen.has(n)) (seen.add(n), q.push(n));
+    }
+  }
+  const before = new Set([d.exit]);
+  const q2 = [d.exit];
+  while (q2.length) {
+    const cur = q2.shift()!;
+    for (const id of d.rooms[cur].corridors) {
+      if (world.collapsed.includes(id)) continue;
+      const n = otherEnd(d.corridors[id], cur);
+      if (!before.has(n)) (before.add(n), q2.push(n));
+    }
+  }
+  return seen.size < before.size;
 }
 
 /** Rubble is cleared: the corridor is open again. */
@@ -227,6 +260,7 @@ export function clearRubble(world: World, cid: number, by: string) {
   const d = world.dungeon;
   const c = d.corridors[cid];
   world.collapsed = world.collapsed.filter((x) => x !== cid);
+  world.clearedAt[cid] = world.time;
   chronicle(world, `${by} dug through the rubble between ${theRoom(d.rooms[c.a].name)} and ${theRoom(d.rooms[c.b].name)}.`);
   for (const h of Object.values(world.heroes)) {
     if (h.pos.kind === 'room' && (h.pos.room === c.a || h.pos.room === c.b)) h.knownCollapsed = h.knownCollapsed.filter((x) => x !== cid);

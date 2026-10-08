@@ -23,7 +23,7 @@ export const FIELD_MEND = { heal: 8, cooldown: 20 };
 
 export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = {
   warden: [
-    { id: 'bash', name: 'Shield Bash', cooldown: 2, target: 'enemyFront', power: 8, desc: '8 dmg to a front enemy. 50% Stun.' },
+    { id: 'bash', name: 'Shield Bash', cooldown: 0, target: 'enemyFront', power: 7, desc: '7 dmg to a front enemy. 35% Stun.' },
     { id: 'guard', name: 'Guard', cooldown: 1, target: 'otherAlly', power: 0, desc: 'Take the hits aimed at an ally this round.' },
     { id: 'rally', name: 'Rally', cooldown: 4, target: 'allAllies', power: 5, desc: 'All allies: −10 stress, +5 Block.' },
   ],
@@ -34,7 +34,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   ],
   lampbearer: [
     { id: 'mend', name: 'Mend', cooldown: 1, target: 'ally', power: 10, desc: 'Heal 10 and cure Bleed.' },
-    { id: 'flare', name: 'Flare', cooldown: 3, target: 'allEnemies', power: 5, desc: '5 dmg to all enemies, +15 light to allies. Marks undead.' },
+    { id: 'flare', name: 'Flare', cooldown: 1, target: 'allEnemies', power: 5, desc: '5 dmg to all enemies, +10 light to allies. Marks undead.' },
     { id: 'vigil', name: 'Vigil', cooldown: 3, target: 'ally', power: 15, desc: '−15 stress and immune to stress for 2 rounds.' },
   ],
   hexer: [

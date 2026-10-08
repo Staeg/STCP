@@ -21,6 +21,8 @@ export class Net {
   name = localStorage.getItem('stcp-name') ?? '';
   onError: (msg: string) => void = () => {};
   onLobby: (lobby: LobbyView | null) => void = () => {};
+  /** Called on every snapshot. Used by dev playtest scripts: unlike timers, these aren't throttled in background tabs. */
+  viewHooks: ((view: PlayerView) => void)[] = [];
 
   private ws!: WebSocket;
   private pingId = 0;
@@ -68,6 +70,7 @@ export class Net {
         this.prev = this.cur;
         this.cur = msg.view;
         this.curAt = performance.now();
+        for (const hook of this.viewHooks) hook(msg.view);
         break;
     }
   }

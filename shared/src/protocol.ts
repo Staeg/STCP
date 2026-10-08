@@ -46,6 +46,8 @@ export type ClientMsg =
   | { t: 'debugSpawn'; enemies: EnemyId[] }
   /** Dev-only: drop items and gold in your room. */
   | { t: 'debugLoot'; items: ItemId[]; gold: number }
+  /** Dev-only: run this lobby N× faster (for automated playtests). */
+  | { t: 'debugSpeed'; speed: number }
   /** Dev-only: put an event (or a captive) in your room. */
   | { t: 'debugEvent'; kind: EventKind };
 
@@ -98,6 +100,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: msg.t };
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
+    case 'debugSpeed':
+      return typeof msg.speed === 'number' && msg.speed >= 1 && msg.speed <= 50 ? { t: 'debugSpeed', speed: msg.speed } : null;
     case 'debugEvent':
       return typeof msg.kind === 'string' && msg.kind in EVENTS ? { t: 'debugEvent', kind: msg.kind as EventKind } : null;
     case 'debugLoot':

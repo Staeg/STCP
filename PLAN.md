@@ -53,6 +53,9 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Lampbearer field Mend (added in M7) | Outside combat the Lampbearer can heal anyone in the same room for 8 (and cure Bleed), with a 20s cooldown (button/M). Before this, HP never recovered between fights except via Bandages, so almost every down became a death. It also gives the party a reason to stay near the Lampbearer. |
 | Balance tooling | `npm run sim -- --games N --seed S [--set PATH=VALUE …] [--json] [--events 0]` overrides any number in ESCALATION, ENEMIES, CLASSES, LOOT, EVENT_SEEDING, STRESS, FIELD_MEND, ABILITIES or BOTS. `cd server && npx tsx src/sweep.ts --games 60 --parallel 4 "name: PATH=V PATH=V" …` runs variants in parallel on the same seeds and prints a comparison table. |
 | Climax metric (M8) | The key balance target is now **"drama at 10:00"**: when the exit opens, someone is waiting there while someone else is still alive elsewhere. Target ≥50% of all-bot runs. "Arrived after 10:30" stays a secondary metric; for bots it's capped by survival, since bots sent home later just die on the way. |
+| Class basics (M10) | Every class needs an attack it can use every round, because the game is about splitting up: Shield Bash has no cooldown (7 dmg, 35% Stun), Flare has a 1-round cooldown (+10 light). |
+| Auto-path (M10) | Click-to-walk detours around rooms you know hold monsters (`THREAT_DETOUR` = 15s per monster) unless that room is your destination. |
+| Collapses (tuned in M10) | Every 60s from T3. 75% of the time they hit a tunnel that leaves another way round; the rest can cut people off (dig 15s, Warden 9s). A dug-out tunnel can't re-collapse for 60s. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -242,10 +245,10 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 
 ### M10. Structured playtest (the main verification step)
 Run all of the following, then write `PLAYTEST.md` with findings, ranked issues and fixes made.
-1. **Automated:** `npm run sim` stays inside the M8 target bands after all changes. All unit tests pass.
-2. **Solo browser playtest (Claude, using the built-in browser):** play at least 2 full runs with 3 bots, as different classes. Keep a timestamped log and check it against the **Intended Experience Checklist** below. Take screenshots of the key moments.
-3. **Multi-client playtest:** run 4 tabs as 4 humans. Confirm fog isolation (tab A never receives tab B's hidden info; inspect the WS payloads), loot vote edge cases, a revive across tabs, disconnect/reconnect mid-combat, and all extraction-timing edge cases (extract during a wave, die while the exit is open, collapse while in combat).
-4. **User playtest:** ask the user to play with friends. Give them a short feedback prompt (the checklist questions). Turn their answers into tasks.
+1. ✅ **Automated:** `npm run sim` stays inside the M8 target bands after all changes. All unit tests pass.
+2. ✅ **Solo browser playtest (Claude, using the built-in browser):** play at least 2 full runs with 3 bots, as different classes. Keep a timestamped log and check it against the **Intended Experience Checklist** below. Take screenshots of the key moments.
+3. ✅ **Multi-client playtest** (done with `tools/playtest-harness.ts`: 4 real WebSocket clients rather than tabs): run 4 tabs as 4 humans. Confirm fog isolation (tab A never receives tab B's hidden info; inspect the WS payloads), loot vote edge cases, a revive across tabs, disconnect/reconnect mid-combat, and all extraction-timing edge cases (extract during a wave, die while the exit is open, collapse while in combat).
+4. ⏳ **User playtest:** ask the user to play with friends. Give them a short feedback prompt (the checklist questions). Turn their answers into tasks.
 
 **Intended Experience Checklist** (each must be a clear "yes" or get a task):
 - [ ] In the first 2 minutes the group splits up voluntarily because the crossroads offer meaningfully different temptations.
@@ -279,6 +282,10 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M10 (structured playtest) done, apart from the user playtest.** See **PLAYTEST.md** for the full report. Two real-time browser runs (Warden, then Lampbearer; an aborted Hexer attempt exposed the routing bug). `tools/playtest-harness.ts` played 6 networked games (1 real time, 5 at ×10 via the new `debugSpeed`) with ~45,000 snapshots fog-checked. The autopilot (`client/public/autopilot.js`) is now driven by snapshots (`net.viewHooks`) so it survives background tabs.
+  - **Fixed:** (1) Warden/Lampbearer couldn't fight alone, so Bash has no cooldown and Flare a 1-round cooldown. (2) Cave-in throw-out didn't explore the landing room; the harness caught it as a fog anomaly plus 9 minutes of frozen heroes. (3) Click-to-walk marched you through known monster rooms; it now detours. (4) Collapses were too frequent and almost always cut people off; now every 60s, loop-preferring 75%, no re-collapse for 60s after digging. (5) Bots wait ≥8s at the exit and the return window is 6:30–11:30. (6) Stale toast bursts. 79 tests.
+  - Final sim (120 fresh seeds): escape 57% ✓, drama 58% ✓, early deaths 7% ✓, 3.6 rounds/fight ✓, wipes 6%, late arrivals 16% (secondary ✗).
+  - **Next:** the user playtest (prompt in PLAYTEST.md). Then M11 (ask the user what gold buys) and the ranked issues in PLAYTEST.md (rescue signalling, bots waiting at the exit, tier-change audio).
 - 2026-10-08 · **M9 done.** Nine hand-made sprites (4 heroes, 4 enemies, villager) are shown on the map (hero sprite on a coloured base; ghosts grey and translucent; an escorted villager trots beside you; captives appear as a villager sprite in their room), in combat cards (64–72px, crisp `image-rendering: pixelated`) and on the lobby class cards. Juice (`client/src/juice.ts`): the map and combat panel shake on crits, downs and kills; a red vignette flashes when you're hit; purple/red pulses on tier changes and the exit opening. Vignette, exit beacon and damage numbers already existed.
   - Note for screenshots: at 800×450 the VT323 font makes "8"/"0" and "B"/"D" look alike. Check numbers via the DOM.
   - Next: M10 (structured playtest).

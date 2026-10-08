@@ -125,6 +125,8 @@ export interface World {
   packs: Record<string, Pack>;
   /** Collapsed corridor ids. */
   collapsed: number[];
+  /** When each corridor was last dug out (it won't re-collapse for a while). */
+  clearedAt: Record<number, number>;
   nextRespawn: number;
   nextWanderer: number;
   nextCollapse: number;
@@ -175,11 +177,14 @@ export interface WorldOptions {
   events?: boolean;
 }
 
+/** Auto-paths treat each known monster in a room as this many seconds of extra walking. */
+export const THREAT_DETOUR = 15;
+
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const world: World = {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {},
-    tier: 0, packs: {}, collapsed: [], chronicle: [], escalation: opts.escalation !== false,
+    tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
     stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 },
     nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
@@ -609,7 +614,9 @@ export function shortestPath(world: World, hero: Hero, start: number, target: nu
       const c = d.corridors[cid];
       if (!knowsCorridor(hero, c) || hero.knownCollapsed.includes(c.id)) continue;
       const n = otherEnd(c, cur);
-      const nd = best + c.length;
+      // Detour around rooms you know hold monsters (but never refuse to go where you clicked).
+      const danger = n === target ? 0 : (hero.knownThreat[n] ?? 0) * THREAT_DETOUR;
+      const nd = best + c.length + danger;
       if (nd < (dist.get(n) ?? Infinity)) {
         dist.set(n, nd);
         prev.set(n, cur);

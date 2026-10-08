@@ -57,28 +57,28 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.text.includes('braces'))).toBe(true);
   });
 
-  it('enforces cooldowns (Shield Bash: cooldown 2 = two rounds unusable)', () => {
-    const { world, ids, room, monsters } = arena(['warden'], ['brute']);
+  it('enforces cooldowns (Poison Blade: cooldown 2 = two rounds unusable)', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
-    const bash = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    const poison = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
     const nextRound = () => {
       step(world, 0.1);
       while (enc.phase === 'resolving') step(world, 0.1);
     };
-    bash();
-    expect(enc.choices.h0?.action).toBe('a0');
+    poison();
+    expect(enc.choices.h0?.action).toBe('a1');
     nextRound(); // round 2
-    bash();
+    poison();
     expect(enc.choices.h0).toBeUndefined();
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
     nextRound(); // round 3
-    bash();
+    poison();
     expect(enc.choices.h0).toBeUndefined();
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
     nextRound(); // round 4
-    bash();
-    expect(enc.choices.h0?.action).toBe('a0');
+    poison();
+    expect(enc.choices.h0?.action).toBe('a1');
   });
 
   it('ends on victory, resets cooldowns and frees movement', () => {

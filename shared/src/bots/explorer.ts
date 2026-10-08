@@ -79,7 +79,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (exit && here === exit.id && view.time >= mem.returnAt) {
     if (!view.exitOpen) return null;
     // Wait a while for the others (they might be coming), unless hurt or out of time.
-    if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(0, BOTS.exitWaitMax);
+    if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(8, BOTS.exitWaitMax);
     const hurt = you.hp / you.maxHp < 0.4;
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
@@ -128,7 +128,14 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   // Explore: nearest frontier, with noise. Prefer exits other heroes haven't chalked, so bots spread out.
   const chalked = new Set(view.chalk.find((c) => c.room === here)?.marks.filter((m) => m.heroId !== you.id).map((m) => m.corridor));
   const frontier = frontierRooms(view, costs);
-  if (frontier.length === 0) return exit && costs.has(exit.id) ? { type: 'goto', room: exit.id } : null;
+  if (frontier.length === 0) {
+    if (exit && costs.has(exit.id)) return { type: 'goto', room: exit.id };
+    // Nowhere left to go: dig out rather than wait.
+    const rubbleHere = view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here));
+    if (rubbleHere) return { type: 'dig', corridor: rubbleHere.id };
+    const rubbleRooms = view.corridors.filter((c) => c.collapsed).flatMap((c) => [c.a, c.b]).filter((r) => costs.has(r) && r !== here);
+    return rubbleRooms.length ? { type: 'goto', room: minBy(rubbleRooms, (r) => costs.get(r)!) } : null;
+  }
   const roomById = new Map(view.rooms.map((r) => [r.id, r]));
   const best = minBy(frontier, (r) => {
     // Threat-weighted route cost: hurt bots steer well clear of known monsters.

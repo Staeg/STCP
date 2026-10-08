@@ -71,6 +71,22 @@ describe('escalation', () => {
     expect(h.knownCollapsed).toContain(c.id);
   });
 
+  it('being thrown forward out of a cave-in explores the room you land in', () => {
+    const world = createWorld(9, { monsters: false, loot: false, escalation: false });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    const d = world.dungeon;
+    const next = neighbours(d, d.entrance)[0];
+    const c = corridorBetween(d, d.entrance, next)!;
+    applyIntent(world, 'a', { type: 'goto', room: next });
+    run(world, c.length * 0.8); // most of the way there
+    collapseCorridor(world, c.id);
+    expect(h.pos).toEqual({ kind: 'room', room: next });
+    expect(h.explored).toContain(next);
+    // And you know the other ways out of that room.
+    const view = buildView(world, 'a');
+    for (const cid of d.rooms[next].corridors) expect(view.corridors.some((x) => x.id === cid)).toBe(true);
+  });
+
   it("you only learn of a collapse when you reach it, and can't walk through", () => {
     const world = createWorld(9, { monsters: false, loot: false, escalation: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });

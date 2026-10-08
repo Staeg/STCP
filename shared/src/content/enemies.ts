@@ -42,7 +42,9 @@ export const ESCALATION = {
   respawnEvery: 45,
   respawnEveryLate: 30,
   wandererEvery: 60,
-  collapseEvery: 45,
+  collapseEvery: 60,
+  /** When a collapse can hit a tunnel that cuts nothing off (part of a loop), it does so this often. */
+  collapsePreferLoops: 0.75,
   /** Seconds to dig through rubble (Warden is faster). */
   digTime: 15,
   digTimeWarden: 9,

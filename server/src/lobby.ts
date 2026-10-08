@@ -29,6 +29,8 @@ export class Lobby {
   emptySince: number | null = null;
   /** Gold from the finished run has been added to stashes. */
   private banked = false;
+  /** Dev-only fast-forward multiplier. */
+  speed = 1;
 
   constructor(readonly code: string, host: Member, private stash: Stash) {
     this.hostToken = host.token;
@@ -70,7 +72,7 @@ export class Lobby {
 
   tick() {
     if (!this.game) return;
-    this.game.tick(SERVER_TICK);
+    for (let i = 0; i < this.speed; i++) this.game.tick(SERVER_TICK);
     if (this.game.world.phase !== 'running' && !this.banked) {
       this.banked = true;
       for (const m of this.members) {
@@ -188,6 +190,10 @@ export class LobbyManager {
         onHeroInRoom(w, h, h.pos.room);
         return;
       }
+      case 'debugSpeed':
+        if (!DEBUG) return err('Debug commands are disabled.');
+        lobby.speed = msg.speed;
+        return;
       case 'debugEvent': {
         if (!DEBUG) return err('Debug commands are disabled.');
         const w = lobby.game?.world;
