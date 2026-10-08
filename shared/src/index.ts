@@ -11,3 +11,5 @@ export * from './sim/combat';
 export * from './bots/fighter';
 export * from './content/abilities';
 export * from './content/enemies';
+export * from './content/items';
+export * from './sim/loot';

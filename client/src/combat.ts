@@ -1,5 +1,5 @@
 import {
-  ABILITIES, ENEMIES, ROUND_TIME,
+  ABILITIES, ENEMIES, ITEMS, ROUND_TIME,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -21,6 +21,8 @@ interface Pending {
 
 export class CombatUi {
   private targeting: CombatAction | null = null;
+  /** Inventory slot being aimed, when targeting === 'item'. */
+  private targetingItem: number | null = null;
   private lastKey = '';
   private pending: Pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
   private floaters: { unit: string; text: string; cls: string; at: number }[] = [];
@@ -154,9 +156,18 @@ export class CombatUi {
       ${btn('brace', 'B', 'Brace', 'Take 30% less damage this round. (Automatic if time runs out.)')}
     </div>`;
 
+    const itemBtns = view.you.items.map((it, i) => {
+      const def = ITEMS[it];
+      if (!def.combat) return '';
+      const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
+      return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'} title="${esc(def.desc)}">
+        <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}</div></button>`;
+    }).filter(Boolean).join('');
+    const itemsRow = itemBtns ? `<div class="cb-actions items">${itemBtns}</div>` : '';
+
     const log = `<div class="cb-log">${this.shownLog.slice(-7).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
 
-    const html = header + `<div class="cb-body">${stage}${log}</div>` + actions;
+    const html = header + `<div class="cb-body">${stage}${log}</div>` + actions + itemsRow;
     if (html !== this.lastHtml) {
       $('combat').innerHTML = html;
       this.lastHtml = html;
@@ -205,6 +216,13 @@ export class CombatUi {
   private validTargets(view: PlayerView, enc: EncounterView, action: CombatAction): string[] {
     const allies = enc.heroes.filter((h) => !h.downed);
     if (action === 'revive') return enc.heroes.filter((h) => h.downed).map((h) => h.id);
+    if (action === 'item') {
+      const def = ITEMS[view.you.items[this.targetingItem ?? -1]];
+      if (!def) return [];
+      if (def.target === 'ally') return allies.map((a) => a.id);
+      if (def.target === 'downed') return enc.heroes.filter((h) => h.downed).map((h) => h.id);
+      return [];
+    }
     const idx = Number(action.slice(1));
     const ab = ABILITIES[view.you.cls][idx];
     if (!ab) return [];
@@ -220,24 +238,29 @@ export class CombatUi {
 
   private needsTarget(view: PlayerView, action: CombatAction) {
     if (action === 'revive') return true;
+    if (action === 'item') {
+      const def = ITEMS[view.you.items[this.targetingItem ?? -1]];
+      return !!def && (def.target === 'ally' || def.target === 'downed');
+    }
     if (!action.startsWith('a')) return false;
     const ab = ABILITIES[view.you.cls][Number(action.slice(1))];
     return ['enemy', 'enemyFront', 'ally', 'otherAlly'].includes(ab.target);
   }
 
-  private pick(action: CombatAction) {
+  private pick(action: CombatAction, item?: number) {
     const view = this.net.cur;
     const enc = view?.encounter;
     if (!view || !enc || enc.phase !== 'choosing') return;
+    this.targetingItem = action === 'item' ? item ?? null : null;
     if (!this.needsTarget(view, action)) {
       this.targeting = null;
-      this.net.intent({ type: 'combat', choice: { action } });
+      this.net.intent({ type: 'combat', choice: { action, item } });
       return;
     }
     const targets = this.validTargets(view, enc, action);
     if (targets.length === 1) {
       this.targeting = null;
-      this.net.intent({ type: 'combat', choice: { action, target: targets[0] } });
+      this.net.intent({ type: 'combat', choice: { action, target: targets[0], item } });
     } else if (targets.length > 1) {
       this.targeting = action;
     }
@@ -246,11 +269,16 @@ export class CombatUi {
   private onClick(e: Event) {
     const el = e.target as HTMLElement;
     const btn = el.closest('button[data-action]') as HTMLButtonElement | null;
-    if (btn && this.canUse(btn.dataset.action as CombatAction)) return this.pick(btn.dataset.action as CombatAction);
+    if (btn) {
+      const action = btn.dataset.action as CombatAction;
+      const item = btn.dataset.item !== undefined ? Number(btn.dataset.item) : undefined;
+      if (this.canUse(action, item)) this.pick(action, item);
+      return;
+    }
     const unit = el.closest('[data-unit]') as HTMLElement | null;
     const view = this.net.cur;
     if (unit && this.targeting && view?.encounter && this.validTargets(view, view.encounter, this.targeting).includes(unit.dataset.unit!)) {
-      this.net.intent({ type: 'combat', choice: { action: this.targeting, target: unit.dataset.unit } });
+      this.net.intent({ type: 'combat', choice: { action: this.targeting, target: unit.dataset.unit, item: this.targetingItem ?? undefined } });
       this.targeting = null;
     }
   }
@@ -258,12 +286,14 @@ export class CombatUi {
   private onKey(e: KeyboardEvent) {
     if (!this.net.cur?.encounter || (e.target as HTMLElement).tagName === 'INPUT') return;
     const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
+    const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(e.code);
     if (e.code === 'Escape') this.targeting = null;
+    else if (slot >= 0 && this.canUse('item', slot)) this.pick('item', slot);
     else if (map[e.code] && this.canUse(map[e.code])) this.pick(map[e.code]);
   }
 
   /** Decided from game state, not the DOM (which may lag a frame behind). */
-  private canUse(action: CombatAction): boolean {
+  private canUse(action: CombatAction, item?: number): boolean {
     const view = this.net.cur;
     const enc = view?.encounter;
     if (!view || !enc || enc.phase !== 'choosing' || enc.youJoining) return false;
@@ -274,6 +304,11 @@ export class CombatUi {
       if ((view.you.cooldowns[ab.id] ?? 0) > 0) return false;
     }
     if (action === 'revive') return enc.heroes.some((h) => h.downed);
+    if (action === 'item') {
+      const def = ITEMS[view.you.items[item ?? -1]];
+      if (!def?.combat) return false;
+      if (def.target === 'downed') return enc.heroes.some((h) => h.downed);
+    }
     return true;
   }
 }

@@ -3,6 +3,8 @@ import { HERO_RANK } from '../content/classes';
 import { LIGHT_MAX } from '../content/constants';
 import { ENCOUNTER_GROUPS, ENEMIES, ROOM_MONSTER_CHANCE, TIER_SCALING, type EnemyId, type Rank } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
+import { ITEMS } from '../content/items';
+import { applyItem, dropEverything, itemTargets } from './loot';
 import type { Hero, World } from './world';
 
 export const ROUND_TIME = 5;
@@ -39,11 +41,13 @@ export interface Monster {
   st: Statuses;
 }
 
-export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace';
+export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item';
 
 export interface Choice {
   action: CombatAction;
   target?: string;
+  /** Inventory slot, for action 'item'. */
+  item?: number;
 }
 
 export type CombatEventKind = 'damage' | 'heal' | 'miss' | 'status' | 'flee' | 'down' | 'death' | 'info' | 'stress';
@@ -129,16 +133,17 @@ export function heroRank(h: Hero): Rank {
   return HERO_RANK[h.cls];
 }
 
-function addStress(h: Hero, amount: number) {
+export function addStress(h: Hero, amount: number) {
   if (amount > 0 && h.st.calm) return 0;
+  if (amount > 0 && h.items.includes('ward')) amount = Math.round(amount * 0.75);
   const before = h.stress;
   h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
   return h.stress - before;
 }
 
-export function reviveHero(h: Hero) {
+export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION) {
   h.downedAt = null;
-  h.hp = Math.max(1, Math.ceil(h.maxHp * REVIVE_HP_FRACTION));
+  h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +281,18 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
   const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
   if (!enc || enc.phase !== 'choosing') return 'Not your turn.';
   if (!enc.heroes.includes(h.id) || !isConscious(h)) return 'You cannot act.';
+  if (choice.action === 'item') {
+    const idx = choice.item ?? -1;
+    const def = ITEMS[h.items[idx]];
+    if (!def) return 'No such item.';
+    if (!def.combat) return `${def.name} can't be used in a fight.`;
+    if (def.target === 'ally' || def.target === 'downed') {
+      const targets = itemTargets(world, h, idx);
+      if (!choice.target || !targets.includes(choice.target)) return 'Pick a valid target.';
+    }
+    enc.choices[h.id] = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
+    return null;
+  }
   const ab = abilityOf(h, choice.action);
   if (ab && (h.cooldowns[ab.id] ?? 0) > 0) return `${ab.name} is on cooldown.`;
   if (needsTarget(h, choice.action)) {
@@ -416,6 +433,23 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
       events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
     } else {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
+    }
+    return;
+  }
+  if (c.action === 'item') {
+    const idx = c.item ?? -1;
+    const item = h.items[idx];
+    const result = applyItem(world, h, idx, c.target);
+    if (result.startsWith('!')) {
+      events.push({ actor: h.id, kind: 'info', text: `${h.name} fumbles in their pack.` });
+      return;
+    }
+    if (item === 'firebomb') {
+      events.push({ actor: h.id, kind: 'status', text: result });
+      for (const m of enemies()) heroHits(world, enc, h, m, 8, events, 'Firebomb');
+    } else {
+      const t = c.target ?? h.id;
+      events.push({ actor: h.id, kind: item === 'bandage' || item === 'salts' ? 'heal' : 'status', target: t, text: result });
     }
     return;
   }
@@ -568,11 +602,11 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
 
   switch (m.type) {
     case 'ghoul':
-      monsterHits(world, enc, m, frontOrAny(), 5, 'claws', events);
+      monsterHits(world, enc, m, frontOrAny(), ENEMIES.ghoul.dmg, 'claws', events);
       return;
     case 'crawler': {
-      const t = monsterHits(world, enc, m, frontOrAny(), 3, 'bites', events);
-      if (t && isConscious(t)) t.st.bleed = { dmg: 2, rounds: 3 };
+      const t = monsterHits(world, enc, m, frontOrAny(), ENEMIES.crawler.dmg, 'bites', events);
+      if (t && isConscious(t)) t.st.bleed = { dmg: 1, rounds: 3 };
       return;
     }
     case 'acolyte':
@@ -584,7 +618,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
           text: added > 0 ? `${name} whispers to ${t.name}. (+${added} stress)` : `${name} whispers, but ${t.name} is unshaken.`,
         });
       } else {
-        monsterHits(world, enc, m, rng.pick(back.length ? back : conscious), 4, 'curses', events);
+        monsterHits(world, enc, m, rng.pick(back.length ? back : conscious), ENEMIES.acolyte.dmg, 'curses', events);
       }
       return;
     case 'brute':
@@ -592,7 +626,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
         events.push({ actor: m.id, kind: 'info', text: `${name} gathers itself…` });
         return;
       }
-      for (const t of front.length ? front : [frontOrAny()]) monsterHits(world, enc, m, t, 9, 'slams', events);
+      for (const t of front.length ? front : [frontOrAny()]) monsterHits(world, enc, m, t, ENEMIES.brute.dmg, 'slams', events);
       return;
   }
 }
@@ -670,6 +704,7 @@ export function tickDowned(world: World) {
     if (world.time - h.downedAt >= BLEED_OUT) {
       h.dead = true;
       h.diedAt = world.time;
+      dropEverything(world, h);
       const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
       if (enc) {
         enc.log.push(`${h.name} has died.`);

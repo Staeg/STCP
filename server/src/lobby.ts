@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import {
-  buildView, CLASS_IDS, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
+  addToPile, buildView, CLASS_IDS, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
   type ClassId, type ClientMsg, type LobbyState, type LobbyView, type PlayerSlot, type ServerMsg,
 } from '@stcp/shared';
 
@@ -171,6 +171,12 @@ export class LobbyManager {
         h.dead = false;
         spawnGroup(w, h.pos.room, msg.enemies, tierAt(w.time));
         onHeroInRoom(w, h, h.pos.room);
+        return;
+      }
+      case 'debugLoot': {
+        if (!DEBUG) return err('Debug commands are disabled.');
+        const h = lobby.game?.world.heroes[member.id];
+        if (lobby.game && h?.pos.kind === 'room') addToPile(lobby.game.world, h.pos.room, msg.gold, msg.items);
         return;
       }
       case 'debugSkip':

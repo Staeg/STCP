@@ -6,6 +6,11 @@ import {
   isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
+import type { ItemId } from '../content/items';
+import { notify } from './notify';
+import {
+  castVote, claimAbandoned, dropItem, lockedByVote, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
+} from './loot';
 
 export type HeroPos =
   | { kind: 'room'; room: number }
@@ -49,6 +54,13 @@ export interface Hero {
   prevRoom: number | null;
   /** An out-of-combat action in progress. */
   channel: { kind: 'revive'; target: string; until: number } | null;
+  items: ItemId[];
+  /** Carried gold. Only extracted gold counts. */
+  gold: number;
+  /** Short notices for this player ("+12 gold"), newest last. */
+  messages: { time: number; text: string }[];
+  /** Loot count per room as of when this hero last saw it. */
+  knownLoot: Record<number, number>;
 }
 
 export interface Sighting {
@@ -76,6 +88,8 @@ export interface World {
   encounters: Record<number, Encounter>;
   rng: Rng;
   nextId: number;
+  /** Loot lying in rooms. */
+  piles: Record<number, Pile>;
 }
 
 export type Intent =
@@ -84,19 +98,27 @@ export type Intent =
   | { type: 'stop' }
   | { type: 'combat'; choice: Choice }
   /** Out of combat: spend a few seconds getting a downed ally in your room back up. */
-  | { type: 'revive'; target: string };
+  | { type: 'revive'; target: string }
+  /** Loot vote: a hero id, or 'leave'. */
+  | { type: 'vote'; choice: string }
+  | { type: 'claim'; index: number }
+  | { type: 'drop'; index: number }
+  | { type: 'useItem'; index: number; target?: string };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
   monsters?: boolean;
+  /** Default true. */
+  loot?: boolean;
 }
 
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const world: World = {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
-    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1,
+    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {},
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
+  if (opts.loot !== false) spawnInitialLoot(world);
   return world;
 }
 
@@ -119,6 +141,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     encounter: null,
     prevRoom: null,
     channel: null,
+    items: [],
+    gold: 0,
+    messages: [],
+    knownLoot: {},
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -143,6 +169,7 @@ export function step(world: World, dt: number): void {
   }
   tickDowned(world);
   tickCombat(world);
+  tickLoot(world);
   updateKnowledge(world);
   const heroes = Object.values(world.heroes);
   if (heroes.length > 0 && heroes.every((h) => h.dead)) world.phase = 'wiped';
@@ -158,6 +185,20 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
   }
   if (hero.encounter !== null) return; // movement is locked during a fight
   switch (intent.type) {
+    case 'vote':
+      castVote(world, hero, intent.choice);
+      return;
+    case 'claim':
+      claimAbandoned(world, hero, intent.index);
+      return;
+    case 'drop':
+      dropItem(world, hero, intent.index);
+      return;
+    case 'useItem': {
+      const err = useItemInField(world, hero, intent.index, intent.target);
+      if (err) notify(world, hero, err);
+      return;
+    }
     case 'revive': {
       const t = world.heroes[intent.target];
       if (t && t !== hero && !t.dead && t.downedAt !== null && hero.pos.kind === 'room' && sameRoom(hero, t)) {
@@ -176,10 +217,19 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.path = [];
       return;
     case 'goto':
+      if (lockedByVote(world, hero)) {
+        notify(world, hero, 'Agree on the loot before moving on.');
+        return;
+      }
       hero.channel = null;
       goto(world, hero, intent.room);
       return;
   }
+}
+
+function lootCount(world: World, room: number): number {
+  const p = world.piles[room];
+  return p ? p.items.length + p.abandoned.length + (p.vote ? 1 : 0) + (p.gold > 0 ? 1 : 0) : 0;
 }
 
 function sameRoom(a: Hero, b: Hero) {
@@ -224,6 +274,11 @@ function advance(world: World, hero: Hero, dt: number) {
       explore(world, hero, pos.to);
       onHeroInRoom(world, hero, pos.to);
       if (hero.encounter !== null) return;
+      const pile = world.piles[pos.to];
+      if (pile && (pile.vote || pile.items.length)) {
+        hero.path = []; // stop: there's loot to agree on
+        return;
+      }
     }
   }
 }
@@ -242,6 +297,8 @@ function updateKnowledge(world: World) {
       const room = a.pos.room;
       if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
       a.knownThreat[room] = monstersIn(world, room).length;
+      a.knownLoot[room] = lootCount(world, room);
+      if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n);
       if (a.light >= LIGHT_DIM) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
     }
   }
@@ -275,7 +332,7 @@ function turnAround(world: World, hero: Hero) {
 function explore(world: World, hero: Hero, room: number) {
   addUnique(hero.explored, room);
   addUnique(hero.seen, room);
-  if (hero.light >= LIGHT_DIM) {
+  if (hero.light >= LIGHT_DIM || seesInDark(hero)) {
     for (const n of neighbours(world.dungeon, room)) addUnique(hero.seen, n);
   }
 }

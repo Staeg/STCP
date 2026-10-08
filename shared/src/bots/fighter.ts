@@ -1,4 +1,5 @@
 import { ABILITIES } from '../content/abilities';
+import type { ItemId } from '../content/items';
 import type { Rng } from '../rng';
 import type { Choice, CombatAction } from '../sim/combat';
 import type { CombatUnitView, EncounterView, PlayerView } from '../sim/views';
@@ -28,7 +29,12 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const softTarget = enemies.find((m) => m.st.mark || m.st.stun);
   const hurtAlly = minBy(allies.filter((a) => a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
 
+  const slot = (id: ItemId) => view.you.items.indexOf(id);
+  if (downed.length && slot('salts') >= 0) return { action: 'item', item: slot('salts'), target: downed[0].id };
   if (downed.length && rng.chance(0.7)) return { action: 'revive', target: minBy(downed, (d) => d.bleedOut ?? 99)!.id };
+  if (me.hp / me.maxHp < 0.35 && slot('bandage') >= 0) return { action: 'item', item: slot('bandage'), target: me.id };
+  if (enemies.length >= 3 && slot('firebomb') >= 0 && rng.chance(0.6)) return { action: 'item', item: slot('firebomb') };
+  if (view.you.light <= 0 && slot('torch') >= 0) return { action: 'item', item: slot('torch') };
   if (me.hp / me.maxHp < 0.2 && rng.chance(0.3)) return { action: 'flee' };
 
   switch (view.you.cls) {

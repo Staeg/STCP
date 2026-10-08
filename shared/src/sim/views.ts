@@ -2,6 +2,8 @@ import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/consta
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
+import { INVENTORY_SLOTS, type ItemId } from '../content/items';
+import { hasSpace, votersIn } from './loot';
 import { BLEED_OUT, heroRank, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
@@ -19,6 +21,25 @@ export interface RoomView {
   corridors: number[];
   /** Monsters you last saw here (undefined = never looked). */
   threat?: number;
+  /** Loot you last saw here. */
+  loot?: number;
+}
+
+export interface LootView {
+  room: number;
+  gold: number;
+  /** Items still queued for a vote (the current one is in `vote`). */
+  queued: ItemId[];
+  abandoned: ItemId[];
+  vote: {
+    item: ItemId;
+    votes: Record<string, string>;
+    /** Hero ids that must agree. */
+    voters: string[];
+    /** Hero ids who can receive it (present, have a free slot). */
+    candidates: { id: string; name: string; free: number; isBot: boolean }[];
+    startedAt: number;
+  } | null;
 }
 
 export interface AllyView {
@@ -92,6 +113,8 @@ export interface PlayerView {
   chalk: ChalkView[];
   ghostCorridors: Corridor[];
   encounter: EncounterView | null;
+  /** Loot in your current room, if any. */
+  loot: LootView | null;
 }
 
 /**
@@ -140,6 +163,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       kind: knowledge === 'unknown' ? undefined : r.kind,
       corridors: r.corridors.filter((cid) => knowsCorridor(you, d.corridors[cid])),
       threat: you.knownThreat[id],
+      loot: you.knownLoot[id],
     };
   });
   return {
@@ -159,6 +183,29 @@ export function buildView(world: World, heroId: string): PlayerView {
     /** Corridors an ally was seen in that you don't otherwise know; position only. */
     ghostCorridors: extraCorridors,
     encounter: encounterView(world, you),
+    loot: lootView(world, you),
+  };
+}
+
+function lootView(world: World, you: Hero): LootView | null {
+  if (you.pos.kind !== 'room') return null;
+  const room = you.pos.room;
+  const pile = world.piles[room];
+  if (!pile) return null;
+  const voters = votersIn(world, room);
+  const present = Object.values(world.heroes).filter((h) => !h.dead && h.pos.kind === 'room' && h.pos.room === room);
+  return {
+    room,
+    gold: pile.gold,
+    queued: [...pile.items],
+    abandoned: [...pile.abandoned],
+    vote: pile.vote && {
+      item: pile.vote.item,
+      votes: { ...pile.vote.votes },
+      voters: voters.map((v) => v.id),
+      candidates: present.filter(hasSpace).map((h) => ({ id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot })),
+      startedAt: pile.vote.startedAt,
+    },
   };
 }
 

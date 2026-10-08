@@ -2,6 +2,7 @@ import { EXIT_OPENS_AT } from '../content/constants';
 import { Rng } from '../rng';
 import type { PlayerView, RoomView } from '../sim/views';
 import type { Intent } from '../sim/world';
+import { botUseItem, botVote } from './looter';
 
 /**
  * Exploration brain for bots. It only ever sees its own fog-filtered PlayerView,
@@ -38,6 +39,10 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   // Get a downed ally in this room back up before anything else.
   const downed = view.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
   if (downed) return { type: 'revive', target: downed.id };
+  const vote = botVote(view);
+  if (vote !== undefined) return vote;
+  const use = botUseItem(view);
+  if (use) return use;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
   if (exit && here === exit.id) return null;

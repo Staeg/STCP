@@ -12,7 +12,8 @@
     "build": "npm run build -w client",
     "start": "npm run build && npm run start -w server",
     "test": "vitest run",
-    "typecheck": "tsc -p shared && tsc -p server && tsc -p client"
+    "typecheck": "tsc -p shared && tsc -p server && tsc -p client",
+    "sim": "npm run sim -w server --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

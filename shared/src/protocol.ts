@@ -1,5 +1,6 @@
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { ENEMIES, type EnemyId } from './content/enemies';
+import { ITEMS, type ItemId } from './content/items';
 import type { CombatAction } from './sim/combat';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
@@ -39,7 +40,9 @@ export type ClientMsg =
   /** Dev-only (server started with --debug): fast-forward the game clock. */
   | { t: 'debugSkip'; seconds: number }
   /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
-  | { t: 'debugSpawn'; enemies: EnemyId[] };
+  | { t: 'debugSpawn'; enemies: EnemyId[] }
+  /** Dev-only: drop items and gold in your room. */
+  | { t: 'debugLoot'; items: ItemId[]; gold: number };
 
 export type ServerMsg =
   | { t: 'pong'; id: number }
@@ -47,7 +50,7 @@ export type ServerMsg =
   | { t: 'error'; msg: string }
   | { t: 'view'; view: PlayerView };
 
-const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace'];
+const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item'];
 
 export const MAX_PLAYERS = 4;
 export const NAME_MAX = 16;
@@ -67,6 +70,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   if (!m || typeof m !== 'object') return null;
   const msg = m as Record<string, unknown>;
   const str = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
+  const slot = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) < 16;
   switch (msg.t) {
     case 'ping':
       return typeof msg.id === 'number' ? { t: 'ping', id: msg.id } : null;
@@ -89,6 +93,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: msg.t };
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
+    case 'debugLoot':
+      return Array.isArray(msg.items) && msg.items.length <= 8 && msg.items.every((e) => e in ITEMS) && Number.isInteger(msg.gold)
+        ? { t: 'debugLoot', items: msg.items as ItemId[], gold: msg.gold as number }
+        : null;
     case 'debugSpawn':
       return Array.isArray(msg.enemies) && msg.enemies.length <= 4 && msg.enemies.every((e) => e in ENEMIES)
         ? { t: 'debugSpawn', enemies: msg.enemies as EnemyId[] }
@@ -99,11 +107,20 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'goto' && Number.isInteger(i.room)) return { t: 'intent', intent: { type: 'goto', room: i.room as number } };
       if (i.type === 'turnBack' || i.type === 'stop') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
+      if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
+      if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };
+      if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
+        return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };
+      }
       if (i.type === 'combat' && i.choice && typeof i.choice === 'object') {
         const c = i.choice as Record<string, unknown>;
         if (!COMBAT_ACTIONS.includes(c.action as CombatAction)) return null;
         if (c.target !== undefined && !str(c.target, 32)) return null;
-        return { t: 'intent', intent: { type: 'combat', choice: { action: c.action as CombatAction, target: c.target as string | undefined } } };
+        if (c.item !== undefined && !slot(c.item)) return null;
+        return {
+          t: 'intent',
+          intent: { type: 'combat', choice: { action: c.action as CombatAction, target: c.target as string | undefined, item: c.item as number | undefined } },
+        };
       }
       return null;
     }

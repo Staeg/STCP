@@ -346,6 +346,17 @@ export class MapRenderer {
       ctx.textAlign = 'center';
     }
 
+    // Loot you last saw here
+    if (r.loot) {
+      ctx.font = '16px VT323, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#000';
+      ctx.fillText('✦', x + 1, y + size + 1);
+      ctx.fillStyle = '#e0b44a';
+      ctx.fillText('✦', x, y + size);
+      ctx.textAlign = 'center';
+    }
+
     // Crossroads marker
     if (r.knowledge === 'explored' && r.corridors.length >= 3) {
       ctx.fillStyle = COLORS.muted;

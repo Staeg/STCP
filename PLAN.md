@@ -42,6 +42,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Identity | Each tab holds a secret token in sessionStorage, so refreshing resumes the same hero and separate tabs act as separate players. Other clients only ever see a public id. Leaving mid-run hands your hero to a bot. |
 | Visibility | You see an ally if you're in the same room or corridor, they're in a corridor touching your room, or (while not Dim) they're in an adjacent room. Chalk marks are physical: you only learn a crossroads' marks by standing in it, and you see them as they were on your last visit. |
 | Debug | `npm run dev` starts the server with `--debug`, which enables `{t:'debugSkip', seconds}` (fast-forward) and `{t:'debugSpawn', enemies:['ghoul',…]}` (spawns monsters in your room, starts a fight, and fully heals/resurrects you). Use `__net.send(...)` from the browser console. |
+| Loot rules (v1) | Gold is auto-split among everyone present (downed included) as soon as nobody's fighting there. Each item opens a vote among the conscious, non-fighting heroes in the room; arriving heroes stop and join. "Leave it" abandons an item, and anyone can **claim** it later, which starts a new vote. Dropping an item puts it to a vote. Wasting a Bandage at full HP or a Tonic at 0 stress is refused. Bots defer to the humans' majority after 2s; all-bot rooms converge on the lowest-id bot. |
 | Combat rules (v1) | Monsters never attack downed heroes; the fight ends when no conscious hero remains, but the monsters stay in the room. Anyone arriving later starts a new fight that includes the downed heroes, so a rescue is always possible until bleed-out. Cooldown N = N rounds unusable. Guard, Smoke and Brace apply before anyone acts. Heroes' cooldowns and statuses (except Bleed) reset after each fight. Stress (0–100) exists now: Acolyte Whisper, allies falling (+15) or dying (+25), Rally/Vigil to reduce it. Afflictions come in M6. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
@@ -197,9 +198,9 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - **Mini-playtest:** fight 5 encounters with each class. Can you decide in 5 seconds? Does each class feel distinct?
 
 ### M4. Loot, items & gold
-- [ ] Loot piles, chests, gold split among those present.
-- [ ] Item voting UI plus room-exit lock, combat pausing the vote, late joiners, bot voting.
-- [ ] Inventory (4 slots), using items in and out of combat, all consumables + trinkets.
+- [x] Loot piles, gold split among those present (chests come with the M6 events, as Locked Vault and Cursed Chest).
+- [x] Item voting UI plus room-exit lock, combat pausing the vote, late joiners, bot voting.
+- [x] Inventory (4 slots), using items in and out of combat, all consumables + trinkets. The dead drop items and gold where they fall.
 - **Mini-playtest:** with 2 tabs + bots, deliberately disagree on an item. Is the lock clear? Does the pressure feel fun, not annoying?
 
 ### M5. Escalation & the climax
@@ -269,6 +270,11 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M4 done.** `content/items.ts` (5 consumables, 4 trinkets, loot table), `sim/loot.ts` (piles, gold split, votes, lock, claim/drop, item effects), `bots/looter.ts` (votes + field item use), items in the bot fighter, combat `item` action (keys 4–7), `client/src/loot.ts` (vote panel, inventory, gold, notification toasts via `hero.messages`), ✦ loot markers on the map (the Cutthroat also sees loot in neighbouring rooms). New dev command `debugLoot`. **New tool:** `npm run sim -- --games N --seed S` (headless all-bot games; the start of M8). 50 tests.
+  - **Early balance pass (sim-driven):** before it, 64% of bot heroes died and 53% of games were full wipes, almost all in T0–T2 with no escalation yet. Monster damage moved into `ENEMIES[].dmg`. Ghoul is now 14 HP / 4 dmg, Crawler 8 HP / 2 dmg + Bleed 1×3, Acolyte 11 HP / 3 dmg, Brute 34 HP / 7 dmg. Now 20–25% die and wipes are ~0–3%, but nearly all deaths are still in T0–T2 and survivors pocket ~90% of the gold. **The tension is missing until M5's escalation.** Re-tune in M8.
+  - Mini-playtest (2 tabs + bots): gold split 11/10. Disagreeing on the Iron Locket kept both players locked, and the panel says "You disagree" plus who's still pending. A bot that wandered in joined the vote and then deferred to the humans in under 1s. Locket +8 max HP worked, and Bandage/Firebomb worked in combat via key 4.
+  - Dev gotcha: editing anything in `shared/` restarts the tsx-watch server, which wipes in-memory lobbies. Set up a test lobby after you finish editing.
+  - Next: M5 (escalation, extraction, results screen). This is the FIRST PLAYABLE milestone.
 - 2026-10-08 · **M3 done.** `shared/src/sim/combat.ts` (encounters, resolution, statuses, downed/bleed-out/death, flee, out-of-combat revive channel), content files for abilities and enemies, `bots/fighter.ts` (heuristic + 25% blunders, 1–3s think delay), encounter/threat/ally-HP in views, DOM combat panel (`client/src/combat.ts`) with a replay of each round's events, floating numbers, HP bars that move in step with the replay, targeting mode, hotkeys 1/2/3/R/F/B. HUD gained HP/stress bars, downed/dead banners, a Revive button, ☠N threat markers on rooms and X marks on downed/dead allies. 37 tests.
   - Mini-playtest: the UI flow works end to end (key → target highlight → click → locked in → replay). Cooldowns behave. In an unplanned moment, three bots wandered into my fight while I was down, revived me, mended, guarded, and won. That's exactly the intended rescue drama.
   - **Balance flags for M8:** all-bot games currently lose about 50% of heroes even without escalation (no healing items yet). Solo heroes are fragile: two Crawlers' stacked Bleed killed a bracing Hexer in ~5 rounds. Revisit once items (M4) exist.

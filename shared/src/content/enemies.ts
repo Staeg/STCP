@@ -7,6 +7,8 @@ export interface EnemyDef {
   maxHp: number;
   rank: Rank;
   speed: number;
+  /** Base damage of its main attack (scaled by tier). */
+  dmg: number;
   undead: boolean;
   /** Placeholder glyph until sprites (M9). */
   glyph: string;
@@ -14,10 +16,10 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyId, EnemyDef> = {
-  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 18, rank: 'front', speed: 2, undead: true, glyph: '☠', desc: 'Claw: 5 dmg to a front hero.' },
-  crawler: { id: 'crawler', name: 'Crawler', maxHp: 10, rank: 'front', speed: 6, undead: false, glyph: '✷', desc: 'Fast. Bite: 3 dmg + Bleed.' },
-  acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 14, rank: 'back', speed: 4, undead: false, glyph: '♆', desc: 'Whisper: +6 stress, or Curse: 4 dmg to a back hero.' },
-  brute: { id: 'brute', name: 'Bone Brute', maxHp: 40, rank: 'front', speed: 1, undead: true, glyph: '♜', desc: 'Every other round, Slam: 9 dmg to all front heroes.' },
+  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, rank: 'front', speed: 2, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to a front hero.' },
+  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, rank: 'front', speed: 6, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed.' },
+  acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, rank: 'back', speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress, or Curse: 3 dmg to a back hero.' },
+  brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, rank: 'front', speed: 1, dmg: 7, undead: true, glyph: '♜', desc: 'Every other round, Slam: 7 dmg to all front heroes.' },
 };
 
 export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[] }[] = [

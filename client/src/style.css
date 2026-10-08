@@ -269,3 +269,48 @@ button.quiet { margin-left: auto; background: transparent; }
 .cb-act.sel { border-color: var(--gold); background: #4a3820; }
 .cb-act .cd { position: absolute; right: 8px; top: 2px; color: var(--danger); font-size: 22px; }
 .cb-desc { font-size: 15px; color: var(--muted); line-height: 1; margin-top: 2px; }
+
+/* ---- Loot & inventory ---- */
+#inventory { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+.gold { color: var(--gold); }
+.slots-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; pointer-events: auto; }
+.slot-item { position: relative; border: 1px solid var(--border); background: #1a140f; padding: 2px 4px; font-size: 16px; min-height: 26px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.slot-item.empty { opacity: 0.35; cursor: default; }
+.slot-item.trinket { border-color: #6a5a8a; }
+.slot-item:not(.empty):hover { border-color: var(--gold); }
+.slot-item kbd { font-size: 13px; margin-right: 3px; }
+.slot-item .drop { position: absolute; right: 3px; top: 1px; color: var(--muted); display: none; }
+.slot-item:hover .drop { display: inline; }
+.slot-item .drop:hover { color: var(--danger); }
+#status-panel { pointer-events: auto; width: 260px; }
+.item-glyph { color: var(--gold); }
+
+#loot {
+  position: fixed;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100vw - 600px));
+  min-width: 380px;
+  background: rgba(20, 15, 10, 0.97);
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 0 2px #000, 0 0 30px rgba(224, 180, 74, 0.25);
+  padding: 10px 14px;
+  z-index: 4;
+}
+.loot-head { font-size: 24px; }
+.vote-opts { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.vote-opt { flex: 1; min-width: 90px; font-size: 20px; padding: 4px 8px; }
+.vote-opt.sel { border-color: var(--gold); background: #4a3820; }
+.vote-opt.leave { color: var(--muted); }
+.backers { min-height: 12px; margin-top: 2px; }
+.dot { display: inline-block; width: 10px; height: 10px; border: 1px solid #000; margin-right: 2px; }
+.lock { color: var(--gold); font-size: 18px; }
+.abandoned { margin-top: 4px; font-size: 18px; }
+button.mini { font-size: 15px; padding: 0 6px; }
+
+#feed { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; z-index: 6; }
+.feed-item { background: rgba(20, 15, 10, 0.9); border: 1px solid var(--border); padding: 2px 12px; animation: feed 4.2s forwards; }
+@keyframes feed { 0% { opacity: 0; transform: translateY(8px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.cb-actions.items { margin-top: 6px; }
+.cb-act.item { flex: 0 1 200px; }
