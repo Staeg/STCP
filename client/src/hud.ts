@@ -18,6 +18,10 @@ export class Hud {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
+    $('btn-mend').addEventListener('click', () => {
+      const id = $('btn-mend').dataset.target;
+      if (id && !$('btn-mend').classList.contains('cooling')) net.intent({ type: 'fieldMend', target: id });
+    });
     $('btn-dig').addEventListener('click', () => {
       const c = Number($('btn-dig').dataset.corridor);
       if (!Number.isNaN(c)) net.intent({ type: 'dig', corridor: c });
@@ -32,6 +36,7 @@ export class Hud {
       if (e.code === 'KeyR') $('btn-revive').click();
       if (e.code === 'KeyE' && !$('btn-escape').hidden) $('btn-escape').click();
       if (e.code === 'KeyD' && !$('btn-dig').hidden) $('btn-dig').click();
+      if (e.code === 'KeyM' && !$('btn-mend').hidden) $('btn-mend').click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -111,6 +116,24 @@ export class Hud {
       const other = view.rooms.find((r) => r.id === (rubble.a === here ? rubble.b : rubble.a));
       digBtn.dataset.corridor = String(rubble.id);
       digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? 9 : 15}s) <kbd>D</kbd>`;
+    }
+
+    // Lampbearer: mend the most hurt person here between fights.
+    const mendBtn = $('btn-mend');
+    const patients = you.cls === 'lampbearer' && free
+      ? [
+          { id: you.id, name: 'yourself', frac: you.hp / you.maxHp },
+          ...view.allies
+            .filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here)
+            .map((a) => ({ id: a.id, name: a.name, frac: a.hp / a.maxHp })),
+        ].filter((p) => p.frac < 1).sort((a, b) => a.frac - b.frac)
+      : [];
+    mendBtn.hidden = patients.length === 0;
+    if (patients.length) {
+      const wait = Math.ceil(you.fieldMendAt - view.time);
+      mendBtn.dataset.target = patients[0].id;
+      mendBtn.classList.toggle('cooling', wait > 0);
+      mendBtn.innerHTML = wait > 0 ? `✚ Mend ready in ${wait}s` : `✚ Mend ${escape(patients[0].name)} (+8) <kbd>M</kbd>`;
     }
 
     // Channel progress (reviving, digging)

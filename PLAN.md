@@ -50,6 +50,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Stash | Extracted gold is added to `server/data/stash.json`, keyed by lower-cased player name, and shown in the lobby and results. |
 | Events (v1) | 28% of normal rooms (not the entrance, the exit, or rooms next to the entrance) get an event. Events work once the room is quiet (no monsters). Altar and Vault are channels whose **progress is kept** if interrupted, and several heroes channelling stack their progress. The Altar summons guardians at 50% (one tier weaker than the dungeon). Each altar cleansed is worth +15 gold to every hero who escapes, plus −20 stress for everyone still inside. **Villagers are saved on reaching the rendezvous room** (they slip out alone), worth +25 gold to every escaper; this was changed so escorts don't camp at the exit for 5 minutes. Escorting slows you to 70% speed, monsters sometimes hit the villager (15%), and if the escort falls the villager waits in that room for anyone to pick up. The Crawlspace moves you up to 3 rooms along the real route to the exit (4 damage, Dim light). The Idol caves in the corridor you arrived by. |
 | Stress (v1) | Dim +0.15/s, total darkness +0.5/s (Cat's-Eye negates Dim). The first 100 gives a random affliction and resets to 60; the next 100 is a heart attack (downed, reset to 80). Selfish: forced to vote for themselves, and dropped from the vote after 10s. Fearful: 25% to panic-flee. Paranoid: refuses others' Mend/Guard/Vigil/Bandage/Pact healing (Salts still work). Hopeless: −30% damage. |
+| Lampbearer field Mend (added in M7) | Outside combat the Lampbearer can heal anyone in the same room for 8 (and cure Bleed), with a 20s cooldown (button/M). Before this, HP never recovered between fights except via Bandages, so almost every down became a death. It also gives the party a reason to stay near the Lampbearer. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -223,8 +224,8 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - [x] Bots handle events (random-ish but sensible) and objectives (only if they're nearby).
 
 ### M7. Bot polish
-- [ ] Bot rescue logic, greed variance, objective pursuit, "think" delays, 25% suboptimality.
-- [ ] Bots should be noticeably worse than a focused human but not useless. Check this with the sim in M8.
+- [x] Bot rescue logic, greed variance, objective pursuit, "think" delays, 25% suboptimality.
+- [x] Bots should be noticeably worse than a focused human but not useless. Check this with the sim in M8. (Still too weak in the late game; that's M8.)
 
 ### M8. Headless simulation & balance pass
 - [ ] `npm run sim -- --games 300 --seed X` runs 4-bot games at accelerated time and outputs JSON/CSV metrics.
@@ -276,6 +277,16 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M7 done.** Bots:
+  - **Threat-aware routing:** `planRoutes` is a Dijkstra where entering a room with known monsters costs 8 + 40×hurt per monster. Bots walk the route hop by hop and skip the think pause while the next room is known to be clear.
+  - **Rescue:** a bot goes to an ally it saw go down in the last 25s, if they're within about 20s of walking and it's not nearly collapse time.
+  - **Retreat:** a bot flees at <35% HP when the enemies have more HP than it does and there's no healer or downed ally.
+  - Lampbearer bots field-mend the most hurt person in the room below 75% HP.
+
+  Also: Lampbearer field Mend for players (button/M), `bots/bots.test.ts` (routing avoids threat, rescue, retreat), the sim reports death causes, and long simulation tests now have 30s timeouts. 77 tests.
+  - Sim (80 games): escape 27% → **31%**, full wipes 35% → **26%**, fights 4.5–4.6 rounds. Deaths are mostly "bled out" away from the exit in T3–T6. Rescues are still rare: about 0.8 revives against 3.4 downs per game, because allies are usually out of sight. Late arrivals are ~9%.
+  - **For M8 (balance), in priority order:** (1) late-game monster pressure (cap 8+3×tier, respawn 45/30s, wanderers every 60s, T3+ Brutes): try a lower capPerTier or slower late respawns first. (2) Late arrivals: the climax needs about 30% of runs to have someone arrive after 10:30; consider a later bot return window once survival improves. (3) Gold economy: ~120 gold per escaped hero, mostly from objectives.
+  - Next: M8.
 - 2026-10-08 · **M6 done.** `content/events.ts` (afflictions, 8 event types, seeding, channel times), `sim/events.ts` (seeding, choices, channels, villagers, darkness stress and breaking), `bots/eventer.ts` (each bot decides once per room; risky events only above 60% HP; escorts go home and then resume their plan). Afflictions are wired into combat and loot. View: `event`, `leading`, `objectives`, per-room event icons, ally afflictions. Client: `client/src/events.ts` panel; HUD affliction badge, escort line and objectives line; map glyphs (⛧☺✧¿◯▣☐↘). Loot and event panels moved to the bottom centre and toasts to the top centre, so they no longer cover the map. New dev command `debugEvent`. Fixed: a fight whose monsters disappear mid-round now ends at once. `npm run sim -- --events 0` compares runs without events. 74 tests.
   - Sim (80 games): **escape 24–27%** (33% with events off), wipes 35–40%, 0.3 afflictions and ~0 heart attacks per game, 6.8 events used, 0.6 altars, 0.9 villagers saved, 123 gold per escaped hero (objective bonuses are big). An ablation showed the Altar and Crawlspace as the costliest for bots, so I added the bot HP gates and weaker guardians. Bot return window moved to 6:30–10:30. **Bots are now clearly too weak for the late game.** M7/M8 should fix rescues, avoidance and late-game pacing before any number tuning.
   - Mini-playtest: Hexer altar cleanse took 7s, guardians came at 50%, the fight was won at 4/36 HP, and progress resumed from 50% to completion (objective +1, −20 stress). Villager freed, the HUD escort line showed. One bug found and fixed: the bottom progress strip said "Reviving… 0.0s" during an event channel.

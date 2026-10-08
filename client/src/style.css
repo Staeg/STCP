@@ -368,3 +368,4 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #affliction { color: #ff6a4a; animation: pulse 0.9s infinite alternate; cursor: help; }
 #escort { color: #9fe0ff; font-size: 17px; }
 .aff { color: #ff8a6a; font-size: 15px; }
+#btn-mend.cooling { opacity: 0.5; cursor: default; }

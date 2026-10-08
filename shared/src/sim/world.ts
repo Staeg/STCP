@@ -1,6 +1,7 @@
 import { CLASSES, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
 import { ESCALATION } from '../content/enemies';
+import { FIELD_MEND } from '../content/abilities';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
@@ -69,6 +70,8 @@ export interface Hero {
   leading: string | null;
   /** Events this hero has seen, by room (for map icons). */
   knownEvents: Record<number, EventKind>;
+  /** Lampbearer: game time when the out-of-combat Mend is ready again. */
+  fieldMendAt: number;
   items: ItemId[];
   /** Carried gold. Only extracted gold counts. */
   gold: number;
@@ -157,7 +160,9 @@ export type Intent =
   /** Dig through a collapsed corridor leading out of your room. */
   | { type: 'dig'; corridor: number }
   /** Pick an option of the event in your room. */
-  | { type: 'event'; choice: string };
+  | { type: 'event'; choice: string }
+  /** Lampbearer only: heal someone in your room outside a fight. */
+  | { type: 'fieldMend'; target: string };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
@@ -217,6 +222,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     affliction: null,
     leading: null,
     knownEvents: {},
+    fieldMendAt: 0,
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -347,6 +353,20 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     case 'event': {
       const err = chooseEvent(world, hero, intent.choice);
       if (err) notify(world, hero, err);
+      return;
+    }
+    case 'fieldMend': {
+      const t = world.heroes[intent.target];
+      if (hero.cls !== 'lampbearer' || !t || !isConscious(t) || !sameRoom(hero, t)) return;
+      if (world.time < hero.fieldMendAt) return notify(world, hero, `Mend is ready in ${Math.ceil(hero.fieldMendAt - world.time)}s.`);
+      if (t !== hero && t.affliction === 'paranoid') return notify(world, hero, `${t.name} refuses your help. (Paranoid)`);
+      if (t.hp >= t.maxHp && !t.st.bleed) return notify(world, hero, `${t === hero ? "You're" : `${t.name} is`} not hurt.`);
+      const before = t.hp;
+      t.hp = Math.min(t.maxHp, t.hp + FIELD_MEND.heal);
+      delete t.st.bleed;
+      hero.fieldMendAt = world.time + FIELD_MEND.cooldown;
+      notify(world, hero, `You mend ${t === hero ? 'yourself' : t.name} (+${t.hp - before}).`);
+      if (t !== hero) notify(world, t, `${hero.name} mends your wounds (+${t.hp - before}).`);
       return;
     }
     case 'extract':

@@ -18,6 +18,9 @@ export interface AbilityDef {
   desc: string;
 }
 
+/** The Lampbearer can also Mend outside a fight: small heal, long cooldown. */
+export const FIELD_MEND = { heal: 8, cooldown: 20 };
+
 export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = {
   warden: [
     { id: 'bash', name: 'Shield Bash', cooldown: 2, target: 'enemyFront', power: 8, desc: '8 dmg to a front enemy. 50% Stun.' },

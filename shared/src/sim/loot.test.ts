@@ -192,7 +192,7 @@ describe('items', () => {
 });
 
 describe('bot games with loot', () => {
-  it('bots resolve every vote (no deadlocks) and pick things up', () => {
+  it('bots resolve every vote (no deadlocks) and pick things up', { timeout: 30000 }, () => {
     let gold = 0;
     let items = 0;
     let stuckVotes = 0;

@@ -12,6 +12,7 @@ const worldOpts = { events: args.get('events') !== '0' };
 
 const deathsByTier = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
+const causes: Record<string, number> = {};
 let heroes = 0, deaths = 0, escaped = 0, wiped = 0, lateRuns = 0, goldOut = 0;
 let fights = 0, rounds = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
 let afflictions = 0, heartAttacks = 0, eventsUsed = 0, altars = 0, saved = 0;
@@ -35,6 +36,9 @@ for (let g = 0; g < games; g++) {
       deaths++;
       deathsByTier[Math.min(7, Math.floor((h.diedAt ?? COLLAPSE_AT) / TIER_INTERVAL))]++;
       deathsByClass[h.cls] = (deathsByClass[h.cls] ?? 0) + 1;
+      const cause = (h.fate ?? '').startsWith('was buried') ? 'buried' : 'bled out';
+      const where = (h.diedAt ?? 0) >= EXIT_OPENS_AT && h.pos.kind === 'room' && h.pos.room === w.dungeon.exit ? ' at exit' : '';
+      causes[cause + where] = (causes[cause + where] ?? 0) + 1;
     }
   }
   if (late) lateRuns++;
@@ -57,6 +61,7 @@ console.log(`${check(rounds / fights >= 3 && rounds / fights <= 6)} rounds per f
 console.log(`full wipes: ${pct(wiped, games)}`);
 console.log(`deaths by tier: ${deathsByTier.map((n, i) => `T${i}:${n}`).join(' ')}`);
 console.log(`deaths by class: ${JSON.stringify(deathsByClass)}`);
+console.log(`death causes: ${JSON.stringify(causes)}`);
 console.log(`exit arrivals: median ${arrivals.length ? fmt(arrivals[Math.floor(arrivals.length / 2)]) : '-'}, n=${arrivals.length}`);
 console.log(`per game: ${(fights / games).toFixed(1)} fights, ${(slain / games).toFixed(1)} slain, ${(downs / games).toFixed(1)} downs, ${(revives / games).toFixed(1)} revives, ${(collapses / games).toFixed(1)} collapses, ${(waves / games).toFixed(1)} waves`);
 console.log(`per game: ${(afflictions / games).toFixed(1)} afflictions, ${(heartAttacks / games).toFixed(1)} heart attacks, ${(eventsUsed / games).toFixed(1)} events used, ${(altars / games).toFixed(1)} altars, ${(saved / games).toFixed(1)} villagers saved`);

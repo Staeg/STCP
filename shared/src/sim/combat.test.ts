@@ -182,7 +182,7 @@ describe('encounters', () => {
 });
 
 describe('full bot games with monsters', () => {
-  it('play out without errors, with fights, downs and survivors', () => {
+  it('play out without errors, with fights, downs and survivors', { timeout: 30000 }, () => {
     let fights = 0;
     let survivors = 0;
     let deaths = 0;

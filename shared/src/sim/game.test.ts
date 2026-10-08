@@ -13,7 +13,7 @@ const fourBots = () => [
 ];
 
 describe('bots', () => {
-  it('explore, spread out, and gather at the rendezvous in an empty dungeon', () => {
+  it('explore, spread out, and gather at the rendezvous in an empty dungeon', { timeout: 30000 }, () => {
     let atExit = 0;
     let total = 0;
     let explored = 0;

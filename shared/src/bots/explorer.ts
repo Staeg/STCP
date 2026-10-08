@@ -28,6 +28,8 @@ export interface BotMemory {
   channelling: number | null;
   /** While escorting a villager home: the return time to restore afterwards. */
   escortReturnAt: number | null;
+  /** Remaining rooms of the route being walked. */
+  route: number[];
 }
 
 export function createBotMemory(seed: number): BotMemory {
@@ -35,16 +37,29 @@ export function createBotMemory(seed: number): BotMemory {
   const greed = rng.float(0.2, 0.8);
   // 0.2 → 6:30 … 0.8 → 10:30. Greedy bots are often late, by design.
   const returnAt = EXIT_OPENS_AT - 210 + (greed - 0.2) / 0.6 * 240;
-  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null };
+  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null, route: [] };
 }
 
 export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   const you = view.you;
   if (view.phase !== 'running' || you.pos.kind !== 'room' || you.path.length > 0) return null;
+  const here = you.pos.room;
+
+  // Mid-route through rooms known to be clear: keep walking without stopping to think.
+  const next = mem.route[0];
+  const roomOf = (id: number) => view.rooms.find((r) => r.id === id);
+  if (next !== undefined && !view.loot?.vote && !(view.event && !mem.decided.includes(here))) {
+    const open = view.corridors.some((c) => !c.collapsed && ((c.a === here && c.b === next) || (c.b === here && c.a === next)));
+    if (open && !(roomOf(next)?.threat ?? 0)) {
+      mem.route.shift();
+      return { type: 'goto', room: next };
+    }
+  }
+  mem.route = [];
+
   if (view.time < mem.thinkUntil) return null;
   mem.thinkUntil = view.time + mem.rng.float(0.4, 1.6);
 
-  const here = you.pos.room;
   // Get a downed ally in this room back up before anything else.
   const downed = view.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
   if (downed) return { type: 'revive', target: downed.id };
@@ -72,10 +87,30 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     return null;
   }
   const costs = viewDistances(view, here);
+  // Routes that avoid rooms with known monsters (much more so when hurt).
+  const hurt = 1 - you.hp / you.maxHp;
+  const plan = planRoutes(view, here, 8 + 40 * hurt);
+  const travel = (target: number): Intent | null => {
+    const route = routeTo(plan.prev, here, target);
+    if (!route || route.length === 0) return null;
+    mem.route = route.slice(1);
+    return { type: 'goto', room: route[0] };
+  };
+
+  // Rescue: an ally we saw go down nearby, while there's still time to reach them.
+  const rescue = view.allies
+    .filter((a) => a.downed && !a.dead && !a.extracted && a.pos.kind === 'room' && view.time - a.seenAt < 25)
+    .map((a) => ({ a, cost: costs.get((a.pos as { room: number }).room) }))
+    .filter((x) => x.cost !== undefined && x.cost <= 20 && view.time < view.collapseAt - 90)
+    .sort((x, y) => x.cost! - y.cost!)[0];
+  if (rescue) {
+    const go = travel((rescue.a.pos as { room: number }).room);
+    if (go) return go;
+  }
 
   // Badly hurt bots give up and head for the rendezvous early.
   if (exit && (view.time >= mem.returnAt || you.hp / you.maxHp < 0.3)) {
-    if (costs.has(exit.id)) return { type: 'goto', room: exit.id };
+    if (costs.has(exit.id)) return travel(exit.id) ?? { type: 'goto', room: exit.id };
     // Route unknown: push into the unexplored room that looks closest to the exit.
     const frontier = frontierRooms(view, costs);
     if (frontier.length) {
@@ -96,14 +131,51 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (frontier.length === 0) return exit && costs.has(exit.id) ? { type: 'goto', room: exit.id } : null;
   const roomById = new Map(view.rooms.map((r) => [r.id, r]));
   const best = minBy(frontier, (r) => {
-    // Hurt bots steer well clear of known monsters.
-    const hurt = 1 - you.hp / you.maxHp;
-    let score = costs.get(r.id)! + mem.rng.float(0, 6) + (r.threat ?? 0) * (3 + 25 * hurt);
+    // Threat-weighted route cost: hurt bots steer well clear of known monsters.
+    let score = (plan.cost.get(r.id) ?? Infinity) + mem.rng.float(0, 6);
     const firstCorridor = firstStepCorridor(view, here, r.id, costs, roomById);
     if (firstCorridor !== null && chalked.has(firstCorridor)) score += 6;
     return score;
   });
-  return { type: 'goto', room: best.id };
+  return travel(best.id) ?? { type: 'goto', room: best.id };
+}
+
+/** Dijkstra where entering a room with known monsters costs extra. */
+export function planRoutes(view: PlayerView, start: number, threatPenalty: number) {
+  const threat = new Map(view.rooms.map((r) => [r.id, r.threat ?? 0]));
+  const adj = new Map<number, { to: number; len: number }[]>();
+  for (const c of view.corridors) {
+    if (c.collapsed) continue;
+    (adj.get(c.a) ?? adj.set(c.a, []).get(c.a)!).push({ to: c.b, len: c.length });
+    (adj.get(c.b) ?? adj.set(c.b, []).get(c.b)!).push({ to: c.a, len: c.length });
+  }
+  const cost = new Map<number, number>([[start, 0]]);
+  const prev = new Map<number, number>();
+  const done = new Set<number>();
+  while (true) {
+    let cur = -1;
+    let best = Infinity;
+    for (const [room, c] of cost) if (!done.has(room) && c < best) [cur, best] = [room, c];
+    if (cur === -1) break;
+    done.add(cur);
+    for (const { to: n, len } of adj.get(cur) ?? []) {
+      const nc = best + len + threatPenalty * (threat.get(n) ?? 0);
+      if (nc < (cost.get(n) ?? Infinity)) {
+        cost.set(n, nc);
+        prev.set(n, cur);
+      }
+    }
+  }
+  return { cost, prev };
+}
+
+/** Rooms to walk through from `from` to `to` (excluding `from`), or null. */
+function routeTo(prev: Map<number, number>, from: number, to: number): number[] | null {
+  if (to === from) return [];
+  if (!prev.has(to)) return null;
+  const path: number[] = [];
+  for (let cur = to; cur !== from; cur = prev.get(cur)!) path.unshift(cur);
+  return path;
 }
 
 function frontierRooms(view: PlayerView, costs: Map<number, number>): RoomView[] {

@@ -114,6 +114,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'goto' && Number.isInteger(i.room)) return { t: 'intent', intent: { type: 'goto', room: i.room as number } };
       if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
+      if (i.type === 'fieldMend' && str(i.target, 32)) return { t: 'intent', intent: { type: 'fieldMend', target: i.target as string } };
       if (i.type === 'event' && str(i.choice, 16)) return { t: 'intent', intent: { type: 'event', choice: i.choice as string } };
       if (i.type === 'dig' && Number.isInteger(i.corridor)) return { t: 'intent', intent: { type: 'dig', corridor: i.corridor as number } };
       if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };

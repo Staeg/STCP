@@ -62,6 +62,16 @@ function majority(values: string[]): string {
 /** Use a consumable out of combat when it obviously helps. */
 export function botUseItem(view: PlayerView): Intent | null {
   const me = view.you;
+  if (me.cls === 'lampbearer' && view.time >= me.fieldMendAt && me.pos.kind === 'room') {
+    const here = me.pos.room;
+    const hurt = [
+      { id: me.id, frac: me.hp / me.maxHp },
+      ...view.allies
+        .filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here && a.affliction !== 'paranoid')
+        .map((a) => ({ id: a.id, frac: a.hp / a.maxHp })),
+    ].sort((a, b) => a.frac - b.frac)[0];
+    if (hurt && hurt.frac < 0.75) return { type: 'fieldMend', target: hurt.id };
+  }
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
   const hp = me.hp / me.maxHp;
   let i = idx((x) => x === 'bandage');
