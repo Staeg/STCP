@@ -31,7 +31,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
 export const INVENTORY_SLOTS = 4;
 
 export const LOOT_TABLE: { item: ItemId; weight: number }[] = [
-  { item: 'bandage', weight: 5 },
+  { item: 'bandage', weight: 7 },
   { item: 'torch', weight: 4 },
   { item: 'tonic', weight: 3 },
   { item: 'firebomb', weight: 3 },

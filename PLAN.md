@@ -29,7 +29,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Turn model | **Real-time exploration**, **turn-based combat**. A combat round ends when every hero in that fight has locked in, or after 5s. The world clock keeps running during combat. |
 | Map | **Room graph**: rooms joined by corridors. Crossroads are rooms with 3+ exits. Walking a corridor takes real time. |
 | Run shape | **One expedition, one rendezvous.** The rendezvous room is the exit, and its location is known to everyone from the start. |
-| Extraction | At **10:00** the exit opens. Each player decides for themselves when to leave. Waves spawn at the exit while it's open. At **13:00** the dungeon collapses and everyone still inside dies. |
+| Extraction | At **10:00** the exit opens. During a fight at the open exit, Flee = escape (same 70%/Smoke rules). Each player decides for themselves when to leave. Waves spawn at the exit while it's open. At **13:00** the dungeon collapses and everyone still inside dies. |
 | 0 HP | **Downed** → bleeds out over 30s (combat rounds count as their real time). An ally in the room can revive. Otherwise the hero dies and drops their items in the room. |
 | Loot | **Co-op.** Every *item* goes to exactly one player. All living heroes in the room must agree on the recipient (or unanimously agree to leave it), and **nobody present can leave the room until they agree**. **Gold** is split equally among all heroes present (downed but alive heroes count). |
 | Information | **Individual fog.** You see only rooms you've explored. Allies show up live when they're in your room or an adjacent one; otherwise they're a greyed-out ghost at their *last known position*. At crossroads you see **chalk marks** for which exits allies have taken (this satisfies the requirement to "see which way others chose"). |
@@ -44,6 +44,10 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Debug | `npm run dev` starts the server with `--debug`, which enables `{t:'debugSkip', seconds}` (fast-forward) and `{t:'debugSpawn', enemies:['ghoul',…]}` (spawns monsters in your room, starts a fight, and fully heals/resurrects you). Use `__net.send(...)` from the browser console. |
 | Loot rules (v1) | Gold is auto-split among everyone present (downed included) as soon as nobody's fighting there. Each item opens a vote among the conscious, non-fighting heroes in the room; arriving heroes stop and join. "Leave it" abandons an item, and anyone can **claim** it later, which starts a new vote. Dropping an item puts it to a vote. Wasting a Bandage at full HP or a Tonic at 0 stress is refused. Bots defer to the humans' majority after 2s; all-bot rooms converge on the lowest-id bot. |
 | Combat rules (v1) | Monsters never attack downed heroes; the fight ends when no conscious hero remains, but the monsters stay in the room. Anyone arriving later starts a new fight that includes the downed heroes, so a rescue is always possible until bleed-out. Cooldown N = N rounds unusable. Guard, Smoke and Brace apply before anyone acts. Heroes' cooldowns and statuses (except Bleed) reset after each fight. Stress (0–100) exists now: Acolyte Whisper, allies falling (+15) or dying (+25), Rally/Vigil to reduce it. Afflictions come in M6. |
+| Collapses (changed in M5) | **Any** tunnel can collapse from T3, every 45s, and becomes **rubble** that anyone at either end can dig through (15s, Warden 9s). Nobody is ever permanently trapped, but being walled in costs real time ("Stuck?" from the pitch). The original "never cut the path" rule left almost nothing collapsible, because the dungeon is tree-like. You only learn about rubble when you reach it, and seeing it cleared works the same way. |
+| Dungeon size (changed in M5) | 10×7 grid, **38–50 rooms**, exit 6–9 hops from the entrance, 5–10 crossroads. With 25–35 rooms, bots had explored everything and were sitting at the exit by about 5:40. |
+| Knowing who left | You only learn an ally escaped if you saw them go (same room). Otherwise they're a ghost at their last known spot, which is often the exit. The results screen reveals everything. |
+| Stash | Extracted gold is added to `server/data/stash.json`, keyed by lower-cased player name, and shown in the lobby and results. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -204,10 +208,10 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - **Mini-playtest:** with 2 tabs + bots, deliberately disagree on an item. Is the lock clear? Does the pressure feel fun, not annoying?
 
 ### M5. Escalation & the climax
-- [ ] Tier system on the 2:00 cadence: scaling, respawns, wandering packs, Bone Brute, corridor collapses (path to the exit preserved), faster light drain.
-- [ ] Exit opens at 10:00, individual Extract action, exit waves, collapse at 13:00.
-- [ ] Results screen: who extracted, died or was left behind, gold, a timeline of key moments ("Mara went down in the Ossuary at 9:42").
-- [ ] Tier-change announcements (audio cue placeholder + banner).
+- [x] Tier system on the 2:00 cadence: scaling, respawns, wandering packs, Bone Brute, corridor collapses (path to the exit preserved), faster light drain.
+- [x] Exit opens at 10:00, individual Extract action, exit waves, collapse at 13:00.
+- [x] Results screen: who extracted, died or was left behind, gold, a timeline of key moments ("Mara went down in the Ossuary at 9:42").
+- [x] Tier-change announcements (audio cue placeholder + banner).
 - **Mini-playtest = FIRST PLAYABLE.** Play a full 13-minute run with 3 bots. Note the moment-to-moment feel of every 2-minute block.
 
 ### M6. Stress, events & objectives
@@ -270,6 +274,21 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M5 done: FIRST PLAYABLE.** `sim/escalation.ts`:
+  - Tier changes are written to the chronicle.
+  - Respawns run every 45s, or 30s from T4.
+  - Wandering packs start at T2. They travel corridors at ×1.5 hero time, burst into rooms ("Monsters burst in!"), and drift toward the exit late in the run.
+  - Brute groups appear from T3/T4. Rubble collapses start at T3, every 45s, and can be dug through.
+  - Light drains ×1.5 from T4.
+  - Waves spawn next to the exit (a moment's warning) every 45s, then every 25s at T6, and hold it.
+  - The monster cap is 8 + 3×tier.
+
+  Also: extraction (intent, plus Flee at the open exit), collapse burial at 13:00, phases `collapsed`/`wiped`/`ended`, `world.chronicle`, `world.stats`, `hero.arrivedAt`/`fate`. Client: Escape button (E), Dig button (D) with channel progress, rubble ✕ on the map, the exit pulses green once open, tier banners with descriptions plus a generated square-wave cue (`client/src/sound.ts`, no assets), an "escaped, the others are still inside" banner, and the results screen (`client/src/results.ts`: fates table, "What really happened" chronicle, stash, map peek). Server: `persistence.ts` (Stash), and gold is banked once per run. 60 tests.
+  - **Bugs found by playtesting:** (1) a walk command that found no route still cancelled your dig or revive; `goto` now returns success and only a real move interrupts. (2) A hero thrown out of a collapsing tunnel didn't learn it had collapsed. (3) "the The Rendezvous"; added `theRoom()`.
+  - **Balance (sim, 60–80 games):** Hero HP is +6 each (Warden 50, Cutthroat 36, Lampbearer 38, Hexer 36). Ability numbers are now data (`power`), and hero damage is up about 25% (Bash 8, Backstab 10, Poison 5, Flare 5, Hex 7, Pact 15, Rally Block 5). Room monster chance is 0.3. Tier scaling is +10% per tier. Bandage loot weight is 7. Bots avoid known monsters more when hurt, head home at <30% HP, wait 0–75s at the exit and dig when walled in. Latest: **35–40% of bot heroes escape** (target 40–65%), wipes 18–23%, deaths before 4:00 under 10% ✓, fights 5.0 rounds ✓, **late arrivals (after 10:30) only 8–14% of runs** (target 30%) ✗, ~6.7 collapses/game. M8 should look at late arrivals first: bots that would be late tend to die on the way.
+  - **First-playable sample** (autopilot plus manual takeover, fast-forwarding between 2-minute blocks): tier banners read well. At 9:43 the hero was Dim, walled in by rubble with "Dig toward …" and "exit opens in 0:16", which is a strong moment. Two bots died in the same room (the Silent Cistern), and their dropped loot lured the next hero into the same deathtrap. My Warden went down at 9:36, 12/50 HP, against 2 Ghouls and an Acolyte while Ilse (bot) waited at the exit. Ilse left at 10:00 without waiting. The results chronicle told the whole story. **This is the intended experience emerging.** Gaps: bots never go back for anyone (M7), and solo fights in late tiers are very lethal.
+  - Playtest helper: `client/public/autopilot.js`. Run `await import('/autopilot.js'); startAutopilot({homeAt: 540, waitUntil: 690})` from the console of a dev build, then check `__ap.log` and stop it with `__ap.on = false`. It needs `window.__net`, which only exists in dev, so it's inert in production. Known limitation: it doesn't check cooldowns.
+  - Next: M6 (stress afflictions, events and objectives).
 - 2026-10-08 · **M4 done.** `content/items.ts` (5 consumables, 4 trinkets, loot table), `sim/loot.ts` (piles, gold split, votes, lock, claim/drop, item effects), `bots/looter.ts` (votes + field item use), items in the bot fighter, combat `item` action (keys 4–7), `client/src/loot.ts` (vote panel, inventory, gold, notification toasts via `hero.messages`), ✦ loot markers on the map (the Cutthroat also sees loot in neighbouring rooms). New dev command `debugLoot`. **New tool:** `npm run sim -- --games N --seed S` (headless all-bot games; the start of M8). 50 tests.
   - **Early balance pass (sim-driven):** before it, 64% of bot heroes died and 53% of games were full wipes, almost all in T0–T2 with no escalation yet. Monster damage moved into `ENEMIES[].dmg`. Ghoul is now 14 HP / 4 dmg, Crawler 8 HP / 2 dmg + Bleed 1×3, Acolyte 11 HP / 3 dmg, Brute 34 HP / 7 dmg. Now 20–25% die and wipes are ~0–3%, but nearly all deaths are still in T0–T2 and survivors pocket ~90% of the gold. **The tension is missing until M5's escalation.** Re-tune in M8.
   - Mini-playtest (2 tabs + bots): gold split 11/10. Disagreeing on the Iron Locket kept both players locked, and the panel says "You disagree" plus who's still pending. A bot that wandered in joined the vote and then deferred to the humans in under 1s. Locket +8 max HP worked, and Bandage/Firebomb worked in combat via key 4.

@@ -22,16 +22,38 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, rank: 'front', speed: 1, dmg: 7, undead: true, glyph: '♜', desc: 'Every other round, Slam: 7 dmg to all front heroes.' },
 };
 
-export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[] }[] = [
+export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: number }[] = [
   { weight: 3, units: ['ghoul'] },
   { weight: 3, units: ['ghoul', 'acolyte'] },
   { weight: 2, units: ['crawler', 'crawler'] },
   { weight: 2, units: ['ghoul', 'crawler'] },
   { weight: 1, units: ['ghoul', 'ghoul', 'acolyte'] },
   { weight: 1, units: ['acolyte', 'crawler', 'crawler'] },
+  { weight: 2, units: ['brute'], minTier: 3 },
+  { weight: 1, units: ['brute', 'acolyte'], minTier: 4 },
 ];
 
+/** How the dungeon gets worse (see sim/escalation.ts). Seconds unless noted. */
+export const ESCALATION = {
+  respawnEvery: 45,
+  respawnEveryLate: 30,
+  wandererEvery: 60,
+  collapseEvery: 45,
+  /** Seconds to dig through rubble (Warden is faster). */
+  digTime: 15,
+  digTimeWarden: 9,
+  waveEvery: 45,
+  waveEveryLate: 25,
+  /** Max live monsters = capBase + capPerTier × tier. */
+  capBase: 8,
+  capPerTier: 3,
+  /** Packs walk corridors this many times slower than heroes. */
+  packSlowness: 1.5,
+  /** Light drains this much faster from tier 4. */
+  lateLightDrain: 1.5,
+};
+
 /** Chance that a normal room starts with monsters. */
-export const ROOM_MONSTER_CHANCE = 0.45;
+export const ROOM_MONSTER_CHANCE = 0.3;
 /** Monster HP and damage scale by (1 + this × tier). */
-export const TIER_SCALING = 0.15;
+export const TIER_SCALING = 0.1;

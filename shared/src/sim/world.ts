@@ -1,9 +1,11 @@
 import { CLASSES, type ClassId } from '../content/classes';
-import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
-import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, type Dungeon } from '../dungeon/gen';
+import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
+import { ESCALATION } from '../content/enemies';
+import { clearRubble, tickEscalation, type Pack } from './escalation';
+import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
+  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
 import type { ItemId } from '../content/items';
@@ -53,7 +55,10 @@ export interface Hero {
   /** The room this hero last left (fleeing goes back there). */
   prevRoom: number | null;
   /** An out-of-combat action in progress. */
-  channel: { kind: 'revive'; target: string; until: number } | null;
+  channel:
+    | { kind: 'revive'; target: string; until: number }
+    | { kind: 'dig'; corridor: number; until: number }
+    | null;
   items: ItemId[];
   /** Carried gold. Only extracted gold counts. */
   gold: number;
@@ -61,6 +66,15 @@ export interface Hero {
   messages: { time: number; text: string }[];
   /** Loot count per room as of when this hero last saw it. */
   knownLoot: Record<number, number>;
+  /** Collapsed corridors this hero has found out about. */
+  knownCollapsed: number[];
+  /** Escaped through the exit. */
+  extracted: boolean;
+  extractedAt: number | null;
+  /** How their run ended, for the results screen ("escaped with 84 gold", "bled out in the Crypt"). */
+  fate: string | null;
+  /** First time this hero reached the rendezvous. */
+  arrivedAt: number | null;
 }
 
 export interface Sighting {
@@ -70,10 +84,12 @@ export interface Sighting {
   maxHp: number;
   downed: boolean;
   dead: boolean;
+  /** You watched them leave through the exit. */
+  extracted?: boolean;
 }
 
-/** 'wiped' = every hero is dead. */
-export type WorldPhase = 'running' | 'collapsed' | 'wiped';
+/** collapsed: the 13:00 deadline hit · wiped: everyone died · ended: everyone left (or died) early */
+export type WorldPhase = 'running' | 'collapsed' | 'wiped' | 'ended';
 
 export interface World {
   seed: number;
@@ -90,6 +106,20 @@ export interface World {
   nextId: number;
   /** Loot lying in rooms. */
   piles: Record<number, Pile>;
+  /** Current difficulty tier (see escalation.ts). */
+  tier: number;
+  packs: Record<string, Pack>;
+  /** Collapsed corridor ids. */
+  collapsed: number[];
+  nextRespawn: number;
+  nextWanderer: number;
+  nextCollapse: number;
+  nextWave: number;
+  /** The full story of the run, revealed on the results screen. */
+  chronicle: { time: number; text: string }[];
+  escalation: boolean;
+  /** Counters for the results screen and the balance simulator. */
+  stats: { fights: number; rounds: number; slain: number; downs: number; revives: number; collapses: number; waves: number };
 }
 
 export type Intent =
@@ -103,19 +133,28 @@ export type Intent =
   | { type: 'vote'; choice: string }
   | { type: 'claim'; index: number }
   | { type: 'drop'; index: number }
-  | { type: 'useItem'; index: number; target?: string };
+  | { type: 'useItem'; index: number; target?: string }
+  /** Leave the dungeon through the open exit. */
+  | { type: 'extract' }
+  /** Dig through a collapsed corridor leading out of your room. */
+  | { type: 'dig'; corridor: number };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
   monsters?: boolean;
   /** Default true. */
   loot?: boolean;
+  /** Default true. Turn off for tests that need a static dungeon. */
+  escalation?: boolean;
 }
 
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const world: World = {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {},
+    tier: 0, packs: {}, collapsed: [], chronicle: [], escalation: opts.escalation !== false,
+    stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0 },
+    nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
   if (opts.loot !== false) spawnInitialLoot(world);
@@ -145,6 +184,11 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     gold: 0,
     messages: [],
     knownLoot: {},
+    knownCollapsed: [],
+    extracted: false,
+    extractedAt: null,
+    fate: null,
+    arrivedAt: null,
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -161,19 +205,65 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
 export function step(world: World, dt: number): void {
   if (world.phase !== 'running') return;
   world.time += dt;
+  const drain = LIGHT_DRAIN * (world.tier >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
-    if (hero.dead) continue;
-    hero.light = Math.max(0, hero.light - LIGHT_DRAIN * dt);
+    if (!inDungeon(hero)) continue;
+    hero.light = Math.max(0, hero.light - drain * dt);
     if (hero.channel) tickChannel(world, hero);
     else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
   }
   tickDowned(world);
   tickCombat(world);
   tickLoot(world);
+  if (world.escalation) tickEscalation(world);
   updateKnowledge(world);
+  checkEnd(world);
+}
+
+function checkEnd(world: World) {
   const heroes = Object.values(world.heroes);
-  if (heroes.length > 0 && heroes.every((h) => h.dead)) world.phase = 'wiped';
-  else if (world.time >= COLLAPSE_AT) world.phase = 'collapsed';
+  if (heroes.length === 0) return;
+  if (world.time >= COLLAPSE_AT) {
+    for (const h of heroes) {
+      if (!inDungeon(h)) continue;
+      h.dead = true;
+      h.diedAt = world.time;
+      h.fate = `was buried when the dungeon collapsed (in ${roomName(world, h)})`;
+      chronicle(world, `The dungeon collapsed on ${h.name}.`);
+    }
+    world.phase = 'collapsed';
+  } else if (heroes.every((h) => h.dead)) {
+    world.phase = 'wiped';
+  } else if (heroes.every((h) => !inDungeon(h))) {
+    world.phase = 'ended';
+  }
+  if (world.phase !== 'running') chronicle(world, 'The expedition is over.');
+}
+
+export function chronicle(world: World, text: string) {
+  world.chronicle.push({ time: world.time, text });
+}
+
+export function roomName(world: World, h: Hero): string {
+  const room = h.pos.kind === 'room' ? h.pos.room : h.pos.to;
+  return h.pos.kind === 'room' ? theRoom(world.dungeon.rooms[room].name) : `the tunnel to ${theRoom(world.dungeon.rooms[room].name)}`;
+}
+
+/** Leave the dungeon. Your gold counts; you're out of the story from here. */
+export function extractHero(world: World, h: Hero) {
+  h.extracted = true;
+  h.extractedAt = world.time;
+  h.path = [];
+  h.channel = null;
+  h.fate = `escaped with ${h.gold} gold`;
+  chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
+  // Only those who saw it happen know they left.
+  for (const o of Object.values(world.heroes)) {
+    if (o !== h && inDungeon(o) && sameRoom(o, h)) {
+      o.lastKnown[h.id] = { pos: { ...h.pos }, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true };
+      notify(world, o, `${h.name} escapes through the exit.`);
+    }
+  }
 }
 
 export function applyIntent(world: World, heroId: string, intent: Intent): void {
@@ -199,9 +289,26 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (err) notify(world, hero, err);
       return;
     }
+    case 'dig': {
+      const c = world.dungeon.corridors[intent.corridor];
+      if (!c || hero.pos.kind !== 'room' || (c.a !== hero.pos.room && c.b !== hero.pos.room)) return;
+      if (!world.collapsed.includes(c.id)) return;
+      if (lockedByVote(world, hero)) return notify(world, hero, 'Agree on the loot first.');
+      hero.path = [];
+      const time = hero.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
+      hero.channel = { kind: 'dig', corridor: c.id, until: world.time + time };
+      notify(world, hero, `You start digging… (${time}s)`);
+      return;
+    }
+    case 'extract':
+      if (hero.pos.kind !== 'room' || hero.pos.room !== world.dungeon.exit) return notify(world, hero, 'You must be at the rendezvous.');
+      if (world.time < EXIT_OPENS_AT) return notify(world, hero, 'The exit is not open yet.');
+      if (lockedByVote(world, hero)) return notify(world, hero, 'Agree on the loot before you go.');
+      extractHero(world, hero);
+      return;
     case 'revive': {
       const t = world.heroes[intent.target];
-      if (t && t !== hero && !t.dead && t.downedAt !== null && hero.pos.kind === 'room' && sameRoom(hero, t)) {
+      if (t && t !== hero && inDungeon(t) && t.downedAt !== null && hero.pos.kind === 'room' && sameRoom(hero, t)) {
         hero.path = [];
         hero.channel = { kind: 'revive', target: t.id, until: world.time + REVIVE_CHANNEL };
       }
@@ -221,8 +328,9 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
         notify(world, hero, 'Agree on the loot before moving on.');
         return;
       }
-      hero.channel = null;
-      goto(world, hero, intent.room);
+      // Only an actual move interrupts digging/reviving; an unreachable click shouldn't.
+      if (goto(world, hero, intent.room)) hero.channel = null;
+      else if (hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
       return;
   }
 }
@@ -240,8 +348,12 @@ function tickChannel(world: World, hero: Hero) {
   const ch = hero.channel!;
   if (world.time < ch.until) return;
   hero.channel = null;
+  if (ch.kind === 'dig') {
+    if (world.collapsed.includes(ch.corridor)) clearRubble(world, ch.corridor, hero.name);
+    return;
+  }
   const t = world.heroes[ch.target];
-  if (t && !t.dead && t.downedAt !== null && sameRoom(hero, t)) reviveHero(t);
+  if (t && inDungeon(t) && t.downedAt !== null && sameRoom(hero, t)) reviveHero(t, undefined, world, hero);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +372,12 @@ function advance(world: World, hero: Hero, dt: number) {
         hero.path = [];
         return;
       }
+      if (world.collapsed.includes(c.id)) {
+        hero.path = [];
+        if (!hero.knownCollapsed.includes(c.id)) hero.knownCollapsed.push(c.id);
+        notify(world, hero, `Rubble blocks the way to ${theRoom(d.rooms[next].name)}!`);
+        return;
+      }
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0 };
       hero.prevRoom = pos.room;
       if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
@@ -271,6 +389,7 @@ function advance(world: World, hero: Hero, dt: number) {
       }
       remaining -= need;
       hero.pos = { kind: 'room', room: pos.to };
+      if (pos.to === d.exit && hero.arrivedAt === null) hero.arrivedAt = world.time;
       explore(world, hero, pos.to);
       onHeroInRoom(world, hero, pos.to);
       if (hero.encounter !== null) return;
@@ -288,13 +407,18 @@ function updateKnowledge(world: World) {
   const heroes = Object.values(world.heroes);
   for (const a of heroes) {
     for (const b of heroes) {
-      if (a !== b && canSee(world, a, b)) {
+      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && canSee(world, a, b)) {
         a.lastKnown[b.id] = { pos: { ...b.pos }, time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead };
       }
     }
-    if (a.dead) continue;
+    if (!inDungeon(a)) continue;
     if (a.pos.kind === 'room') {
       const room = a.pos.room;
+      for (const cid of world.dungeon.rooms[room].corridors) {
+        const down = world.collapsed.includes(cid);
+        if (down && !a.knownCollapsed.includes(cid)) a.knownCollapsed.push(cid);
+        if (!down && a.knownCollapsed.includes(cid)) a.knownCollapsed = a.knownCollapsed.filter((x) => x !== cid);
+      }
       if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
       a.knownThreat[room] = monstersIn(world, room).length;
       a.knownLoot[room] = lootCount(world, room);
@@ -346,13 +470,16 @@ export function knowsCorridor(hero: Hero, c: { a: number; b: number }): boolean 
   return hero.explored.includes(c.a) || hero.explored.includes(c.b);
 }
 
-function goto(world: World, hero: Hero, target: number) {
+/** Plan a route to `target`. Returns false if no known route exists. */
+function goto(world: World, hero: Hero, target: number): boolean {
   const d = world.dungeon;
-  if (!d.rooms[target]) return;
+  if (!d.rooms[target]) return false;
   const pos = hero.pos;
   if (pos.kind === 'room') {
-    hero.path = shortestPath(world, hero, pos.room, target) ?? hero.path;
-    return;
+    const path = shortestPath(world, hero, pos.room, target);
+    if (!path || path.length === 0) return false;
+    hero.path = path;
+    return true;
   }
   // In a corridor: compare continuing forward vs turning back.
   const len = d.corridors[pos.corridor].length;
@@ -360,13 +487,14 @@ function goto(world: World, hero: Hero, target: number) {
   const back = shortestPath(world, hero, pos.from, target);
   const fwdCost = fwd ? len - pos.t + pathCost(d, pos.to, fwd) : Infinity;
   const backCost = back ? pos.t + pathCost(d, pos.from, back) : Infinity;
-  if (fwdCost === Infinity && backCost === Infinity) return;
+  if (fwdCost === Infinity && backCost === Infinity) return false;
   if (backCost < fwdCost) {
     turnAround(world, hero);
     hero.path = back!;
   } else {
     hero.path = fwd!;
   }
+  return true;
 }
 
 function pathCost(d: Dungeon, start: number, path: number[]): number {
@@ -402,7 +530,7 @@ export function shortestPath(world: World, hero: Hero, start: number, target: nu
     done.add(cur);
     for (const cid of d.rooms[cur].corridors) {
       const c = d.corridors[cid];
-      if (!knowsCorridor(hero, c)) continue;
+      if (!knowsCorridor(hero, c) || hero.knownCollapsed.includes(c.id)) continue;
       const n = otherEnd(c, cur);
       const nd = best + c.length;
       if (nd < (dist.get(n) ?? Infinity)) {

@@ -19,7 +19,7 @@ describe('bots', () => {
     let explored = 0;
     let divergent = 0;
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
-      const game = new Game(seed, fourBots(), { monsters: false });
+      const game = new Game(seed, fourBots(), { monsters: false, escalation: false });
       let t = 0;
       for (; t < 90; t += 0.1) game.tick(0.1);
       const spots = new Set(Object.values(game.world.heroes).map((h) => JSON.stringify(h.pos.kind === 'room' ? h.pos.room : h.pos.corridor)));
@@ -28,7 +28,7 @@ describe('bots', () => {
       const heroes = Object.values(game.world.heroes);
       for (const h of heroes) {
         total++;
-        if (h.pos.kind === 'room' && h.pos.room === game.world.dungeon.exit) atExit++;
+        if (h.extracted || (h.pos.kind === 'room' && h.pos.room === game.world.dungeon.exit)) atExit++;
         explored += h.explored.length;
       }
     }

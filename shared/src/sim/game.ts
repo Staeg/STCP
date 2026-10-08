@@ -55,7 +55,7 @@ export class Game {
     const w = this.world;
     for (const [id, mem] of this.bots) {
       const hero = w.heroes[id];
-      if (hero.dead || hero.downedAt !== null) continue;
+      if (hero.dead || hero.extracted || hero.downedAt !== null) continue;
       if (hero.encounter !== null) {
         this.botFight(id, mem);
         continue;

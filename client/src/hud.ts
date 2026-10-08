@@ -1,4 +1,5 @@
-import { BLEED_OUT, CLASSES, type PlayerView } from '@stcp/shared';
+import { BLEED_OUT, CLASSES, TIER_TEXT, type PlayerView } from '@stcp/shared';
+import { beep } from './sound';
 import type { Net } from './net';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -16,6 +17,11 @@ export class Hud {
   constructor(private net: Net) {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
+    $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
+    $('btn-dig').addEventListener('click', () => {
+      const c = Number($('btn-dig').dataset.corridor);
+      if (!Number.isNaN(c)) net.intent({ type: 'dig', corridor: c });
+    });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
       if (id) net.intent({ type: 'revive', target: id });
@@ -24,6 +30,8 @@ export class Hud {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
+      if (e.code === 'KeyE' && !$('btn-escape').hidden) $('btn-escape').click();
+      if (e.code === 'KeyD' && !$('btn-dig').hidden) $('btn-dig').click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -47,6 +55,7 @@ export class Hud {
     $('clock').textContent = fmtTime(time);
     $('tier').textContent = `Tier ${view.tier}`;
     const next = $('next-event');
+    const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
       next.textContent = `Exit opens in ${fmtTime(view.exitOpensAt - time)}`;
     } else {
@@ -71,15 +80,39 @@ export class Hud {
 
     // Out-of-combat revive: a downed ally in your room.
     const reviveBtn = $('btn-revive');
-    const here = you.pos.kind === 'room' ? you.pos.room : -1;
     const downed = !view.encounter && you.downedAt === null && !you.dead
       ? view.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here)
       : undefined;
-    reviveBtn.hidden = !downed;
+    reviveBtn.hidden = !downed || you.channel?.kind === 'dig';
     if (downed) {
       reviveBtn.dataset.target = downed.id;
-      reviveBtn.innerHTML = you.channel ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (3s) <kbd>R</kbd>`;
+      reviveBtn.innerHTML = you.channel?.kind === 'revive' ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (3s) <kbd>R</kbd>`;
     }
+
+    // Rubble in a tunnel leading out of your room.
+    const free = !view.encounter && you.downedAt === null && !you.dead && !you.extracted && you.pos.kind === 'room';
+    const rubble = free ? view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here)) : undefined;
+    const digBtn = $('btn-dig');
+    digBtn.hidden = !rubble || !!you.channel;
+    if (rubble) {
+      const other = view.rooms.find((r) => r.id === (rubble.a === here ? rubble.b : rubble.a));
+      digBtn.dataset.corridor = String(rubble.id);
+      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? 9 : 15}s) <kbd>D</kbd>`;
+    }
+
+    // Channel progress (reviving, digging)
+    const ch = $('channel');
+    ch.hidden = !you.channel;
+    if (you.channel) {
+      const left = Math.max(0, you.channel.until - view.time);
+      ch.textContent = `${you.channel.kind === 'dig' ? 'Digging' : 'Reviving'}… ${left.toFixed(1)}s (move to cancel)`;
+    }
+
+    // The way out
+    const esc = $('btn-escape');
+    const atExit = free && here === view.exitRoom;
+    esc.hidden = !atExit || !view.exitOpen;
+    if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>E</kbd>`;
     $('roster').innerHTML = rosterHtml(view);
     const isHost = net.lobby?.hostId === net.lobby?.youId;
     $('btn-lobby').hidden = !(view.phase !== 'running' && isHost);
@@ -87,11 +120,12 @@ export class Hud {
     // Tier-change banner
     if (view.tier > this.lastTier) {
       this.lastTier = view.tier;
-      this.showBanner(`The dungeon stirs…<br><span style="font-size:28px">Tier ${view.tier}</span>`, 2500);
+      this.showBanner(`Tier ${view.tier}<br><span style="font-size:26px">${TIER_TEXT[view.tier] ?? ''}</span>`, 4500);
+      beep(view.tier >= 5 ? 'alarm' : 'tier');
     }
     this.lastTier = view.tier;
-    if (view.phase === 'collapsed') this.showBanner('THE DUNGEON COLLAPSES', 0);
-    else if (view.phase === 'wiped') this.showBanner('ALL HEROES HAVE FALLEN', 0);
+    if (view.phase !== 'running') $('banner').hidden = true; // the results screen takes over
+    else if (you.extracted) this.showBanner(`YOU ESCAPED<br><span style="font-size:24px">with ${you.gold} gold. The others are still inside…</span>`, 0);
     else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
     else if (you.downedAt !== null && !view.encounter) {
       const left = Math.max(0, BLEED_OUT - (view.time - you.downedAt));
@@ -99,7 +133,7 @@ export class Hud {
     } else if (this.persistentBanner) {
       $('banner').hidden = true;
     }
-    this.persistentBanner = view.phase !== 'running' || you.dead || (you.downedAt !== null && !view.encounter);
+    this.persistentBanner = view.phase !== 'running' || you.dead || you.extracted || (you.downedAt !== null && !view.encounter);
   }
 
   /** Called when leaving the game view (back to lobby). */
@@ -122,9 +156,10 @@ function rosterHtml(view: PlayerView): string {
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'somewhere unknown';
   const rows = view.allies.map((a) => {
     let status: string;
-    const hp = a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${Math.max(0, Math.ceil(a.hp))}/${a.maxHp} HP`;
+    const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${Math.max(0, Math.ceil(a.hp))}/${a.maxHp} HP`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
-    if (a.live) status = sameRoom ? 'with you' : 'in sight';
+    if (a.extracted) status = `escaped at ${fmtTime(a.seenAt)}`;
+    else if (a.live) status = sameRoom ? 'with you' : 'in sight';
     else {
       const where = a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;

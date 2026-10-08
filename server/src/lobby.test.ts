@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { ClientMsg, LobbyView, ServerMsg } from '@stcp/shared';
 import { LobbyManager } from './lobby';
+import { Stash } from './persistence';
 
 class FakeWs {
   readonly OPEN = 1;
@@ -37,7 +38,7 @@ function client(mgr: LobbyManager, token: string, name: string) {
 
 describe('LobbyManager', () => {
   it('runs the full create → join → pick → ready → start flow and fills bots', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'tokenAAAA', 'Ann');
     expect(a.ws.lastLobby()).toBeNull();
     a.say({ t: 'create' });
@@ -75,7 +76,7 @@ describe('LobbyManager', () => {
   });
 
   it('never leaks tokens to other players', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'secretAAAA', 'Ann');
     a.say({ t: 'create' });
     const b = client(mgr, 'secretBBBB', 'Bob');
@@ -84,7 +85,7 @@ describe('LobbyManager', () => {
   });
 
   it('resumes the same hero on reconnect with the same token', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'tokenAAAA', 'Ann');
     a.say({ t: 'create' });
     a.say({ t: 'pickClass', cls: 'cutthroat' });
@@ -102,7 +103,7 @@ describe('LobbyManager', () => {
   });
 
   it('kicks the old socket if the same token connects twice', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'tokenAAAA', 'Ann');
     a.say({ t: 'create' });
     client(mgr, 'tokenAAAA', 'Ann');
@@ -110,7 +111,7 @@ describe('LobbyManager', () => {
   });
 
   it('rejects joining a game in progress or a full lobby', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const host = client(mgr, 'tokenHOST', 'H');
     host.say({ t: 'create' });
     const code = host.ws.lastLobby()!.code;
@@ -121,7 +122,7 @@ describe('LobbyManager', () => {
   });
 
   it('turns a player who leaves mid-game into a bot and passes host on', () => {
-    const mgr = new LobbyManager();
+    const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'tokenAAAA', 'Ann');
     a.say({ t: 'create' });
     const b = client(mgr, 'tokenBBBB', 'Bob');

@@ -13,6 +13,8 @@ export interface LobbyMemberView {
   cls: ClassId | null;
   ready: boolean;
   connected: boolean;
+  /** Gold banked across runs (out-of-dungeon currency). */
+  stash: number;
 }
 
 export interface LobbyView {
@@ -105,8 +107,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       const i = msg.intent as Record<string, unknown> | undefined;
       if (!i || typeof i !== 'object') return null;
       if (i.type === 'goto' && Number.isInteger(i.room)) return { t: 'intent', intent: { type: 'goto', room: i.room as number } };
-      if (i.type === 'turnBack' || i.type === 'stop') return { t: 'intent', intent: { type: i.type } };
+      if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
+      if (i.type === 'dig' && Number.isInteger(i.corridor)) return { t: 'intent', intent: { type: 'dig', corridor: i.corridor as number } };
       if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
       if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };
       if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {

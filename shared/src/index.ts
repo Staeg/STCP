@@ -13,3 +13,4 @@ export * from './content/abilities';
 export * from './content/enemies';
 export * from './content/items';
 export * from './sim/loot';
+export * from './sim/escalation';

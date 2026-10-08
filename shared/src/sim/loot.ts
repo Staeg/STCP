@@ -1,7 +1,7 @@
 import { INVENTORY_SLOTS, ITEMS, LOOT, LOOT_TABLE, type ItemId } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { addStress, isConscious, monstersIn, reviveHero } from './combat';
+import { addStress, inDungeon, isConscious, monstersIn, reviveHero } from './combat';
 import { notify } from './notify';
 import type { Hero, World } from './world';
 
@@ -92,7 +92,7 @@ export function takeItem(h: Hero, index: number): ItemId | null {
 
 /** Who's in a room: everyone not dead (downed heroes still get a share). */
 function presentIn(world: World, room: number): Hero[] {
-  return Object.values(world.heroes).filter((h) => !h.dead && h.pos.kind === 'room' && h.pos.room === room);
+  return Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room);
 }
 
 /** Conscious, not fighting: the people who must agree on an item. */
@@ -222,7 +222,7 @@ export function itemTargets(world: World, h: Hero, index: number): string[] {
     case 'downed': {
       const near = new Set([room, ...neighbours(world.dungeon, room)]);
       return Object.values(world.heroes)
-        .filter((x) => !x.dead && x.downedAt !== null && x.pos.kind === 'room' && near.has(x.pos.room))
+        .filter((x) => inDungeon(x) && x.downedAt !== null && x.pos.kind === 'room' && near.has(x.pos.room))
         .map((x) => x.id);
     }
     case 'enemies':
@@ -266,7 +266,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
       addStress(t, -25);
       return `${h.name} drinks a tonic. (−25 stress)`;
     case 'salts':
-      reviveHero(t, 0.5);
+      reviveHero(t, 0.5, world, h);
       return `${h.name} revives ${t.name} with smelling salts!`;
   }
   return `${h.name} uses ${def.name}.`;

@@ -10,7 +10,7 @@ describe('generateDungeon', () => {
     expect(generateDungeon(123)).toEqual(generateDungeon(123));
   });
 
-  it('satisfies layout invariants over 500 seeds', () => {
+  it('satisfies layout invariants over 500 seeds', { timeout: 30000 }, () => {
     for (const seed of SEEDS) {
       const d = generateDungeon(seed);
       const ctx = `seed ${seed}`;

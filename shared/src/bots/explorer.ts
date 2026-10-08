@@ -19,6 +19,8 @@ export interface BotMemory {
   /** Combat: which round we're deciding for, and when we'll commit. */
   combatKey: string;
   decideAt: number;
+  /** At the open exit: when this bot gives up waiting and leaves. */
+  leaveAt: number | null;
 }
 
 export function createBotMemory(seed: number): BotMemory {
@@ -26,7 +28,7 @@ export function createBotMemory(seed: number): BotMemory {
   const greed = rng.float(0.2, 0.8);
   // 0.2 → 7:00 … 0.8 → 11:00. Greedy bots are often late, by design.
   const returnAt = EXIT_OPENS_AT - 180 + (greed - 0.2) / 0.6 * 240;
-  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0 };
+  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null };
 }
 
 export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
@@ -45,10 +47,20 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (use) return use;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
-  if (exit && here === exit.id) return null;
+  if (exit && here === exit.id) {
+    if (!view.exitOpen) return null;
+    // Wait a while for the others (they might be coming), unless hurt or out of time.
+    if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(0, 75);
+    const hurt = you.hp / you.maxHp < 0.4;
+    const late = view.time > view.collapseAt - 60;
+    const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
+    if (hurt || late || everyoneHere || view.time >= mem.leaveAt) return { type: 'extract' };
+    return null;
+  }
   const costs = viewDistances(view, here);
 
-  if (exit && view.time >= mem.returnAt) {
+  // Badly hurt bots give up and head for the rendezvous early.
+  if (exit && (view.time >= mem.returnAt || you.hp / you.maxHp < 0.3)) {
     if (costs.has(exit.id)) return { type: 'goto', room: exit.id };
     // Route unknown: push into the unexplored room that looks closest to the exit.
     const frontier = frontierRooms(view, costs);
@@ -56,6 +68,11 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
       const best = minBy(frontier, (r) => Math.hypot(r.x - exit.x, r.y - exit.y) + costs.get(r.id)! * 4);
       return { type: 'goto', room: best.id };
     }
+    // Walled in by rubble: dig out (here, or walk to the nearest rubble first).
+    const rubbleHere = view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here));
+    if (rubbleHere) return { type: 'dig', corridor: rubbleHere.id };
+    const rubbleRooms = view.corridors.filter((c) => c.collapsed).flatMap((c) => [c.a, c.b]).filter((r) => costs.has(r));
+    if (rubbleRooms.length) return { type: 'goto', room: minBy(rubbleRooms, (r) => costs.get(r)!) };
     return null;
   }
 
@@ -65,7 +82,9 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (frontier.length === 0) return exit && costs.has(exit.id) ? { type: 'goto', room: exit.id } : null;
   const roomById = new Map(view.rooms.map((r) => [r.id, r]));
   const best = minBy(frontier, (r) => {
-    let score = costs.get(r.id)! + mem.rng.float(0, 6) + (r.threat ?? 0) * 3;
+    // Hurt bots steer well clear of known monsters.
+    const hurt = 1 - you.hp / you.maxHp;
+    let score = costs.get(r.id)! + mem.rng.float(0, 6) + (r.threat ?? 0) * (3 + 25 * hurt);
     const firstCorridor = firstStepCorridor(view, here, r.id, costs, roomById);
     if (firstCorridor !== null && chalked.has(firstCorridor)) score += 6;
     return score;
@@ -81,6 +100,7 @@ function frontierRooms(view: PlayerView, costs: Map<number, number>): RoomView[]
 export function viewDistances(view: PlayerView, start: number): Map<number, number> {
   const adj = new Map<number, { to: number; len: number }[]>();
   for (const c of view.corridors) {
+    if (c.collapsed) continue;
     (adj.get(c.a) ?? adj.set(c.a, []).get(c.a)!).push({ to: c.b, len: c.length });
     (adj.get(c.b) ?? adj.set(c.b, []).get(c.b)!).push({ to: c.a, len: c.length });
   }

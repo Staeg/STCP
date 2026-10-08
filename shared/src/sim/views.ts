@@ -4,7 +4,7 @@ import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
 import { INVENTORY_SLOTS, type ItemId } from '../content/items';
 import { hasSpace, votersIn } from './loot';
-import { BLEED_OUT, heroRank, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
+import { BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
@@ -56,7 +56,28 @@ export interface AllyView {
   maxHp: number;
   downed: boolean;
   dead: boolean;
+  /** You saw them escape. */
+  extracted: boolean;
 }
+
+export interface ResultHero {
+  id: string;
+  name: string;
+  cls: ClassId;
+  color: string;
+  isBot: boolean;
+  outcome: 'escaped' | 'dead';
+  fate: string;
+  gold: number;
+  time: number | null;
+}
+
+export interface ResultsView {
+  heroes: ResultHero[];
+  chronicle: { time: number; text: string }[];
+}
+
+export type CorridorView = Corridor & { collapsed?: boolean };
 
 export interface CombatUnitView {
   id: string;
@@ -108,13 +129,17 @@ export interface PlayerView {
   you: Hero;
   dim: boolean;
   rooms: RoomView[];
-  corridors: Corridor[];
+  corridors: CorridorView[];
   allies: AllyView[];
   chalk: ChalkView[];
   ghostCorridors: Corridor[];
   encounter: EncounterView | null;
   /** Loot in your current room, if any. */
   loot: LootView | null;
+  exitRoom: number;
+  exitOpen: boolean;
+  /** Only once the expedition is over: the whole truth. */
+  results: ResultsView | null;
 }
 
 /**
@@ -124,7 +149,9 @@ export interface PlayerView {
 export function buildView(world: World, heroId: string): PlayerView {
   const d = world.dungeon;
   const you = world.heroes[heroId];
-  const corridors = d.corridors.filter((c) => knowsCorridor(you, c));
+  const corridors: CorridorView[] = d.corridors
+    .filter((c) => knowsCorridor(you, c))
+    .map((c) => (you.knownCollapsed.includes(c.id) ? { ...c, collapsed: true } : c));
   const roomIds = new Set<number>(you.seen);
   for (const c of corridors) {
     roomIds.add(c.a);
@@ -138,7 +165,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     const live = sighting.time === world.time;
     allies.push({
       id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, seenAt: sighting.time,
-      hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead,
+      hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
     });
     // Make sure the client can place them, even in a room you only know the position of.
     for (const r of posRooms(sighting.pos)) roomIds.add(r);
@@ -184,6 +211,22 @@ export function buildView(world: World, heroId: string): PlayerView {
     ghostCorridors: extraCorridors,
     encounter: encounterView(world, you),
     loot: lootView(world, you),
+    exitRoom: d.exit,
+    exitOpen: world.time >= EXIT_OPENS_AT,
+    results: world.phase === 'running' ? null : resultsView(world),
+  };
+}
+
+function resultsView(world: World): ResultsView {
+  return {
+    heroes: Object.values(world.heroes).map((h) => ({
+      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot,
+      outcome: h.extracted ? 'escaped' : 'dead',
+      fate: h.fate ?? 'was lost',
+      gold: h.extracted ? h.gold : 0,
+      time: h.extracted ? h.extractedAt : h.diedAt,
+    })),
+    chronicle: world.chronicle,
   };
 }
 
@@ -193,7 +236,7 @@ function lootView(world: World, you: Hero): LootView | null {
   const pile = world.piles[room];
   if (!pile) return null;
   const voters = votersIn(world, room);
-  const present = Object.values(world.heroes).filter((h) => !h.dead && h.pos.kind === 'room' && h.pos.room === room);
+  const present = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room);
   return {
     room,
     gold: pile.gold,

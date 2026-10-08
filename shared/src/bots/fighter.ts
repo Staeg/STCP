@@ -36,6 +36,9 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   if (enemies.length >= 3 && slot('firebomb') >= 0 && rng.chance(0.6)) return { action: 'item', item: slot('firebomb') };
   if (view.you.light <= 0 && slot('torch') >= 0) return { action: 'item', item: slot('torch') };
   if (me.hp / me.maxHp < 0.2 && rng.chance(0.3)) return { action: 'flee' };
+  // At the open exit, fleeing means escaping the dungeon.
+  const atOpenExit = enc.room === view.exitRoom && view.exitOpen;
+  if (atOpenExit && (me.hp / me.maxHp < 0.5 || view.time > view.collapseAt - 90)) return { action: 'flee' };
 
   switch (view.you.cls) {
     case 'warden': {

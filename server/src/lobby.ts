@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws';
+import { Stash } from './persistence';
 import {
   addToPile, buildView, CLASS_IDS, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
   type ClassId, type ClientMsg, type LobbyState, type LobbyView, type PlayerSlot, type ServerMsg,
@@ -26,8 +27,10 @@ export class Lobby {
   game: Game | null = null;
   hostToken: string;
   emptySince: number | null = null;
+  /** Gold from the finished run has been added to stashes. */
+  private banked = false;
 
-  constructor(readonly code: string, host: Member) {
+  constructor(readonly code: string, host: Member, private stash: Stash) {
     this.hostToken = host.token;
     this.members.push(host);
   }
@@ -40,7 +43,7 @@ export class Lobby {
       hostId: this.members.find((m) => m.token === this.hostToken)?.id ?? '',
       state: this.state,
       maxPlayers: MAX_PLAYERS,
-      members: this.members.map((m) => ({ id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws })),
+      members: this.members.map((m) => ({ id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name) })),
     };
   }
 
@@ -61,12 +64,22 @@ export class Lobby {
     console.log(`[${this.code}] starting game, seed ${seed}`);
     this.game = new Game(seed, slots);
     this.state = 'game';
+    this.banked = false;
     return null;
   }
 
   tick() {
     if (!this.game) return;
     this.game.tick(SERVER_TICK);
+    if (this.game.world.phase !== 'running' && !this.banked) {
+      this.banked = true;
+      for (const m of this.members) {
+        const h = this.game.world.heroes[m.id];
+        if (h?.extracted) this.stash.add(m.name, h.gold);
+      }
+      console.log(`[${this.code}] run over (${this.game.world.phase})`);
+      this.broadcast();
+    }
     for (const m of this.members) {
       if (m.ws && this.game.world.heroes[m.id]) send(m.ws, { t: 'view', view: buildView(this.game.world, m.id) });
     }
@@ -76,6 +89,8 @@ export class Lobby {
 export class LobbyManager {
   private lobbies = new Map<string, Lobby>();
   private rng = new Rng(Date.now() & 0x7fffffff);
+
+  constructor(private stash = new Stash()) {}
 
   private find(token: string): { lobby: Lobby; member: Member } | null {
     for (const lobby of this.lobbies.values()) {
@@ -104,7 +119,7 @@ export class LobbyManager {
       }
       case 'create': {
         if (found) this.leave(found.lobby, found.member);
-        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws));
+        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws), this.stash);
         this.lobbies.set(lobby.code, lobby);
         lobby.broadcast();
         return;

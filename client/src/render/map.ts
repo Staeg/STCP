@@ -84,7 +84,7 @@ export class MapRenderer {
   }
 
   /** Screen positions for every hero token, spreading out tokens that would overlap. */
-  private tokenPositions(view: PlayerView): Map<string, { x: number; y: number }> {
+  private tokenPositions(view: PlayerView): Map<string, { x: number; y: number; lx: number; ly: number }> {
     const entries: { id: string; pos: HeroPos }[] = [{ id: view.you.id, pos: view.you.pos }, ...view.allies];
     const raw = entries.map((e) => {
       const p = this.smoothXY(e.id, e.pos);
@@ -97,13 +97,20 @@ export class MapRenderer {
       if (c) c.push(t);
       else clusters.push([t]);
     }
-    const out = new Map<string, { x: number; y: number }>();
+    const out = new Map<string, { x: number; y: number; lx: number; ly: number }>();
     const spread = this.roomSize() * 0.26;
+    const r = Math.max(6, 9 * this.x.s);
     for (const cl of clusters) {
+      // Labels stack in a column under the cluster so names never pile on top of each other.
+      const base = cl[0].y + (cl.length > 1 ? spread : 0) + r + 11;
+      const others = cl.filter((t) => t.id !== view.you.id);
       cl.forEach((t, i) => {
-        if (cl.length === 1) return out.set(t.id, { x: t.x, y: t.y });
+        const li = Math.max(0, others.indexOf(t));
+        const lx = cl[0].x;
+        const ly = base + li * 13;
+        if (cl.length === 1) return out.set(t.id, { x: t.x, y: t.y, lx: t.x, ly });
         const ang = -Math.PI / 2 + (i / cl.length) * Math.PI * 2;
-        out.set(t.id, { x: cl[0].x + Math.cos(ang) * spread, y: cl[0].y + Math.sin(ang) * spread });
+        out.set(t.id, { x: cl[0].x + Math.cos(ang) * spread, y: cl[0].y + Math.sin(ang) * spread, lx, ly });
       });
     }
     return out;
@@ -148,6 +155,22 @@ export class MapRenderer {
         ctx.setLineDash([6, 6]);
         line(ctx, this.sx(known.x), this.sy(known.y), this.sx(unknownEnd.x), this.sy(unknownEnd.y));
         ctx.setLineDash([]);
+      } else if (c.collapsed) {
+        // Rubble: broken red line with an X in the middle.
+        ctx.strokeStyle = 'rgba(160,60,40,0.8)';
+        ctx.setLineDash([3, 5]);
+        line(ctx, this.sx(a.x), this.sy(a.y), this.sx(b.x), this.sy(b.y));
+        ctx.setLineDash([]);
+        const mx = (this.sx(a.x) + this.sx(b.x)) / 2;
+        const my = (this.sy(a.y) + this.sy(b.y)) / 2;
+        ctx.strokeStyle = '#e05a3a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(mx - 6, my - 6);
+        ctx.lineTo(mx + 6, my + 6);
+        ctx.moveTo(mx + 6, my - 6);
+        ctx.lineTo(mx - 6, my + 6);
+        ctx.stroke();
       } else {
         ctx.strokeStyle = COLORS.corridor;
         line(ctx, this.sx(a.x), this.sy(a.y), this.sx(b.x), this.sy(b.y));
@@ -258,9 +281,9 @@ export class MapRenderer {
       const ago = Math.floor(view.time - a.seenAt);
       const label = a.live ? a.name : `${a.name} · ${ago >= 60 ? `${Math.floor(ago / 60)}m` : `${ago}s`} ago`;
       ctx.fillStyle = '#000';
-      ctx.fillText(label, p.x + 1, p.y + r + 12);
+      ctx.fillText(label, p.lx + 1, p.ly + 1);
       ctx.fillStyle = a.live ? a.color : COLORS.muted;
-      ctx.fillText(label, p.x, p.y + r + 11);
+      ctx.fillText(label, p.lx, p.ly);
     }
 
     // Hover label drawn last so it sits above the vignette
@@ -297,8 +320,9 @@ export class MapRenderer {
     const y = this.sy(r.y) - size / 2;
 
     if (r.kind === 'exit') {
-      const pulse = 0.5 + 0.5 * Math.sin(t * 2.5);
-      ctx.shadowColor = COLORS.exit;
+      const open = this.net.cur?.exitOpen;
+      const pulse = 0.5 + 0.5 * Math.sin(t * (open ? 6 : 2.5));
+      ctx.shadowColor = open ? '#7cff6a' : COLORS.exit;
       ctx.shadowBlur = 10 + pulse * 14;
     }
     ctx.fillStyle = r.knowledge === 'explored' ? COLORS.roomExplored : COLORS.roomSeen;

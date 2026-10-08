@@ -194,9 +194,8 @@ describe('full bot games with monsters', () => {
         { id: 'c', name: 'C', cls: 'lampbearer', isBot: true },
         { id: 'd', name: 'D', cls: 'hexer', isBot: true },
       ]);
-      const startMonsters = Object.keys(game.world.monsters).length;
-      for (let t = 0; t < COLLAPSE_AT && game.world.phase === 'running'; t += 0.1) game.tick(0.1);
-      fights += startMonsters - Object.keys(game.world.monsters).length;
+      for (let t = 0; t < COLLAPSE_AT + 1 && game.world.phase === 'running'; t += 0.1) game.tick(0.1);
+      fights += game.world.stats.slain;
       for (const h of Object.values(game.world.heroes)) {
         total++;
         if (h.dead) deaths++;

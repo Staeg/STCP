@@ -34,12 +34,12 @@ export interface Dungeon {
   height: number;
 }
 
-export const GRID_W = 8;
-export const GRID_H = 6;
+export const GRID_W = 10;
+export const GRID_H = 7;
 export const CELL = 100;
-export const ROOM_COUNT = { min: 25, max: 35 };
-export const EXIT_DISTANCE = { min: 5, max: 7 };
-export const CROSSROADS_COUNT = { min: 3, max: 6 };
+export const ROOM_COUNT = { min: 38, max: 50 };
+export const EXIT_DISTANCE = { min: 6, max: 9 };
+export const CROSSROADS_COUNT = { min: 5, max: 10 };
 export const CORRIDOR_LENGTH = { min: 3, max: 8 };
 
 const DIRS = [
@@ -181,6 +181,11 @@ function bfs(adj: number[][], start: number): number[] {
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/** "the Silent Crypt", but "The Rendezvous" (names that already carry an article). */
+export function theRoom(name: string): string {
+  return name.startsWith('The ') ? name : `the ${name}`;
 }
 
 // ---- Graph helpers used by the sim and the client ----

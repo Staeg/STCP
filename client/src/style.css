@@ -314,3 +314,33 @@ button.mini { font-size: 15px; padding: 0 6px; }
 @keyframes feed { 0% { opacity: 0; transform: translateY(8px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
 .cb-actions.items { margin-top: 6px; }
 .cb-act.item { flex: 0 1 200px; }
+
+/* ---- Exit, digging, results ---- */
+#actions { display: flex; gap: 8px; align-items: center; }
+#btn-escape { font-size: 28px; padding: 8px 22px; border-color: #7cff6a; color: #7cff6a; animation: glowgreen 1s infinite alternate; }
+@keyframes glowgreen { from { box-shadow: 0 0 0 2px #000, 0 0 6px #7cff6a; } to { box-shadow: 0 0 0 2px #000, 0 0 22px #7cff6a; } }
+#channel { background: var(--panel); border: 2px solid var(--border); padding: 6px 12px; color: var(--gold); }
+
+#results {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 6, 5, 0.88);
+  z-index: 8;
+  padding: 24px;
+  overflow: auto;
+}
+#results.peek { background: transparent; pointer-events: none; }
+#results.peek .results-card { opacity: 0.12; }
+#results.peek .results-card .row { opacity: 1; pointer-events: auto; }
+.results-card h1.escaped { color: #7cff6a; }
+.results-card h1.dead { color: var(--danger); }
+.results-card h3 { margin: 14px 0 4px; font-weight: normal; color: var(--gold); }
+.fates { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.fates td { padding: 3px 8px; border-bottom: 1px solid #2a2018; }
+.fates tr.dead td:nth-child(3) { color: #c88; }
+.fates tr.escaped td:nth-child(3) { color: #9e9; }
+.chronicle { max-height: 34vh; overflow: auto; font-size: 18px; line-height: 1.15; border: 1px solid #2a2018; padding: 6px; }
+.chron { margin: 1px 0; }

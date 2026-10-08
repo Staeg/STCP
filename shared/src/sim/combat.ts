@@ -1,11 +1,11 @@
 import { ABILITIES, type AbilityDef } from '../content/abilities';
 import { HERO_RANK } from '../content/classes';
-import { LIGHT_MAX } from '../content/constants';
+import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
 import { ENCOUNTER_GROUPS, ENEMIES, ROOM_MONSTER_CHANCE, TIER_SCALING, type EnemyId, type Rank } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS } from '../content/items';
 import { applyItem, dropEverything, itemTargets } from './loot';
-import type { Hero, World } from './world';
+import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 
 export const ROUND_TIME = 5;
 export const BLEED_OUT = 30;
@@ -89,14 +89,15 @@ export function spawnInitialMonsters(world: World) {
   }
 }
 
-function pickGroup(world: World): EnemyId[] {
-  const total = ENCOUNTER_GROUPS.reduce((s, g) => s + g.weight, 0);
+export function pickGroup(world: World, tier = 0): EnemyId[] {
+  const groups = ENCOUNTER_GROUPS.filter((g) => (g.minTier ?? 0) <= tier);
+  const total = groups.reduce((s, g) => s + g.weight, 0);
   let roll = world.rng.float(0, total);
-  for (const g of ENCOUNTER_GROUPS) {
+  for (const g of groups) {
     roll -= g.weight;
     if (roll <= 0) return g.units;
   }
-  return ENCOUNTER_GROUPS[0].units;
+  return groups[0].units;
 }
 
 export function spawnGroup(world: World, room: number, units: EnemyId[], tier: number): Monster[] {
@@ -125,8 +126,13 @@ export function monstersIn(world: World, room: number): Monster[] {
 // ---------------------------------------------------------------------------
 // Hero helpers
 
+/** Still in the dungeon: not dead and not escaped. */
+export function inDungeon(h: Hero): boolean {
+  return !h.dead && !h.extracted;
+}
+
 export function isConscious(h: Hero): boolean {
-  return !h.dead && h.downedAt === null;
+  return inDungeon(h) && h.downedAt === null;
 }
 
 export function heroRank(h: Hero): Rank {
@@ -141,8 +147,10 @@ export function addStress(h: Hero, amount: number) {
   return h.stress - before;
 }
 
-export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION) {
+export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World, by?: Hero) {
   h.downedAt = null;
+  if (world) world.stats.revives++;
+  if (world) chronicle(world, by ? `${by.name} got ${h.name} back on their feet.` : `${h.name} got back up.`);
   h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
 }
 
@@ -151,7 +159,7 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION) {
 
 /** A hero has arrived in a room (or is in one). Starts or joins a fight if monsters are present. */
 export function onHeroInRoom(world: World, hero: Hero, room: number) {
-  if (hero.dead || hero.encounter !== null) return;
+  if (!inDungeon(hero) || hero.encounter !== null) return;
   if (monstersIn(world, room).length === 0) return;
   let enc = world.encounters[room];
   if (!enc) {
@@ -160,9 +168,10 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
       heroes: [], joining: [], choices: {}, events: [], log: [],
     };
     world.encounters[room] = enc;
+    world.stats.fights++;
     // Everyone already standing here is pulled in, including the downed.
     for (const h of Object.values(world.heroes)) {
-      if (!h.dead && h.pos.kind === 'room' && h.pos.room === room) enlist(enc, h, false);
+      if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room) enlist(enc, h, false);
     }
     const names = monstersIn(world, room).map((m) => ENEMIES[m.type].name).join(', ');
     enc.log.push(`Ambush! ${names}.`);
@@ -229,7 +238,7 @@ function nextRound(world: World, enc: Encounter) {
   enc.choices = {};
   enc.heroes.push(...enc.joining);
   enc.joining = [];
-  enc.heroes = enc.heroes.filter((id) => !world.heroes[id].dead);
+  enc.heroes = enc.heroes.filter((id) => inDungeon(world.heroes[id]));
   if (!enc.heroes.some((id) => isConscious(world.heroes[id]))) {
     endEncounter(world, enc);
     return;
@@ -314,6 +323,7 @@ type Actor = { kind: 'hero'; h: Hero; init: number } | { kind: 'monster'; m: Mon
 function resolveRound(world: World, enc: Encounter) {
   const rng = world.rng;
   const events: CombatEvent[] = [];
+  world.stats.rounds++;
   const heroes = enc.heroes.map((id) => world.heroes[id]);
   const active = heroes.filter(isConscious);
 
@@ -428,6 +438,12 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
   }
   if (c.action === 'flee') {
     if (smoke || rng.chance(FLEE_CHANCE)) {
+      if (enc.room === world.dungeon.exit && world.time >= EXIT_OPENS_AT) {
+        leaveEncounter(world, enc, h);
+        extractHero(world, h);
+        events.push({ actor: h.id, kind: 'flee', text: `${h.name} escapes through the exit!` });
+        return;
+      }
       flee(world, enc, h);
       addStress(h, 5);
       events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
@@ -456,7 +472,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
   if (c.action === 'revive') {
     const t = c.target ? world.heroes[c.target] : undefined;
     if (t && !t.dead && t.downedAt !== null) {
-      reviveHero(t);
+      reviveHero(t, undefined, world, h);
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: t.hp, text: `${h.name} drags ${t.name} back to their feet.` });
     }
     return;
@@ -468,7 +484,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     case 'bash': {
       const t = pickEnemy(true);
       if (!t) return;
-      if (heroHits(world, enc, h, t, 6, events, ab.name) && world.monsters[t.id] && rng.chance(0.5)) {
+      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(0.5)) {
         t.st.stun = true;
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
@@ -481,22 +497,22 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     }
     case 'rally':
       for (const a of allies()) {
-        a.st.block = (a.st.block ?? 0) + 4;
+        a.st.block = (a.st.block ?? 0) + ab.power;
         addStress(a, -10);
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+4 Block, −10 stress)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${ab.power} Block, −10 stress)` });
       return;
     case 'backstab': {
       const t = pickEnemy(false);
       if (!t) return;
       const crit = !!(t.st.stun || t.st.mark);
-      heroHits(world, enc, h, t, crit ? 16 : 8, events, ab.name, crit);
+      heroHits(world, enc, h, t, crit ? ab.power * 2 : ab.power, events, ab.name, crit);
       return;
     }
     case 'poison': {
       const t = pickEnemy(false);
       if (!t) return;
-      if (heroHits(world, enc, h, t, 4, events, ab.name) && world.monsters[t.id]) {
+      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) {
         t.st.bleed = { dmg: 3, rounds: 3 };
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is bleeding.` });
       }
@@ -508,24 +524,24 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     case 'mend': {
       const t = pickAlly();
       if (!t) return;
-      const healed = heal(t, 10);
+      const healed = heal(t, ab.power);
       delete t.st.bleed;
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
       return;
     }
     case 'flare':
       for (const x of Object.values(world.heroes)) {
-        if (!x.dead && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 15);
+        if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 15);
       }
       events.push({ actor: h.id, kind: 'status', text: `${h.name} ignites a flare! (+15 light)` });
       for (const m of enemies()) {
-        if (heroHits(world, enc, h, m, 4, events, ab.name) && world.monsters[m.id] && ENEMIES[m.type].undead) m.st.mark = 3;
+        if (heroHits(world, enc, h, m, ab.power, events, ab.name) && world.monsters[m.id] && ENEMIES[m.type].undead) m.st.mark = 3;
       }
       return;
     case 'vigil': {
       const t = pickAlly();
       if (!t) return;
-      addStress(t, -15);
+      addStress(t, -ab.power);
       t.st.calm = 2;
       events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t.name}. (−15 stress)` });
       return;
@@ -533,7 +549,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
     case 'hex': {
       const t = pickEnemy(false);
       if (!t) return;
-      if (heroHits(world, enc, h, t, 5, events, ab.name) && world.monsters[t.id]) t.st.mark = 3;
+      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) t.st.mark = 3;
       return;
     }
     case 'wither': {
@@ -547,7 +563,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
       h.hp = Math.max(1, h.hp - 6);
       events.push({ actor: h.id, kind: 'damage', target: h.id, amount: 6, text: `${h.name} spills their own blood.` });
       const targets = enemies();
-      const each = Math.ceil(12 / Math.max(1, targets.length));
+      const each = Math.ceil(ab.power / Math.max(1, targets.length));
       for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
       const weakest = allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
       if (weakest) {
@@ -587,6 +603,7 @@ function applyMonsterDamage(world: World, m: Monster, dmg: number, events: Comba
   m.hp -= dmg;
   if (m.hp <= 0) {
     delete world.monsters[m.id];
+    world.stats.slain++;
     events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
   }
 }
@@ -673,9 +690,11 @@ function applyHeroDamage(world: World, enc: Encounter, h: Hero, dmg: number, eve
 export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter) {
   h.hp = 0;
   h.downedAt = world.time;
+  world.stats.downs++;
   h.st = {};
   h.channel = null;
   events?.push({ actor: h.id, kind: 'down', target: h.id, text: `${h.name} falls!` });
+  chronicle(world, `${h.name} went down in ${roomName(world, h)}.`);
   const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
   for (const w of witnesses) {
     if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, 15);
@@ -700,10 +719,12 @@ function flee(world: World, enc: Encounter, h: Hero) {
 /** Bleed-out and death for downed heroes. Called every tick. */
 export function tickDowned(world: World) {
   for (const h of Object.values(world.heroes)) {
-    if (h.dead || h.downedAt === null) continue;
+    if (!inDungeon(h) || h.downedAt === null) continue;
     if (world.time - h.downedAt >= BLEED_OUT) {
       h.dead = true;
       h.diedAt = world.time;
+      h.fate = `bled out in ${roomName(world, h)}`;
+      chronicle(world, `${h.name} bled out in ${roomName(world, h)}.`);
       dropEverything(world, h);
       const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
       if (enc) {
