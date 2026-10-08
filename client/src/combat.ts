@@ -44,15 +44,18 @@ export class CombatUi {
     const panel = $('combat');
     const enc = view?.encounter ?? null;
     if (!view || !enc) {
-      panel.hidden = true;
       this.targeting = null;
       this.prevMonsters.clear();
       this.lastKey = '';
       this.shownLog = [];
+      panel.hidden = !view || view.phase !== 'running' || view.you.dead || view.you.extracted;
+      panel.classList.add('idle');
+      if (view && !panel.hidden) this.renderIdle(view);
       return;
     }
     if (this.shownLog.length === 0 && enc.log.length) this.shownLog = enc.log.slice(0, 1); // the "Ambush!" line
     panel.hidden = false;
+    panel.classList.remove('idle');
     this.onNewResolution(enc);
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
@@ -126,7 +129,7 @@ export class CombatUi {
     else if (enc.youJoining) status = 'You join the fight next round…';
     else if (me?.downed) status = 'You are down! An ally must revive you.';
     else if (this.targeting) status = 'Choose a target (Esc to cancel)';
-    else if (enc.yourChoice) status = waiting.length ? `Locked in · waiting for ${waiting.join(', ')}` : 'Locked in';
+    else if (enc.yourChoice) status = waiting.length ? `Locked in · still choosing: ${waiting.join(', ')}` : 'Locked in · everyone is ready';
     else status = 'Choose your action!';
     const header = `<div class="cb-head">
       <span>Round ${enc.round}</span>
@@ -144,39 +147,52 @@ export class CombatUi {
       <div class="cb-side monsters">${monsters.map((u) => this.unitHtml(u, valid, you.id)).join('')}</div>
     </div>`;
 
-    // Action bar
+    const log = `<div class="cb-log">${this.shownLog.slice(-7).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+
+    const html = header + `<div class="cb-body">${stage}${log}</div>` + this.actionsHtml(view, enc, canAct);
+    this.setHtml(html);
+  }
+
+  /** Out of combat: the same action bar, greyed out, so you always know what you'll have to hand. */
+  private renderIdle(view: PlayerView) {
+    this.setHtml(`<div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight</span></div>` + this.actionsHtml(view, null, false));
+  }
+
+  private setHtml(html: string) {
+    if (html !== this.lastHtml) {
+      $('combat').innerHTML = html;
+      this.lastHtml = html;
+    }
+  }
+
+  /** Abilities, Revive/Flee/Brace and combat items. Everything is shown; what you can't use right now is disabled. */
+  private actionsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
+    const you = view.you;
     const abilities = ABILITIES[you.cls];
-    const chosen = enc.yourChoice;
+    const chosen = enc?.yourChoice ?? null;
     const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false) => {
       const sel = chosen?.action === action || this.targeting === action;
       return `<button class="cb-act ${sel ? 'sel' : ''}" data-action="${action}" ${!canAct || cd > 0 || disabled ? 'disabled' : ''} title="${esc(desc)}">
         <kbd>${key}</kbd> ${esc(label)}${cd > 0 ? ` <span class="cd">${cd}</span>` : ''}
         <div class="cb-desc">${esc(desc)}</div></button>`;
     };
-    const downedAllies = enc.heroes.filter((h) => h.downed);
+    const anyDowned = !!enc?.heroes.some((h) => h.downed);
     const actions = `<div class="cb-actions">
-      ${abilities.map((ab, i) => btn(`a${i}` as CombatAction, String(i + 1), ab.name, ab.desc, you.cooldowns[ab.id] ?? 0)).join('')}
-      ${btn('revive', 'R', 'Revive', 'Get a downed ally back up (30% HP).', 0, downedAllies.length === 0)}
+      ${abilities.map((ab, i) => btn(`a${i}` as CombatAction, String(i + 1), ab.name, ab.desc, enc ? you.cooldowns[ab.id] ?? 0 : 0)).join('')}
+      ${btn('revive', 'R', 'Revive', 'Get a downed ally back up (30% HP).', 0, !anyDowned)}
       ${btn('flee', 'F', 'Flee', '70% chance to escape to the previous room. +5 stress.')}
       ${btn('brace', 'B', 'Brace', 'Take 30% less damage this round. (Automatic if time runs out.)')}
     </div>`;
 
-    const itemBtns = view.you.items.map((it, i) => {
+    const itemBtns = you.items.map((it, i) => {
       const def = ITEMS[it];
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
       return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'} title="${esc(def.desc)}">
         <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
-    const itemsRow = itemBtns ? `<div class="cb-actions items">${itemBtns}</div>` : '';
-
-    const log = `<div class="cb-log">${this.shownLog.slice(-7).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
-
-    const html = header + `<div class="cb-body">${stage}${log}</div>` + actions + itemsRow;
-    if (html !== this.lastHtml) {
-      $('combat').innerHTML = html;
-      this.lastHtml = html;
-    }
+    if (!enc) return actions.replace(/<\/div>$/, `${itemBtns}</div>`); // one compact row out of combat
+    return actions + (itemBtns ? `<div class="cb-actions items">${itemBtns}</div>` : '');
   }
 
   private unitHtml(u: CombatUnitView, valid: string[], youId: string): string {

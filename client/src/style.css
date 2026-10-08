@@ -70,7 +70,7 @@ html, body {
 
 #actions {
   position: fixed;
-  bottom: 48px;
+  bottom: 108px;
   left: 50%;
   transform: translateX(-50%);
 }
@@ -181,7 +181,7 @@ button.quiet { margin-left: auto; background: transparent; }
 
 #toast {
   position: fixed;
-  bottom: 60px;
+  bottom: 160px;
   left: 50%;
   transform: translateX(-50%);
   background: #3a1414;
@@ -287,7 +287,7 @@ button.quiet { margin-left: auto; background: transparent; }
 
 #loot {
   position: fixed;
-  bottom: 96px;
+  bottom: 158px;
   left: 50%;
   transform: translateX(-50%);
   width: min(620px, calc(100vw - 600px));
@@ -348,7 +348,7 @@ button.mini { font-size: 15px; padding: 0 6px; }
 /* ---- Events, afflictions ---- */
 #event {
   position: fixed;
-  bottom: 96px;
+  bottom: 158px;
   left: 50%;
   transform: translateX(-50%);
   width: min(560px, calc(100vw - 600px));
@@ -393,3 +393,20 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .hof table { width: 100%; border-collapse: collapse; font-size: 18px; }
 .hof td { padding: 1px 6px; }
 .hof tr.me td { background: #2a2018; }
+.ev-worker { color: #d8c8ff; font-size: 19px; }
+.ev-worker.you { color: var(--gold); }
+
+/* ---- Combat actions while exploring: always on screen, greyed out ---- */
+#combat.idle {
+  width: min(980px, calc(100vw - 24px));
+  bottom: 36px;
+  padding: 4px 10px 6px;
+  background: rgba(16, 12, 10, 0.88);
+  box-shadow: 0 0 0 2px #000;
+  z-index: 3;
+}
+#combat.idle .cb-desc { display: none; }
+#combat.idle .cb-actions { margin-top: 2px; gap: 6px; }
+#combat.idle .cb-act { font-size: 18px; padding: 2px 8px; min-width: 0; }
+#combat.idle .cb-act.item { flex: 1; }
+.cb-idle-head { font-size: 16px; color: var(--muted); }

@@ -30,25 +30,34 @@ export const ITEMS: Record<ItemId, ItemDef> = {
 
 export const INVENTORY_SLOTS = 4;
 
-export const LOOT_TABLE: { item: ItemId; weight: number }[] = [
-  { item: 'bandage', weight: 7 },
-  { item: 'torch', weight: 4 },
-  { item: 'tonic', weight: 3 },
-  { item: 'firebomb', weight: 3 },
-  { item: 'salts', weight: 2 },
-  { item: 'coin', weight: 1 },
-  { item: 'locket', weight: 1 },
-  { item: 'catseye', weight: 1 },
-  { item: 'ward', weight: 1 },
+/** rarity: 1 common · 2 uncommon · 3 rare. Better loot (tougher kills, vaults) leans toward rarer items. */
+export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] = [
+  { item: 'bandage', weight: 7, rarity: 1 },
+  { item: 'torch', weight: 4, rarity: 1 },
+  { item: 'tonic', weight: 3, rarity: 1 },
+  { item: 'firebomb', weight: 3, rarity: 2 },
+  { item: 'salts', weight: 2, rarity: 2 },
+  { item: 'coin', weight: 1, rarity: 3 },
+  { item: 'locket', weight: 1, rarity: 3 },
+  { item: 'catseye', weight: 1, rarity: 3 },
+  { item: 'ward', weight: 1, rarity: 3 },
 ];
 
-/** Loot seeding per room. Guarded rooms and dead ends are richer. */
+/** Loot seeding per room, and what monsters drop. */
 export const LOOT = {
   guardedChance: 0.75,
   guardedGold: [12, 30] as const,
-  guardedItemChance: 0.6,
-  emptyChance: 0.3,
+  emptyChance: 0.35,
   emptyGold: [4, 12] as const,
-  emptyItemChance: 0.3,
-  deadEndBonusItemChance: 0.5,
+  /** Rooms without monsters: chance of an item lying around (rolled separately from gold). */
+  emptyItemChance: 0.35,
+  deadEndBonusItemChance: 0.6,
+  /** Clearing a room drops 1 item, +1 per this many points of monster (base HP × tier scaling) slain there. */
+  dropPointsPerItem: 40,
+  /** Drop quality: points at or above these give quality 2 / 3. */
+  dropQuality2: 20,
+  dropQuality3: 45,
+  /** Weight multiplier for items of exactly the rolled quality, and per step above it. */
+  qualityMatchBonus: 3,
+  qualityAbovePenalty: 0.3,
 };

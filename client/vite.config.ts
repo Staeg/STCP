@@ -1,12 +1,16 @@
 import { defineConfig } from 'vite';
 
+// CLIENT_PORT / GAME_PORT let a second dev server run alongside the usual 5180/3001.
+const clientPort = Number(process.env.CLIENT_PORT ?? 5180);
+const gamePort = Number(process.env.GAME_PORT ?? 3001);
+
 export default defineConfig({
   server: {
     host: true, // expose on LAN so friends can join the dev build
-    port: 5180,
+    port: clientPort,
     strictPort: true,
     proxy: {
-      '/ws': { target: 'ws://localhost:3001', ws: true },
+      '/ws': { target: `ws://localhost:${gamePort}`, ws: true },
     },
   },
 });

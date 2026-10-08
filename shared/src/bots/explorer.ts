@@ -48,7 +48,8 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   // Mid-route through rooms known to be clear: keep walking without stopping to think.
   const next = mem.route[0];
   const roomOf = (id: number) => view.rooms.find((r) => r.id === id);
-  if (next !== undefined && !view.loot?.vote && !(view.event && !mem.decided.includes(here))) {
+  const allyDown = view.allies.some((a) => a.live && a.downed && !a.dead);
+  if (next !== undefined && !allyDown && !view.loot?.vote && !(view.event && !mem.decided.includes(here))) {
     const open = view.corridors.some((c) => !c.collapsed && ((c.a === here && c.b === next) || (c.b === here && c.a === next)));
     if (open && !(roomOf(next)?.threat ?? 0)) {
       mem.route.shift();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXIT_OPENS_AT } from '../content/constants';
-import { neighbours } from '../dungeon/gen';
+import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
@@ -16,7 +16,7 @@ function withEvent(kind: RoomEvent['kind'], cls: 'warden' | 'cutthroat' | 'lampb
   const h = addHero(world, { id: 'h', name: 'H', cls });
   const d = world.dungeon;
   const room = d.entrance;
-  world.events[room] = { room, kind, done: false, progress: 0, spawned: false };
+  world.events[room] = { room, kind, done: false, progress: 0, by: null, spawned: false };
   return { world, h, d, room };
 }
 
@@ -39,6 +39,9 @@ describe('room events', () => {
   it('cursed chest: loot, plus stress for whoever opened it', () => {
     const { world, h, room } = withEvent('chest');
     applyIntent(world, 'h', { type: 'event', choice: 'open' });
+    run(world, 5.5);
+    expect(h.stress).toBe(0); // it takes a beat
+    run(world, 0.6);
     expect(h.stress).toBe(20);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
@@ -52,9 +55,9 @@ describe('room events', () => {
     // Walk out and back so we have a previous room.
     applyIntent(world, 'h', { type: 'goto', room: next });
     run(world, 9);
-    world.events[next] = { room: next, kind: 'idol', done: false, progress: 0, spawned: false };
+    world.events[next] = { room: next, kind: 'idol', done: false, progress: 0, by: null, spawned: false };
     applyIntent(world, 'h', { type: 'event', choice: 'take' });
-    step(world, 0.1);
+    run(world, 6.2);
     expect(h.gold).toBeGreaterThanOrEqual(60);
     expect(world.collapsed.length).toBe(1);
     expect(h.knownCollapsed.length).toBe(1);
@@ -65,6 +68,7 @@ describe('room events', () => {
     expect(buildView(world, 'h').event?.choices[0].disabled).toMatch(/no bandage/);
     h.items = ['bandage'];
     applyIntent(world, 'h', { type: 'event', choice: 'help' });
+    run(world, 6.1);
     expect(h.items).toEqual([]);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
@@ -75,9 +79,16 @@ describe('room events', () => {
 
   it('crawlspace moves you toward the exit for a price', () => {
     const { world, h, d } = withEvent('crawlspace');
+    // Move the crawlspace (and the hero) somewhere deep: the exit is where everyone starts.
+    const dist = hopDistances(d, d.exit);
+    const far = dist.indexOf(Math.max(...dist));
+    world.events[far] = { ...world.events[d.entrance], room: far };
+    delete world.events[d.entrance];
+    h.pos = { kind: 'room', room: far };
     const hp = h.hp;
     applyIntent(world, 'h', { type: 'event', choice: 'crawl' });
-    expect(h.pos.kind === 'room' && h.pos.room !== d.entrance).toBe(true);
+    run(world, 6.1);
+    expect(h.pos.kind === 'room' && dist[h.pos.room] === dist[far] - 3).toBe(true);
     expect(h.hp).toBe(hp - 4);
     expect(h.light).toBeLessThan(25);
   });
@@ -85,14 +96,14 @@ describe('room events', () => {
   it('vault: a channel (Cutthroat fast) whose progress survives interruption', () => {
     const { world, h, room } = withEvent('vault', 'cutthroat');
     applyIntent(world, 'h', { type: 'event', choice: 'channel' });
-    run(world, 3);
+    run(world, 4);
     expect(world.events[room].progress).toBeGreaterThan(0.3);
     applyIntent(world, 'h', { type: 'stop' });
     step(world, 0.1);
     const kept = world.events[room].progress;
     expect(kept).toBeGreaterThan(0.3);
     applyIntent(world, 'h', { type: 'event', choice: 'channel' });
-    run(world, 5);
+    run(world, 8.2);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBeGreaterThanOrEqual(30);
@@ -102,17 +113,39 @@ describe('room events', () => {
     const { world, h, room } = withEvent('altar', 'hexer');
     h.stress = 50;
     applyIntent(world, 'h', { type: 'event', choice: 'channel' });
-    run(world, 4);
-    expect(h.encounter).toBe(room); // the guardians came
+    run(world, 6.2);
+    expect(h.encounter).toBe(room); // the guardians came at the halfway mark (Hexer: 12s)
     // Clear them and finish.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
     run(world, 4);
     expect(h.encounter).toBeNull();
     applyIntent(world, 'h', { type: 'event', choice: 'channel' });
-    run(world, 4);
+    run(world, 6.2);
     expect(world.events[room].done).toBe(true);
     expect(world.objectives.altars).toBe(1);
     expect(h.stress).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('claims', () => {
+  it('only the first hero to choose does the work; the others see who and what at once', () => {
+    const { world, room } = withEvent('altar');
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
+    const seen = buildView(world, 'o').event!;
+    expect(seen.worker).toMatchObject({ name: 'H', doing: 'cleansing the altar', you: false });
+    expect(seen.choices[0].disabled).toMatch(/H is already doing it/);
+    expect(o.messages.some((m) => m.text.includes('H starts cleansing the altar'))).toBe(true);
+    applyIntent(world, 'o', { type: 'event', choice: 'channel' });
+    expect(o.channel).toBeNull(); // refused: not their burden
+    // The worker walks away: the claim is free again, and the progress stays.
+    run(world, 3);
+    applyIntent(world, 'h', { type: 'stop' });
+    step(world, 0.1);
+    expect(world.events[room].by).toBeNull();
+    expect(world.events[room].progress).toBeGreaterThan(0.1);
+    applyIntent(world, 'o', { type: 'event', choice: 'channel' });
+    expect(world.events[room].by).toBe('o');
   });
 });
 
@@ -121,24 +154,23 @@ describe('villagers', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
     const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
     const d = world.dungeon;
-    world.villagers.v1 = { id: 'v1', room: d.entrance, leader: null, hp: 10, maxHp: 10, state: 'captive' };
-    return { world, h, d };
+    // One room out from the start (which is also the rendezvous).
+    const room = neighbours(d, d.entrance)[0];
+    h.pos = { kind: 'room', room };
+    h.explored.push(room);
+    world.villagers.v1 = { id: 'v1', room, leader: null, hp: 10, maxHp: 10, state: 'captive' };
+    return { world, h, d, room };
   }
 
   it('follow their rescuer, slow them down, and are saved on reaching the rendezvous', () => {
     const { world, h, d } = captive();
     applyIntent(world, 'h', { type: 'event', choice: 'lead' });
     expect(h.leading).toBe('v1');
-    const next = neighbours(d, d.entrance)[0];
-    applyIntent(world, 'h', { type: 'goto', room: next });
-    const len = d.corridors.find((c) => (c.a === d.entrance && c.b === next) || (c.b === d.entrance && c.a === next))!.length;
-    run(world, len + 0.2);
+    applyIntent(world, 'h', { type: 'goto', room: d.exit });
+    run(world, CORRIDOR_TIME + 0.2);
     expect(h.pos.kind).toBe('corridor'); // slower than normal
-    run(world, len);
-    expect(world.villagers.v1.room).toBe(next);
-    // Teleport to the rendezvous: delivered, even before the exit opens.
-    h.pos = { kind: 'room', room: d.exit };
-    step(world, 0.1);
+    run(world, CORRIDOR_TIME);
+    // Delivered on reaching the rendezvous, even before the exit opens.
     expect(world.villagers.v1.state).toBe('saved');
     expect(world.objectives.villagers).toBe(1);
     expect(h.leading).toBeNull();
@@ -149,8 +181,9 @@ describe('villagers', () => {
   });
 
   it('wait where their leader fell, and someone else can pick them up', () => {
-    const { world, h } = captive();
+    const { world, h, room } = captive();
     const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    other.pos = { kind: 'room', room };
     applyIntent(world, 'h', { type: 'event', choice: 'lead' });
     h.hp = 0;
     h.downedAt = world.time;

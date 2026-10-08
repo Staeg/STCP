@@ -22,6 +22,15 @@ function arena(classes: ClassId[], enemies: EnemyId[]) {
   return { world, d, ids, room, monsters };
 }
 
+/** Let the current round's timer run out and resolve; returns once the next round is open (or the fight is over). */
+function finishRound(world: World, room: number) {
+  const enc = world.encounters[room];
+  if (!enc) return;
+  const round = enc.round;
+  while (world.encounters[room] === enc && enc.phase === 'choosing' && enc.round === round) step(world, 0.1);
+  while (world.encounters[room] === enc && enc.phase === 'resolving') step(world, 0.1);
+}
+
 function walkIn(world: World, ids: string[], room: number) {
   for (const id of ids) applyIntent(world, id, { type: 'goto', room });
   run(world, 9);
@@ -41,18 +50,20 @@ describe('encounters', () => {
     expect(view.encounter?.phase).toBe('choosing');
   });
 
-  it('resolves early once everyone has chosen, and braces on timeout', () => {
+  it('resolves only when the 6s timer runs out, and braces those who did not choose', () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
     step(world, 0.1);
+    expect(enc.phase).toBe('choosing'); // everyone is in, but the beat isn't over
+    run(world, enc.deadline - world.time + 0.1);
     expect(enc.phase).toBe('resolving');
     expect(enc.events.some((e) => e.text.includes('Backstab'))).toBe(true);
 
-    // Next round: don't choose. After 5s the hero braces.
-    run(world, 4);
-    expect(enc.phase).toBe('choosing');
+    // Next round: don't choose. When the timer runs out the hero braces.
+    while (enc.phase === 'resolving') step(world, 0.1);
+    expect(enc.deadline - world.time).toBeCloseTo(ROUND_TIME, 0);
     run(world, ROUND_TIME + 0.2);
     expect(enc.events.some((e) => e.text.includes('braces'))).toBe(true);
   });
@@ -62,10 +73,7 @@ describe('encounters', () => {
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     const poison = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
-    const nextRound = () => {
-      step(world, 0.1);
-      while (enc.phase === 'resolving') step(world, 0.1);
-    };
+    const nextRound = () => finishRound(world, room);
     poison();
     expect(enc.choices.h0?.action).toBe('a1');
     nextRound(); // round 2
@@ -87,12 +95,23 @@ describe('encounters', () => {
     for (let i = 0; i < 10 && monstersIn(world, room).length; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
       applyIntent(world, 'h1', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-      run(world, 4);
+      finishRound(world, room);
     }
     expect(monstersIn(world, room)).toHaveLength(0);
     expect(world.encounters[room]).toBeUndefined();
     expect(world.heroes.h0.encounter).toBeNull();
     expect(world.heroes.h0.cooldowns).toEqual({});
+    // The kill always drops something, which must be settled before anyone leaves.
+    step(world, 0.1);
+    expect(world.piles[room]?.vote).toBeTruthy();
+    applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
+    expect(world.heroes.h0.path).toEqual([]);
+    while (world.piles[room]) {
+      applyIntent(world, 'h0', { type: 'vote', choice: 'leave' });
+      applyIntent(world, 'h1', { type: 'vote', choice: 'leave' });
+      step(world, 0.1);
+      if (world.piles[room] && !world.piles[room].vote && world.piles[room].items.length === 0) break;
+    }
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
     expect(world.heroes.h0.path).toEqual([d.entrance]);
   });
@@ -118,7 +137,7 @@ describe('encounters', () => {
     lamp.hp = 0;
     lamp.downedAt = world.time;
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'revive', target: 'h1' } });
-    step(world, 0.1);
+    run(world, enc.deadline - world.time + 0.1);
     expect(lamp.downedAt).toBeNull();
     expect(lamp.hp).toBeGreaterThan(0);
     expect(enc.events.some((e) => e.kind === 'heal' && e.target === 'h1')).toBe(true);
@@ -144,9 +163,8 @@ describe('encounters', () => {
     for (let i = 0; i < 12 && !redirected; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: i % 2 === 0 ? 'a1' : 'brace', target: 'h1' } });
       applyIntent(world, 'h1', { type: 'combat', choice: { action: 'brace' } });
-      step(world, 0.1);
+      finishRound(world, room);
       redirected = enc.events.some((e) => e.text.includes('steps in front'));
-      while (enc.phase === 'resolving') step(world, 0.1);
     }
     expect(redirected).toBe(true);
   });
@@ -157,7 +175,7 @@ describe('encounters', () => {
     const h = world.heroes.h0;
     for (let i = 0; i < 10 && h.encounter !== null; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'flee' } });
-      run(world, 4);
+      finishRound(world, room);
     }
     expect(h.encounter).toBeNull();
     expect(world.encounters[room]).toBeUndefined();

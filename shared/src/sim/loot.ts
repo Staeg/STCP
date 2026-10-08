@@ -1,7 +1,8 @@
 import { INVENTORY_SLOTS, ITEMS, LOOT, LOOT_TABLE, type ItemId } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { addStress, inDungeon, isConscious, monstersIn, reviveHero } from './combat';
+import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
+import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
 import { STRESS } from '../content/events';
 import type { Hero, World } from './world';
@@ -34,6 +35,7 @@ export function spawnInitialLoot(world: World) {
   const rng = world.rng;
   for (const room of d.rooms) {
     if (room.kind !== 'normal') continue;
+    // Guarded rooms get their items when the monsters die (see dropBounty).
     const guarded = monstersIn(world, room.id).length > 0;
     const deadEnd = room.corridors.length === 1;
     const items: ItemId[] = [];
@@ -41,21 +43,40 @@ export function spawnInitialLoot(world: World) {
     if (guarded ? rng.chance(LOOT.guardedChance) : rng.chance(LOOT.emptyChance)) {
       const [lo, hi] = guarded ? LOOT.guardedGold : LOOT.emptyGold;
       gold = rng.int(lo, hi);
-      if (rng.chance(guarded ? LOOT.guardedItemChance : LOOT.emptyItemChance)) items.push(rollItem(world));
     }
+    if (!guarded && rng.chance(LOOT.emptyItemChance)) items.push(rollItem(world));
     if (deadEnd && rng.chance(LOOT.deadEndBonusItemChance)) items.push(rollItem(world));
     if (gold || items.length) addToPile(world, room.id, gold, items);
   }
 }
 
-export function rollItem(world: World): ItemId {
-  const total = LOOT_TABLE.reduce((s, e) => s + e.weight, 0);
+/** A random item. `quality` 1–3 favours items of that rarity and makes rarer ones scarce. */
+export function rollItem(world: World, quality = 1): ItemId {
+  const weight = (e: (typeof LOOT_TABLE)[number]) =>
+    e.weight * (e.rarity === quality ? LOOT.qualityMatchBonus : 1) * LOOT.qualityAbovePenalty ** Math.max(0, e.rarity - quality);
+  const total = LOOT_TABLE.reduce((s, e) => s + weight(e), 0);
   let roll = world.rng.float(0, total);
   for (const e of LOOT_TABLE) {
-    roll -= e.weight;
+    roll -= weight(e);
     if (roll <= 0) return e.item;
   }
   return LOOT_TABLE[0].item;
+}
+
+/** What a slain monster adds to its room's drop: tougher monsters (and later tiers) are worth more. */
+export function monsterPoints(m: Monster): number {
+  return ENEMIES[m.type].maxHp * m.dmgMult;
+}
+
+/** The last monster in a room fell: everything slain there drops loot, better the more (and stronger) they were. */
+export function dropBounty(world: World, room: number) {
+  const points = world.bounty[room] ?? 0;
+  delete world.bounty[room];
+  if (points <= 0) return;
+  const quality = points >= LOOT.dropQuality3 ? 3 : points >= LOOT.dropQuality2 ? 2 : 1;
+  const count = 1 + Math.floor(points / LOOT.dropPointsPerItem);
+  const items = Array.from({ length: count }, () => rollItem(world, quality));
+  addToPile(world, room, 0, items);
 }
 
 export function addToPile(world: World, room: number, gold: number, items: ItemId[]) {

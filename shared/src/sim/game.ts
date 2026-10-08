@@ -64,6 +64,10 @@ export class Game {
       if (hero.pos.kind !== 'room' || hero.path.length > 0 || hero.channel || w.time < mem.thinkUntil) continue;
       const intent = botThink(buildView(w, id), mem);
       if (intent) applyIntent(w, id, intent);
+      // Bots walk their plan a hop at a time; show allies where the whole plan leads.
+      if (intent?.type === 'goto' && mem.route.length && hero.pos.kind === 'room' && hero.path.length) {
+        hero.heading = mem.route[mem.route.length - 1];
+      }
     }
     step(this.world, dt);
   }

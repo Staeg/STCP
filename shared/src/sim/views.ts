@@ -3,8 +3,8 @@ import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
 import { INVENTORY_SLOTS, type ItemId } from '../content/items';
-import { EVENTS, type AfflictionId, type EventKind } from '../content/events';
-import { eventChoices, type EventChoice } from './events';
+import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
+import { choiceVerb, eventChoices, type EventChoice } from './events';
 import { hasSpace, votersIn } from './loot';
 import { BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
@@ -37,8 +37,8 @@ export interface EventView {
   choices: EventChoice[];
   /** Channelled events: 0..1. */
   progress?: number;
-  /** Names of heroes channelling it right now. */
-  channelers: string[];
+  /** Whoever chose it first and is carrying it out (only they can, while they're at it). */
+  worker: { id: string; name: string; you: boolean; doing: string; secondsLeft: number } | null;
   /** Monsters are here: deal with them first. */
   blocked: boolean;
 }
@@ -69,6 +69,8 @@ export interface AllyView {
   /** True if you can see them right now; otherwise `pos` is where you last saw them. */
   live: boolean;
   pos: HeroPos;
+  /** The room they chose to walk to, as of when you saw them (null if standing still). */
+  heading: number | null;
   seenAt: number;
   hp: number;
   maxHp: number;
@@ -188,12 +190,21 @@ export function buildView(world: World, heroId: string): PlayerView {
     if (!h) continue;
     const live = sighting.time === world.time;
     allies.push({
-      id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, seenAt: sighting.time,
+      id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, heading: null, seenAt: sighting.time,
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
       affliction: sighting.affliction ?? null,
     });
     // Make sure the client can place them, even in a room you only know the position of.
     for (const r of posRooms(sighting.pos)) roomIds.add(r);
+  }
+  // Where allies are going: their chosen room if you know where that is, otherwise at least their next step.
+  for (const a of allies) {
+    const s = you.lastKnown[a.id];
+    if (s.heading === null) continue;
+    const h = world.heroes[a.id];
+    const next = s.pos.kind === 'corridor' ? s.pos.to : a.live ? h.path[0] : undefined;
+    a.heading = roomIds.has(s.heading) ? s.heading : next ?? null;
+    if (a.heading !== null) roomIds.add(a.heading);
   }
   const extraCorridors = allies
     .map((a) => (a.pos.kind === 'corridor' ? d.corridors[a.pos.corridor] : null))
@@ -251,13 +262,18 @@ function eventView(world: World, you: Hero): EventView | null {
   const opts = eventChoices(world, you);
   if (!opts || you.pos.kind !== 'room') return null;
   const def = EVENTS[opts.kind];
-  const room = you.pos.room;
-  const channelers = Object.values(world.heroes)
-    .filter((h) => h.channel?.kind === 'event' && h.channel.room === room)
-    .map((h) => h.name);
+  const ev = world.events[you.pos.room];
+  const h = ev?.by ? world.heroes[ev.by] : undefined;
+  const ch = h?.channel;
+  const worker = h && ch?.kind === 'event'
+    ? {
+        id: h.id, name: h.name, you: h === you, doing: choiceVerb(ev.kind, ch.choice),
+        secondsLeft: channelTime(ev.kind, h.cls) * (1 - ev.progress),
+      }
+    : null;
   return {
     kind: opts.kind, name: def.name, glyph: def.glyph, text: def.text, choices: opts.choices,
-    progress: opts.progress, channelers, blocked: opts.choices.length === 0,
+    progress: opts.progress, worker, blocked: opts.choices.length === 0,
   };
 }
 

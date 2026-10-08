@@ -71,10 +71,13 @@ export const EVENTS: Record<EventKind, EventDef> = {
   },
 };
 
-/** Seconds for channelled events, by class. */
-export function channelTime(kind: 'altar' | 'vault', cls: ClassId): number {
-  if (kind === 'altar') return cls === 'hexer' ? 7 : 15;
-  return cls === 'cutthroat' ? 7 : 20;
+/** Seconds an event choice takes to carry out, by class. Always a multiple of the 6s beat. */
+export function channelTime(kind: EventKind, cls: ClassId): number {
+  switch (kind) {
+    case 'altar': return cls === 'hexer' ? 12 : 18;
+    case 'vault': return cls === 'cutthroat' ? 12 : 24;
+    default: return 6;
+  }
 }
 
 export const EVENT_SEEDING = {

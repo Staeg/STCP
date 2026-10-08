@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
-import { corridorBetween, neighbours } from '../dungeon/gen';
+import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -109,9 +109,30 @@ describe('buildView (fog)', () => {
     const known = new Set(view.rooms.map((r) => r.id));
     expect(known.size).toBeLessThan(d.rooms.length);
     for (const c of view.corridors) expect(c.a === d.entrance || c.b === d.entrance).toBe(true);
-    const exit = view.rooms.find((r) => r.id === d.exit)!;
-    expect(exit.knowledge).toBe('seen');
-    expect(exit.corridors).toEqual([]); // don't leak the exit's connections
+    // You start at the exit, so it's explored; a room two hops out is unknown.
+    expect(view.rooms.find((r) => r.id === d.exit)!.knowledge).toBe('explored');
+    const twoOut = hopDistances(d, d.entrance).indexOf(2);
+    expect(view.rooms.find((r) => r.id === twoOut)).toBeUndefined();
+  });
+
+  it('shows where an ally in sight has chosen to go, as soon as they choose', () => {
+    const { world, d } = setup();
+    addHero(world, { id: 'h2', name: 'Bo', cls: 'hexer' });
+    // Pick a room two hops out, so the chosen room differs from the next step.
+    const dist = hopDistances(d, d.entrance);
+    const target = dist.indexOf(2);
+    world.heroes.h2.explored.push(...neighbours(d, d.entrance));
+    applyIntent(world, 'h2', { type: 'goto', room: target });
+    step(world, 0.1);
+    const bo = buildView(world, 'h1').allies.find((a) => a.id === 'h2')!;
+    expect(bo.live).toBe(true);
+    // Mara has glimpsed only the rooms next door, so she sees Bo's next step rather than the far room.
+    expect(bo.heading).toBe(world.heroes.h2.pos.kind === 'corridor' ? world.heroes.h2.pos.to : null);
+    world.heroes.h1.seen.push(target);
+    expect(buildView(world, 'h1').allies.find((a) => a.id === 'h2')!.heading).toBe(target);
+    applyIntent(world, 'h2', { type: 'stop' });
+    step(world, 0.1);
+    expect(buildView(world, 'h1').allies.find((a) => a.id === 'h2')!.heading).not.toBe(target);
   });
 
   it('is a copy, not a live reference', () => {

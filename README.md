@@ -13,16 +13,16 @@ npm test        # unit tests
 
 Friends join through your LAN IP (`http://<your-ip>:3001` with `npm start`), or through a tunnel such as `cloudflared tunnel --url http://localhost:3001`. Create an expedition, share the 4-letter code or the link, pick classes, ready up, and the host presses **Descend**. Voice chat is assumed; there's no in-game chat.
 
-Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed.
+Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed. In dev, `CLIENT_PORT` moves the Vite client too (the `dev-alt` launch config uses 5190/3011, so two dev servers can run side by side).
 
 ## How to play
 
-- **Explore:** click a known room to walk there; routes avoid rooms you know hold monsters. You only see what you've explored. Allies show live when they're in sight, otherwise as a grey ghost where you last saw them. Coloured chalk marks at crossroads show which way each ally went.
-- **Fight:** rounds last 5 seconds. Use abilities **1 2 3**, items **4–7**, **R** revive, **F** flee, **B** brace. If time runs out, you brace.
-- **Loot:** gold is split between everyone in the room. Each item needs a **unanimous vote**, and nobody can leave until you agree (or agree to leave it).
-- **Between fights:** **R** revive a downed ally (3s), **D** dig through rubble, **M** mend (Lampbearer), **4–7** use items.
-- **Events:** altars, captives, idols, wells, vaults… Whoever clicks first decides.
-- **Get out:** reach the ⚑ Rendezvous and press **E** once the exit opens. Escaped gold counts toward your career title and the **Hall of Fortune**.
+- **Explore:** click a known room to walk there; every tunnel takes 6 seconds, and routes avoid rooms you know hold monsters. You start at the ⚑ exit in the middle of the dungeon, and the paths loop and cross back on each other. You only see what you've explored. Allies show live when they're in sight (with a ring in their colour on the room they've chosen to walk to), otherwise as a grey ghost where you last saw them. Coloured chalk marks at crossroads show which way each ally went.
+- **Fight:** every round lasts 6 seconds, and you can change your mind until it's up. Use abilities **1 2 3**, items **4–7**, **R** revive, **F** flee, **B** brace. If you don't pick, you brace. The action bar stays on screen while you explore (greyed out) so you always know what you have.
+- **Loot:** clearing a room of monsters always drops at least one item, and bigger or tougher groups drop more and better ones. Gold is split between everyone in the room. Each item needs a **unanimous vote**, and nobody can leave until you agree (or agree to leave it).
+- **Between fights:** **R** revive a downed ally (6s), **D** dig through rubble (18s, Warden 12s), **M** mend (Lampbearer), **4–7** use items.
+- **Events:** altars, captives, idols, wells, vaults… Each takes time in 6-second steps (altar 18s, vault 24s, most others 6s). Whoever chooses first does it, and everyone in the room sees who's doing what; walking away stops it but keeps the progress.
+- **Get out:** return to the ⚑ exit where you started and press **E** once it opens. Escaped gold counts toward your career title and the **Hall of Fortune**.
 
 ## Developer notes
 

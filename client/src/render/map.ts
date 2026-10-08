@@ -10,7 +10,6 @@ const COLORS = {
   roomSeen: '#15110e',
   border: '#7a6448',
   borderSeen: '#4a3c2c',
-  entrance: '#6a9a5a',
   exit: '#e0b44a',
   hover: '#f0d890',
   text: '#d8c8a8',
@@ -229,9 +228,30 @@ export class MapRenderer {
       ctx.globalAlpha = 1;
     }
 
+    // Where allies you can see have chosen to go: a dashed line to the room, and a ring in their colour on it.
+    const headings = view.allies.filter((a) => a.live && a.heading !== null && rooms.has(a.heading));
+    for (const a of headings) {
+      const p = tokens.get(a.id)!;
+      const dest = rooms.get(a.heading!)!;
+      ctx.strokeStyle = a.color;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([2, 5]);
+      line(ctx, p.x, p.y, this.sx(dest.x), this.sy(dest.y));
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
     // Rooms
     const t = performance.now() / 1000;
     for (const r of view.rooms) this.drawRoom(r, size, r.id === this.hover, r.id === curRoom, t);
+
+    headings.forEach((a, i) => {
+      const dest = rooms.get(a.heading!)!;
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(this.sx(dest.x) - size / 2 - 4 - i * 3, this.sy(dest.y) - size / 2 - 4 - i * 3, size + 8 + i * 6, size + 8 + i * 6);
+    });
 
     // Heroes: ghosts first, then live allies, then you on top.
     const r = Math.max(6, 9 * this.x.s);
@@ -334,7 +354,6 @@ export class MapRenderer {
 
     ctx.lineWidth = current ? 3 : 2;
     let border = r.knowledge === 'explored' ? COLORS.border : COLORS.borderSeen;
-    if (r.kind === 'entrance') border = COLORS.entrance;
     if (r.kind === 'exit') border = COLORS.exit;
     if (hover) border = COLORS.hover;
     ctx.strokeStyle = border;
@@ -355,11 +374,7 @@ export class MapRenderer {
       ctx.font = `${Math.round(size * 0.6)}px VT323, monospace`;
       ctx.fillText('⚑', cx, cy + 1);
       ctx.font = '16px VT323, monospace';
-      ctx.fillText('RENDEZVOUS', cx, y + size + 10);
-    } else if (r.kind === 'entrance') {
-      ctx.fillStyle = COLORS.entrance;
-      ctx.font = '16px VT323, monospace';
-      ctx.fillText('ENTRANCE', cx, y + size + 10);
+      ctx.fillText('START · EXIT', cx, y + size + 10);
     }
 
     // Monsters you last saw here

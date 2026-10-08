@@ -62,9 +62,11 @@ describe('bot rescue', () => {
     // Bring the bot back to the entrance in case it wandered, then down the human next door.
     w.heroes.bot.pos = { kind: 'room', room: d.entrance };
     w.heroes.bot.path = [];
+    game.bots.get('bot')!.route = [];
     const me = w.heroes.me;
     me.hp = 0;
     me.downedAt = w.time;
+    step(w, 0.1); // the bot sees it happen
     for (let t = 0; t < 25 && me.downedAt !== null; t += 0.1) game.tick(0.1);
     expect(me.downedAt).toBeNull();
     expect(me.dead).toBe(false);

@@ -30,6 +30,8 @@ export interface Hero {
   pos: HeroPos;
   /** Rooms still to visit after the current target. */
   path: number[];
+  /** The room this hero chose to walk to (allies who can see them see it at once). */
+  heading: number | null;
   light: number;
   /** Rooms this hero has stood in. */
   explored: number[];
@@ -61,8 +63,8 @@ export interface Hero {
   channel:
     | { kind: 'revive'; target: string; until: number }
     | { kind: 'dig'; corridor: number; until: number }
-    /** Altar or vault in `room`; progress lives on the event itself. */
-    | { kind: 'event'; room: number; until: number }
+    /** Carrying out an event choice in `room`; progress lives on the event itself. */
+    | { kind: 'event'; room: number; choice: string; until: number }
     | null;
   /** Broken by stress (see content/events.ts). */
   affliction: AfflictionId | null;
@@ -86,12 +88,14 @@ export interface Hero {
   extractedAt: number | null;
   /** How their run ended, for the results screen ("escaped with 84 gold", "bled out in the Crypt"). */
   fate: string | null;
-  /** First time this hero reached the rendezvous. */
+  /** Most recent time this hero walked into the rendezvous (everyone starts there, so only returns count). */
   arrivedAt: number | null;
 }
 
 export interface Sighting {
   pos: HeroPos;
+  /** Where they were headed, if they were on the move. */
+  heading: number | null;
   time: number;
   hp: number;
   maxHp: number;
@@ -120,6 +124,8 @@ export interface World {
   nextId: number;
   /** Loot lying in rooms. */
   piles: Record<number, Pile>;
+  /** Points of monster slain per room since it was last cleared; paid out as items when the room is clear. */
+  bounty: Record<number, number>;
   /** Current difficulty tier (see escalation.ts). */
   tier: number;
   packs: Record<string, Pack>;
@@ -183,7 +189,7 @@ export const THREAT_DETOUR = 15;
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const world: World = {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
-    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {},
+    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
     stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 },
@@ -231,6 +237,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
+    heading: null,
     light: LIGHT_MAX,
     explored: [],
     seen: [d.exit],
@@ -314,7 +321,7 @@ export function extractHero(world: World, h: Hero) {
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
       o.lastKnown[h.id] = {
-        pos: { ...h.pos }, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, affliction: h.affliction,
+        pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, affliction: h.affliction,
       };
       notify(world, o, `${h.name} escapes through the exit.`);
     }
@@ -390,12 +397,14 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     }
     case 'stop':
       hero.path = [];
+      hero.heading = null;
       hero.channel = null;
       return;
     case 'turnBack':
       hero.channel = null;
       if (hero.pos.kind === 'corridor') turnAround(world, hero);
       hero.path = [];
+      hero.heading = null;
       return;
     case 'goto':
       if (lockedByVote(world, hero)) {
@@ -403,7 +412,10 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
         return;
       }
       // Only an actual move interrupts digging/reviving; an unreachable click shouldn't.
-      if (goto(world, hero, intent.room)) hero.channel = null;
+      if (goto(world, hero, intent.room)) {
+        hero.channel = null;
+        hero.heading = intent.room;
+      }
       else if (hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
       return;
   }
@@ -465,7 +477,8 @@ function advance(world: World, hero: Hero, dt: number) {
       }
       remaining -= need;
       hero.pos = { kind: 'room', room: pos.to };
-      if (pos.to === d.exit && hero.arrivedAt === null) hero.arrivedAt = world.time;
+      if (hero.path.length === 0) hero.heading = null;
+      if (pos.to === d.exit) hero.arrivedAt = world.time;
       explore(world, hero, pos.to);
       onHeroInRoom(world, hero, pos.to);
       if (hero.encounter !== null) return;
@@ -485,7 +498,7 @@ function updateKnowledge(world: World) {
     for (const b of heroes) {
       if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && canSee(world, a, b)) {
         a.lastKnown[b.id] = {
-          pos: { ...b.pos }, time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, affliction: b.affliction,
+          pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, affliction: b.affliction,
         };
       }
     }
@@ -626,6 +639,13 @@ export function shortestPath(world: World, hero: Hero, start: number, target: nu
   const path: number[] = [];
   for (let cur = target; cur !== start; cur = prev.get(cur)!) path.unshift(cur);
   return path;
+}
+
+/** The room a hero is walking toward (their chosen destination), or null if they're standing still. */
+export function headingOf(h: Hero): number | null {
+  const final = h.path.length ? h.path[h.path.length - 1] : h.pos.kind === 'corridor' ? h.pos.to : null;
+  if (final === null || h.encounter !== null) return null;
+  return h.heading ?? final;
 }
 
 /** World-space position of a hero, for rendering and distance checks. */

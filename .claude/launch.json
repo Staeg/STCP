@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5180
+    },
+    {
+      "name": "dev-alt",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set GAME_PORT=3011&& set CLIENT_PORT=5190&& npm run dev"],
+      "port": 5190
     }
   ]
 }

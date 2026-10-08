@@ -212,7 +212,7 @@ export class LobbyManager {
           const id = `v${w.nextId++}`;
           w.villagers[id] = { id, room, leader: null, hp: 10, maxHp: 10, state: 'captive' };
         } else {
-          w.events[room] = { room, kind: msg.kind, done: false, progress: 0, spawned: false };
+          w.events[room] = { room, kind: msg.kind, done: false, progress: 0, by: null, spawned: false };
         }
         return;
       }

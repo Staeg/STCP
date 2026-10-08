@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, EXIT_OPENS_AT, TIER_INTERVAL } from '../content/constants';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { collapseCorridor } from './escalation';
+import { ESCALATION } from '../content/enemies';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -48,7 +49,7 @@ describe('escalation', () => {
     expect(h.knownCollapsed).toContain(c.id);
     applyIntent(world, 'a', { type: 'dig', corridor: c.id });
     expect(h.channel?.kind).toBe('dig');
-    run(world, 14);
+    run(world, ESCALATION.digTime - 1);
     expect(world.collapsed).toContain(c.id);
     run(world, 1.2);
     expect(world.collapsed).not.toContain(c.id);
@@ -150,8 +151,10 @@ describe('extraction and the end', () => {
 
   it('extracted heroes are not seen by anyone who missed it', () => {
     const world = atExit(1);
-    const far = addHero(world, { id: 'far', name: 'Far', cls: 'hexer' }); // at the entrance
-    expect(far.pos.kind).toBe('room');
+    const far = addHero(world, { id: 'far', name: 'Far', cls: 'hexer' });
+    // Somewhere deep (everyone starts at the exit).
+    const dist = hopDistances(world.dungeon, world.dungeon.exit);
+    far.pos = { kind: 'room', room: dist.indexOf(Math.max(...dist)) };
     world.time = EXIT_OPENS_AT;
     applyIntent(world, 'h0', { type: 'extract' });
     step(world, 0.1);
@@ -173,9 +176,11 @@ describe('extraction and the end', () => {
     expect(res.chronicle.some((c) => c.text.includes('collapsed on Lost'))).toBe(true);
   });
 
-  it('exit distance stays sane on the bigger maps', () => {
+  it('the exit is where everyone starts, with plenty of dungeon beyond it', () => {
     const world = createWorld(77, { monsters: false });
     const d = world.dungeon;
-    expect(hopDistances(d, d.entrance)[d.exit]).toBeGreaterThanOrEqual(6);
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'hexer' });
+    expect(h.pos).toEqual({ kind: 'room', room: d.exit });
+    expect(Math.max(...hopDistances(d, d.exit))).toBeGreaterThanOrEqual(5);
   });
 });

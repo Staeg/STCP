@@ -14,8 +14,10 @@ export interface RoomEvent {
   room: number;
   kind: Exclude<EventKind, 'villager'>;
   done: boolean;
-  /** Channelled events (altar, vault): fraction complete, 0..1. Survives interruptions. */
+  /** Fraction of the work done, 0..1. Survives interruptions. */
   progress: number;
+  /** The hero who chose it first and is carrying it out; nobody else can while they are. */
+  by: string | null;
   /** Altar: the guardians have been summoned. */
   spawned: boolean;
 }
@@ -66,7 +68,7 @@ export function spawnEvents(world: World) {
       };
       world.villagers[v.id] = v;
     } else {
-      world.events[room.id] = { room: room.id, kind, done: false, progress: 0, spawned: false };
+      world.events[room.id] = { room: room.id, kind, done: false, progress: 0, by: null, spawned: false };
     }
   }
 }
@@ -103,30 +105,40 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   const ev = world.events[room];
   if (!ev || ev.done) return null;
   if (!quiet(world, room)) return { kind: ev.kind, choices: [] };
-  const c = (id: string, label: string, disabled?: string): EventChoice => ({ id, label, disabled });
+  // First come, first served: once someone has started, it's theirs.
+  const taken = ev.by && ev.by !== h.id ? `${world.heroes[ev.by]?.name ?? 'Someone'} is already doing it.` : undefined;
+  const secs = Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress));
+  const c = (id: string, label: string, disabled?: string): EventChoice => ({ id, label: `${label} (${secs}s)`, disabled: taken ?? disabled });
+  const progress = ev.progress;
   switch (ev.kind) {
-    case 'altar': {
-      const t = channelTime('altar', h.cls);
-      return { kind: ev.kind, progress: ev.progress, choices: [c('channel', `Cleanse it (${Math.ceil(t * (1 - ev.progress))}s)`)] };
-    }
-    case 'vault': {
-      const t = channelTime('vault', h.cls);
-      return { kind: ev.kind, progress: ev.progress, choices: [c('channel', `Pick the lock (${Math.ceil(t * (1 - ev.progress))}s)`)] };
-    }
+    case 'altar':
+      return { kind: ev.kind, progress, choices: [c('channel', 'Cleanse it')] };
+    case 'vault':
+      return { kind: ev.kind, progress, choices: [c('channel', 'Pick the lock')] };
     case 'idol':
-      return { kind: ev.kind, choices: [c('take', 'Take the idol (lots of gold — the way back may cave in)')] };
+      return { kind: ev.kind, progress, choices: [c('take', 'Take the idol: lots of gold, but the way back may cave in')] };
     case 'stranger':
-      return { kind: ev.kind, choices: [c('help', 'Give them a bandage', h.items.includes('bandage') ? undefined : 'You have no bandage.')] };
+      return { kind: ev.kind, progress, choices: [c('help', 'Give them a bandage', h.items.includes('bandage') ? undefined : 'You have no bandage.')] };
     case 'well':
-      return { kind: ev.kind, choices: [c('drink', 'Drink from the well')] };
+      return { kind: ev.kind, progress, choices: [c('drink', 'Drink from the well')] };
     case 'chest':
-      return { kind: ev.kind, choices: [c('open', 'Open it (+20 stress)')] };
+      return { kind: ev.kind, progress, choices: [c('open', 'Open it (+20 stress)')] };
     case 'crawlspace':
       return {
-        kind: ev.kind,
+        kind: ev.kind, progress,
         choices: [c('crawl', 'Squeeze through (4 damage, your torch gutters)', h.leading ? "The villager won't fit." : undefined)],
       };
   }
+}
+
+/** "cleansing the altar" etc., for the event panel and for onlookers' notifications. */
+export function choiceVerb(kind: EventKind, choice: string): string {
+  if (choice === 'channel') return kind === 'altar' ? 'cleansing the altar' : 'picking the lock';
+  const verbs: Record<string, string> = {
+    take: 'taking the idol', help: 'bandaging the stranger', drink: 'drinking from the well',
+    open: 'opening the chest', crawl: 'squeezing into the crawlspace',
+  };
+  return verbs[choice] ?? 'busy';
 }
 
 // ---------------------------------------------------------------------------
@@ -139,27 +151,49 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
   const choice = options?.choices.find((c) => c.id === choiceId);
   if (!options || !choice) return 'Nothing to do here.';
   if (choice.disabled) return choice.disabled;
-  const rng = world.rng;
-  world.stats.eventsUsed++;
-
   if (options.kind === 'villager') {
     const v = villagerHere(world, room)!;
+    world.stats.eventsUsed++;
     if (v.state === 'captive') chronicle(world, `${h.name} freed a captive villager.`);
     v.state = 'following';
     v.leader = h.id;
     h.leading = v.id;
     notify(world, h, 'The villager clings to you. Get them to the rendezvous! (You move slower.)');
+    for (const o of othersHere(world, h)) notify(world, o, `${h.name} cuts the villager loose and leads them away.`);
     return null;
   }
 
+  // Everything else takes time, and only the hero who started it carries it out.
   const ev = world.events[room];
-  switch (choiceId) {
+  if (h.channel?.kind === 'event' && h.channel.room === room) return null;
+  ev.by = h.id;
+  h.path = [];
+  h.channel = { kind: 'event', room, choice: choiceId, until: Infinity };
+  const verb = choiceVerb(ev.kind, choiceId);
+  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress))}s; moving stops it)`);
+  for (const o of othersHere(world, h)) notify(world, o, `${h.name} starts ${verb}.`);
+  return null;
+}
+
+function othersHere(world: World, h: Hero): Hero[] {
+  return Object.values(world.heroes).filter(
+    (o) => o !== h && inDungeon(o) && o.pos.kind === 'room' && h.pos.kind === 'room' && o.pos.room === h.pos.room,
+  );
+}
+
+/** The work is done: the event's outcome goes to the hero who did it. */
+function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
+  const rng = world.rng;
+  const room = ev.room;
+  ev.done = true;
+  ev.by = null;
+  h.channel = null;
+  world.stats.eventsUsed++;
+  switch (choice) {
     case 'channel':
-      h.path = [];
-      h.channel = { kind: 'event', room, until: Infinity };
-      return null;
+      completeChannel(world, ev, h);
+      return;
     case 'take': {
-      ev.done = true;
       addToPile(world, room, rng.int(60, 90), []);
       chronicle(world, `${h.name} took the Glittering Idol.`);
       // The way you came in caves in (or another way out of here, if you came by crawlspace).
@@ -167,13 +201,21 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
       const exits = world.dungeon.rooms[room].corridors.filter((cid) => !world.collapsed.includes(cid));
       const cid = back && !world.collapsed.includes(back.id) ? back.id : exits.length ? rng.pick(exits) : null;
       if (cid !== null) collapseCorridor(world, cid, 'The idol\'s trap brings down a tunnel');
-      return null;
+      return;
     }
     case 'help': {
-      takeItem(h, h.items.indexOf('bandage'));
-      ev.done = true;
+      const idx = h.items.indexOf('bandage');
+      if (idx < 0) {
+        // Used it on someone else in the meantime.
+        ev.done = false;
+        ev.progress = 0;
+        world.stats.eventsUsed--;
+        notify(world, h, 'You have no bandage left to give.');
+        return;
+      }
+      takeItem(h, idx);
       if (rng.chance(0.6)) {
-        addToPile(world, room, 20, [rollItem(world)]);
+        addToPile(world, room, 20, [rollItem(world, 2)]);
         notify(world, h, 'The stranger presses something into your hands, and is gone.');
         chronicle(world, `${h.name} helped a wounded stranger, and was rewarded.`);
       } else {
@@ -182,10 +224,9 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
         spawnGroup(world, room, pickGroup(world, world.tier), world.tier);
         onHeroInRoom(world, h, room);
       }
-      return null;
+      return;
     }
     case 'drink': {
-      ev.done = true;
       const roll = rng.int(0, 2);
       if (roll === 0) {
         addStress(h, -40);
@@ -198,17 +239,19 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
       } else {
         afflict(world, h, rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'the well');
       }
-      return null;
+      return;
     }
     case 'open':
-      ev.done = true;
-      addToPile(world, room, 20, [rollItem(world)]);
+      addToPile(world, room, 20, [rollItem(world, 2)]);
       addStress(h, 20);
       notify(world, h, 'Something cold brushes your mind as the lid opens. (+20 stress)');
-      return null;
+      return;
     case 'crawl': {
       const dest = crawlTarget(world, room);
-      if (dest === null) return 'The crack leads nowhere useful.';
+      if (dest === null) {
+        notify(world, h, 'The crack leads nowhere useful.');
+        return;
+      }
       h.pos = { kind: 'room', room: dest };
       h.path = [];
       h.prevRoom = null;
@@ -218,10 +261,9 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
       h.hp -= 4;
       if (h.hp <= 0) downHero(world, h, null);
       else onHeroInRoom(world, h, dest);
-      return null;
+      return;
     }
   }
-  return 'Nothing happens.';
 }
 
 /** Three hops along the real shortest open route toward the exit (stopping short of it). */
@@ -249,15 +291,24 @@ function crawlTarget(world: World, from: number): number | null {
 // Ticking: channels, villagers, stress
 
 export function tickEvents(world: World, dt: number) {
+  // A claim lasts only as long as its hero keeps at it (walking off, a fight or going down all end it).
+  for (const ev of Object.values(world.events)) {
+    const ch = ev.by ? world.heroes[ev.by]?.channel : null;
+    if (ev.by && !(ch?.kind === 'event' && ch.room === ev.room)) ev.by = null;
+  }
   for (const h of Object.values(world.heroes)) {
     const ch = h.channel;
     if (ch?.kind !== 'event') continue;
     const ev = world.events[ch.room];
-    if (!ev || ev.done || !isConscious(h) || h.encounter !== null || h.pos.kind !== 'room' || h.pos.room !== ch.room || !quiet(world, ch.room)) {
+    if (
+      !ev || ev.done || ev.by !== h.id || !isConscious(h) || h.encounter !== null || h.pos.kind !== 'room' || h.pos.room !== ch.room ||
+      !quiet(world, ch.room)
+    ) {
       h.channel = null;
+      if (ev?.by === h.id) ev.by = null;
       continue;
     }
-    const kind = ev.kind as 'altar' | 'vault';
+    const kind = ev.kind;
     ev.progress = Math.min(1, ev.progress + dt / channelTime(kind, h.cls));
     if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned) {
       ev.spawned = true;
@@ -268,14 +319,12 @@ export function tickEvents(world: World, dt: number) {
       onHeroInRoom(world, h, ev.room);
       continue;
     }
-    if (ev.progress >= 1) completeChannel(world, ev, h);
+    if (ev.progress >= 1) finishEvent(world, ev, h, ch.choice);
   }
   tickVillagers(world);
 }
 
 function completeChannel(world: World, ev: RoomEvent, h: Hero) {
-  ev.done = true;
-  for (const x of Object.values(world.heroes)) if (x.channel?.kind === 'event' && x.channel.room === ev.room) x.channel = null;
   if (ev.kind === 'altar') {
     world.objectives.altars++;
     chronicle(world, `${h.name} cleansed the altar in ${world.dungeon.rooms[ev.room].name}.`);
@@ -285,7 +334,7 @@ function completeChannel(world: World, ev: RoomEvent, h: Hero) {
       notify(world, x, `An altar has been cleansed. You feel lighter. (−20 stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
     }
   } else {
-    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world), rollItem(world)]);
+    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3)]);
     notify(world, h, 'The lock clicks open!');
     chronicle(world, `${h.name} cracked open a vault.`);
   }

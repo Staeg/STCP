@@ -38,16 +38,16 @@ export const ESCALATION = {
   /** Chance that a normal room starts with monsters. */
   roomMonsterChance: 0.3,
   /** Monster HP and damage scale by (1 + this × tier). */
-  tierScaling: 0.07,
+  tierScaling: 0.09,
   respawnEvery: 45,
   respawnEveryLate: 30,
   wandererEvery: 60,
   collapseEvery: 60,
   /** When a collapse can hit a tunnel that cuts nothing off (part of a loop), it does so this often. */
   collapsePreferLoops: 0.75,
-  /** Seconds to dig through rubble (Warden is faster). */
-  digTime: 15,
-  digTimeWarden: 9,
+  /** Seconds to dig through rubble (Warden is faster). Multiples of the 6s beat. */
+  digTime: 18,
+  digTimeWarden: 12,
   waveEvery: 45,
   waveEveryLate: 25,
   /** Max live monsters = capBase + capPerTier × tier. */

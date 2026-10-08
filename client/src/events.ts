@@ -28,9 +28,13 @@ export class EventUi {
     }
     panel.hidden = false;
     const channelling = view.you.channel?.kind === 'event';
-    const progress = ev.progress !== undefined
-      ? `<div class="ev-progress"><div style="width:${(ev.progress * 100).toFixed(0)}%"></div></div>
-         <div class="muted small">${ev.channelers.length ? `${esc(ev.channelers.join(', '))} working… (move to stop — progress is kept)` : `${Math.round(ev.progress * 100)}% done`}</div>`
+    const w = ev.worker;
+    const who = w
+      ? `<div class="ev-worker ${w.you ? 'you' : ''}">${w.you ? 'You are' : `${esc(w.name)} is`} ${esc(w.doing)} · ${Math.ceil(w.secondsLeft)}s left${w.you ? ' <span class="muted small">(moving stops it; progress is kept)</span>' : ''}</div>`
+      : '';
+    const progress = w || (ev.progress ?? 0) > 0
+      ? `<div class="ev-progress"><div style="width:${((ev.progress ?? 0) * 100).toFixed(0)}%"></div></div>
+         ${who || `<div class="muted small">${Math.round((ev.progress ?? 0) * 100)}% done</div>`}`
       : '';
     const choices = ev.blocked
       ? '<div class="muted">Deal with the monsters first.</div>'

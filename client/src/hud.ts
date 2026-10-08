@@ -1,4 +1,4 @@
-import { AFFLICTIONS, BLEED_OUT, CLASSES, EVENT_SEEDING, TIER_TEXT, type PlayerView } from '@stcp/shared';
+import { AFFLICTIONS, BLEED_OUT, CLASSES, ESCALATION, EVENT_SEEDING, REVIVE_CHANNEL, TIER_TEXT, type PlayerView } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
@@ -105,7 +105,7 @@ export class Hud {
     reviveBtn.hidden = !downed || you.channel?.kind === 'dig';
     if (downed) {
       reviveBtn.dataset.target = downed.id;
-      reviveBtn.innerHTML = you.channel?.kind === 'revive' ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (3s) <kbd>R</kbd>`;
+      reviveBtn.innerHTML = you.channel?.kind === 'revive' ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (${REVIVE_CHANNEL}s) <kbd>R</kbd>`;
     }
 
     // Rubble in a tunnel leading out of your room.
@@ -116,7 +116,7 @@ export class Hud {
     if (rubble) {
       const other = view.rooms.find((r) => r.id === (rubble.a === here ? rubble.b : rubble.a));
       digBtn.dataset.corridor = String(rubble.id);
-      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? 9 : 15}s) <kbd>D</kbd>`;
+      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime}s) <kbd>D</kbd>`;
     }
 
     // Lampbearer: mend the most hurt person here between fights.
@@ -197,9 +197,9 @@ function rosterHtml(view: PlayerView): string {
     const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${Math.max(0, Math.ceil(a.hp))}/${a.maxHp} HP`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
     if (a.extracted) status = `escaped at ${fmtTime(a.seenAt)}`;
-    else if (a.live) status = sameRoom ? 'with you' : 'in sight';
+    else if (a.live) status = (sameRoom ? 'with you' : 'in sight') + (a.heading !== null ? ` · → ${name(a.heading)}` : '');
     else {
-      const where = a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
+      const where = a.heading !== null ? `heading to ${name(a.heading)}` : a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
     status += hp;

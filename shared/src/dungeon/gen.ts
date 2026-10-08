@@ -1,6 +1,7 @@
 import { Rng } from '../rng';
 
-export type RoomKind = 'entrance' | 'exit' | 'normal';
+/** The start room is also the exit (the rendezvous). */
+export type RoomKind = 'exit' | 'normal';
 
 export interface Room {
   id: number;
@@ -28,6 +29,7 @@ export interface Dungeon {
   seed: number;
   rooms: Room[];
   corridors: Corridor[];
+  /** Where everyone starts. Always the same room as `exit`. */
   entrance: number;
   exit: number;
   width: number;
@@ -38,9 +40,15 @@ export const GRID_W = 10;
 export const GRID_H = 7;
 export const CELL = 100;
 export const ROOM_COUNT = { min: 38, max: 50 };
-export const EXIT_DISTANCE = { min: 6, max: 9 };
-export const CROSSROADS_COUNT = { min: 5, max: 10 };
-export const CORRIDOR_LENGTH = { min: 3, max: 8 };
+/** The farthest room is at least this many hops from the start (= the exit). */
+export const MIN_DEPTH = 5;
+export const CROSSROADS_COUNT = { min: 12, max: 24 };
+/** Every corridor takes the same time to walk (the game's 6-second beat). */
+export const CORRIDOR_TIME = 6;
+/** Chance of an extra tunnel between two orthogonally neighbouring rooms. */
+export const LOOP_CHANCE = 0.3;
+/** At least this many corridors beyond a tree's (rooms − 1): paths cross and rejoin. */
+export const MIN_LOOPS = 6;
 
 const DIRS = [
   [1, 0],
@@ -98,8 +106,8 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
     deg[b]++;
   };
 
-  // Grow a tree from the west edge, discouraging bushy nodes so we get winding paths.
-  const entrance = addRoom(0, rng.int(1, GRID_H - 2));
+  // Grow a tree out from the middle, so the start (which is also the exit) sits in the heart of the dungeon.
+  const entrance = addRoom(rng.int(4, 5), rng.int(2, 4));
   const frontier = [entrance];
   while (rooms.length < target && frontier.length) {
     const idx = rng.int(0, frontier.length - 1);
@@ -111,33 +119,31 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
       frontier.splice(idx, 1);
       continue;
     }
-    if (deg[r.id] >= 3 && rng.chance(0.9)) continue;
-    if (deg[r.id] >= 2 && rng.chance(0.6)) continue;
+    if (deg[r.id] >= 3 && rng.chance(0.75)) continue;
+    if (deg[r.id] >= 2 && rng.chance(0.4)) continue;
     const [x, y] = rng.pick(free);
     const n = addRoom(x, y);
     connect(r.id, n);
     frontier.push(n);
   }
 
-  // Add a few loops between orthogonal neighbours. Orthogonal-only keeps the graph planar.
+  // Plenty of loops between orthogonal neighbours, so paths cross and rejoin. Orthogonal-only keeps the graph planar.
   for (const r of rooms) {
     for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
       const n = cellRoom.get(key(r.gx + dx, r.gy + dy));
-      if (n !== undefined && r.gx + dx < GRID_W && rng.chance(0.12)) connect(r.id, n);
+      if (n !== undefined && r.gx + dx < GRID_W && rng.chance(LOOP_CHANCE)) connect(r.id, n);
     }
   }
 
-  // Exit: a room at the right hop distance, preferring the far end.
+  // You leave the way you came in.
   const adj: number[][] = rooms.map(() => []);
   for (const [a, b] of edges) {
     adj[a].push(b);
     adj[b].push(a);
   }
   const dist = bfs(adj, entrance);
-  const candidates = rooms.filter((r) => dist[r.id] >= EXIT_DISTANCE.min && dist[r.id] <= EXIT_DISTANCE.max);
-  if (candidates.length === 0) return null;
-  const far = candidates.filter((r) => dist[r.id] >= EXIT_DISTANCE.max - 1);
-  const exit = rng.pick(far.length ? far : candidates).id;
+  if (Math.max(...dist) < MIN_DEPTH || edges.length - (rooms.length - 1) < MIN_LOOPS) return null;
+  const exit = entrance;
 
   const crossroads = deg.filter((d) => d >= 3).length;
   if (crossroads < CROSSROADS_COUNT.min || crossroads > CROSSROADS_COUNT.max) return null;
@@ -145,19 +151,13 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
   // Names
   const names = rng.shuffle(ADJECTIVES.flatMap((a) => NOUNS.map((n) => `${a} ${n}`)));
   rooms.forEach((r, i) => (r.name = names[i]));
-  rooms[entrance].kind = 'entrance';
-  rooms[entrance].name = 'The Ruined Gate';
   rooms[exit].kind = 'exit';
-  rooms[exit].name = 'The Rendezvous';
+  rooms[exit].name = 'The Ruined Gate';
 
   const corridors: Corridor[] = edges.map(([a, b], id) => {
-    const ra = rooms[a];
-    const rb = rooms[b];
-    const d = Math.hypot(ra.x - rb.x, ra.y - rb.y) / CELL;
-    const length = clamp(Math.round(d * 5 * 2) / 2, CORRIDOR_LENGTH.min, CORRIDOR_LENGTH.max);
-    ra.corridors.push(id);
-    rb.corridors.push(id);
-    return { id, a, b, length };
+    rooms[a].corridors.push(id);
+    rooms[b].corridors.push(id);
+    return { id, a, b, length: CORRIDOR_TIME };
   });
 
   return { seed, rooms, corridors, entrance, exit, width: GRID_W * CELL, height: GRID_H * CELL };
@@ -177,10 +177,6 @@ function bfs(adj: number[][], start: number): number[] {
     }
   }
   return dist;
-}
-
-function clamp(v: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 /** "the Silent Crypt", but "The Rendezvous" (names that already carry an article). */

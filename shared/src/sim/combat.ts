@@ -4,13 +4,16 @@ import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
 import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, type EnemyId, type Rank } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS } from '../content/items';
-import { applyItem, dropEverything, itemTargets } from './loot';
+import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints } from './loot';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 
-export const ROUND_TIME = 5;
-export const BLEED_OUT = 30;
-export const REVIVE_CHANNEL = 3;
+/** The game's beat: a combat round, a corridor, and every channel are multiples of this. */
+export const BEAT = 6;
+/** Every round gives everyone the full beat to choose; it never resolves early. */
+export const ROUND_TIME = BEAT;
+export const BLEED_OUT = BEAT * 6;
+export const REVIVE_CHANNEL = BEAT;
 export const REVIVE_HP_FRACTION = 0.3;
 export const FLEE_CHANCE = 0.7;
 export const STRESS_MAX = 100;
@@ -187,6 +190,7 @@ function enlist(enc: Encounter, h: Hero, late: boolean) {
   (late ? enc.joining : enc.heroes).push(h.id);
   h.encounter = enc.room;
   h.path = [];
+  h.heading = null;
   h.channel = null;
 }
 
@@ -226,7 +230,7 @@ export function tickCombat(world: World) {
         endEncounter(world, enc);
         continue;
       }
-      if (active.length > 0 && (active.every((h) => enc.choices[h.id]) || world.time >= enc.deadline)) {
+      if (active.length > 0 && world.time >= enc.deadline) {
         resolveRound(world, enc);
       } else if (active.length === 0) {
         nextRound(world, enc);
@@ -621,6 +625,11 @@ function applyMonsterDamage(world: World, m: Monster, dmg: number, events: Comba
     delete world.monsters[m.id];
     world.stats.slain++;
     events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
+    world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
+    if (monstersIn(world, m.room).length === 0) {
+      dropBounty(world, m.room);
+      events.push({ actor: m.id, kind: 'info', text: 'Something glints among the remains.' });
+    }
   }
 }
 
@@ -735,6 +744,7 @@ function flee(world: World, enc: Encounter, h: Hero) {
   const c = corridorBetween(d, from, to)!;
   h.pos = { kind: 'corridor', corridor: c.id, from, to, t: 0 };
   h.path = [];
+  h.heading = null;
 }
 
 /** Bleed-out and death for downed heroes. Called every tick. */
