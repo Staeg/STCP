@@ -1,0 +1,266 @@
+# So They Can Prosper — Build Plan
+
+> **For future Claude sessions:** This file is the source of truth. At the start of every session:
+> 1. Read this whole file, especially **Decisions** and the **Progress Log** at the bottom.
+> 2. Pick the first unchecked milestone. Don't skip ahead unless a milestone is explicitly blocked.
+> 3. Before ending the session, tick off what's done, add a Progress Log entry (date, what changed, what's next, known bugs), and commit.
+> 4. If you hit a real design ambiguity, ask the user (they like being asked). Otherwise use your judgment and record the decision in **Decisions**.
+
+---
+
+## 1. Vision (one paragraph)
+
+Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a shared dungeon, with bots filling empty slots. Exploration is real-time; combat is turn-based with a 5-second timer per round. Everyone agrees to meet at the **rendezvous** (the exit). Over 10 minutes things get worse: monsters respawn stronger, light runs out, tunnels collapse, and minds fray. The climax is the moment at the exit when only two of four heroes have shown up. Do you wait, leave, or go back for them?
+
+**Design pillars.** Use these to decide anything not covered below.
+1. **The clock is the antagonist.** Every system should give players a reason to spend time and something to lose by doing so.
+2. **Uncertainty about allies.** Individual fog means you often *don't know* what happened to your friends.
+3. **Greed vs. loyalty.** Loot is tempting, and it has to be negotiated.
+4. **Readable in 5 seconds.** Combat choices must be quick to understand. Use 3 abilities, clear cooldowns, and obvious targets.
+
+---
+
+## 2. Decisions (agreed with the user)
+
+| Topic | Decision |
+|---|---|
+| Platform | Browser client (TypeScript + Vite) + Node WebSocket server. The server is authoritative. |
+| Hosting | The host runs `npm start` locally. Friends join via LAN IP or a tunnel URL (ngrok/cloudflared). Lobby code, no accounts. |
+| Turn model | **Real-time exploration**, **turn-based combat**. A combat round ends when every hero in that fight has locked in, or after 5s. The world clock keeps running during combat. |
+| Map | **Room graph**: rooms joined by corridors. Crossroads are rooms with 3+ exits. Walking a corridor takes real time. |
+| Run shape | **One expedition, one rendezvous.** The rendezvous room is the exit, and its location is known to everyone from the start. |
+| Extraction | At **10:00** the exit opens. Each player decides for themselves when to leave. Waves spawn at the exit while it's open. At **13:00** the dungeon collapses and everyone still inside dies. |
+| 0 HP | **Downed** → bleeds out over 30s (combat rounds count as their real time). An ally in the room can revive. Otherwise the hero dies and drops their items in the room. |
+| Loot | **Co-op.** Every *item* goes to exactly one player. All living heroes in the room must agree on the recipient (or unanimously agree to leave it), and **nobody present can leave the room until they agree**. **Gold** is split equally among all heroes present (downed but alive heroes count). |
+| Information | **Individual fog.** You see only rooms you've explored. Allies show up live when they're in your room or an adjacent one; otherwise they're a greyed-out ghost at their *last known position*. At crossroads you see **chalk marks** for which exits allies have taken (this satisfies the requirement to "see which way others chose"). |
+| Comms | None in-game. Assume voice chat. Bots can't hear voice, so they act on what they can observe. |
+| Stress | Simple stress in v1 (0–100). At 100 the hero gains an **affliction**. |
+| Visuals | **Pixel art sprites.** Use a CC0 pack (candidates: 0x72 *16x16 DungeonTileset II*, Kenney *Tiny Dungeon*). **Ask the user for permission before downloading**, or ask them to drop it into `client/public/assets/`. Use colored-rectangle placeholders until then. |
+| Players | 1–4 humans. Empty slots are filled by bots of *mediocre* ability. |
+| Escalation | Every **2:00** the dungeon tier goes up by 1 (T0 to T6). |
+
+---
+
+## 3. Game Design Spec (v1 numbers are starting points; tune in M8)
+
+### 3.1 Timeline
+| Time | Tier | What happens |
+|---|---|---|
+| 0:00 | T0 | All heroes spawn at the Entrance. Rendezvous is marked on every map. |
+| 2:00 | T1 | Cleared rooms can respawn monsters. Monsters get +15% HP and damage per tier. |
+| 4:00 | T2 | Wandering monster packs start roaming the corridors. |
+| 6:00 | T3 | Tunnels start collapsing: 1 random corridor per 30s becomes impassable, never cutting the last path to the exit. Elites can spawn. |
+| 8:00 | T4 | Light drains 1.5× faster. Respawn rate goes up. |
+| 10:00 | T5 | **Exit opens.** Waves spawn at the exit every ~45s. |
+| 12:00 | T6 | Waves every ~25s. "The ceiling groans" warning. |
+| 13:00 | — | Collapse. Anyone left inside dies. Results screen. |
+
+### 3.2 Exploration
+- Dungeon: ~25–35 rooms, generated from a seed. Entrance and Exit are 5–7 rooms apart on the shortest path, with loops and dead ends. 3–6 crossroads.
+- A corridor takes 3–8s to walk. Heroes can turn back mid-corridor.
+- Entering a room reveals it, its exits, and what you can see in neighbouring rooms (unless it's dark).
+- Room contents: nothing, monsters, loot pile, chest, event, altar, captive villager, or a combination.
+- **Light:** each hero has a torch from 100 down to 0, draining ~1/sec. Torch items restore 50. Below 25 is *Dim* (more stress, can't see neighbouring rooms). At 0 it's *Dark* (heavy stress gain, monsters deal +25% damage).
+
+### 3.3 Combat
+- Starts when a hero enters a room with monsters, or when monsters enter a hero's room. Heroes who enter a room mid-fight join at the next round.
+- Two ranks per side: **Front** and **Back**. Some abilities only work from or against a particular rank.
+- Each round, every hero picks one of: Ability 1/2/3, Use Item, Revive (if an ally is downed), or Flee. When all heroes have locked in or 5s pass, the round resolves. Heroes who didn't pick in time **Brace** (take 30% less damage).
+- Resolution order: by speed, with heroes and monsters interleaved. Show a short (~1.5s) resolution animation, then start the next round.
+- **Flee:** 70% success (100% with Smoke Bomb). The hero retreats to the previous room and gains stress.
+- Cooldowns are counted in rounds.
+
+### 3.4 Classes (HP / Speed / Perk / 3 abilities)
+
+**Warden** (tank). 45 HP, Speed 2. *Perk: Stalwart. Takes 20% less damage while in the Front rank.*
+- **Shield Bash** (CD 2): 6 damage to a Front enemy, 50% chance to Stun (it skips its next action).
+- **Guard** (CD 1): Choose an ally. Damage aimed at them goes to you this round.
+- **Rally** (CD 4): All allies lose 10 stress and gain 4 Block.
+
+**Cutthroat** (burst damage, utility). 30 HP, Speed 5. *Perk: Light Fingers. Opens locks and chests 3× faster, and sees loot in neighbouring rooms.*
+- **Backstab** (CD 0): 8 damage to any enemy. Crits (×2) against Stunned or Marked targets.
+- **Poison Blade** (CD 2): 4 damage + Bleed (3 per round for 3 rounds).
+- **Smoke Bomb** (CD 5): Everyone on your side can flee this round with a 100% success chance, or else gains 50% dodge.
+
+**Lampbearer** (healer, light). 32 HP, Speed 3. *Perk: Beacon. Allies in the same room drain light 50% slower.*
+- **Mend** (CD 1): Heal an ally for 10 and cure Bleed.
+- **Flare** (CD 3): 4 damage to all enemies and +15 light to everyone present. Undead are Marked.
+- **Vigil** (CD 3): One ally gets −15 stress and becomes immune to stress damage for 2 rounds.
+
+**Hexer** (control, objectives). 30 HP, Speed 4. *Perk: Ritualist. Cleanses altars 2× faster, and is immune to the Whispering Well's curse.*
+- **Hex** (CD 0): 5 damage, and the target is Marked.
+- **Wither** (CD 3): Target enemy deals −50% damage for 2 rounds.
+- **Blood Pact** (CD 4): Lose 6 HP, deal 12 damage split across all enemies, and heal the ally with the lowest HP by 6.
+
+### 3.5 Enemies
+| Enemy | HP | Rank | Behaviour |
+|---|---|---|---|
+| **Ghoul** (undead) | 18 | Front | Claw: 5 damage. Bruiser. |
+| **Crawler** | 10 | Front | Fast. Bite: 3 damage + Bleed. Arrives in pairs. |
+| **Acolyte** (cultist) | 14 | Back | Whisper: 6 stress to one hero, or Curse: 4 damage to a back-rank hero. |
+| **Bone Brute** (undead, elite, T3+) | 40 | Front | Slam: 9 damage, hits all Front heroes. Acts every other round. |
+
+Scaling: HP and damage go up ×(1 + 0.15·tier). Group size goes up at T2 and T4.
+
+### 3.6 Loot, Items, Gold
+- **Inventory:** 4 slots per hero. Items are used out of combat or as the "Use Item" combat action.
+- **Consumables:** Bandage (heal 12, cure Bleed), Torch (+50 light), Tonic (−25 stress), Firebomb (8 damage to all enemies), Smelling Salts (instant revive at 50% HP, can be used from an adjacent room as well).
+- **Trinkets** (passive, also take a slot): Lucky Coin (+10% gold share), Iron Locket (+8 max HP), Cat's-Eye (Dim penalties don't apply to you), Ward Charm (−25% stress taken).
+- **Assignment flow:** loot appears as a pile. Each living hero present votes on a recipient for each item, or votes "Leave it". When the vote is unanimous, the item is assigned. Until then, those heroes' exits are locked (and the UI makes the lock obvious). Combat breaking out pauses the vote. A hero who enters the room joins the vote. Bots vote for whichever hero their heuristic prefers, then switch to the human majority after ~2s. Bots never deadlock.
+- **Gold:** chests, piles and events. It's split equally among heroes present when picked up. Only extracted gold counts. It's saved per player name to `server/data/stash.json` for future out-of-dungeon use (see M11).
+
+### 3.7 Stress & Afflictions
+- Sources: darkness (per second), crits taken, an ally going down (+15) or dying (+25), Acolyte Whisper, and some events.
+- Relief: Rally, Vigil, Tonic, rest events, and successfully extracting.
+- At 100 stress the hero gets a random affliction for the rest of the run, and stress resets to 60:
+  - **Selfish:** always votes for themselves in loot votes. The vote resolves without them after 10s.
+  - **Fearful:** 25% chance to auto-Flee instead of acting.
+  - **Paranoid:** can't be Guarded or healed by allies.
+  - **Hopeless:** −30% damage dealt.
+  - A second 100 means a heart attack: the hero is immediately Downed.
+
+### 3.8 Events & Objectives (each needs a clear choice and a time cost)
+- **Altar** (objective): Cleansing takes a 15s channel (7s for Hexer) and spawns a wave partway through. Reward: every living hero gets −20 stress, plus a gold bonus at extraction.
+- **Captive Villager** (objective): Guarded by monsters. Once freed, they follow one hero at 70% speed. If they reach the exit, everyone who extracts gets +gold. They can be killed in fights.
+- **Glittering Idol:** Take it for a lot of gold, but the corridor you came through collapses, *or* leave it.
+- **Wounded Stranger:** Spend a Bandage for a reward later (60%) or an ambush (40%), *or* walk past.
+- **Whispering Well:** Drink for a random outcome (−40 stress / heal 15 / random affliction), *or* don't.
+- **Locked Vault:** A 20s pick (Cutthroat 7s). Interrupting resets it. Good loot.
+- **Cursed Chest:** Loot plus +20 stress to whoever opens it.
+- **Shortcut Crawlspace:** Takes you straight toward the exit, but you take 6 damage and drop to Dim light.
+- When several heroes are present at an event, **any present hero can make the choice**. It's first come, first served on purpose, so players end up arguing on voice.
+
+### 3.9 Bots ("mediocre")
+- **Exploration:** a utility score over unexplored rooms, visible loot, objectives and the distance to the exit. Each bot gets a random "greed" value (0.2–0.8) that sets how late it heads to the exit. Some bots will be late, which is intended.
+- **Combat:** a sensible heuristic (heal the lowest HP below 50%, focus Marked targets, use AoE when there are 3+ enemies), but with **25% suboptimal picks** and a 1–3s "think" delay.
+- **Votes:** see 3.6. **Rescue:** will revive in the same room. A bot only goes back for an absent ally if that ally's last known position is ≤2 rooms away and the time is before 11:30.
+
+---
+
+## 4. Architecture
+
+```
+/shared      Pure TS game logic + types (no I/O). Deterministic given a seed + inputs.
+  rng.ts, dungeon/gen.ts, sim/world.ts (tick), sim/combat.ts, content/{classes,enemies,items,events}.ts,
+  views.ts (per-player fog-filtered snapshot), bots/*.ts
+/server      Node + ws. Lobby mgmt, game loop at 10 Hz, input validation, broadcasts filtered views.
+  index.ts, lobby.ts, game.ts, persistence.ts, sim-cli.ts (headless bot-only runs)
+/client      Vite + TS. Canvas for map/combat scenes, HTML/CSS overlay for UI.
+  net.ts, scenes/{lobby,map,combat,results}.ts, ui/*, render/*, assets/
+```
+- **Authoritative server.** Clients send *intents* (`move(corridorId)`, `combatAction`, `vote`, `eventChoice`, `useItem`). The server sends a **per-player filtered view** every tick (or diffs if bandwidth becomes an issue), so fog is enforced on the server. No cheating by reading the socket.
+- **Shared logic** is reused by the headless simulator (`npm run sim`), which is essential for balancing and automated playtesting.
+- **Time** is driven by server ticks (100ms). Combat rounds are sub-state machines that run alongside the world.
+- **Tooling:** npm workspaces, TypeScript strict, Vitest for unit tests, `tsx` to run the server in dev, `concurrently` for `npm run dev`. Keep dependencies minimal (no game framework unless the canvas gets painful; Phaser would be the fallback).
+- **Debug hooks:** a `?debug=1` query param shows the full map, a time-skip, `spawn` commands, and a "give item" cheat (disabled in production builds).
+
+---
+
+## 5. Milestones
+
+Each milestone ends with: tests passing, a **mini-playtest** (as described in that milestone), a Progress Log entry, and a git commit.
+
+### M0. Scaffolding
+- [ ] `git init`, `.gitignore`, npm workspaces (`shared`, `server`, `client`), tsconfig, Vitest.
+- [ ] `npm run dev` starts the server and the Vite client. The client connects over WS and shows a ping/pong round trip.
+- [ ] Seeded RNG utility + test.
+- **Done when:** the browser shows "connected" and `npm test` passes.
+
+### M1. Dungeon & real-time movement (single player, no combat)
+- [ ] Room-graph generator: seeded, connectivity guaranteed, entrance–exit distance constraint, crossroads. Unit tests for invariants over 500 seeds.
+- [ ] World tick: hero position = room or (corridor, progress). Move/turn-back intents.
+- [ ] Fog-filtered view, visited rooms, adjacent visibility.
+- [ ] Map scene: rooms, corridors, own hero token, rendezvous marker, game clock, light bar draining.
+- **Mini-playtest:** walk from entrance to exit in the browser. Does a corridor take a satisfying amount of time? Is the map legible?
+
+### M2. Lobby, multiplayer & bot slots
+- [ ] Create/join a lobby by 4-letter code, set a name, pick a class (no duplicate classes in v1), ready up, host starts. Empty slots become bots.
+- [ ] Multiple heroes in the world. Live allies when in the same or an adjacent room, greyed **last-known ghosts** otherwise.
+- [ ] **Chalk marks** at crossroads showing which exits allies have taken (colour-coded by hero).
+- [ ] Basic bot exploration (wander + head to the exit at a time chosen by its greed value).
+- [ ] Reconnect: refreshing the tab with the same name and lobby resumes control of your hero.
+- **Mini-playtest:** open 2–3 browser tabs as different players and confirm fog, ghosts and chalk marks behave correctly for each.
+
+### M3. Combat core
+- [ ] Encounter state machine: start, join mid-fight, 5s rounds with early resolve, speed order, Brace on timeout, Flee.
+- [ ] All 4 classes × 3 abilities, cooldowns, statuses (Stun, Bleed, Mark, Block, Guard, Weakened).
+- [ ] Ghoul, Crawler and Acolyte (Brute can wait until M5).
+- [ ] Downed → bleed-out → death, Revive action, items dropped on death.
+- [ ] Combat scene: two ranks, sprites/placeholders, HP bars, a cooldown display on the ability buttons, a visible 5s timer ring, target selection, and a resolution animation with a combat log.
+- [ ] Bot combat AI (mediocre).
+- **Mini-playtest:** fight 5 encounters with each class. Can you decide in 5 seconds? Does each class feel distinct?
+
+### M4. Loot, items & gold
+- [ ] Loot piles, chests, gold split among those present.
+- [ ] Item voting UI plus room-exit lock, combat pausing the vote, late joiners, bot voting.
+- [ ] Inventory (4 slots), using items in and out of combat, all consumables + trinkets.
+- **Mini-playtest:** with 2 tabs + bots, deliberately disagree on an item. Is the lock clear? Does the pressure feel fun, not annoying?
+
+### M5. Escalation & the climax
+- [ ] Tier system on the 2:00 cadence: scaling, respawns, wandering packs, Bone Brute, corridor collapses (path to the exit preserved), faster light drain.
+- [ ] Exit opens at 10:00, individual Extract action, exit waves, collapse at 13:00.
+- [ ] Results screen: who extracted, died or was left behind, gold, a timeline of key moments ("Mara went down in the Ossuary at 9:42").
+- [ ] Tier-change announcements (audio cue placeholder + banner).
+- **Mini-playtest = FIRST PLAYABLE.** Play a full 13-minute run with 3 bots. Note the moment-to-moment feel of every 2-minute block.
+
+### M6. Stress, events & objectives
+- [ ] Stress sources and relief, affliction roll at 100, heart attack, all 4 afflictions (including the Selfish/vote interaction).
+- [ ] Event framework (room event, choice UI, first-come resolution) + all events in 3.8.
+- [ ] Altar channel + interruption, Villager follower + escort + bonus.
+- [ ] Bots handle events (random-ish but sensible) and objectives (only if they're nearby).
+
+### M7. Bot polish
+- [ ] Bot rescue logic, greed variance, objective pursuit, "think" delays, 25% suboptimality.
+- [ ] Bots should be noticeably worse than a focused human but not useless. Check this with the sim in M8.
+
+### M8. Headless simulation & balance pass
+- [ ] `npm run sim -- --games 300 --seed X` runs 4-bot games at accelerated time and outputs JSON/CSV metrics.
+- [ ] Metrics: extraction rate per hero, death time distribution, downs per tier, average arrival time at the exit, gold per extracted hero, fights per run, average rounds per fight, items left unassigned, stress afflictions per run, events taken.
+- [ ] **Target bands for all-bot games:** about 40–65% of heroes extract. ≥30% of runs have at least one hero arriving at the exit after 10:30 (the drama window). Median fight lasts 3–6 rounds. ≤10% of deaths happen before 4:00.
+- [ ] Tune numbers in `shared/content` until the targets are hit. Record the before/after table in the Progress Log.
+
+### M9. Pixel art & juice
+- [ ] **Ask the user** about downloading a CC0 pack (or have them supply one). Wire up the sprite atlas loader.
+- [ ] Map tiles/room icons, hero and enemy sprites, hit flashes, damage numbers, screen shake on crits, light vignette tied to torch level, a pulsing exit beacon.
+- [ ] Optional: simple sound effects (ask the user before adding audio assets).
+
+### M10. Structured playtest (the main verification step)
+Run all of the following, then write `PLAYTEST.md` with findings, ranked issues and fixes made.
+1. **Automated:** `npm run sim` stays inside the M8 target bands after all changes. All unit tests pass.
+2. **Solo browser playtest (Claude, using the built-in browser):** play at least 2 full runs with 3 bots, as different classes. Keep a timestamped log and check it against the **Intended Experience Checklist** below. Take screenshots of the key moments.
+3. **Multi-client playtest:** run 4 tabs as 4 humans. Confirm fog isolation (tab A never receives tab B's hidden info; inspect the WS payloads), loot vote edge cases, a revive across tabs, disconnect/reconnect mid-combat, and all extraction-timing edge cases (extract during a wave, die while the exit is open, collapse while in combat).
+4. **User playtest:** ask the user to play with friends. Give them a short feedback prompt (the checklist questions). Turn their answers into tasks.
+
+**Intended Experience Checklist** (each must be a clear "yes" or get a task):
+- [ ] In the first 2 minutes the group splits up voluntarily because the crossroads offer meaningfully different temptations.
+- [ ] Each 2-minute tier change is *noticeable* without reading the banner.
+- [ ] Combat decisions are usually made in under 5s, and the timer feels tense rather than unfair.
+- [ ] The 4 classes play differently, and each has a moment where it's clearly the hero.
+- [ ] At least once per run, an item vote causes a real (if brief) negotiation.
+- [ ] Between 9:30 and 11:30 a player at the exit is genuinely uncertain about a missing ally. The ghost/last-known information is ambiguous enough to make that a hard choice.
+- [ ] Going back for a rescue is *possible but costly*. It sometimes works and sometimes doesn't.
+- [ ] Greed for "one more room" has caused at least one late arrival or death.
+- [ ] Light and stress create pressure without becoming the main thing you manage.
+- [ ] Bots are helpful-but-flawed. Nobody feels the bots won or lost the game for them.
+- [ ] The results screen tells a story people want to talk about.
+
+### M11 (stretch). Out-of-dungeon gold
+- [ ] Ask the user what gold should buy. Candidate: a camp screen between runs where you spend stashed gold on starting consumables, trinkets, or a class unlock. Persistence is keyed by player name.
+
+### Later / parking lot
+Deploying to a public host, more classes and enemies, multiple floors, in-game pings, controller support, a real art pass, music.
+
+---
+
+## 6. Open questions to raise when relevant
+- Is the game title "So They Can Prosper" (from the folder name)? Ask at M9.
+- What should gold buy (M11)?
+- Sprite pack choice and download permission (M9).
+- Should class duplicates be allowed? Disallowed in v1 so the 4 classes stay distinct.
+
+---
+
+## 7. Progress Log
+_(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-08 · Planning · Created PLAN.md after a design Q&A with the user. Next: M0.
