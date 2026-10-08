@@ -1,0 +1,115 @@
+:root {
+  --bg: #0d0b0a;
+  --panel: rgba(22, 18, 15, 0.88);
+  --border: #4a3c2c;
+  --text: #d8c8a8;
+  --muted: #8a7a60;
+  --gold: #e0b44a;
+  --danger: #d94a4a;
+  --light: #f0c860;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'VT323', ui-monospace, monospace;
+  font-size: 20px;
+  user-select: none;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  padding: 8px 14px;
+  box-shadow: 0 0 0 2px #000;
+}
+
+#clock { font-size: 40px; line-height: 1; color: var(--gold); }
+#clock.urgent { color: var(--danger); }
+#tier { color: var(--muted); }
+#next-event { color: var(--text); }
+
+#status-panel { min-width: 220px; }
+#hero-name { font-size: 24px; }
+.bar-label { color: var(--muted); }
+.bar {
+  height: 10px;
+  background: #221a12;
+  border: 1px solid var(--border);
+  margin: 2px 0 6px;
+}
+.bar-fill { height: 100%; background: var(--light); transition: width 0.2s linear; }
+.bar-fill.dim { background: #8a6a30; }
+#location { color: var(--text); }
+
+#actions {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+button {
+  font-family: inherit;
+  font-size: 22px;
+  color: var(--text);
+  background: #2a2018;
+  border: 2px solid var(--border);
+  padding: 6px 16px;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px #000;
+}
+button:hover { background: #3a2c20; border-color: var(--gold); }
+kbd { color: var(--muted); font-family: inherit; }
+
+#help {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  color: var(--muted);
+}
+
+#net {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  color: var(--muted);
+}
+#net.bad { color: var(--danger); }
+
+#banner {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 56px;
+  color: var(--danger);
+  text-shadow: 0 0 12px #000, 0 0 2px #000;
+  pointer-events: none;
+  text-align: center;
+}

@@ -38,6 +38,8 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Visuals | **Pixel art sprites.** Use a CC0 pack (candidates: 0x72 *16x16 DungeonTileset II*, Kenney *Tiny Dungeon*). **Ask the user for permission before downloading**, or ask them to drop it into `client/public/assets/`. Use colored-rectangle placeholders until then. |
 | Players | 1–4 humans. Empty slots are filled by bots of *mediocre* ability. |
 | Escalation | Every **2:00** the dungeon tier goes up by 1 (T0 to T6). |
+| Ports | Vite dev client on **5180** (5173 is used by something else on this machine). Game server on **3001**, configured with `GAME_PORT` (not `PORT`, which the preview tool sets). |
+| Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
 
@@ -60,7 +62,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 - A corridor takes 3–8s to walk. Heroes can turn back mid-corridor.
 - Entering a room reveals it, its exits, and what you can see in neighbouring rooms (unless it's dark).
 - Room contents: nothing, monsters, loot pile, chest, event, altar, captive villager, or a combination.
-- **Light:** each hero has a torch from 100 down to 0, draining ~1/sec. Torch items restore 50. Below 25 is *Dim* (more stress, can't see neighbouring rooms). At 0 it's *Dark* (heavy stress gain, monsters deal +25% damage).
+- **Light:** each hero has a torch from 100 down to 0, draining 0.2/sec (a full torch lasts ~8 min). Torch items restore 50. Below 25 is *Dim* (more stress, can't see neighbouring rooms). At 0 it's *Dark* (heavy stress gain, monsters deal +25% damage).
 
 ### 3.3 Combat
 - Starts when a hero enters a room with monsters, or when monsters enter a hero's room. Heroes who enter a room mid-fight join at the next round.
@@ -161,16 +163,16 @@ Scaling: HP and damage go up ×(1 + 0.15·tier). Group size goes up at T2 and T4
 Each milestone ends with: tests passing, a **mini-playtest** (as described in that milestone), a Progress Log entry, and a git commit.
 
 ### M0. Scaffolding
-- [ ] `git init`, `.gitignore`, npm workspaces (`shared`, `server`, `client`), tsconfig, Vitest.
-- [ ] `npm run dev` starts the server and the Vite client. The client connects over WS and shows a ping/pong round trip.
-- [ ] Seeded RNG utility + test.
+- [x] `git init`, `.gitignore`, npm workspaces (`shared`, `server`, `client`), tsconfig, Vitest.
+- [x] `npm run dev` starts the server and the Vite client. The client connects over WS and shows a ping/pong round trip.
+- [x] Seeded RNG utility + test.
 - **Done when:** the browser shows "connected" and `npm test` passes.
 
 ### M1. Dungeon & real-time movement (single player, no combat)
-- [ ] Room-graph generator: seeded, connectivity guaranteed, entrance–exit distance constraint, crossroads. Unit tests for invariants over 500 seeds.
-- [ ] World tick: hero position = room or (corridor, progress). Move/turn-back intents.
-- [ ] Fog-filtered view, visited rooms, adjacent visibility.
-- [ ] Map scene: rooms, corridors, own hero token, rendezvous marker, game clock, light bar draining.
+- [x] Room-graph generator: seeded, connectivity guaranteed, entrance–exit distance constraint, crossroads. Unit tests for invariants over 500 seeds.
+- [x] World tick: hero position = room or (corridor, progress). Move/turn-back intents.
+- [x] Fog-filtered view, visited rooms, adjacent visibility.
+- [x] Map scene: rooms, corridors, own hero token, rendezvous marker, game clock, light bar draining.
 - **Mini-playtest:** walk from entrance to exit in the browser. Does a corridor take a satisfying amount of time? Is the map legible?
 
 ### M2. Lobby, multiplayer & bot slots
@@ -263,4 +265,9 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M0 + M1 done.** Monorepo (shared/server/client), WS server at 10 Hz with a fog-filtered `buildView`, Vite canvas client with a map, HUD (clock, tier, exit countdown, light bar), click-to-path and turn-back. The generator is tested over 500 seeds; there are 17 unit tests. For now the server runs a single shared dev world with one hero per connection; this gets replaced by lobbies in M2.
+  - Mini-playtest: walking works and reads clearly. Fog/glimpse/crossroads markers render. An exploring walk reached the rendezvous at ~1:00 having explored 10 rooms (light 88). **Watch in M8:** the direct entrance→exit route is ~45–60s, so the "late to rendezvous" tension must come from content (fights, loot, events) and from the exit being far from the loot. If it doesn't, lengthen corridors or raise EXIT_DISTANCE.
+  - Playtest tooling: in dev builds `window.__net` exposes the client connection (`__net.cur` = latest view, `__net.intent(...)`). Use it from the browser tool to script walks. Long-running scripts must be fire-and-forget (store results on `window`), because a hidden browser pane throttles timers.
+  - Visual notes for M9: the map uses a fixed full-dungeon frame, so small dungeons leave empty space. Rooms are ~29px at 1280×720. Consider fitting the frame to explored rooms + exit.
+  - Next: M2 (lobby, multiplayer, bots, chalk marks, reconnect).
 - 2026-10-08 · Planning · Created PLAN.md after a design Q&A with the user. Next: M0.

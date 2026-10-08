@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>So They Can Prosper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="hud">
+      <div class="panel" id="clock-panel">
+        <div id="clock">00:00</div>
+        <div id="tier">Tier 0</div>
+        <div id="next-event"></div>
+      </div>
+      <div class="panel" id="status-panel">
+        <div id="hero-name"></div>
+        <div class="bar-label">Light <span id="light-text"></span></div>
+        <div class="bar"><div class="bar-fill" id="light-fill"></div></div>
+        <div id="location"></div>
+      </div>
+    </div>
+    <div id="actions">
+      <button id="btn-turn" hidden>⟲ Turn back <kbd>Space</kbd></button>
+    </div>
+    <div id="help">Click a room to walk there · Space: turn back while in a corridor</div>
+    <div id="net">connecting…</div>
+    <div id="banner" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

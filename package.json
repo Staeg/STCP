@@ -1,0 +1,22 @@
+{
+  "name": "so-they-can-prosper",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run build && npm run start -w server",
+    "test": "vitest run",
+    "typecheck": "tsc -p shared && tsc -p server && tsc -p client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
