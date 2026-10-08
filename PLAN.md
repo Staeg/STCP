@@ -48,6 +48,8 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Dungeon size (changed in M5) | 10×7 grid, **38–50 rooms**, exit 6–9 hops from the entrance, 5–10 crossroads. With 25–35 rooms, bots had explored everything and were sitting at the exit by about 5:40. |
 | Knowing who left | You only learn an ally escaped if you saw them go (same room). Otherwise they're a ghost at their last known spot, which is often the exit. The results screen reveals everything. |
 | Stash | Extracted gold is added to `server/data/stash.json`, keyed by lower-cased player name, and shown in the lobby and results. |
+| Events (v1) | 28% of normal rooms (not the entrance, the exit, or rooms next to the entrance) get an event. Events work once the room is quiet (no monsters). Altar and Vault are channels whose **progress is kept** if interrupted, and several heroes channelling stack their progress. The Altar summons guardians at 50% (one tier weaker than the dungeon). Each altar cleansed is worth +15 gold to every hero who escapes, plus −20 stress for everyone still inside. **Villagers are saved on reaching the rendezvous room** (they slip out alone), worth +25 gold to every escaper; this was changed so escorts don't camp at the exit for 5 minutes. Escorting slows you to 70% speed, monsters sometimes hit the villager (15%), and if the escort falls the villager waits in that room for anyone to pick up. The Crawlspace moves you up to 3 rooms along the real route to the exit (4 damage, Dim light). The Idol caves in the corridor you arrived by. |
+| Stress (v1) | Dim +0.15/s, total darkness +0.5/s (Cat's-Eye negates Dim). The first 100 gives a random affliction and resets to 60; the next 100 is a heart attack (downed, reset to 80). Selfish: forced to vote for themselves, and dropped from the vote after 10s. Fearful: 25% to panic-flee. Paranoid: refuses others' Mend/Guard/Vigil/Bandage/Pact healing (Salts still work). Hopeless: −30% damage. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 
 ---
@@ -215,10 +217,10 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - **Mini-playtest = FIRST PLAYABLE.** Play a full 13-minute run with 3 bots. Note the moment-to-moment feel of every 2-minute block.
 
 ### M6. Stress, events & objectives
-- [ ] Stress sources and relief, affliction roll at 100, heart attack, all 4 afflictions (including the Selfish/vote interaction).
-- [ ] Event framework (room event, choice UI, first-come resolution) + all events in 3.8.
-- [ ] Altar channel + interruption, Villager follower + escort + bonus.
-- [ ] Bots handle events (random-ish but sensible) and objectives (only if they're nearby).
+- [x] Stress sources and relief, affliction roll at 100, heart attack, all 4 afflictions (including the Selfish/vote interaction).
+- [x] Event framework (room event, choice UI, first-come resolution) + all events in 3.8.
+- [x] Altar channel + interruption, Villager follower + escort + bonus.
+- [x] Bots handle events (random-ish but sensible) and objectives (only if they're nearby).
 
 ### M7. Bot polish
 - [ ] Bot rescue logic, greed variance, objective pursuit, "think" delays, 25% suboptimality.
@@ -274,6 +276,10 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M6 done.** `content/events.ts` (afflictions, 8 event types, seeding, channel times), `sim/events.ts` (seeding, choices, channels, villagers, darkness stress and breaking), `bots/eventer.ts` (each bot decides once per room; risky events only above 60% HP; escorts go home and then resume their plan). Afflictions are wired into combat and loot. View: `event`, `leading`, `objectives`, per-room event icons, ally afflictions. Client: `client/src/events.ts` panel; HUD affliction badge, escort line and objectives line; map glyphs (⛧☺✧¿◯▣☐↘). Loot and event panels moved to the bottom centre and toasts to the top centre, so they no longer cover the map. New dev command `debugEvent`. Fixed: a fight whose monsters disappear mid-round now ends at once. `npm run sim -- --events 0` compares runs without events. 74 tests.
+  - Sim (80 games): **escape 24–27%** (33% with events off), wipes 35–40%, 0.3 afflictions and ~0 heart attacks per game, 6.8 events used, 0.6 altars, 0.9 villagers saved, 123 gold per escaped hero (objective bonuses are big). An ablation showed the Altar and Crawlspace as the costliest for bots, so I added the bot HP gates and weaker guardians. Bot return window moved to 6:30–10:30. **Bots are now clearly too weak for the late game.** M7/M8 should fix rescues, avoidance and late-game pacing before any number tuning.
+  - Mini-playtest: Hexer altar cleanse took 7s, guardians came at 50%, the fight was won at 4/36 HP, and progress resumed from 50% to completion (objective +1, −20 stress). Villager freed, the HUD escort line showed. One bug found and fixed: the bottom progress strip said "Reviving… 0.0s" during an event channel.
+  - Next: M7 (bot polish: rescue logic, avoiding danger late, think delays).
 - 2026-10-08 · **M5 done: FIRST PLAYABLE.** `sim/escalation.ts`:
   - Tier changes are written to the chronicle.
   - Respawns run every 45s, or 30s from T4.

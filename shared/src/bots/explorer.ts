@@ -3,6 +3,7 @@ import { Rng } from '../rng';
 import type { PlayerView, RoomView } from '../sim/views';
 import type { Intent } from '../sim/world';
 import { botUseItem, botVote } from './looter';
+import { botEvent } from './eventer';
 
 /**
  * Exploration brain for bots. It only ever sees its own fog-filtered PlayerView,
@@ -21,14 +22,20 @@ export interface BotMemory {
   decideAt: number;
   /** At the open exit: when this bot gives up waiting and leaves. */
   leaveAt: number | null;
+  /** Rooms whose event this bot has already made up its mind about. */
+  decided: number[];
+  /** Room of the altar/vault this bot is working on. */
+  channelling: number | null;
+  /** While escorting a villager home: the return time to restore afterwards. */
+  escortReturnAt: number | null;
 }
 
 export function createBotMemory(seed: number): BotMemory {
   const rng = new Rng(seed);
   const greed = rng.float(0.2, 0.8);
-  // 0.2 → 7:00 … 0.8 → 11:00. Greedy bots are often late, by design.
-  const returnAt = EXIT_OPENS_AT - 180 + (greed - 0.2) / 0.6 * 240;
-  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null };
+  // 0.2 → 6:30 … 0.8 → 10:30. Greedy bots are often late, by design.
+  const returnAt = EXIT_OPENS_AT - 210 + (greed - 0.2) / 0.6 * 240;
+  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null };
 }
 
 export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
@@ -45,9 +52,16 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (vote !== undefined) return vote;
   const use = botUseItem(view);
   if (use) return use;
+  const ev = botEvent(view, mem);
+  if (ev) return ev;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
-  if (exit && here === exit.id) {
+  if (mem.escortReturnAt !== null && !view.leading) {
+    // Villager delivered (or lost): back to the original plan.
+    mem.returnAt = mem.escortReturnAt;
+    mem.escortReturnAt = null;
+  }
+  if (exit && here === exit.id && view.time >= mem.returnAt) {
     if (!view.exitOpen) return null;
     // Wait a while for the others (they might be coming), unless hurt or out of time.
     if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(0, 75);

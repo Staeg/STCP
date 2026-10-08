@@ -2,6 +2,8 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
 import { ESCALATION } from '../content/enemies';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
+import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
+import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
@@ -58,7 +60,15 @@ export interface Hero {
   channel:
     | { kind: 'revive'; target: string; until: number }
     | { kind: 'dig'; corridor: number; until: number }
+    /** Altar or vault in `room`; progress lives on the event itself. */
+    | { kind: 'event'; room: number; until: number }
     | null;
+  /** Broken by stress (see content/events.ts). */
+  affliction: AfflictionId | null;
+  /** Id of the villager following this hero. */
+  leading: string | null;
+  /** Events this hero has seen, by room (for map icons). */
+  knownEvents: Record<number, EventKind>;
   items: ItemId[];
   /** Carried gold. Only extracted gold counts. */
   gold: number;
@@ -86,6 +96,7 @@ export interface Sighting {
   dead: boolean;
   /** You watched them leave through the exit. */
   extracted?: boolean;
+  affliction: AfflictionId | null;
 }
 
 /** collapsed: the 13:00 deadline hit · wiped: everyone died · ended: everyone left (or died) early */
@@ -118,8 +129,15 @@ export interface World {
   /** The full story of the run, revealed on the results screen. */
   chronicle: { time: number; text: string }[];
   escalation: boolean;
+  events: Record<number, RoomEvent>;
+  villagers: Record<string, Villager>;
+  /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
+  objectives: { altars: number; villagers: number };
   /** Counters for the results screen and the balance simulator. */
-  stats: { fights: number; rounds: number; slain: number; downs: number; revives: number; collapses: number; waves: number };
+  stats: {
+    fights: number; rounds: number; slain: number; downs: number; revives: number; collapses: number; waves: number;
+    afflictions: number; heartAttacks: number; eventsUsed: number;
+  };
 }
 
 export type Intent =
@@ -137,7 +155,9 @@ export type Intent =
   /** Leave the dungeon through the open exit. */
   | { type: 'extract' }
   /** Dig through a collapsed corridor leading out of your room. */
-  | { type: 'dig'; corridor: number };
+  | { type: 'dig'; corridor: number }
+  /** Pick an option of the event in your room. */
+  | { type: 'event'; choice: string };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
@@ -146,6 +166,8 @@ export interface WorldOptions {
   loot?: boolean;
   /** Default true. Turn off for tests that need a static dungeon. */
   escalation?: boolean;
+  /** Default: same as `monsters`. */
+  events?: boolean;
 }
 
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
@@ -153,10 +175,13 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {},
     tier: 0, packs: {}, collapsed: [], chronicle: [], escalation: opts.escalation !== false,
-    stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0 },
+    stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 },
     nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
+  // Events default to following `monsters` (captives come with guards).
+  if (opts.events ?? opts.monsters !== false) spawnEvents(world);
   if (opts.loot !== false) spawnInitialLoot(world);
   return world;
 }
@@ -189,6 +214,9 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     extractedAt: null,
     fate: null,
     arrivedAt: null,
+    affliction: null,
+    leading: null,
+    knownEvents: {},
     color: CLASSES[opts.cls].color,
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -215,6 +243,8 @@ export function step(world: World, dt: number): void {
   tickDowned(world);
   tickCombat(world);
   tickLoot(world);
+  tickEvents(world, dt);
+  tickStress(world, dt);
   if (world.escalation) tickEscalation(world);
   updateKnowledge(world);
   checkEnd(world);
@@ -237,7 +267,19 @@ function checkEnd(world: World) {
   } else if (heroes.every((h) => !inDungeon(h))) {
     world.phase = 'ended';
   }
-  if (world.phase !== 'running') chronicle(world, 'The expedition is over.');
+  if (world.phase !== 'running') {
+    const { altars, villagers } = world.objectives;
+    const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
+    if (bonus > 0) {
+      chronicle(world, `Objectives: ${altars} altar(s) cleansed, ${villagers} villager(s) saved. +${bonus} gold to each survivor.`);
+      for (const h of heroes) {
+        if (!h.extracted) continue;
+        h.gold += bonus;
+        h.fate = `escaped with ${h.gold} gold`;
+      }
+    }
+    chronicle(world, 'The expedition is over.');
+  }
 }
 
 export function chronicle(world: World, text: string) {
@@ -260,7 +302,9 @@ export function extractHero(world: World, h: Hero) {
   // Only those who saw it happen know they left.
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
-      o.lastKnown[h.id] = { pos: { ...h.pos }, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true };
+      o.lastKnown[h.id] = {
+        pos: { ...h.pos }, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, affliction: h.affliction,
+      };
       notify(world, o, `${h.name} escapes through the exit.`);
     }
   }
@@ -298,6 +342,11 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       const time = hero.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
       hero.channel = { kind: 'dig', corridor: c.id, until: world.time + time };
       notify(world, hero, `You start digging… (${time}s)`);
+      return;
+    }
+    case 'event': {
+      const err = chooseEvent(world, hero, intent.choice);
+      if (err) notify(world, hero, err);
       return;
     }
     case 'extract':
@@ -346,6 +395,7 @@ function sameRoom(a: Hero, b: Hero) {
 
 function tickChannel(world: World, hero: Hero) {
   const ch = hero.channel!;
+  if (ch.kind === 'event') return; // see events.ts
   if (world.time < ch.until) return;
   hero.channel = null;
   if (ch.kind === 'dig') {
@@ -360,7 +410,8 @@ function tickChannel(world: World, hero: Hero) {
 
 function advance(world: World, hero: Hero, dt: number) {
   const d = world.dungeon;
-  let remaining = dt;
+  // Escorting a villager slows you down.
+  let remaining = hero.leading ? dt * EVENT_SEEDING.villagerSpeed : dt;
   // Bounded loop: each iteration either consumes time or enters a corridor.
   for (let guard = 0; guard < 16 && remaining > 1e-9; guard++) {
     const pos = hero.pos;
@@ -408,7 +459,9 @@ function updateKnowledge(world: World) {
   for (const a of heroes) {
     for (const b of heroes) {
       if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && canSee(world, a, b)) {
-        a.lastKnown[b.id] = { pos: { ...b.pos }, time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead };
+        a.lastKnown[b.id] = {
+          pos: { ...b.pos }, time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, affliction: b.affliction,
+        };
       }
     }
     if (!inDungeon(a)) continue;
@@ -422,6 +475,10 @@ function updateKnowledge(world: World) {
       if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
       a.knownThreat[room] = monstersIn(world, room).length;
       a.knownLoot[room] = lootCount(world, room);
+      const ev = world.events[room];
+      if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
+      else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
+      else delete a.knownEvents[room];
       if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n);
       if (a.light >= LIGHT_DIM) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
     }
@@ -453,7 +510,7 @@ function turnAround(world: World, hero: Hero) {
   hero.pos = { kind: 'corridor', corridor: pos.corridor, from: pos.to, to: pos.from, t: len - pos.t };
 }
 
-function explore(world: World, hero: Hero, room: number) {
+export function explore(world: World, hero: Hero, room: number) {
   addUnique(hero.explored, room);
   addUnique(hero.seen, room);
   if (hero.light >= LIGHT_DIM || seesInDark(hero)) {

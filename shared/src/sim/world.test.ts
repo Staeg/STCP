@@ -80,9 +80,13 @@ describe('world movement', () => {
     const { world, hero } = setup();
     run(world, 10);
     expect(hero.light).toBeCloseTo(LIGHT_MAX - LIGHT_DRAIN * 10, 5);
-    run(world, COLLAPSE_AT);
+    // Keep the torch lit (total darkness would eventually break the hero; see the stress tests).
+    for (let t = 0; t < COLLAPSE_AT; t += 60) {
+      hero.light = LIGHT_MAX;
+      run(world, 60);
+    }
     expect(world.phase).toBe('collapsed');
-    expect(hero.light).toBe(0);
+    expect(hero.dead).toBe(true);
   });
 
   it('does not glimpse neighbours when dim', () => {

@@ -188,6 +188,20 @@ export class LobbyManager {
         onHeroInRoom(w, h, h.pos.room);
         return;
       }
+      case 'debugEvent': {
+        if (!DEBUG) return err('Debug commands are disabled.');
+        const w = lobby.game?.world;
+        const h = w?.heroes[member.id];
+        if (!w || h?.pos.kind !== 'room') return;
+        const room = h.pos.room;
+        if (msg.kind === 'villager') {
+          const id = `v${w.nextId++}`;
+          w.villagers[id] = { id, room, leader: null, hp: 10, maxHp: 10, state: 'captive' };
+        } else {
+          w.events[room] = { room, kind: msg.kind, done: false, progress: 0, spawned: false };
+        }
+        return;
+      }
       case 'debugLoot': {
         if (!DEBUG) return err('Debug commands are disabled.');
         const h = lobby.game?.world.heroes[member.id];

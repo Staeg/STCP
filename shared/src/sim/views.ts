@@ -3,6 +3,8 @@ import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
 import { INVENTORY_SLOTS, type ItemId } from '../content/items';
+import { EVENTS, type AfflictionId, type EventKind } from '../content/events';
+import { eventChoices, type EventChoice } from './events';
 import { hasSpace, votersIn } from './loot';
 import { BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
@@ -23,6 +25,22 @@ export interface RoomView {
   threat?: number;
   /** Loot you last saw here. */
   loot?: number;
+  /** An event you saw here and haven't seen resolved. */
+  event?: EventKind;
+}
+
+export interface EventView {
+  kind: EventKind;
+  name: string;
+  glyph: string;
+  text: string;
+  choices: EventChoice[];
+  /** Channelled events: 0..1. */
+  progress?: number;
+  /** Names of heroes channelling it right now. */
+  channelers: string[];
+  /** Monsters are here: deal with them first. */
+  blocked: boolean;
 }
 
 export interface LootView {
@@ -58,6 +76,7 @@ export interface AllyView {
   dead: boolean;
   /** You saw them escape. */
   extracted: boolean;
+  affliction: AfflictionId | null;
 }
 
 export interface ResultHero {
@@ -138,6 +157,11 @@ export interface PlayerView {
   loot: LootView | null;
   exitRoom: number;
   exitOpen: boolean;
+  /** The event in your room, if any. */
+  event: EventView | null;
+  /** The villager you're escorting. */
+  leading: { hp: number; maxHp: number } | null;
+  objectives: { altars: number; villagers: number };
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
 }
@@ -166,6 +190,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     allies.push({
       id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, seenAt: sighting.time,
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
+      affliction: sighting.affliction ?? null,
     });
     // Make sure the client can place them, even in a room you only know the position of.
     for (const r of posRooms(sighting.pos)) roomIds.add(r);
@@ -191,6 +216,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       corridors: r.corridors.filter((cid) => knowsCorridor(you, d.corridors[cid])),
       threat: you.knownThreat[id],
       loot: you.knownLoot[id],
+      event: you.knownEvents[id],
     };
   });
   return {
@@ -213,7 +239,25 @@ export function buildView(world: World, heroId: string): PlayerView {
     loot: lootView(world, you),
     exitRoom: d.exit,
     exitOpen: world.time >= EXIT_OPENS_AT,
+    event: eventView(world, you),
+    leading: you.leading ? { hp: world.villagers[you.leading].hp, maxHp: world.villagers[you.leading].maxHp } : null,
+    objectives: { ...world.objectives },
     results: world.phase === 'running' ? null : resultsView(world),
+  };
+}
+
+function eventView(world: World, you: Hero): EventView | null {
+  if (you.encounter !== null || !inDungeon(you)) return null;
+  const opts = eventChoices(world, you);
+  if (!opts || you.pos.kind !== 'room') return null;
+  const def = EVENTS[opts.kind];
+  const room = you.pos.room;
+  const channelers = Object.values(world.heroes)
+    .filter((h) => h.channel?.kind === 'event' && h.channel.room === room)
+    .map((h) => h.name);
+  return {
+    kind: opts.kind, name: def.name, glyph: def.glyph, text: def.text, choices: opts.choices,
+    progress: opts.progress, channelers, blocked: opts.choices.length === 0,
   };
 }
 

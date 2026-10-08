@@ -1,5 +1,6 @@
 import { CombatUi } from './combat';
 import { Hud } from './hud';
+import { EventUi } from './events';
 import { LootUi } from './loot';
 import { ResultsUi } from './results';
 import { Net } from './net';
@@ -12,6 +13,7 @@ const hud = new Hud(net);
 const screens = new Screens(net);
 const combat = new CombatUi(net);
 const loot = new LootUi(net);
+const events = new EventUi(net);
 const results = new ResultsUi(net);
 
 // Lobby links: ?lobby=CODE joins automatically, and the URL tracks the lobby you're in so refresh/share works.
@@ -47,6 +49,7 @@ function render() {
   if (!covered) hud.update();
   combat.update(covered ? null : net.cur);
   loot.update(covered ? null : net.cur);
+  events.update(covered ? null : net.cur);
   results.update(covered ? null : net.cur);
 }
 

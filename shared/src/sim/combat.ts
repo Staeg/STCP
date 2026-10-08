@@ -5,6 +5,7 @@ import { ENCOUNTER_GROUPS, ENEMIES, ROOM_MONSTER_CHANCE, TIER_SCALING, type Enem
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS } from '../content/items';
 import { applyItem, dropEverything, itemTargets } from './loot';
+import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 
 export const ROUND_TIME = 5;
@@ -141,7 +142,7 @@ export function heroRank(h: Hero): Rank {
 
 export function addStress(h: Hero, amount: number) {
   if (amount > 0 && h.st.calm) return 0;
-  if (amount > 0 && h.items.includes('ward')) amount = Math.round(amount * 0.75);
+  if (amount > 0 && h.items.includes('ward')) amount *= 0.75;
   const before = h.stress;
   h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
   return h.stress - before;
@@ -215,6 +216,10 @@ function endEncounter(world: World, enc: Encounter) {
 export function tickCombat(world: World) {
   for (const enc of Object.values(world.encounters)) {
     const heroes = enc.heroes.map((id) => world.heroes[id]);
+    if (enc.phase === 'choosing' && monstersIn(world, enc.room).length === 0) {
+      endEncounter(world, enc);
+      continue;
+    }
     if (enc.phase === 'choosing') {
       const active = heroes.filter(isConscious);
       if (active.length === 0 && enc.joining.length === 0) {
@@ -343,7 +348,7 @@ function resolveRound(world: World, enc: Encounter) {
     const c = enc.choices[h.id];
     const ab = abilityOf(h, c.action);
     if (c.action === 'brace') h.st.brace = true;
-    if (ab?.id === 'guard' && c.target) world.heroes[c.target].st.guardedBy = h.id;
+    if (ab?.id === 'guard' && c.target && world.heroes[c.target].affliction !== 'paranoid') world.heroes[c.target].st.guardedBy = h.id;
     if (ab?.id === 'smoke') {
       smoke = true;
       for (const x of active) x.st.dodge = true;
@@ -365,7 +370,13 @@ function resolveRound(world: World, enc: Encounter) {
         events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
         continue;
       }
-      heroAct(world, enc, h, enc.choices[h.id], smoke, events);
+      const choice = enc.choices[h.id];
+      if (h.affliction === 'fearful' && choice.action !== 'flee' && rng.chance(0.25)) {
+        events.push({ actor: h.id, kind: 'info', text: `${h.name} panics!` });
+        heroAct(world, enc, h, { action: 'flee' }, smoke, events);
+        continue;
+      }
+      heroAct(world, enc, h, choice, smoke, events);
     } else {
       const m = actor.m;
       if (!world.monsters[m.id]) continue;
@@ -429,6 +440,10 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
   };
   const pickAlly = (): Hero | null => {
     const t = c.target ? world.heroes[c.target] : undefined;
+    if (t && t !== h && t.affliction === 'paranoid') {
+      events.push({ actor: t.id, kind: 'info', text: `${t.name} refuses ${h.name}'s help. (Paranoid)` });
+      return null;
+    }
     return t && isConscious(t) && t.encounter === room ? t : null;
   };
 
@@ -565,7 +580,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, smoke: boolea
       const targets = enemies();
       const each = Math.ceil(ab.power / Math.max(1, targets.length));
       for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
-      const weakest = allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      const weakest = allies().filter((a) => a === h || a.affliction !== 'paranoid').sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
       if (weakest) {
         const healed = heal(weakest, 6);
         events.push({ actor: h.id, kind: 'heal', target: weakest.id, amount: healed, text: `${weakest.name} is restored (+${healed}).` });
@@ -585,6 +600,7 @@ function heal(h: Hero, n: number): number {
 function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
   let dmg = base;
   if (h.st.weak) dmg *= 0.5;
+  if (h.affliction === 'hopeless') dmg *= 0.7;
   dmg = Math.max(1, Math.round(dmg));
   if (m.st.block) {
     const absorbed = Math.min(m.st.block, dmg);
@@ -651,6 +667,11 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
 /** Monster attacks a hero, honouring Guard, dodge, brace, Block and darkness. Returns who was actually hit. */
 function monsterHits(world: World, enc: Encounter, m: Monster, target: Hero, base: number, verb: string, events: CombatEvent[]): Hero | null {
   const name = ENEMIES[m.type].name;
+  const villagerText = maybeHitVillager(world, enc.room, Math.round(base * m.dmgMult), name);
+  if (villagerText) {
+    events.push({ actor: m.id, kind: 'info', text: villagerText });
+    return null;
+  }
   let t = target;
   const guard = t.st.guardedBy ? world.heroes[t.st.guardedBy] : undefined;
   if (guard && isConscious(guard) && guard.encounter === enc.room && guard !== t) {

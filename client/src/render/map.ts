@@ -370,6 +370,14 @@ export class MapRenderer {
       ctx.textAlign = 'center';
     }
 
+    // Event you saw here
+    if (r.event) {
+      const glyph = ({ altar: '⛧', villager: '☺', idol: '✧', stranger: '¿', well: '◯', vault: '▣', chest: '☐', crawlspace: '↘' } as const)[r.event];
+      ctx.font = `${Math.round(size * 0.55)}px VT323, monospace`;
+      ctx.fillStyle = r.event === 'villager' ? '#9fe0ff' : r.event === 'altar' ? '#c08aff' : '#e0c890';
+      ctx.fillText(glyph, cx, cy + 1);
+    }
+
     // Loot you last saw here
     if (r.loot) {
       ctx.font = '16px VT323, monospace';

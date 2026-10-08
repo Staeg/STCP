@@ -8,16 +8,18 @@ const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 const games = Number(args.get('games') ?? 50);
 const seed0 = Number(args.get('seed') ?? 1);
+const worldOpts = { events: args.get('events') !== '0' };
 
 const deathsByTier = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
 let heroes = 0, deaths = 0, escaped = 0, wiped = 0, lateRuns = 0, goldOut = 0;
 let fights = 0, rounds = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
+let afflictions = 0, heartAttacks = 0, eventsUsed = 0, altars = 0, saved = 0;
 const arrivals: number[] = [];
 const t0 = performance.now();
 
 for (let g = 0; g < games; g++) {
-  const game = new Game(seed0 + g, CLASS_IDS.map((cls, i) => ({ id: `b${i}`, name: cls, cls, isBot: true })));
+  const game = new Game(seed0 + g, CLASS_IDS.map((cls, i) => ({ id: `b${i}`, name: cls, cls, isBot: true })), worldOpts);
   const w = game.world;
   while (w.phase === 'running' && w.time <= COLLAPSE_AT + 1) game.tick(0.1);
   if (w.phase === 'wiped') wiped++;
@@ -38,6 +40,8 @@ for (let g = 0; g < games; g++) {
   if (late) lateRuns++;
   fights += w.stats.fights; rounds += w.stats.rounds; downs += w.stats.downs; revives += w.stats.revives;
   slain += w.stats.slain; collapses += w.stats.collapses; waves += w.stats.waves;
+  afflictions += w.stats.afflictions; heartAttacks += w.stats.heartAttacks; eventsUsed += w.stats.eventsUsed;
+  altars += w.objectives.altars; saved += w.objectives.villagers;
 }
 
 const pct = (n: number, d: number) => `${((100 * n) / Math.max(1, d)).toFixed(0)}%`;
@@ -55,4 +59,5 @@ console.log(`deaths by tier: ${deathsByTier.map((n, i) => `T${i}:${n}`).join(' '
 console.log(`deaths by class: ${JSON.stringify(deathsByClass)}`);
 console.log(`exit arrivals: median ${arrivals.length ? fmt(arrivals[Math.floor(arrivals.length / 2)]) : '-'}, n=${arrivals.length}`);
 console.log(`per game: ${(fights / games).toFixed(1)} fights, ${(slain / games).toFixed(1)} slain, ${(downs / games).toFixed(1)} downs, ${(revives / games).toFixed(1)} revives, ${(collapses / games).toFixed(1)} collapses, ${(waves / games).toFixed(1)} waves`);
+console.log(`per game: ${(afflictions / games).toFixed(1)} afflictions, ${(heartAttacks / games).toFixed(1)} heart attacks, ${(eventsUsed / games).toFixed(1)} events used, ${(altars / games).toFixed(1)} altars, ${(saved / games).toFixed(1)} villagers saved`);
 console.log(`gold extracted per escaped hero: ${(goldOut / Math.max(1, escaped)).toFixed(0)}`);

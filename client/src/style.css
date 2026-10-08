@@ -287,7 +287,7 @@ button.quiet { margin-left: auto; background: transparent; }
 
 #loot {
   position: fixed;
-  top: 92px;
+  bottom: 96px;
   left: 50%;
   transform: translateX(-50%);
   width: min(620px, calc(100vw - 600px));
@@ -309,7 +309,7 @@ button.quiet { margin-left: auto; background: transparent; }
 .abandoned { margin-top: 4px; font-size: 18px; }
 button.mini { font-size: 15px; padding: 0 6px; }
 
-#feed { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; z-index: 6; }
+#feed { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; z-index: 6; }
 .feed-item { background: rgba(20, 15, 10, 0.9); border: 1px solid var(--border); padding: 2px 12px; animation: feed 4.2s forwards; }
 @keyframes feed { 0% { opacity: 0; transform: translateY(8px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
 .cb-actions.items { margin-top: 6px; }
@@ -344,3 +344,27 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .fates tr.escaped td:nth-child(3) { color: #9e9; }
 .chronicle { max-height: 34vh; overflow: auto; font-size: 18px; line-height: 1.15; border: 1px solid #2a2018; padding: 6px; }
 .chron { margin: 1px 0; }
+
+/* ---- Events, afflictions ---- */
+#event {
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 600px));
+  min-width: 360px;
+  background: rgba(16, 13, 20, 0.97);
+  border: 2px solid #8a6ad9;
+  box-shadow: 0 0 0 2px #000, 0 0 30px rgba(138, 106, 217, 0.25);
+  padding: 10px 14px;
+  z-index: 4;
+}
+.ev-head { font-size: 24px; }
+.ev-text { color: var(--text); margin: 4px 0 8px; font-size: 19px; line-height: 1.1; }
+.ev-choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ev-choices button { font-size: 19px; }
+.ev-progress { height: 8px; background: #221a2a; border: 1px solid #000; margin: 4px 0; }
+.ev-progress > div { height: 100%; background: #b48aff; transition: width 0.2s linear; }
+#affliction { color: #ff6a4a; animation: pulse 0.9s infinite alternate; cursor: help; }
+#escort { color: #9fe0ff; font-size: 17px; }
+.aff { color: #ff8a6a; font-size: 15px; }

@@ -3,6 +3,7 @@ import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero } from './combat';
 import { notify } from './notify';
+import { STRESS } from '../content/events';
 import type { Hero, World } from './world';
 
 export const LEAVE = 'leave';
@@ -115,6 +116,13 @@ export function tickLoot(world: World) {
 
     const vote = pile.vote;
     if (vote) {
+      // Selfish heroes always claim it, and get outvoted by being ignored after a grace period.
+      const graceOver = world.time - vote.startedAt > STRESS.selfishGrace;
+      for (const v of voters) if (v.affliction === 'selfish' && hasSpace(v)) vote.votes[v.id] = v.id;
+      if (graceOver) {
+        const fair = voters.filter((v) => v.affliction !== 'selfish');
+        if (fair.length) voters.splice(0, voters.length, ...fair);
+      }
       const ids = new Set(voters.map((v) => v.id));
       for (const id of Object.keys(vote.votes)) if (!ids.has(id)) delete vote.votes[id];
       // A vote for someone who can no longer take it is void.
@@ -167,6 +175,7 @@ export function castVote(world: World, h: Hero, choice: string): string | null {
   if (!pile?.vote) return 'Nothing to vote on.';
   if (!votersIn(world, h.pos.room).includes(h)) return 'You cannot vote right now.';
   if (!validChoice(world, h.pos.room, choice)) return 'They cannot carry it.';
+  if (h.affliction === 'selfish' && hasSpace(h) && choice !== h.id) return 'Mine! (Selfish)';
   pile.vote.votes[h.id] = choice;
   return null;
 }
@@ -249,6 +258,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   const tid = targetId ?? (def.target === 'self' || def.target === 'ally' ? h.id : targets[0]);
   if (!tid || !targets.includes(tid)) return '!No valid target.';
   const t = world.heroes[tid];
+  if (t !== h && t.affliction === 'paranoid' && item !== 'salts') return `!${t.name} refuses your help. (Paranoid)`;
   if (item === 'bandage' && t.hp >= t.maxHp && !t.st.bleed) return `!${t === h ? "You're" : `${t.name} is`} not hurt.`;
   if (item === 'tonic' && t.stress <= 0) return '!You feel steady already.';
   takeItem(h, index);

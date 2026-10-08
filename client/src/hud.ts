@@ -1,4 +1,4 @@
-import { BLEED_OUT, CLASSES, TIER_TEXT, type PlayerView } from '@stcp/shared';
+import { AFFLICTIONS, BLEED_OUT, CLASSES, EVENT_SEEDING, TIER_TEXT, type PlayerView } from '@stcp/shared';
 import { beep } from './sound';
 import type { Net } from './net';
 
@@ -66,6 +66,19 @@ export class Hud {
     const you = view.you;
     const cls = CLASSES[you.cls];
     $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    const aff = $('affliction');
+    aff.hidden = !you.affliction;
+    if (you.affliction) {
+      const def = AFFLICTIONS[you.affliction];
+      aff.textContent = `⚠ ${def.name.toUpperCase()}`;
+      aff.title = def.desc;
+    }
+    const escort = $('escort');
+    escort.hidden = !view.leading;
+    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous`;
+    const { altars, villagers } = view.objectives;
+    const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
+    $('objectives').textContent = altars || villagers ? `⛧ ${altars} cleansed · ☺ ${villagers} saved · +${bonus} gold on escape` : '';
     $('hp-text').textContent = `${Math.max(0, Math.ceil(you.hp))}/${you.maxHp}`;
     $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
     $('stress-text').textContent = `${Math.round(you.stress)}`;
@@ -102,8 +115,8 @@ export class Hud {
 
     // Channel progress (reviving, digging)
     const ch = $('channel');
-    ch.hidden = !you.channel;
-    if (you.channel) {
+    ch.hidden = !you.channel || you.channel.kind === 'event'; // events show progress in their own panel
+    if (you.channel && you.channel.kind !== 'event') {
       const left = Math.max(0, you.channel.until - view.time);
       ch.textContent = `${you.channel.kind === 'dig' ? 'Digging' : 'Reviving'}… ${left.toFixed(1)}s (move to cancel)`;
     }
@@ -165,7 +178,8 @@ function rosterHtml(view: PlayerView): string {
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
     status += hp;
-    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}<div class="ally-status">${escape(status)}</div></div>`;
+    const aff = a.affliction ? ` <span class="aff" title="${escape(AFFLICTIONS[a.affliction].desc)}">${AFFLICTIONS[a.affliction].name}</span>` : '';
+    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}</div></div>`;
   });
   return rows.join('');
 }

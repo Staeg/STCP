@@ -1,6 +1,7 @@
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { ENEMIES, type EnemyId } from './content/enemies';
 import { ITEMS, type ItemId } from './content/items';
+import { EVENTS, type EventKind } from './content/events';
 import type { CombatAction } from './sim/combat';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
@@ -44,7 +45,9 @@ export type ClientMsg =
   /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
   | { t: 'debugSpawn'; enemies: EnemyId[] }
   /** Dev-only: drop items and gold in your room. */
-  | { t: 'debugLoot'; items: ItemId[]; gold: number };
+  | { t: 'debugLoot'; items: ItemId[]; gold: number }
+  /** Dev-only: put an event (or a captive) in your room. */
+  | { t: 'debugEvent'; kind: EventKind };
 
 export type ServerMsg =
   | { t: 'pong'; id: number }
@@ -95,6 +98,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: msg.t };
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
+    case 'debugEvent':
+      return typeof msg.kind === 'string' && msg.kind in EVENTS ? { t: 'debugEvent', kind: msg.kind as EventKind } : null;
     case 'debugLoot':
       return Array.isArray(msg.items) && msg.items.length <= 8 && msg.items.every((e) => e in ITEMS) && Number.isInteger(msg.gold)
         ? { t: 'debugLoot', items: msg.items as ItemId[], gold: msg.gold as number }
@@ -109,6 +114,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'goto' && Number.isInteger(i.room)) return { t: 'intent', intent: { type: 'goto', room: i.room as number } };
       if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
+      if (i.type === 'event' && str(i.choice, 16)) return { t: 'intent', intent: { type: 'event', choice: i.choice as string } };
       if (i.type === 'dig' && Number.isInteger(i.corridor)) return { t: 'intent', intent: { type: 'dig', corridor: i.corridor as number } };
       if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
       if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };
