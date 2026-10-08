@@ -35,7 +35,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Information | **Individual fog.** You see only rooms you've explored. Allies show up live when they're in your room or an adjacent one; otherwise they're a greyed-out ghost at their *last known position*. At crossroads you see **chalk marks** for which exits allies have taken (this satisfies the requirement to "see which way others chose"). |
 | Comms | None in-game. Assume voice chat. Bots can't hear voice, so they act on what they can observe. |
 | Stress | Simple stress in v1 (0–100). At 100 the hero gains an **affliction**. |
-| Visuals | **Pixel art sprites.** Use a CC0 pack (candidates: 0x72 *16x16 DungeonTileset II*, Kenney *Tiny Dungeon*). **Ask the user for permission before downloading**, or ask them to drop it into `client/public/assets/`. Use colored-rectangle placeholders until then. |
+| Visuals | **Pixel art sprites, hand-authored in code** (user's choice in M9). 16×16 text grids live in `tools/sprites.py`; running it validates them and generates `client/src/render/sprite-data.ts`. 'b'/'B' pixels take the class colour. Rendered by `client/src/render/sprites.ts`, which caches canvases and data URLs. |
 | Players | 1–4 humans. Empty slots are filled by bots of *mediocre* ability. |
 | Escalation | Every **2:00** the dungeon tier goes up by 1 (T0 to T6). |
 | Ports | Vite dev client on **5180** (5173 is used by something else on this machine). Game server on **3001**, configured with `GAME_PORT` (not `PORT`, which the preview tool sets). |
@@ -236,9 +236,9 @@ Each milestone ends with: tests passing, a **mini-playtest** (as described in th
 - [x] Tune numbers in `shared/content` until the targets are hit. Record the before/after table in the Progress Log.
 
 ### M9. Pixel art & juice
-- [ ] **Ask the user** about downloading a CC0 pack (or have them supply one). Wire up the sprite atlas loader.
-- [ ] Map tiles/room icons, hero and enemy sprites, hit flashes, damage numbers, screen shake on crits, light vignette tied to torch level, a pulsing exit beacon.
-- [ ] Optional: simple sound effects (ask the user before adding audio assets).
+- [x] **Asked the user:** they chose hand-drawn sprites in code (no downloads). Title confirmed: "So They Can Prosper".
+- [x] Map tiles/room icons, hero and enemy sprites, hit flashes, damage numbers, screen shake on crits, light vignette tied to torch level, a pulsing exit beacon.
+- [x] Optional: simple sound effects. These are generated square-wave cues only (`client/src/sound.ts`), so there are no audio assets.
 
 ### M10. Structured playtest (the main verification step)
 Run all of the following, then write `PLAYTEST.md` with findings, ranked issues and fixes made.
@@ -279,6 +279,9 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
+- 2026-10-08 · **M9 done.** Nine hand-made sprites (4 heroes, 4 enemies, villager) are shown on the map (hero sprite on a coloured base; ghosts grey and translucent; an escorted villager trots beside you; captives appear as a villager sprite in their room), in combat cards (64–72px, crisp `image-rendering: pixelated`) and on the lobby class cards. Juice (`client/src/juice.ts`): the map and combat panel shake on crits, downs and kills; a red vignette flashes when you're hit; purple/red pulses on tier changes and the exit opening. Vignette, exit beacon and damage numbers already existed.
+  - Note for screenshots: at 800×450 the VT323 font makes "8"/"0" and "B"/"D" look alike. Check numbers via the DOM.
+  - Next: M10 (structured playtest).
 - 2026-10-08 · **M8 done.** The sim gained `--set` overrides, `--json` output and a "drama at 10:00" metric. New `server/src/sweep.ts` runs parallel comparisons. Bot knobs moved into `bots/tuning.ts` (`BOTS`: returnStart 390, returnSpan 240, exitWaitMax 75, blunder 0.25). Loose constants moved into `ESCALATION` (`roomMonsterChance`, `tierScaling`).
   - Sweep findings (60 games/variant, same seeds): a lower monster cap growth and flatter tier scaling each help. **Adopted: capPerTier 3 → 1.5, tierScaling 0.1 → 0.07.** Later bot return times *lower* both escapes and late arrivals, so they were rejected. A longer exit wait made no difference.
   - **Final (100 fresh seeds):** escape **45%** ✓, wipes **9%**, drama at 10:00 **47%** (≈ target), late after 10:30 17%, early deaths 5% ✓, rounds/fight 4.6 ✓, ~12% of heroes buried in the collapse (greedy or lost: intended), 132 gold per escaped hero, 0.5 afflictions per game.

@@ -369,3 +369,19 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #escort { color: #9fe0ff; font-size: 17px; }
 .aff { color: #ff8a6a; font-size: 15px; }
 #btn-mend.cooling { opacity: 0.5; cursor: default; }
+
+/* ---- Sprites & juice ---- */
+.cb-unit .sprite { width: 64px; height: 64px; image-rendering: pixelated; display: block; margin: 0 auto; filter: drop-shadow(0 2px 0 #000); }
+.cb-unit.monster .sprite { width: 72px; height: 72px; }
+.cb-unit.back .sprite { width: 56px; height: 56px; }
+.shake { animation: shake 0.32s linear; }
+@keyframes shake {
+  0%, 100% { translate: 0 0; } 20% { translate: -5px 2px; } 40% { translate: 4px -3px; }
+  60% { translate: -3px 3px; } 80% { translate: 3px -1px; }
+}
+#flash { position: fixed; inset: 0; pointer-events: none; z-index: 7; opacity: 0; }
+#flash.hurt { animation: flash 0.45s ease-out; background: radial-gradient(ellipse at center, transparent 40%, rgba(200, 20, 10, 0.55)); }
+#flash.tier { animation: flash 1.2s ease-out; background: radial-gradient(ellipse at center, transparent 30%, rgba(120, 60, 160, 0.45)); }
+#flash.alarm { animation: flash 1.6s ease-out; background: radial-gradient(ellipse at center, transparent 30%, rgba(220, 40, 20, 0.6)); }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+.class-sprite { width: 64px; height: 64px; image-rendering: pixelated; float: right; margin: -2px -2px 0 4px; }

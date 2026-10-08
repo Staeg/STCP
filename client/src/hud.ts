@@ -1,5 +1,6 @@
 import { AFFLICTIONS, BLEED_OUT, CLASSES, EVENT_SEEDING, TIER_TEXT, type PlayerView } from '@stcp/shared';
 import { beep } from './sound';
+import { juice } from './juice';
 import type { Net } from './net';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -158,6 +159,7 @@ export class Hud {
       this.lastTier = view.tier;
       this.showBanner(`Tier ${view.tier}<br><span style="font-size:26px">${TIER_TEXT[view.tier] ?? ''}</span>`, 4500);
       beep(view.tier >= 5 ? 'alarm' : 'tier');
+      juice(view.tier >= 5 ? 'alarm' : 'tier');
     }
     this.lastTier = view.tier;
     if (view.phase !== 'running') $('banner').hidden = true; // the results screen takes over

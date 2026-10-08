@@ -1,5 +1,6 @@
 import { CLASS_IDS, CLASSES, type LobbyView } from '@stcp/shared';
 import type { Net } from './net';
+import { spriteUrl } from './render/sprites';
 
 const root = () => document.getElementById('screen')!;
 
@@ -85,6 +86,7 @@ export class Screens {
       const mine = owner?.id === lobby.youId;
       const disabled = owner && !mine ? 'disabled' : '';
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" ${disabled} style="--cls:${c.color}">
+        <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <div class="class-name">${c.name}</div>
         <div class="muted">${c.role} · ${c.maxHp} HP</div>
         <div class="blurb">${c.blurb}</div>

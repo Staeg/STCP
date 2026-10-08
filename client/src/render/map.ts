@@ -1,5 +1,6 @@
 import type { HeroPos, PlayerView, RoomView } from '@stcp/shared';
 import type { Net } from '../net';
+import { drawSprite } from './sprites';
 
 const COLORS = {
   bg: '#0d0b0a',
@@ -235,31 +236,15 @@ export class MapRenderer {
     // Heroes: ghosts first, then live allies, then you on top.
     const r = Math.max(6, 9 * this.x.s);
     const ordered = [...view.allies].sort((a, b) => Number(a.live) - Number(b.live));
+    // Sprite size: a whole multiple of 16 px keeps the pixel art crisp.
+    const sprite = Math.max(16, Math.round((r * 2.8) / 8) * 8);
     for (const a of ordered) {
       const p = tokens.get(a.id)!;
-      ctx.globalAlpha = a.live ? 1 : 0.45;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r * (a.live ? 0.85 : 0.8), 0, Math.PI * 2);
-      ctx.fillStyle = a.live ? a.color : '#2a2622';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = a.live ? '#000' : a.color;
-      if (!a.live) ctx.setLineDash([3, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
+      this.drawHero(p.x, p.y, sprite, a.cls, a.color, a.live ? 'live' : 'ghost');
       if (a.downed || a.dead) this.drawCross(p.x, p.y, r, a.dead);
     }
-    ctx.fillStyle = you.color;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(hp.x, hp.y, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    if (view.leading) drawSprite(ctx, 'villager', hp.x + sprite * 0.55, hp.y + sprite * 0.1, Math.round(sprite * 0.75));
+    this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
     if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
 
     // Light vignette around the hero
@@ -299,6 +284,24 @@ export class MapRenderer {
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
     }
+  }
+
+  /** A hero on the map: a coloured base (so you can tell who's who at a glance) and their sprite. */
+  private drawHero(x: number, y: number, size: number, cls: string, color: string, mode: 'you' | 'live' | 'ghost') {
+    const { ctx } = this;
+    const ghost = mode === 'ghost';
+    ctx.globalAlpha = ghost ? 0.45 : 1;
+    ctx.beginPath();
+    ctx.ellipse(x, y + size * 0.42, size * 0.42, size * 0.16, 0, 0, Math.PI * 2);
+    ctx.fillStyle = ghost ? 'rgba(0,0,0,0.4)' : color;
+    ctx.fill();
+    ctx.lineWidth = mode === 'you' ? 2 : 1;
+    ctx.strokeStyle = mode === 'you' ? '#fff' : ghost ? color : '#000';
+    if (ghost) ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    drawSprite(ctx, cls, x, y, size, color, ghost);
+    ctx.globalAlpha = 1;
   }
 
   /** X over a downed hero (red) or a dead one (grey). */
@@ -371,10 +374,12 @@ export class MapRenderer {
     }
 
     // Event you saw here
-    if (r.event) {
-      const glyph = ({ altar: '⛧', villager: '☺', idol: '✧', stranger: '¿', well: '◯', vault: '▣', chest: '☐', crawlspace: '↘' } as const)[r.event];
+    if (r.event === 'villager') {
+      drawSprite(ctx, 'villager', cx, cy, Math.max(16, Math.round((size * 0.8) / 8) * 8));
+    } else if (r.event) {
+      const glyph = ({ altar: '⛧', idol: '✧', stranger: '¿', well: '◯', vault: '▣', chest: '☐', crawlspace: '↘' } as const)[r.event];
       ctx.font = `${Math.round(size * 0.55)}px VT323, monospace`;
-      ctx.fillStyle = r.event === 'villager' ? '#9fe0ff' : r.event === 'altar' ? '#c08aff' : '#e0c890';
+      ctx.fillStyle = r.event === 'altar' ? '#c08aff' : '#e0c890';
       ctx.fillText(glyph, cx, cy + 1);
     }
 

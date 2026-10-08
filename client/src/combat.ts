@@ -1,8 +1,10 @@
 import {
-  ABILITIES, ENEMIES, ITEMS, ROUND_TIME,
+  ABILITIES, ITEMS, ROUND_TIME,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
+import { spriteUrl } from './render/sprites';
+import { juice } from './juice';
 
 const $ = (id: string) => document.getElementById(id)!;
 const EVENT_STEP_MS = 320;
@@ -82,6 +84,9 @@ export class CombatUi {
 
   private play(e: CombatEvent) {
     const now = performance.now();
+    const youId = this.net.cur?.you.id;
+    if (e.crit || e.kind === 'down' || e.kind === 'death') juice('shake');
+    if (e.target === youId && (e.kind === 'damage' || e.kind === 'down') && (e.amount ?? 1) > 0) juice('hurt');
     this.flashes.set(e.actor, now);
     if (e.target && e.amount !== undefined) {
       if (e.kind === 'damage') this.pending.dmg.set(e.target, (this.pending.dmg.get(e.target) ?? 0) - e.amount);
@@ -181,7 +186,7 @@ export class CombatUi {
     const pct = (hp / u.maxHp) * 100;
     const flash = now - (this.flashes.get(u.id) ?? -1e9) < 260;
     const color = u.kind === 'hero' ? u.color : '#9a4a3a';
-    const glyph = u.kind === 'hero' ? u.name.slice(0, 1).toUpperCase() : ENEMIES[u.enemy!].glyph;
+    const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed) : spriteUrl(u.enemy!, undefined, dying);
     const st = u.st;
     const icons = [
       st.stun && '<span title="Stunned">★</span>',
@@ -201,7 +206,7 @@ export class CombatUi {
       u.downed ? 'downed' : '', u.joining ? 'joining' : '', u.id === youId ? 'you' : ''].join(' ');
     const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.joining ? 'joining…' : u.kind === 'hero' ? (u.ready ? '✔' : '…') : u.rank;
     return `<div class="${classes}" data-unit="${u.id}" style="--c:${color}">
-      <div class="glyph">${glyph}</div>
+      <img class="sprite" src="${img}" alt="" draggable="false">
       <div class="uname">${esc(u.name)}</div>
       <div class="hpbar"><div style="width:${pct}%"></div></div>
       <div class="hptext">${Math.ceil(hp)}/${u.maxHp}</div>
