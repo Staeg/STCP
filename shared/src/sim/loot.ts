@@ -44,10 +44,12 @@ export function spawnInitialLoot(world: World) {
     if (room.kind !== 'normal') continue;
     // Guarded rooms get their items when the monsters die (see dropBounty).
     const guarded = monstersIn(world, room.id).length > 0;
+    const lair = (world.bounty[room.id] ?? 0) > 0;
     const deadEnd = room.corridors.length === 1;
     const items: ItemId[] = [];
     let gold = 0;
-    if (guarded ? rng.chance(LOOT.guardedChance) : rng.chance(LOOT.emptyChance)) {
+    if (lair) gold = rng.int(...LOOT.lairGold);
+    else if (guarded ? rng.chance(LOOT.guardedChance) : rng.chance(LOOT.emptyChance)) {
       const [lo, hi] = guarded ? LOOT.guardedGold : LOOT.emptyGold;
       gold = rng.int(lo, hi);
     }

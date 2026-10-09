@@ -32,10 +32,20 @@ export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: num
   { weight: 1, units: ['brute', 'acolyte'], minTier: 4 },
 ];
 
+/** Lairs: bigger groups some rooms start with, guarding better loot (see spawnInitialMonsters). */
+export const LAIR_GROUPS: { weight: number; units: EnemyId[] }[] = [
+  { weight: 3, units: ['ghoul', 'ghoul', 'acolyte', 'crawler'] },
+  { weight: 2, units: ['crawler', 'crawler', 'crawler', 'acolyte'] },
+  { weight: 2, units: ['brute', 'ghoul'] },
+  { weight: 1, units: ['ghoul', 'ghoul', 'acolyte', 'acolyte'] },
+];
+
 /** How the dungeon gets worse (see sim/escalation.ts). Seconds unless noted. */
 export const ESCALATION = {
   /** Chance that a normal room starts with monsters. */
   roomMonsterChance: 0.3,
+  /** Chance that a room which starts with monsters is a lair instead (LAIR_GROUPS). */
+  lairChance: 0.15,
   /** Monster HP and damage scale by (1 + this × tier). */
   tierScaling: 0.09,
   respawnEvery: 45,

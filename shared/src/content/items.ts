@@ -105,6 +105,9 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
 export const LOOT = {
   guardedChance: 0.75,
   guardedGold: [12, 30] as const,
+  lairGold: [35, 70] as const,
+  /** Extra drop points a lair is worth on top of its monsters (more and better items). */
+  lairBounty: 40,
   emptyChance: 0.35,
   emptyGold: [4, 12] as const,
   /** Rooms without monsters: chance of an item lying around (rolled separately from gold). */

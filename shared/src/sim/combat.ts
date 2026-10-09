@@ -1,8 +1,8 @@
 import { ABILITIES, CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
 import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
-import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
+import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type EnemyId } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
-import { ITEMS } from '../content/items';
+import { ITEMS, LOOT } from '../content/items';
 import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints } from './loot';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
@@ -119,8 +119,22 @@ export function spawnInitialMonsters(world: World) {
   const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
   for (const room of d.rooms) {
     if (safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
-    spawnGroup(world, room.id, pickGroup(world), 0);
+    if (world.rng.chance(ESCALATION.lairChance)) {
+      spawnGroup(world, room.id, pickLair(world), 0);
+      // Pre-seeded bounty marks the lair (spawnInitialLoot) and sweetens its drop.
+      world.bounty[room.id] = LOOT.lairBounty;
+    } else spawnGroup(world, room.id, pickGroup(world), 0);
   }
+}
+
+function pickLair(world: World): EnemyId[] {
+  const total = LAIR_GROUPS.reduce((s, g) => s + g.weight, 0);
+  let roll = world.rng.float(0, total);
+  for (const g of LAIR_GROUPS) {
+    roll -= g.weight;
+    if (roll <= 0) return g.units;
+  }
+  return LAIR_GROUPS[0].units;
 }
 
 export function pickGroup(world: World, tier = 0): EnemyId[] {
