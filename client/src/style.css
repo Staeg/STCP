@@ -410,3 +410,7 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #combat.idle .cb-act { font-size: 18px; padding: 2px 8px; min-width: 0; }
 #combat.idle .cb-act.item { flex: 1; }
 .cb-idle-head { font-size: 16px; color: var(--muted); }
+
+/* ---- Allies' picks in combat ---- */
+.cb-unit .pick { font-size: 14px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; }
+.cb-unit .aimed { position: absolute; top: 2px; right: 4px; font-size: 14px; letter-spacing: 1px; text-shadow: 0 0 2px #000; }

@@ -28,6 +28,10 @@ export class MapRenderer {
   private mouse = { x: -1, y: -1 };
   private x: Xform = { s: 1, ox: 0, oy: 0 };
   private dpr = 1;
+  /** Camera centre in world units, and when it last moved. */
+  private cam: { x: number; y: number } | null = null;
+  private camAt = 0;
+  private camFor = '';
 
   constructor(private canvas: HTMLCanvasElement, private net: Net) {
     this.ctx = canvas.getContext('2d')!;
@@ -48,16 +52,30 @@ export class MapRenderer {
     this.canvas.height = innerHeight * this.dpr;
   }
 
+  /** The camera follows your hero at a fixed zoom, easing toward them so walking pans smoothly. */
   private layout(view: PlayerView) {
-    // Keep clear of the left HUD column (clock + roster) and the top-right status panel.
+    // Keep clear of the left HUD column (clock + roster), the top-right status panel and the bottom bars.
     const left = 300;
     const top = 110;
     const right = 30;
-    const bottom = 70;
+    const bottom = 130;
     const w = innerWidth - left - right;
     const h = innerHeight - top - bottom;
-    const s = Math.min(w / view.width, h / view.height);
-    this.x = { s, ox: left + (w - view.width * s) / 2, oy: top + (h - view.height * s) / 2 };
+    // About 7 rooms across and 4–5 down, whatever the window size.
+    const s = Math.max(0.8, Math.min(2.2, Math.min(w / 750, h / 450)));
+    const target = this.smoothXY(view.you.id, view.you.pos);
+    const now = performance.now();
+    const dt = Math.min(0.5, (now - this.camAt) / 1000);
+    this.camAt = now;
+    if (!this.cam || view.you.id !== this.camFor) {
+      this.cam = { ...target };
+      this.camFor = view.you.id;
+    } else {
+      const k = 1 - Math.exp(-dt * 5);
+      this.cam.x += (target.x - this.cam.x) * k;
+      this.cam.y += (target.y - this.cam.y) * k;
+    }
+    this.x = { s, ox: left + w / 2 - this.cam.x * s, oy: top + h / 2 - this.cam.y * s };
   }
 
   private sx(x: number) {

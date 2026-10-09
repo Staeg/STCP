@@ -68,6 +68,16 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.text.includes('braces'))).toBe(true);
   });
 
+  it("shows allies' locked-in picks to everyone in the fight as soon as they're made", () => {
+    const { world, ids, room, monsters } = arena(['cutthroat', 'warden'], ['ghoul']);
+    walkIn(world, ids, room);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    const seen = buildView(world, 'h1').encounter!.heroes.find((u) => u.id === 'h0')!;
+    expect(seen.choice).toBe('Backstab');
+    expect(seen.choiceTarget).toBe(monsters[0].id);
+    expect(buildView(world, 'h0').encounter!.heroes.find((u) => u.id === 'h1')!.choice).toBeUndefined();
+  });
+
   it('enforces cooldowns (Poison Blade: cooldown 2 = two rounds unusable)', () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);

@@ -2,11 +2,11 @@ import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/consta
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
-import { INVENTORY_SLOTS, type ItemId } from '../content/items';
+import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
 import { hasSpace, votersIn } from './loot';
-import { BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
+import { abilityOf, BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
@@ -117,6 +117,10 @@ export interface CombatUnitView {
   joining?: boolean;
   /** Has locked in a choice this round (heroes only). */
   ready?: boolean;
+  /** What they've locked in this round, visible to everyone in the fight: "Backstab", "Flee"… */
+  choice?: string;
+  /** Who that choice is aimed at (a unit id), if anyone. */
+  choiceTarget?: string;
 }
 
 export interface EncounterView {
@@ -324,6 +328,8 @@ function encounterView(world: World, you: Hero): EncounterView | null {
       downed: h.downedAt !== null,
       bleedOut: h.downedAt !== null ? Math.max(0, BLEED_OUT - (world.time - h.downedAt)) : undefined,
       joining, ready: !!enc.choices[id] || !isConscious(h),
+      choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,
+      choiceTarget: enc.choices[id]?.target,
     };
   };
   return {
@@ -340,6 +346,13 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     events: enc.events,
     log: enc.log.slice(-12),
   };
+}
+
+function choiceLabel(h: Hero, c: Choice): string {
+  if (c.action === 'item') return ITEMS[h.items[c.item ?? -1]]?.name ?? 'Item';
+  const ab = abilityOf(h, c.action);
+  if (ab) return ab.name;
+  return { revive: 'Revive', flee: 'Flee', brace: 'Brace' }[c.action as 'revive' | 'flee' | 'brace'];
 }
 
 function posRooms(pos: HeroPos): number[] {

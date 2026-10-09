@@ -33,6 +33,9 @@ export class CombatUi {
   private timers: number[] = [];
   private shownLog: string[] = [];
   private lastHtml = '';
+  /** Unit id → name, and unit id → colours of the heroes targeting it this round. */
+  private names = new Map<string, string>();
+  private aimedBy = new Map<string, string[]>();
 
   constructor(private net: Net) {
     // pointerdown, not click: the panel re-renders often and a click can straddle two renders.
@@ -139,6 +142,12 @@ export class CombatUi {
     <div class="cb-timer"><div style="width:${(frac * 100).toFixed(1)}%" class="${frac < 0.4 ? 'low' : ''}"></div></div>`;
 
     // Stage: heroes back→front on the left, monsters front→back on the right.
+    // Who's aiming at whom this round, so everyone can see the plan forming.
+    this.names = new Map([...enc.heroes, ...enc.monsters].map((u) => [u.id, u.name]));
+    this.aimedBy = new Map();
+    for (const h of enc.heroes) {
+      if (h.choiceTarget && h.choiceTarget !== h.id) (this.aimedBy.get(h.choiceTarget) ?? this.aimedBy.set(h.choiceTarget, []).get(h.choiceTarget)!).push(h.color!);
+    }
     const heroes = [...enc.heroes].sort((a, b) => (a.rank === b.rank ? 0 : a.rank === 'back' ? -1 : 1));
     const monsters = [...enc.monsters, ...this.pending.dying.values()].sort((a, b) => (a.rank === b.rank ? 0 : a.rank === 'front' ? -1 : 1));
     const stage = `<div class="cb-stage">
@@ -220,14 +229,20 @@ export class CombatUi {
       .join('');
     const classes = ['cb-unit', u.kind, u.rank, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.joining ? 'joining' : '', u.id === youId ? 'you' : ''].join(' ');
-    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.joining ? 'joining…' : u.kind === 'hero' ? (u.ready ? '✔' : '…') : u.rank;
+    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.joining ? 'joining…' : u.kind === 'hero' ? (u.choice ? '' : 'choosing…') : u.rank;
+    const target = u.choiceTarget ? this.names.get(u.choiceTarget) : undefined;
+    const pick = u.kind === 'hero' && u.choice
+      ? `<div class="pick" title="${esc(u.choice + (target ? ` → ${target}` : ''))}">✔ ${esc(u.choice)}${target ? `<br>→ ${esc(u.choiceTarget === u.id ? 'self' : target)}` : ''}</div>`
+      : '';
+    const aimed = (this.aimedBy.get(u.id) ?? []).map((c) => `<span style="color:${c}">◆</span>`).join('');
     return `<div class="${classes}" data-unit="${u.id}" style="--c:${color}">
       <img class="sprite" src="${img}" alt="" draggable="false">
       <div class="uname">${esc(u.name)}</div>
       <div class="hpbar"><div style="width:${pct}%"></div></div>
       <div class="hptext">${Math.ceil(hp)}/${u.maxHp}</div>
       <div class="icons">${icons}</div>
-      <div class="sub">${esc(sub)}</div>
+      ${pick}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
+      ${aimed ? `<div class="aimed" title="Targeted this round">${aimed}</div>` : ''}
       ${floats}
     </div>`;
   }
