@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
+import { spawnGroup } from './combat';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -33,6 +34,29 @@ describe('world movement', () => {
     run(world, 0.3);
     expect(hero.pos).toEqual({ kind: 'room', room: next });
     expect(hero.explored).toContain(next);
+  });
+
+  it('a WASD step takes the one tunnel to a neighbour, and does nothing if there is none', () => {
+    const { world, hero, d } = setup();
+    const next = neighbours(d, d.entrance)[0];
+    const far = d.rooms.find((r) => r.id !== d.entrance && !neighbours(d, d.entrance).includes(r.id))!.id;
+    applyIntent(world, 'h1', { type: 'goto', room: far, step: true });
+    expect(hero.path).toEqual([]);
+    expect(hero.messages).toHaveLength(0);
+    applyIntent(world, 'h1', { type: 'goto', room: next, step: true });
+    expect(hero.path).toEqual([next]);
+  });
+
+  it("sees monsters next door while lit, not while Dim, unless carrying a Cat's-Eye", () => {
+    const { world, hero, d } = setup();
+    const next = neighbours(d, d.entrance)[0];
+    hero.light = LIGHT_DIM - 1;
+    spawnGroup(world, next, ['ghoul'], 0);
+    step(world, 0.1);
+    expect(hero.knownThreat[next]).toBe(0); // still what you saw before your torch dimmed
+    hero.items.push('catseye');
+    step(world, 0.1);
+    expect(hero.knownThreat[next]).toBe(1);
   });
 
   it('turning back returns to the start in the time already walked', () => {

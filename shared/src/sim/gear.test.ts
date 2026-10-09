@@ -24,26 +24,34 @@ describe('equipping gear', () => {
     const h = world.heroes.h0;
     h.items = ['torch', 'torch', 'torch', 'torch'];
     addToPile(world, d.entrance, 0, ['mace']);
-    step(world, 0.1);
-    expect(buildView(world, 'h0').loot?.vote?.candidates.map((c) => c.id)).toEqual(['h0']);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    step(world, 0.1);
+    step(world, 0.1); // alone: picked up straight away
     expect(h.weapon).toBe('mace');
     expect(h.items).toHaveLength(4);
   });
 
   it('swaps: the old piece goes on the floor for a vote', () => {
-    const { world, d } = party(['warden']);
+    const { world, d } = party(['warden', 'hexer']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
     addToPile(world, d.entrance, 0, ['cuirass']);
     step(world, 0.1);
     expect(buildView(world, 'h0').loot?.vote?.candidates[0].wearing).toBe('jerkin');
     applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
     step(world, 0.1);
     expect(h.armor).toBe('cuirass');
     step(world, 0.1);
     expect(world.piles[d.entrance].vote?.item).toBe('jerkin');
+  });
+
+  it('alone, you swap automatically but never pick your old piece back up', () => {
+    const { world, d } = party(['warden']);
+    const h = world.heroes.h0;
+    h.armor = 'jerkin';
+    addToPile(world, d.entrance, 0, ['cuirass']);
+    run(world, 1);
+    expect(h.armor).toBe('cuirass');
+    expect(world.piles[d.entrance].vote?.item).toBe('jerkin'); // yours to decide on
   });
 
   it('can be taken off and dropped, and falls with the dead', () => {

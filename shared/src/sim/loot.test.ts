@@ -42,15 +42,11 @@ describe('gold', () => {
 });
 
 describe('item votes', () => {
-  it('needs unanimous agreement, and locks the room until then', () => {
-    const { world, d, room } = party(2);
+  it('needs unanimous agreement', () => {
+    const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['bandage']);
     step(world, 0.1);
     expect(world.piles[d.entrance].vote?.item).toBe('bandage');
-
-    applyIntent(world, 'h0', { type: 'goto', room });
-    expect(world.heroes.h0.path).toEqual([]); // locked
-    expect(world.heroes.h0.messages.at(-1)?.text).toMatch(/Agree on the loot/);
 
     applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
     applyIntent(world, 'h1', { type: 'vote', choice: 'h1' });
@@ -60,20 +56,34 @@ describe('item votes', () => {
     applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual(['bandage']);
+  });
+
+  it("doesn't stop you leaving; whoever stays decides", () => {
+    const { world, d, room } = party(2);
+    addToPile(world, d.entrance, 0, ['bandage']);
+    step(world, 0.1);
+    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', choice: 'h1' });
     applyIntent(world, 'h0', { type: 'goto', room });
-    expect(world.heroes.h0.path).toEqual([room]); // unlocked
+    expect(world.heroes.h0.path).toEqual([room]);
+    for (let i = 0; i < 100 && world.heroes.h0.pos.kind === 'room'; i++) step(world, 0.1);
+    expect(world.heroes.h0.pos.kind).toBe('corridor');
+    step(world, 0.1);
+    expect(world.heroes.h1.items).toEqual(['bandage']);
   });
 
   it('"leave it" abandons the item; it can be claimed later', () => {
-    const { world, d } = party(1);
+    const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['torch']);
     step(world, 0.1);
     applyIntent(world, 'h0', { type: 'vote', choice: LEAVE });
+    applyIntent(world, 'h1', { type: 'vote', choice: LEAVE });
     step(world, 0.1);
     expect(world.piles[d.entrance].abandoned).toEqual(['torch']);
     applyIntent(world, 'h0', { type: 'claim', index: 0 });
     step(world, 0.1);
     applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual(['torch']);
   });
@@ -95,10 +105,9 @@ describe('item votes', () => {
     run(world, 9);
     addToPile(world, d.entrance, 0, ['tonic']);
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    step(world, 0.1);
-    expect(world.heroes.h0.items).toEqual(['tonic']); // alone → resolves
-    addToPile(world, d.entrance, 0, ['bandage']);
+    expect(world.heroes.h0.items).toEqual(['tonic']); // alone → taken
+    world.heroes.h0.items.push('bandage');
+    applyIntent(world, 'h0', { type: 'drop', index: 1 }); // dropped by h0: it stays put
     const beyond = neighbours(d, d.entrance).find((n) => n !== room);
     applyIntent(world, 'h1', { type: 'goto', room: beyond ?? d.entrance });
     run(world, 9);
@@ -107,13 +116,58 @@ describe('item votes', () => {
   });
 
   it('a fight in the room pauses the vote', () => {
-    const { world, d } = party(1);
+    const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['tonic']);
     step(world, 0.1);
     spawnGroup(world, d.entrance, ['ghoul'], 0);
     applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual([]);
+  });
+});
+
+describe('picking up alone', () => {
+  it('takes everything it can, but not what you dropped yourself', () => {
+    const { world, d } = party(1);
+    const h = world.heroes.h0;
+    h.items = ['torch'];
+    applyIntent(world, 'h0', { type: 'drop', index: 0 });
+    addToPile(world, d.entrance, 0, ['tonic', 'bandage']);
+    run(world, 1);
+    expect(h.items).toEqual(['tonic', 'bandage']);
+    expect(world.piles[d.entrance].vote?.item).toBe('torch');
+  });
+
+  it("someone else's drop is fair game, and the mark moves with whoever dropped it last", () => {
+    const { world, d, room } = party(2);
+    const [h0, h1] = [world.heroes.h0, world.heroes.h1];
+    h0.items = ['tonic'];
+    applyIntent(world, 'h1', { type: 'goto', room });
+    run(world, 9);
+    applyIntent(world, 'h0', { type: 'drop', index: 0 });
+    run(world, 1);
+    expect(h0.items).toEqual([]); // h0's own drop
+    // h0 leaves; h1 comes back alone and takes it.
+    applyIntent(world, 'h0', { type: 'goto', room });
+    applyIntent(world, 'h1', { type: 'goto', room: d.entrance });
+    run(world, 9);
+    expect(h1.pos).toEqual({ kind: 'room', room: d.entrance });
+    expect(h1.items).toEqual(['tonic']);
+    // h1 drops it and leaves; h0 returns alone and takes it back.
+    applyIntent(world, 'h1', { type: 'drop', index: 0 });
+    applyIntent(world, 'h1', { type: 'goto', room });
+    applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
+    run(world, 9);
+    expect(h0.items).toEqual(['tonic']);
+  });
+
+  it("doesn't happen with someone else in the room", () => {
+    const { world, d } = party(2);
+    addToPile(world, d.entrance, 0, ['tonic']);
+    run(world, 1);
+    expect(world.heroes.h0.items).toEqual([]);
+    expect(world.piles[d.entrance].vote?.item).toBe('tonic');
   });
 });
 
@@ -177,7 +231,7 @@ describe('items', () => {
   });
 
   it('the dead drop everything where they fall', () => {
-    const { world, d } = party(2);
+    const { world } = party(2);
     const h1 = world.heroes.h1;
     h1.items = ['torch', 'tonic'];
     h1.gold = 17;
@@ -185,9 +239,9 @@ describe('items', () => {
     h1.downedAt = world.time;
     run(world, BLEED_OUT + 0.2);
     expect(h1.dead).toBe(true);
-    // h0 is in the same room: gold auto-collected, items up for a vote.
+    // h0 is in the same room, now alone: takes the gold and the items.
     expect(world.heroes.h0.gold).toBe(17);
-    expect(world.piles[d.entrance].vote?.item).toBe('torch');
+    expect(world.heroes.h0.items).toEqual(['torch', 'tonic']);
   });
 });
 

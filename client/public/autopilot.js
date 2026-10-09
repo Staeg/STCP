@@ -105,14 +105,14 @@ window.startAutopilot = (opts = {}) => {
         n.intent({ type: 'goto', room: best.id });
         return;
       }
-      if (rubbleHere) { n.intent({ type: 'dig', corridor: rubbleHere.id }); L('digging'); }
+      if (rubbleHere) { n.intent({ type: 'goto', room: rubbleHere.a === here ? rubbleHere.b : rubbleHere.a }); L('digging'); }
       return;
     }
     const safe = (r) => !(r.threat > 0) || you.hp / you.maxHp > 0.6;
     const lootRoom = v.rooms.find((r) => r.loot > 0 && r.id !== here && d.has(r.id) && safe(r));
     const target = lootRoom ?? frontier.filter(safe).sort((a, b) => d.get(a.id) - d.get(b.id))[0] ?? frontier.sort((a, b) => d.get(a.id) - d.get(b.id))[0];
     if (target) n.intent({ type: 'goto', room: target.id });
-    else if (rubbleHere) n.intent({ type: 'dig', corridor: rubbleHere.id });
+    else if (rubbleHere) n.intent({ type: 'goto', room: rubbleHere.a === here ? rubbleHere.b : rubbleHere.a });
   };
   ap.decided = new Set();
   n.viewHooks.push(step);

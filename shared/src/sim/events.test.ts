@@ -11,6 +11,12 @@ function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
 }
 
+/** Pick an event choice and wait for the hero's timer to run out, when it starts. */
+function choose(world: World, id: string, choice: string) {
+  applyIntent(world, id, { type: 'event', choice });
+  while (world.heroes[id].queuedEvent !== null) step(world, 0.1);
+}
+
 /** A quiet world with one hero standing in a room that holds the given event. */
 function withEvent(kind: RoomEvent['kind'], cls: 'warden' | 'cutthroat' | 'lampbearer' | 'hexer' = 'warden') {
   const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
@@ -39,7 +45,7 @@ describe('room events', () => {
 
   it('cursed chest: loot, plus stress for whoever opened it', () => {
     const { world, h, room } = withEvent('chest');
-    applyIntent(world, 'h', { type: 'event', choice: 'open' });
+    choose(world, 'h', 'open');
     run(world, 5.5);
     expect(h.stress).toBe(0); // it takes a beat
     run(world, 0.6);
@@ -47,7 +53,7 @@ describe('room events', () => {
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBe(20);
-    expect(world.piles[room]?.vote).toBeTruthy();
+    expect(h.items).toHaveLength(1); // alone: the loot is picked up
   });
 
   it('idol: lots of gold, and the way you came in caves in', () => {
@@ -57,7 +63,7 @@ describe('room events', () => {
     applyIntent(world, 'h', { type: 'goto', room: next });
     run(world, 9);
     world.events[next] = { room: next, kind: 'idol', done: false, progress: 0, by: null, spawned: false };
-    applyIntent(world, 'h', { type: 'event', choice: 'take' });
+    choose(world, 'h', 'take');
     run(world, 6.2);
     expect(h.gold).toBeGreaterThanOrEqual(60);
     expect(world.collapsed.length).toBe(1);
@@ -68,9 +74,8 @@ describe('room events', () => {
     const { world, h, room } = withEvent('stranger');
     expect(buildView(world, 'h').event?.choices[0].disabled).toMatch(/no bandage/);
     h.items = ['bandage'];
-    applyIntent(world, 'h', { type: 'event', choice: 'help' });
+    choose(world, 'h', 'help');
     run(world, 6.1);
-    expect(h.items).toEqual([]);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     const ambushed = monstersIn(world, room).length > 0;
@@ -87,7 +92,7 @@ describe('room events', () => {
     delete world.events[d.entrance];
     h.pos = { kind: 'room', room: far };
     const hp = h.hp;
-    applyIntent(world, 'h', { type: 'event', choice: 'crawl' });
+    choose(world, 'h', 'crawl');
     run(world, 6.1);
     expect(h.pos.kind === 'room' && dist[h.pos.room] === dist[far] - 3).toBe(true);
     expect(h.hp).toBe(hp - 4);
@@ -96,7 +101,7 @@ describe('room events', () => {
 
   it('quicksilver: faster for the rest of the run, but frailer', () => {
     const { world, h } = withEvent('quicksilver', 'lampbearer');
-    applyIntent(world, 'h', { type: 'event', choice: 'quaff' });
+    choose(world, 'h', 'quaff');
     run(world, 3.1); // not a multiple of 6: events can take any time now
     expect(speedOf(h, world.time)).toBe(4);
     expect(h.maxHp).toBe(39);
@@ -106,7 +111,7 @@ describe('room events', () => {
 
   it("courier's satchel: gold for the one who hauls it, who is slower from then on", () => {
     const { world, h } = withEvent('satchel', 'cutthroat');
-    applyIntent(world, 'h', { type: 'event', choice: 'haul' });
+    choose(world, 'h', 'haul');
     run(world, 3.1);
     expect(h.gold).toBe(45);
     expect(speedOf(h, world.time)).toBe(4);
@@ -115,7 +120,7 @@ describe('room events', () => {
   it('hourglass: everyone in the room is faster for a while', () => {
     const { world, h } = withEvent('hourglass', 'warden');
     const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
-    applyIntent(world, 'h', { type: 'event', choice: 'turn' });
+    choose(world, 'h', 'turn');
     run(world, 3.1);
     expect(speedOf(h, world.time)).toBe(4.5);
     expect(speedOf(other, world.time)).toBe(2.5);
@@ -126,7 +131,7 @@ describe('room events', () => {
 
   it('clockwork shrine: a long wind for a lasting edge; Speed never drops below 2s', () => {
     const { world, h } = withEvent('clockwork', 'cutthroat');
-    applyIntent(world, 'h', { type: 'event', choice: 'wind' });
+    choose(world, 'h', 'wind');
     run(world, 14.8);
     expect(speedOf(h, world.time)).toBe(3);
     run(world, 0.3);
@@ -135,17 +140,16 @@ describe('room events', () => {
     expect(speedOf(h, world.time)).toBe(2);
   });
 
-  it('vault: a channel (Cutthroat fast) whose progress survives interruption', () => {
+  it('vault: a channel (Cutthroat fast) that starts over if interrupted', () => {
     const { world, h, room } = withEvent('vault', 'cutthroat');
-    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
+    choose(world, 'h', 'channel');
     run(world, 4);
     expect(world.events[room].progress).toBeGreaterThan(0.3);
     applyIntent(world, 'h', { type: 'stop' });
     step(world, 0.1);
-    const kept = world.events[room].progress;
-    expect(kept).toBeGreaterThan(0.3);
-    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
-    run(world, 8.2);
+    expect(world.events[room].progress).toBe(0);
+    choose(world, 'h', 'channel');
+    run(world, 12.2);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBeGreaterThanOrEqual(30);
@@ -154,14 +158,14 @@ describe('room events', () => {
   it('altar: guardians at 50%, then cleansing relieves everyone and pays out at the end', () => {
     const { world, h, room } = withEvent('altar', 'hexer');
     h.stress = 50;
-    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
+    choose(world, 'h', 'channel');
     run(world, 6.2);
     expect(h.encounter).toBe(room); // the guardians came at the halfway mark (Hexer: 12s)
     // Clear them and finish.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
     run(world, 4);
     expect(h.encounter).toBeNull();
-    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
+    choose(world, 'h', 'channel');
     run(world, 6.2);
     expect(world.events[room].done).toBe(true);
     expect(world.objectives.altars).toBe(1);
@@ -169,24 +173,48 @@ describe('room events', () => {
   });
 });
 
+describe('timing', () => {
+  it('an event starts when your timer runs out, and the next timer waits until it is done', () => {
+    const { world, h, room } = withEvent('chest', 'warden');
+    run(world, 2);
+    applyIntent(world, 'h', { type: 'event', choice: 'open' });
+    expect(h.queuedEvent).toBe('open');
+    expect(h.channel).toBeNull();
+    run(world, 3.9); // timer runs out at 6s
+    expect(h.channel).toBeNull();
+    run(world, 0.2);
+    expect(h.channel?.kind).toBe('event');
+    run(world, 6.1);
+    expect(world.events[room].done).toBe(true);
+    expect(h.turnStart).toBeCloseTo(12, 0); // the chest took 6s from 6s; the new timer started then
+  });
+
+  it('nothing picked: the turn is skipped and a new timer starts', () => {
+    const { world, h } = withEvent('chest', 'warden');
+    run(world, 6.1);
+    expect(h.turnStart).toBeCloseTo(6);
+    expect(h.turnAt).toBeCloseTo(12);
+  });
+});
+
 describe('claims', () => {
   it('only the first hero to choose does the work; the others see who and what at once', () => {
     const { world, room } = withEvent('altar');
     const o = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
-    applyIntent(world, 'h', { type: 'event', choice: 'channel' });
+    choose(world, 'h', 'channel');
     const seen = buildView(world, 'o').event!;
     expect(seen.worker).toMatchObject({ name: 'H', doing: 'cleansing the altar', you: false });
     expect(seen.choices[0].disabled).toMatch(/H is already doing it/);
     expect(o.messages.some((m) => m.text.includes('H starts cleansing the altar'))).toBe(true);
-    applyIntent(world, 'o', { type: 'event', choice: 'channel' });
+    choose(world, 'o', 'channel');
     expect(o.channel).toBeNull(); // refused: not their burden
-    // The worker walks away: the claim is free again, and the progress stays.
+    // The worker walks away: the claim is free again, and the progress is lost.
     run(world, 3);
     applyIntent(world, 'h', { type: 'stop' });
     step(world, 0.1);
     expect(world.events[room].by).toBeNull();
-    expect(world.events[room].progress).toBeGreaterThan(0.1);
-    applyIntent(world, 'o', { type: 'event', choice: 'channel' });
+    expect(world.events[room].progress).toBe(0);
+    choose(world, 'o', 'channel');
     expect(world.events[room].by).toBe('o');
   });
 });
@@ -206,7 +234,7 @@ describe('villagers', () => {
 
   it('follow their rescuer, slow them down, and are saved on reaching the rendezvous', () => {
     const { world, h, d } = captive();
-    applyIntent(world, 'h', { type: 'event', choice: 'lead' });
+    choose(world, 'h', 'lead');
     expect(h.leading).toBe('v1');
     applyIntent(world, 'h', { type: 'goto', room: d.exit });
     run(world, CORRIDOR_TIME + 0.2);
@@ -226,12 +254,12 @@ describe('villagers', () => {
     const { world, h, room } = captive();
     const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
     other.pos = { kind: 'room', room };
-    applyIntent(world, 'h', { type: 'event', choice: 'lead' });
+    choose(world, 'h', 'lead');
     h.hp = 0;
     h.downedAt = world.time;
     step(world, 0.1);
     expect(world.villagers.v1.state).toBe('waiting');
-    applyIntent(world, 'o', { type: 'event', choice: 'lead' });
+    choose(world, 'o', 'lead');
     expect(other.leading).toBe('v1');
   });
 });
@@ -256,7 +284,7 @@ describe('stress and afflictions', () => {
     const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
     addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
     s.affliction = 'selfish';
-    world.piles[world.dungeon.entrance] = { gold: 0, items: ['torch'], abandoned: [], vote: null };
+    world.piles[world.dungeon.entrance] = { gold: 0, items: ['torch'], abandoned: [], vote: null, itemsBy: [null], abandonedBy: [] };
     step(world, 0.1);
     applyIntent(world, 'o', { type: 'vote', choice: 'o' });
     applyIntent(world, 's', { type: 'vote', choice: 'o' }); // refused

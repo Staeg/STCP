@@ -376,7 +376,9 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     if (!def.combat) return `${def.name} can't be used in a fight.`;
     if (def.target === 'ally' || def.target === 'downed') {
       const targets = itemTargets(world, h, idx);
-      if (!choice.target || !targets.includes(choice.target)) return 'Pick a valid target.';
+      if (targets.length === 0) return 'No valid target.';
+      // No target yet is fine: if the turn comes first, it goes to the leftmost one.
+      if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
     }
     enc.choices[h.id] = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
     return null;
@@ -386,7 +388,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
   if (needsTarget(h, choice.action)) {
     const targets = validTargets(world, enc, h, choice.action);
     if (targets.length === 0) return 'No valid target.';
-    if (!choice.target || !targets.includes(choice.target)) return 'Pick a valid target.';
+    if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
   } else if (ab && ab.target === 'otherAlly') {
     return 'No valid target.';
   }
@@ -444,6 +446,10 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     const auto = defaultChoice(world, enc, h);
     choice = auto ?? { action: 'brace' };
     events.push({ actor: h.id, kind: 'info', text: auto ? `${h.name} hesitates, then uses ${abilityOf(h, auto.action)!.name}.` : `${h.name} hesitates and braces.` });
+  } else if (choice.target === undefined) {
+    // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
+    const target = leftmostTarget(world, enc, h, choice);
+    if (target) choice = { ...choice, target };
   }
   // Cooldowns count the hero's own turns: "cooldown N" = unusable for their next N turns.
   for (const k of Object.keys(h.cooldowns)) h.cooldowns[k] = Math.max(0, h.cooldowns[k] - 1);
@@ -459,6 +465,22 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   if (isConscious(h) && h.encounter === enc.room) {
     endOfTurn(h.st, h.name, h.id, (n) => armored(h, n), (n) => applyHeroDamage(world, enc, h, n, events), events);
   }
+}
+
+/** The first unit, left to right as the fight screen shows them, that `choice` could be aimed at. */
+function leftmostTarget(world: World, enc: Encounter, h: Hero, choice: Choice): string | undefined {
+  let targets: string[];
+  if (choice.action === 'item') {
+    const def = ITEMS[h.items[choice.item ?? -1]];
+    targets = def && (def.target === 'ally' || def.target === 'downed') ? itemTargets(world, h, choice.item!) : [];
+  } else {
+    targets = needsTarget(h, choice.action) ? validTargets(world, enc, h, choice.action) : [];
+  }
+  if (targets.length === 0) return undefined;
+  const order = combatOrder(world, enc);
+  const left = [...order.heroes.map((x) => x.id), ...order.monsters.map((m) => m.id)];
+  const rank = (id: string) => (left.includes(id) ? left.indexOf(id) : Infinity);
+  return [...targets].sort((a, b) => rank(a) - rank(b))[0];
 }
 
 function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEvent[]) {

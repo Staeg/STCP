@@ -15,7 +15,7 @@ export interface RoomEvent {
   room: number;
   kind: Exclude<EventKind, 'villager'>;
   done: boolean;
-  /** Fraction of the work done, 0..1. Survives interruptions. */
+  /** Fraction of the work done, 0..1. Lost if the hero stops before it's done. */
   progress: number;
   /** The hero who chose it first and is carrying it out; nobody else can while they are. */
   by: string | null;
@@ -167,13 +167,15 @@ export function choiceVerb(kind: EventKind, choice: string): string {
 // ---------------------------------------------------------------------------
 // Choosing (first come, first served)
 
-export function chooseEvent(world: World, h: Hero, choiceId: string): string | null {
+/** Start an event choice. With `check`, only says whether it could be started (null) or why not. */
+export function chooseEvent(world: World, h: Hero, choiceId: string, check = false): string | null {
   if (!isConscious(h) || h.encounter !== null || h.pos.kind !== 'room') return 'Not now.';
   const room = h.pos.room;
   const options = eventChoices(world, h);
   const choice = options?.choices.find((c) => c.id === choiceId);
   if (!options || !choice) return 'Nothing to do here.';
   if (choice.disabled) return choice.disabled;
+  if (check) return null;
   if (options.kind === 'villager') {
     const v = villagerHere(world, room)!;
     world.stats.eventsUsed++;
@@ -193,7 +195,7 @@ export function chooseEvent(world: World, h: Hero, choiceId: string): string | n
   h.path = [];
   h.channel = { kind: 'event', room, choice: choiceId, until: Infinity };
   const verb = choiceVerb(ev.kind, choiceId);
-  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress))}s; moving stops it)`);
+  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress))}s; moving away starts it over)`);
   for (const o of othersHere(world, h)) notify(world, o, `${h.name} starts ${verb}.`);
   return null;
 }
@@ -346,7 +348,7 @@ export function tickEvents(world: World, dt: number) {
   // A claim lasts only as long as its hero keeps at it (walking off, a fight or going down all end it).
   for (const ev of Object.values(world.events)) {
     const ch = ev.by ? world.heroes[ev.by]?.channel : null;
-    if (ev.by && !(ch?.kind === 'event' && ch.room === ev.room)) ev.by = null;
+    if (ev.by && !(ch?.kind === 'event' && ch.room === ev.room)) abandon(ev);
   }
   for (const h of Object.values(world.heroes)) {
     const ch = h.channel;
@@ -357,7 +359,7 @@ export function tickEvents(world: World, dt: number) {
       !quiet(world, ch.room)
     ) {
       h.channel = null;
-      if (ev?.by === h.id) ev.by = null;
+      if (ev?.by === h.id) abandon(ev);
       continue;
     }
     const kind = ev.kind;
@@ -374,6 +376,12 @@ export function tickEvents(world: World, dt: number) {
     if (ev.progress >= 1) finishEvent(world, ev, h, ch.choice);
   }
   tickVillagers(world);
+}
+
+/** Stopped before it was done: the work is lost (an altar whose guardians came stays half-cleansed). */
+function abandon(ev: RoomEvent) {
+  ev.by = null;
+  ev.progress = ev.spawned ? 0.5 : 0;
 }
 
 function completeChannel(world: World, ev: RoomEvent, h: Hero) {

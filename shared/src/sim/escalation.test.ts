@@ -4,6 +4,7 @@ import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { collapseCorridor } from './escalation';
 import { ESCALATION } from '../content/enemies';
 import { buildView } from './views';
+import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
 function run(world: World, seconds: number) {
@@ -47,7 +48,10 @@ describe('escalation', () => {
     h.encounter = null;
     step(world, 0.1);
     expect(h.knownCollapsed).toContain(c.id);
-    applyIntent(world, 'a', { type: 'dig', corridor: c.id });
+    // Walking that way digs: it starts when the hero's timer runs out, then they walk on through.
+    applyIntent(world, 'a', { type: 'goto', room: next });
+    expect(h.channel).toBeNull();
+    run(world, h.turnAt - world.time + 0.1);
     expect(h.channel?.kind).toBe('dig');
     run(world, ESCALATION.digTime - 1);
     expect(world.collapsed).toContain(c.id);
@@ -55,6 +59,8 @@ describe('escalation', () => {
     expect(world.collapsed).not.toContain(c.id);
     expect(h.knownCollapsed).not.toContain(c.id);
     expect(world.chronicle.at(-1)?.text).toMatch(/dug through/);
+    run(world, speedOf(h, world.time) + 0.2);
+    expect(h.pos).toEqual({ kind: 'room', room: next });
   });
 
   it('a hero caught in a collapsing tunnel is thrown out and hurt', () => {
@@ -88,7 +94,7 @@ describe('escalation', () => {
     for (const cid of d.rooms[next].corridors) expect(view.corridors.some((x) => x.id === cid)).toBe(true);
   });
 
-  it("you only learn of a collapse when you reach it, and can't walk through", () => {
+  it('you only learn of a collapse when you reach it, and then dig through', () => {
     const world = createWorld(9, { monsters: false, loot: false, escalation: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     const d = world.dungeon;
@@ -107,7 +113,10 @@ describe('escalation', () => {
     run(world, 20);
     expect(h.pos).toEqual({ kind: 'room', room: a }); // stopped at the rubble
     expect(h.knownCollapsed).toContain(c.id);
-    expect(h.messages.at(-1)?.text).toMatch(/Rubble/);
+    expect(h.messages.some((m) => /Rubble/.test(m.text))).toBe(true);
+    expect(h.channel?.kind).toBe('dig');
+    run(world, ESCALATION.digTimeWarden + 6.5);
+    expect(h.pos).toEqual({ kind: 'room', room: far });
   });
 
   it('waves spawn next to the exit after it opens and head for it', () => {

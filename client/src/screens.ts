@@ -3,6 +3,8 @@ import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
 
+declare const __BUILD__: string;
+
 const root = () => document.getElementById('screen')!;
 
 function esc(s: string) {
@@ -44,8 +46,9 @@ export class Screens {
       return false;
     }
     el.hidden = false;
-    const html = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
+    const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
+    const html = `${body}<div class="build-tag" title="Branch @ commit this build came from">${esc(__BUILD__)}</div>`;
     if (html !== this.rendered && !this.pressing) {
       // Preserve typed text and focus across re-renders (other players' changes trigger these).
       const values = new Map([...el.querySelectorAll('input')].map((i) => [i.id, i.value]));

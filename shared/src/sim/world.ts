@@ -15,7 +15,7 @@ import type { GearSlot, ItemId } from '../content/items';
 import { notify } from './notify';
 import { speedOf, type SpeedMod } from './speed';
 import {
-  castVote, claimAbandoned, dropItem, unequip, lockedByVote, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
+  autoPickup, castVote, claimAbandoned, votersIn, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -33,6 +33,15 @@ export interface Hero {
   path: number[];
   /** The room this hero chose to walk to (allies who can see them see it at once). */
   heading: number | null;
+  /**
+   * Out of combat, this hero's Speed timer runs all the time: it started at `turnStart` and runs out at `turnAt`.
+   * A move picked during it lands when it runs out (walking a tunnel fills the timer); an event or a dig
+   * starts then. Nothing picked means the turn is skipped. It's held while fighting, channelling or down.
+   */
+  turnStart: number;
+  turnAt: number;
+  /** An event choice to start when the timer runs out. */
+  queuedEvent: string | null;
   light: number;
   /** Rooms this hero has stood in. */
   explored: number[];
@@ -159,7 +168,8 @@ export interface World {
 }
 
 export type Intent =
-  | { type: 'goto'; room: number }
+  /** `step`: one tunnel straight to a neighbouring room (WASD), never a detour; ignored if there's no such tunnel. */
+  | { type: 'goto'; room: number; step?: boolean }
   | { type: 'turnBack' }
   | { type: 'stop' }
   | { type: 'combat'; choice: Choice }
@@ -174,8 +184,6 @@ export type Intent =
   | { type: 'useItem'; index: number; target?: string }
   /** Leave the dungeon through the open exit. */
   | { type: 'extract' }
-  /** Dig through a collapsed corridor leading out of your room. */
-  | { type: 'dig'; corridor: number }
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
   /** Lampbearer only: heal someone in your room outside a fight. */
@@ -250,11 +258,15 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     pos: { kind: 'room', room: d.entrance },
     path: [],
     heading: null,
+    turnStart: world.time,
+    turnAt: world.time,
+    queuedEvent: null,
     light: LIGHT_MAX,
     explored: [],
     seen: [d.exit],
   };
   world.heroes[hero.id] = hero;
+  startTimer(world, hero);
   explore(world, hero, d.entrance);
   updateKnowledge(world);
   return hero;
@@ -269,6 +281,11 @@ export function step(world: World, dt: number): void {
     hero.light = Math.max(0, hero.light - drain * dt);
     if (hero.channel) tickChannel(world, hero);
     else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
+    // The next timer only starts once the hero is free again.
+    if (hero.channel || !isConscious(hero) || hero.encounter !== null) {
+      startTimer(world, hero);
+      hero.queuedEvent = null;
+    }
   }
   tickDowned(world);
   tickCombat(world);
@@ -366,20 +383,15 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (err) notify(world, hero, err);
       return;
     }
-    case 'dig': {
-      const c = world.dungeon.corridors[intent.corridor];
-      if (!c || hero.pos.kind !== 'room' || (c.a !== hero.pos.room && c.b !== hero.pos.room)) return;
-      if (!world.collapsed.includes(c.id)) return;
-      if (lockedByVote(world, hero)) return notify(world, hero, 'Agree on the loot first.');
-      hero.path = [];
-      const time = hero.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
-      hero.channel = { kind: 'dig', corridor: c.id, until: world.time + time };
-      notify(world, hero, `You start digging… (${time}s)`);
-      return;
-    }
     case 'event': {
-      const err = chooseEvent(world, hero, intent.choice);
-      if (err) notify(world, hero, err);
+      // Checked now so a bad pick is refused at once; it starts when the timer runs out.
+      const err = chooseEvent(world, hero, intent.choice, true);
+      if (err) return notify(world, hero, err);
+      if (hero.channel?.kind === 'event') return;
+      hero.channel = null; // stop digging or reviving
+      hero.queuedEvent = intent.choice;
+      hero.path = [];
+      hero.heading = null;
       return;
     }
     case 'fieldMend': {
@@ -399,7 +411,6 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     case 'extract':
       if (hero.pos.kind !== 'room' || hero.pos.room !== world.dungeon.exit) return notify(world, hero, 'You must be at the rendezvous.');
       if (world.time < EXIT_OPENS_AT) return notify(world, hero, 'The exit is not open yet.');
-      if (lockedByVote(world, hero)) return notify(world, hero, 'Agree on the loot before you go.');
       extractHero(world, hero);
       return;
     case 'revive': {
@@ -414,6 +425,7 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.path = [];
       hero.heading = null;
       hero.channel = null;
+      hero.queuedEvent = null;
       return;
     case 'turnBack':
       hero.channel = null;
@@ -422,16 +434,13 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.heading = null;
       return;
     case 'goto':
-      if (lockedByVote(world, hero)) {
-        notify(world, hero, 'Agree on the loot before moving on.');
-        return;
-      }
       // Only an actual move interrupts digging/reviving; an unreachable click shouldn't.
-      if (goto(world, hero, intent.room)) {
+      if (intent.step ? stepTo(world, hero, intent.room) : goto(world, hero, intent.room)) {
         hero.channel = null;
+        hero.queuedEvent = null;
         hero.heading = intent.room;
       }
-      else if (hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
+      else if (!intent.step && hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
       return;
   }
 }
@@ -450,6 +459,8 @@ function tickChannel(world: World, hero: Hero) {
   if (ch.kind === 'event') return; // see events.ts
   if (world.time < ch.until) return;
   hero.channel = null;
+  // Done: the next timer starts now.
+  startTimer(world, hero, ch.until);
   if (ch.kind === 'dig') {
     if (world.collapsed.includes(ch.corridor)) clearRubble(world, ch.corridor, hero.name);
     return;
@@ -460,29 +471,70 @@ function tickChannel(world: World, hero: Hero) {
 
 // ---------------------------------------------------------------------------
 
+/** Start a fresh Speed timer for a hero (from now, unless given). */
+export function startTimer(world: World, hero: Hero, from = world.time) {
+  hero.turnStart = from;
+  hero.turnAt = from + speedOf(hero, from);
+}
+
+/** Has this hero's timer run out? (With a little slack for the float drift of 0.1s ticks.) */
+function timerDone(world: World, hero: Hero): boolean {
+  return world.time >= hero.turnAt - 1e-6;
+}
+
+/** Seconds of digging to clear rubble. */
+export function digTime(hero: Hero): number {
+  return hero.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
+}
+
+/** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
+function endIdleTurn(world: World, hero: Hero) {
+  const choice = hero.queuedEvent;
+  hero.queuedEvent = null;
+  if (choice !== null) {
+    const err = chooseEvent(world, hero, choice);
+    if (err) notify(world, hero, err);
+  }
+  if (!hero.channel) startTimer(world, hero, hero.turnAt);
+}
+
 function advance(world: World, hero: Hero, dt: number) {
   const d = world.dungeon;
   // Escorting a villager slows you down.
-  let remaining = hero.leading ? dt * EVENT_SEEDING.villagerSpeed : dt;
-  // Bounded loop: each iteration either consumes time or enters a corridor.
-  for (let guard = 0; guard < 16 && remaining > 1e-9; guard++) {
+  const rate = hero.leading ? EVENT_SEEDING.villagerSpeed : 1;
+  let remaining = dt * rate;
+  // Bounded loop: each iteration either consumes time, enters a corridor or arrives.
+  for (let guard = 0; guard < 16; guard++) {
     const pos = hero.pos;
     if (pos.kind === 'room') {
-      const next = hero.path.shift();
-      if (next === undefined) return;
+      const next = hero.path[0];
+      if (next === undefined) {
+        if (timerDone(world, hero)) endIdleTurn(world, hero);
+        return;
+      }
       const c = corridorBetween(d, pos.room, next);
       if (!c) {
         hero.path = [];
         return;
       }
       if (world.collapsed.includes(c.id)) {
-        hero.path = [];
-        if (!hero.knownCollapsed.includes(c.id)) hero.knownCollapsed.push(c.id);
-        notify(world, hero, `Rubble blocks the way to ${theRoom(d.rooms[next].name)}!`);
+        if (!hero.knownCollapsed.includes(c.id)) {
+          hero.knownCollapsed.push(c.id);
+          notify(world, hero, `Rubble blocks the way to ${theRoom(d.rooms[next].name)}. You'll dig through.`);
+        }
+        // Digging starts when the timer runs out; the walk carries on once the way is clear.
+        if (!timerDone(world, hero)) return;
+        hero.channel = { kind: 'dig', corridor: c.id, until: world.time + digTime(hero) };
+        notify(world, hero, `You start digging… (${digTime(hero)}s; walking elsewhere stops it)`);
         return;
       }
-      hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0, dur: speedOf(hero, world.time) };
+      hero.path.shift();
+      // The walk fills this turn's timer: setting out late in it puts you part-way down the tunnel already.
+      const dur = hero.turnAt - hero.turnStart;
+      const t = Math.min(dur, Math.max(0, world.time - hero.turnStart) * rate);
+      hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t, dur };
       hero.prevRoom = pos.room;
+      remaining = 0;
       if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
     } else {
       const need = pos.dur - pos.t;
@@ -495,8 +547,10 @@ function advance(world: World, hero: Hero, dt: number) {
       // Heroes who took the same tunnel the same way travel together: the quicker ones wait for the rest.
       const party = companions(world, hero);
       if (party.some((o) => o.pos.kind === 'corridor' && o.pos.t < o.pos.dur)) return;
-      for (const o of party) arrive(world, o);
-      if (!arrive(world, hero)) return;
+      // The moment of arrival (possibly part-way through this tick); the next timer starts then.
+      const at = world.time - remaining / rate;
+      for (const o of party) arrive(world, o, at);
+      if (!arrive(world, hero, at)) return;
     }
   }
 }
@@ -510,17 +564,21 @@ export function companions(world: World, hero: Hero): Hero[] {
 }
 
 /** Step out of the tunnel into the room at its end. Returns false if the hero should stop walking (fight, loot). */
-function arrive(world: World, hero: Hero): boolean {
+function arrive(world: World, hero: Hero, at = world.time): boolean {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return false;
   hero.pos = { kind: 'room', room: pos.to };
+  startTimer(world, hero, at);
   if (hero.path.length === 0) hero.heading = null;
   if (pos.to === world.dungeon.exit) hero.arrivedAt = world.time;
   explore(world, hero, pos.to);
   onHeroInRoom(world, hero, pos.to);
   if (hero.encounter !== null) return false;
+  // Alone, you grab what you can on the way through; anything left needs a vote (or is yours).
+  const others = votersIn(world, pos.to);
+  if (others.length === 1 && others[0] === hero) autoPickup(world, pos.to, hero);
   const pile = world.piles[pos.to];
-  if (pile && (pile.vote || pile.items.length)) {
+  if (pile && (pile.vote || pile.itemsBy.some((by) => by !== hero.id))) {
     hero.path = []; // stop: there's loot to agree on
     return false;
   }
@@ -554,7 +612,7 @@ function updateKnowledge(world: World) {
       else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
       else delete a.knownEvents[room];
       if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n);
-      if (a.light >= LIGHT_DIM) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
+      if (a.light >= LIGHT_DIM || seesInDark(a)) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
     }
   }
 }
@@ -566,7 +624,7 @@ export function canSee(world: World, a: Hero, b: Hero): boolean {
   const pb = b.pos;
   if (pa.kind === 'room' && pb.kind === 'room') {
     if (pa.room === pb.room) return true;
-    return a.light >= LIGHT_DIM && corridorBetween(d, pa.room, pb.room) !== undefined;
+    return (a.light >= LIGHT_DIM || seesInDark(a)) && corridorBetween(d, pa.room, pb.room) !== undefined;
   }
   if (pa.kind === 'corridor' && pb.kind === 'corridor') return pa.corridor === pb.corridor;
   const roomPos = pa.kind === 'room' ? pa : pb;
@@ -598,6 +656,21 @@ function addUnique(arr: number[], v: number) {
 /** A corridor is known to a hero once they have explored either end. */
 export function knowsCorridor(hero: Hero, c: { a: number; b: number }): boolean {
   return hero.explored.includes(c.a) || hero.explored.includes(c.b);
+}
+
+/** Head straight down the known tunnel to a neighbouring room (from a tunnel: back, or on from where it leads). */
+function stepTo(world: World, hero: Hero, target: number): boolean {
+  const pos = hero.pos;
+  if (pos.kind === 'corridor' && target === pos.from) {
+    turnAround(world, hero);
+    hero.path = [];
+    return true;
+  }
+  const from = pos.kind === 'room' ? pos.room : pos.to;
+  const c = corridorBetween(world.dungeon, from, target);
+  if (!c || !knowsCorridor(hero, c)) return false;
+  hero.path = [target];
+  return true;
 }
 
 /** Plan a route to `target`. Returns false if no known route exists. */
@@ -659,11 +732,13 @@ export function shortestPath(world: World, hero: Hero, start: number, target: nu
     done.add(cur);
     for (const cid of d.rooms[cur].corridors) {
       const c = d.corridors[cid];
-      if (!knowsCorridor(hero, c) || hero.knownCollapsed.includes(c.id)) continue;
+      if (!knowsCorridor(hero, c)) continue;
       const n = otherEnd(c, cur);
       // Detour around rooms you know hold monsters (but never refuse to go where you clicked).
       const danger = n === target ? 0 : (hero.knownThreat[n] ?? 0) * THREAT_DETOUR;
-      const nd = best + c.length + danger;
+      // Known rubble gets dug through on the way, which takes a while.
+      const dig = hero.knownCollapsed.includes(c.id) ? digTime(hero) : 0;
+      const nd = best + c.length + danger + dig;
       if (nd < (dist.get(n) ?? Infinity)) {
         dist.set(n, nd);
         prev.set(n, cur);

@@ -5,6 +5,7 @@ import {
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
 import { juice } from './juice';
+import { useFromField } from './loot';
 
 const $ = (id: string) => document.getElementById(id)!;
 /** Events from one turn play out this far apart; a busy fight queues them up. */
@@ -40,6 +41,8 @@ export class CombatUi {
   /** Unit id → name, and unit id → colours of the heroes whose next move targets it. */
   private names = new Map<string, string>();
   private aimedBy = new Map<string, string[]>();
+  /** Your turn is close and you haven't picked: your ring turns red. */
+  private hurry = false;
 
   constructor(private net: Net) {
     // pointerdown, not click: the panel re-renders often and a click can straddle two renders.
@@ -134,20 +137,19 @@ export class CombatUi {
     if (!canAct) this.targeting = null;
     const valid = this.targeting ? this.validTargets(view, enc, this.targeting) : [];
 
-    // Header: your own Speed timer. Everyone else's is on their card.
+    // Header: when your turn comes. The timers themselves are rings around each sprite.
     const left = me?.nextIn ?? null;
-    const frac = left !== null && me ? left / me.speed : 0;
     let status: string;
     if (me?.downed) status = 'You are down! An ally must revive you.';
-    else if (this.targeting) status = 'Choose a target (Esc to cancel)';
+    else if (this.targeting) status = 'Choose a target (if your turn comes first: the leftmost)';
     else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
     else status = `Pick your next move! (if your turn comes first: ${this.fallbackName(view)})`;
     const header = `<div class="cb-head">
       <span title="Speed: seconds between your turns">⏱ ${me ? fmtSpeed(me.speed) : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
       <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
-    </div>
-    <div class="cb-timer"><div style="width:${(frac * 100).toFixed(1)}%" class="${frac < 0.4 ? 'low' : ''}"></div></div>`;
+    </div>`;
+    this.hurry = canAct && !enc.yourChoice && left !== null && !!me && left / me.speed < 0.4;
 
     // Stage: heroes back→front on the left, monsters front→back on the right, in the server's order
     // (which is also who goes first when two turns come up at once).
@@ -173,7 +175,12 @@ export class CombatUi {
 
   /** Out of combat: the same action bar, greyed out, so you always know what you'll have to hand. */
   private renderIdle(view: PlayerView) {
-    this.setHtml(`<div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight</span></div>` + this.actionsHtml(view, null, false));
+    const items = this.itemsHtml(view, null, false);
+    this.setHtml(`<div class="cb-group">
+        <div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight · if your turn comes before you pick, you use your first ability that's ready</span></div>
+        ${this.actionsHtml(view, null, false)}
+      </div>`
+      + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now, or in a fight</span></div>${items}</div>` : ''));
   }
 
   /** What the sim does for you if you don't pick: your first ability that's ready, or Brace if none is. */
@@ -212,15 +219,31 @@ export class CombatUi {
       ${btn('brace', 'B', 'Brace', `Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)`)}
     </div>`;
 
-    const itemBtns = you.items.map((it, i) => {
+    if (!enc) return actions;
+    const items = this.itemsHtml(view, enc, canAct);
+    return actions + items;
+  }
+
+  /**
+   * Usable pack items. In a fight they're combat actions; out of one, those that work while exploring
+   * can be clicked right here (the rest are greyed, like the combat bar).
+   */
+  private itemsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
+    const chosen = enc?.yourChoice ?? null;
+    const btns = view.you.items.map((it, i) => {
       const def = ITEMS[it];
+      if (!def.combat && !def.field) return '';
+      if (!enc) {
+        const usable = def.field;
+        return `<button class="cb-act item ${usable ? 'usable' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
+          <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+      }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
-      return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${off(!canAct)}>
+      return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'}>
         <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
-    if (!enc) return actions.replace(/<\/div>$/, `${itemBtns}</div>`); // one compact row out of combat
-    return actions + (itemBtns ? `<div class="cb-actions items">${itemBtns}</div>` : '');
+    return btns ? `<div class="cb-actions items">${btns}</div>` : '';
   }
 
   private unitHtml(u: CombatUnitView, valid: string[], youId: string): string {
@@ -254,10 +277,17 @@ export class CombatUi {
     const classes = ['cb-unit', u.kind, u.rank, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
     const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.kind === 'hero' ? (u.choice ? '' : 'choosing…') : u.rank;
-    // Speed timer: fills up as their turn approaches.
-    const turn = u.nextIn !== null && !dying
-      ? `<div class="turnbar" title="Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn.toFixed(1)}s">
-          <div style="width:${((1 - u.nextIn / u.speed) * 100).toFixed(1)}%"></div><span>⏱ ${fmtSpeed(u.speed)}</span></div>`
+    // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.
+    const timed = u.nextIn !== null && !dying;
+    const fill = timed ? Math.max(0, Math.min(1, 1 - u.nextIn! / u.speed)) : 0;
+    const ringColor = u.id === youId && this.hurry ? 'var(--danger)' : color;
+    const ring = timed
+      ? `<svg class="turnring ${u.id === youId ? 'mine' : ''}" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" class="track"/>
+          <circle cx="50" cy="50" r="46" pathLength="100" stroke="${ringColor}" stroke-dasharray="${(fill * 100).toFixed(1)} 100"/></svg>`
+      : '';
+    const turn = timed
+      ? `<div class="spd" title="Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn!.toFixed(1)}s">⏱ ${fmtSpeed(u.speed)} · ${u.nextIn!.toFixed(1)}s</div>`
       : '';
     const target = u.choiceTarget ? this.names.get(u.choiceTarget) : undefined;
     const pick = u.kind === 'hero' && u.choice
@@ -265,7 +295,7 @@ export class CombatUi {
       : '';
     const aimed = (this.aimedBy.get(u.id) ?? []).map((c) => `<span style="color:${c}">◆</span>`).join('');
     return `<div class="${classes}" data-unit="${u.id}" style="--c:${color}">
-      <img class="sprite" src="${img}" alt="" draggable="false">
+      <div class="sprite-wrap"><img class="sprite" src="${img}" alt="" draggable="false">${ring}</div>
       <div class="uname">${esc(u.name)}</div>
       <div class="hpbar"><div style="width:${pct}%"></div></div>
       <div class="hptext">${Math.ceil(hp)}/${u.maxHp}</div>
@@ -328,12 +358,19 @@ export class CombatUi {
       this.targeting = null;
       this.net.intent({ type: 'combat', choice: { action, target: targets[0], item } });
     } else if (targets.length > 1) {
+      // Lock the move in now; if the turn comes before a target is clicked, it goes to the leftmost one.
       this.targeting = action;
+      this.net.intent({ type: 'combat', choice: { action, item } });
     }
   }
 
   private onClick(e: Event) {
     const el = e.target as HTMLElement;
+    const field = el.closest('button[data-field-item]') as HTMLButtonElement | null;
+    if (field) {
+      if (!this.net.cur?.encounter && field.classList.contains('usable')) useFromField(this.net, Number(field.dataset.fieldItem));
+      return;
+    }
     const btn = el.closest('button[data-action]') as HTMLButtonElement | null;
     if (btn) {
       const action = btn.dataset.action as CombatAction;
@@ -379,8 +416,8 @@ export class CombatUi {
   }
 }
 
-/** Ability text with its cooldown spelled out, and a note on the fallback. */
+/** Ability text with its cooldown spelled out. */
 function abilityDesc(desc: string, cooldown: number): string {
   const cd = cooldown ? ` Cooldown: your next ${cooldown === 1 ? 'turn' : `${cooldown} turns`}.` : '';
-  return desc + cd + " If your turn comes before you pick, you use your first ability that's ready.";
+  return desc + cd;
 }

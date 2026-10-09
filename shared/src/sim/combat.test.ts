@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { BLEED_OUT, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
+import { BLEED_OUT, combatOrder, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
 import { Game } from './game';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
@@ -106,6 +106,17 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.text.includes('hesitates and braces'))).toBe(true);
   });
 
+  it('an ability picked without a target goes to the leftmost one when the turn comes', () => {
+    const { world, ids, room } = arena(['cutthroat'], ['ghoul', 'ghoul', 'ghoul']);
+    walkIn(world, ids, room);
+    expect(applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } })).toBeUndefined();
+    expect(world.encounters[room].choices.h0).toEqual({ action: 'a1', target: undefined });
+    const leftmost = combatOrder(world, world.encounters[room]).monsters[0];
+    untilTurn(world, room, 'h0');
+    expect(leftmost.st.bleed).toBeTruthy(); // Poison Blade, not the fallback Backstab
+    expect(monstersIn(world, room).filter((m) => m.st.bleed)).toHaveLength(1);
+  });
+
   it("shows allies' picks to everyone in the fight as soon as they're made", () => {
     const { world, ids, room, monsters } = arena(['cutthroat', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
@@ -151,16 +162,8 @@ describe('encounters', () => {
     expect(world.encounters[room]).toBeUndefined();
     expect(world.heroes.h0.encounter).toBeNull();
     expect(world.heroes.h0.cooldowns).toEqual({});
-    // The kill always drops something, which must be settled before anyone leaves.
+    // The kill always drops something to vote on, but nobody has to stay for it.
     expect(world.piles[room]?.vote).toBeTruthy();
-    applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
-    expect(world.heroes.h0.path).toEqual([]);
-    while (world.piles[room]) {
-      applyIntent(world, 'h0', { type: 'vote', choice: 'leave' });
-      applyIntent(world, 'h1', { type: 'vote', choice: 'leave' });
-      step(world, 0.1);
-      if (world.piles[room] && !world.piles[room].vote && world.piles[room].items.length === 0) break;
-    }
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
     expect(world.heroes.h0.path).toEqual([d.entrance]);
   });
@@ -261,10 +264,12 @@ describe('Speed', () => {
     h.items = ['coin', 'bandage'];
     expect(buildView(world, 'h').you.maxHp).toBe(45);
     const next = neighbours(d, d.entrance)[0];
+    // The timer running when the gear went on is the old 5s one; the next one (from 5s) carries the weight.
+    run(world, 5.2);
     applyIntent(world, 'h', { type: 'goto', room: next });
     step(world, 0.1);
     expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6.1); // 5 + 0.5 + 0.5 + 0.1
-    run(world, 5.8);
+    run(world, 5.6);
     expect(h.pos.kind).toBe('corridor');
     run(world, 0.3);
     expect(h.pos).toEqual({ kind: 'room', room: next });

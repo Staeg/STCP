@@ -120,7 +120,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     }
     // Walled in by rubble: dig out (here, or walk to the nearest rubble first).
     const rubbleHere = view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here));
-    if (rubbleHere) return { type: 'dig', corridor: rubbleHere.id };
+    if (rubbleHere) return { type: 'goto', room: rubbleHere.a === here ? rubbleHere.b : rubbleHere.a };
     const rubbleRooms = view.corridors.filter((c) => c.collapsed).flatMap((c) => [c.a, c.b]).filter((r) => costs.has(r));
     if (rubbleRooms.length) return { type: 'goto', room: minBy(rubbleRooms, (r) => costs.get(r)!) };
     return null;
@@ -133,7 +133,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     if (exit && costs.has(exit.id)) return { type: 'goto', room: exit.id };
     // Nowhere left to go: dig out rather than wait.
     const rubbleHere = view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here));
-    if (rubbleHere) return { type: 'dig', corridor: rubbleHere.id };
+    if (rubbleHere) return { type: 'goto', room: rubbleHere.a === here ? rubbleHere.b : rubbleHere.a };
     const rubbleRooms = view.corridors.filter((c) => c.collapsed).flatMap((c) => [c.a, c.b]).filter((r) => costs.has(r) && r !== here);
     return rubbleRooms.length ? { type: 'goto', room: minBy(rubbleRooms, (r) => costs.get(r)!) } : null;
   }

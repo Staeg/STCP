@@ -16,6 +16,8 @@ export interface Vote {
   /** voterId → recipient hero id, or LEAVE. */
   votes: Record<string, string>;
   startedAt: number;
+  /** Who last put it on the floor (null: found there). They don't pick it up automatically. */
+  droppedBy: string | null;
 }
 
 export interface Pile {
@@ -25,6 +27,9 @@ export interface Pile {
   /** Items everyone agreed to leave. Anyone can claim one to start a new vote. */
   abandoned: ItemId[];
   vote: Vote | null;
+  /** Who dropped each item, parallel to `items` and `abandoned` (null: found there). */
+  itemsBy: (string | null)[];
+  abandonedBy: (string | null)[];
 }
 
 // ---------------------------------------------------------------------------
@@ -79,10 +84,11 @@ export function dropBounty(world: World, room: number) {
   addToPile(world, room, 0, items);
 }
 
-export function addToPile(world: World, room: number, gold: number, items: ItemId[]) {
-  const pile = (world.piles[room] ??= { gold: 0, items: [], abandoned: [], vote: null });
+export function addToPile(world: World, room: number, gold: number, items: ItemId[], droppedBy: string | null = null) {
+  const pile = (world.piles[room] ??= { gold: 0, items: [], abandoned: [], vote: null, itemsBy: [], abandonedBy: [] });
   pile.gold += gold;
   pile.items.push(...items);
+  pile.itemsBy.push(...items.map(() => droppedBy));
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +152,10 @@ export function tickLoot(world: World) {
     if (voters.length === 0) continue;
 
     if (pile.gold > 0) splitGold(world, room, pile);
-    if (!pile.vote && pile.items.length) pile.vote = { item: pile.items.shift()!, votes: {}, startedAt: world.time };
+    if (voters.length === 1) autoPickup(world, room, voters[0]);
+    if (!pile.vote && pile.items.length) {
+      pile.vote = { item: pile.items.shift()!, votes: {}, startedAt: world.time, droppedBy: pile.itemsBy.shift() ?? null };
+    }
 
     const vote = pile.vote;
     if (vote) {
@@ -166,6 +175,38 @@ export function tickLoot(world: World) {
     }
     if (pile.gold === 0 && pile.items.length === 0 && pile.abandoned.length === 0 && !pile.vote) delete world.piles[room];
   }
+}
+
+/**
+ * Alone in a room, you just take everything you can carry, except what you dropped yourself
+ * (the last person to drop an item is remembered, so it can change hands and be dropped again).
+ */
+export function autoPickup(world: World, room: number, h: Hero) {
+  const pile = world.piles[room];
+  if (!pile || world.encounters[room] || monstersIn(world, room).length > 0) return;
+  const mine = (by: string | null | undefined) => by === h.id;
+  if (pile.vote && !mine(pile.vote.droppedBy) && canTake(h, pile.vote.item)) resolveVote(world, room, pile, h.id);
+  for (const [list, by] of [[pile.items, pile.itemsBy], [pile.abandoned, pile.abandonedBy]] as const) {
+    for (let i = 0; i < list.length; ) {
+      if (mine(by[i]) || !canTake(h, list[i])) {
+        i++;
+        continue;
+      }
+      const [item] = list.splice(i, 1);
+      by.splice(i, 1);
+      take(world, room, h, item);
+    }
+  }
+}
+
+/** Give a floor item to a hero; gear they had on goes back on the floor as theirs. */
+function take(world: World, room: number, h: Hero, item: ItemId) {
+  const def = ITEMS[item];
+  const old = giveItem(h, item);
+  const verb = isGear(item) ? ['equip', 'equips'] : ['take', 'takes'];
+  for (const x of presentIn(world, room)) notify(world, x, x === h ? `You ${verb[0]} the ${def.name}.` : `${h.name} ${verb[1]} the ${def.name}.`);
+  // The piece it replaced goes on the floor, to be voted on like any other find.
+  if (old) addToPile(world, room, 0, [old], h.id);
 }
 
 function splitGold(world: World, room: number, pile: Pile) {
@@ -191,18 +232,13 @@ function resolveVote(world: World, room: number, pile: Pile, choice: string) {
   const vote = pile.vote!;
   const def = ITEMS[vote.item];
   pile.vote = null;
-  const present = presentIn(world, room);
   if (choice === LEAVE) {
     pile.abandoned.push(vote.item);
-    for (const h of present) notify(world, h, `Left the ${def.name} behind.`);
+    pile.abandonedBy.push(vote.droppedBy);
+    for (const h of presentIn(world, room)) notify(world, h, `Left the ${def.name} behind.`);
     return;
   }
-  const winner = world.heroes[choice];
-  const old = giveItem(winner, vote.item);
-  const verb = isGear(vote.item) ? ['equip', 'equips'] : ['take', 'takes'];
-  for (const h of present) notify(world, h, h === winner ? `You ${verb[0]} the ${def.name}.` : `${winner.name} ${verb[1]} the ${def.name}.`);
-  // The piece it replaced goes on the floor, to be voted on like any other find.
-  if (old) addToPile(world, room, 0, [old]);
+  take(world, room, world.heroes[choice], vote.item);
 }
 
 /** Returns an error message or null. */
@@ -217,13 +253,6 @@ export function castVote(world: World, h: Hero, choice: string): string | null {
   return null;
 }
 
-/** True while an unresolved vote in your room keeps you from leaving. */
-export function lockedByVote(world: World, h: Hero): boolean {
-  if (h.pos.kind !== 'room' || !isConscious(h)) return false;
-  const pile = world.piles[h.pos.room];
-  return !!pile && (!!pile.vote || pile.items.length > 0) && !world.encounters[h.pos.room] && monstersIn(world, h.pos.room).length === 0;
-}
-
 export function claimAbandoned(world: World, h: Hero, index: number): string | null {
   if (h.pos.kind !== 'room' || !isConscious(h) || h.encounter !== null) return 'Not now.';
   const pile = world.piles[h.pos.room];
@@ -231,6 +260,7 @@ export function claimAbandoned(world: World, h: Hero, index: number): string | n
   if (!pile || item === undefined) return 'Nothing there.';
   pile.abandoned.splice(index, 1);
   pile.items.push(item);
+  pile.itemsBy.push(pile.abandonedBy.splice(index, 1)[0] ?? null);
   return null;
 }
 
@@ -239,7 +269,7 @@ export function dropItem(world: World, h: Hero, index: number): string | null {
   if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
   const item = takeItem(h, index);
   if (!item) return 'Nothing there.';
-  addToPile(world, h.pos.room, 0, [item]);
+  addToPile(world, h.pos.room, 0, [item], h.id);
   return null;
 }
 
@@ -249,7 +279,7 @@ export function unequip(world: World, h: Hero, slot: GearSlot): string | null {
   const item = h[slot];
   if (!item) return 'Nothing there.';
   h[slot] = null;
-  addToPile(world, h.pos.room, 0, [item]);
+  addToPile(world, h.pos.room, 0, [item], h.id);
   return null;
 }
 
@@ -262,7 +292,7 @@ export function dropEverything(world: World, h: Hero) {
     if (h[slot]) items.push(h[slot]!);
     h[slot] = null;
   }
-  addToPile(world, room, h.gold, items);
+  addToPile(world, room, h.gold, items, h.id);
   h.gold = 0;
 }
 

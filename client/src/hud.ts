@@ -23,10 +23,6 @@ export class Hud {
       const id = $('btn-mend').dataset.target;
       if (id && !$('btn-mend').classList.contains('cooling')) net.intent({ type: 'fieldMend', target: id });
     });
-    $('btn-dig').addEventListener('click', () => {
-      const c = Number($('btn-dig').dataset.corridor);
-      if (!Number.isNaN(c)) net.intent({ type: 'dig', corridor: c });
-    });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
       if (id) net.intent({ type: 'revive', target: id });
@@ -36,11 +32,10 @@ export class Hud {
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
       if (e.code === 'KeyE' && !$('btn-escape').hidden) $('btn-escape').click();
-      if (e.code === 'KeyG' && !$('btn-dig').hidden) $('btn-dig').click();
       const dir = ({ KeyW: 'north', KeyA: 'west', KeyS: 'south', KeyD: 'east' } as const)[e.code as 'KeyW'];
       if (dir) {
         const room = roomInDir(net.cur, dir);
-        if (room !== null) net.intent({ type: 'goto', room });
+        if (room !== null) net.intent({ type: 'goto', room, step: true });
       }
       if (e.code === 'KeyM' && !$('btn-mend').hidden) $('btn-mend').click();
       if (e.code === 'Space') {
@@ -122,16 +117,7 @@ export class Hud {
       reviveBtn.innerHTML = you.channel?.kind === 'revive' ? `Reviving ${escape(downed.name)}…` : `✚ Revive ${escape(downed.name)} (${REVIVE_CHANNEL}s) <kbd>R</kbd>`;
     }
 
-    // Rubble in a tunnel leading out of your room.
     const free = !view.encounter && you.downedAt === null && !you.dead && !you.extracted && you.pos.kind === 'room';
-    const rubble = free ? view.corridors.find((c) => c.collapsed && (c.a === here || c.b === here)) : undefined;
-    const digBtn = $('btn-dig');
-    digBtn.hidden = !rubble || !!you.channel;
-    if (rubble) {
-      const other = view.rooms.find((r) => r.id === (rubble.a === here ? rubble.b : rubble.a));
-      digBtn.dataset.corridor = String(rubble.id);
-      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime}s) <kbd>G</kbd>`;
-    }
 
     // Lampbearer: mend the most hurt person here between fights.
     const mendBtn = $('btn-mend');
@@ -151,12 +137,14 @@ export class Hud {
       mendBtn.innerHTML = wait > 0 ? `✚ Mend ready in ${wait}s` : `✚ Mend ${escape(patients[0].name)} (+8) <kbd>M</kbd>`;
     }
 
-    // Channel progress (reviving, digging)
+    // Channel progress (reviving, digging), or else your Speed timer and what happens when it runs out.
     const ch = $('channel');
-    ch.hidden = !you.channel || you.channel.kind === 'event'; // events show progress in their own panel
+    ch.hidden = you.channel?.kind === 'event' || (!you.channel && !free); // events show progress in their own panel
     if (you.channel && you.channel.kind !== 'event') {
       const left = Math.max(0, you.channel.until - view.time);
-      ch.textContent = `${you.channel.kind === 'dig' ? 'Digging' : 'Reviving'}… ${left.toFixed(1)}s (move to cancel)`;
+      ch.textContent = `${you.channel.kind === 'dig' ? 'Digging' : 'Reviving'}… ${left.toFixed(1)}s (walk elsewhere to cancel)`;
+    } else if (!you.channel && free) {
+      ch.textContent = `⏱ ${Math.max(0, you.turnAt - time).toFixed(1)}s · ${turnPlan(view)}`;
     }
 
     // The way out
@@ -227,8 +215,20 @@ function locationText(view: PlayerView): string {
   const pos = view.you.pos;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (pos.kind === 'room') return name(pos.room);
-  const len = view.corridors.find((c) => c.id === pos.corridor)?.length ?? 0;
-  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil(len - pos.t))}s)`;
+  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil(pos.dur - pos.t))}s)`;
+}
+
+/** What you'll do when your timer runs out (out of combat, standing in a room). */
+function turnPlan(view: PlayerView): string {
+  const you = view.you;
+  const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
+  if (you.queuedEvent) return 'then you start on the event';
+  const next = you.path[0];
+  if (next === undefined) return 'pick a direction, or you wait a turn';
+  const here = you.pos.kind === 'room' ? you.pos.room : -1;
+  const rubble = view.corridors.some((c) => c.collapsed && ((c.a === here && c.b === next) || (c.b === here && c.a === next)));
+  const dig = you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
+  return rubble ? `then you dig toward ${name(next)} (${dig}s)` : `arriving in ${name(next)}`;
 }
 
 /**
