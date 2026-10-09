@@ -1,7 +1,7 @@
-import { CLASSES, type ClassId } from '../content/classes';
+import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
 import { ESCALATION } from '../content/enemies';
-import { FIELD_MEND } from '../content/abilities';
+import { CLASS_RULES, FIELD_MEND } from '../content/abilities';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
@@ -13,7 +13,8 @@ import {
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
 import { notify } from './notify';
-import { speedOf, type SpeedMod } from './speed';
+import { fmtSpeed, speedOf, type SpeedMod } from './speed';
+import { checkSkill, hearsToll, tickBrew, useSkill } from './skills';
 import {
   autoPickup, castVote, claimAbandoned, votersIn, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
 } from './loot';
@@ -84,6 +85,18 @@ export interface Hero {
   knownEvents: Record<number, EventKind>;
   /** Lampbearer: game time when the out-of-combat Mend is ready again. */
   fieldMendAt: number;
+  /** Bellringer/Zealot/Alchemist: game time when their out-of-combat skill (Toll/Sins/Elixir) is ready again. */
+  skillReadyAt: number;
+  /** That skill, picked and waiting for the timer to run out (like an event choice). */
+  queuedSkill: { target: string | null } | null;
+  /** Elixir: this hero's next item has double effect. */
+  elixir: boolean;
+  /** Alchemist: when the next brew is done. */
+  brewAt: number;
+  /** Undertaker: gold carried for fallen allies (hero id → gold). It reaches their stash if this hero escapes. */
+  bodies: Record<string, number>;
+  /** Dead heroes: gold an Undertaker carried out for them. */
+  legacy: number;
   items: ItemId[];
   /** Temporary or run-long changes to Speed from events (see speed.ts). */
   speedMods: SpeedMod[];
@@ -105,6 +118,12 @@ export interface Hero {
   fate: string | null;
   /** Most recent time this hero walked into the rendezvous (everyone starts there, so only returns count). */
   arrivedAt: number | null;
+}
+
+export interface Toll {
+  by: string;
+  room: number;
+  time: number;
 }
 
 export interface Sighting {
@@ -157,6 +176,8 @@ export interface World {
   escalation: boolean;
   events: Record<number, RoomEvent>;
   villagers: Record<string, Villager>;
+  /** Bells tolled (newest last): everyone hears them. */
+  tolls: Toll[];
   /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
   objectives: { altars: number; villagers: number };
   /** Counters for the results screen and the balance simulator. */
@@ -187,7 +208,9 @@ export type Intent =
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
   /** Lampbearer only: heal someone in your room outside a fight. */
-  | { type: 'fieldMend'; target: string };
+  | { type: 'fieldMend'; target: string }
+  /** Bellringer Toll / Zealot Take Their Sins / Alchemist Elixir, out of a fight: happens when your timer runs out. */
+  | { type: 'skill'; target?: string };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
@@ -209,7 +232,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
-    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 },
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [],
     nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
@@ -217,6 +240,13 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
   if (opts.events ?? opts.monsters !== false) spawnEvents(world);
   if (opts.loot !== false) spawnInitialLoot(world);
   return world;
+}
+
+/** The class colour, unless another hero already wears it (two of the same class): then a spare one. */
+function freeColor(world: World, cls: ClassId): string {
+  const used = new Set(Object.values(world.heroes).map((h) => h.color));
+  if (!used.has(CLASSES[cls].color)) return CLASSES[cls].color;
+  return SPARE_COLORS.find((c) => !used.has(c)) ?? CLASSES[cls].color;
 }
 
 export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean }): Hero {
@@ -254,7 +284,13 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     leading: null,
     knownEvents: {},
     fieldMendAt: 0,
-    color: CLASSES[opts.cls].color,
+    skillReadyAt: 0,
+    queuedSkill: null,
+    elixir: false,
+    brewAt: world.time + CLASS_RULES.brewEvery,
+    bodies: {},
+    legacy: 0,
+    color: freeColor(world, opts.cls),
     pos: { kind: 'room', room: d.entrance },
     path: [],
     heading: null,
@@ -285,7 +321,9 @@ export function step(world: World, dt: number): void {
     if (hero.channel || !isConscious(hero) || hero.encounter !== null) {
       startTimer(world, hero);
       hero.queuedEvent = null;
+      hero.queuedSkill = null;
     }
+    if (hero.cls === 'alchemist') tickBrew(world, hero);
   }
   tickDowned(world);
   tickCombat(world);
@@ -346,6 +384,14 @@ export function extractHero(world: World, h: Hero) {
   h.channel = null;
   h.fate = `escaped with ${h.gold} gold`;
   chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
+  // Mortician: the fallen's gold goes home with the Undertaker, and counts for them.
+  for (const [id, gold] of Object.entries(h.bodies)) {
+    const dead = world.heroes[id];
+    if (!dead) continue;
+    dead.legacy += gold;
+    chronicle(world, `${h.name} carried ${dead.name}'s ${gold} gold home for them.`);
+  }
+  h.bodies = {};
   // Only those who saw it happen know they left.
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
@@ -408,6 +454,16 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (t !== hero) notify(world, t, `${hero.name} mends your wounds (+${t.hp - before}).`);
       return;
     }
+    case 'skill': {
+      const err = checkSkill(world, hero, intent.target ?? null);
+      if (err) return notify(world, hero, err);
+      hero.channel = null;
+      hero.queuedEvent = null;
+      hero.queuedSkill = { target: intent.target ?? null };
+      hero.path = [];
+      hero.heading = null;
+      return;
+    }
     case 'extract':
       if (hero.pos.kind !== 'room' || hero.pos.room !== world.dungeon.exit) return notify(world, hero, 'You must be at the rendezvous.');
       if (world.time < EXIT_OPENS_AT) return notify(world, hero, 'The exit is not open yet.');
@@ -426,6 +482,7 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.heading = null;
       hero.channel = null;
       hero.queuedEvent = null;
+      hero.queuedSkill = null;
       return;
     case 'turnBack':
       hero.channel = null;
@@ -438,6 +495,7 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (intent.step ? stepTo(world, hero, intent.room) : goto(world, hero, intent.room)) {
         hero.channel = null;
         hero.queuedEvent = null;
+        hero.queuedSkill = null;
         hero.heading = intent.room;
       }
       else if (!intent.step && hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
@@ -482,9 +540,9 @@ function timerDone(world: World, hero: Hero): boolean {
   return world.time >= hero.turnAt - 1e-6;
 }
 
-/** Seconds of digging to clear rubble. */
-export function digTime(hero: Hero): number {
-  return hero.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
+/** Seconds of digging to clear rubble. The Undertaker needs only one turn of their own. */
+export function digTime(hero: Hero, now: number): number {
+  return hero.cls === 'undertaker' ? speedOf(hero, now) : ESCALATION.digTime;
 }
 
 /** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
@@ -495,6 +553,9 @@ function endIdleTurn(world: World, hero: Hero) {
     const err = chooseEvent(world, hero, choice);
     if (err) notify(world, hero, err);
   }
+  const skill = hero.queuedSkill;
+  hero.queuedSkill = null;
+  if (skill) useSkill(world, hero, skill.target);
   if (!hero.channel) startTimer(world, hero, hero.turnAt);
 }
 
@@ -524,8 +585,9 @@ function advance(world: World, hero: Hero, dt: number) {
         }
         // Digging starts when the timer runs out; the walk carries on once the way is clear.
         if (!timerDone(world, hero)) return;
-        hero.channel = { kind: 'dig', corridor: c.id, until: world.time + digTime(hero) };
-        notify(world, hero, `You start digging… (${digTime(hero)}s; walking elsewhere stops it)`);
+        const dig = digTime(hero, world.time);
+        hero.channel = { kind: 'dig', corridor: c.id, until: world.time + dig };
+        notify(world, hero, `You start digging… (${fmtSpeed(dig)}; walking elsewhere stops it)`);
         return;
       }
       hero.path.shift();
@@ -590,7 +652,7 @@ function updateKnowledge(world: World) {
   const heroes = Object.values(world.heroes);
   for (const a of heroes) {
     for (const b of heroes) {
-      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && canSee(world, a, b)) {
+      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b))) {
         a.lastKnown[b.id] = {
           pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, affliction: b.affliction,
         };
@@ -687,8 +749,9 @@ function goto(world: World, hero: Hero, target: number): boolean {
   // In a corridor: compare continuing forward vs turning back.
   const fwd = shortestPath(world, hero, pos.to, target);
   const back = shortestPath(world, hero, pos.from, target);
-  const fwdCost = fwd ? pos.dur - pos.t + pathCost(d, pos.to, fwd) : Infinity;
-  const backCost = back ? pos.t + pathCost(d, pos.from, back) : Infinity;
+  const step = speedOf(hero, world.time);
+  const fwdCost = fwd ? pos.dur - pos.t + step * fwd.length : Infinity;
+  const backCost = back ? pos.t + step * back.length : Infinity;
   if (fwdCost === Infinity && backCost === Infinity) return false;
   if (backCost < fwdCost) {
     turnAround(world, hero);
@@ -699,22 +762,14 @@ function goto(world: World, hero: Hero, target: number): boolean {
   return true;
 }
 
-function pathCost(d: Dungeon, start: number, path: number[]): number {
-  let cost = 0;
-  let cur = start;
-  for (const next of path) {
-    cost += corridorBetween(d, cur, next)!.length;
-    cur = next;
-  }
-  return cost;
-}
-
 /**
  * Dijkstra over corridors the hero knows. Returns rooms to visit after `start`
  * (empty if start === target), or null if unreachable.
  */
 export function shortestPath(world: World, hero: Hero, start: number, target: number): number[] | null {
   const d = world.dungeon;
+  // Every tunnel takes this hero one turn of their own Speed.
+  const walk = speedOf(hero, world.time);
   const dist = new Map<number, number>([[start, 0]]);
   const prev = new Map<number, number>();
   const done = new Set<number>();
@@ -737,8 +792,8 @@ export function shortestPath(world: World, hero: Hero, start: number, target: nu
       // Detour around rooms you know hold monsters (but never refuse to go where you clicked).
       const danger = n === target ? 0 : (hero.knownThreat[n] ?? 0) * THREAT_DETOUR;
       // Known rubble gets dug through on the way, which takes a while.
-      const dig = hero.knownCollapsed.includes(c.id) ? digTime(hero) : 0;
-      const nd = best + c.length + danger + dig;
+      const dig = hero.knownCollapsed.includes(c.id) ? digTime(hero, world.time) : 0;
+      const nd = best + walk + danger + dig;
       if (nd < (dist.get(n) ?? Infinity)) {
         dist.set(n, nd);
         prev.set(n, cur);

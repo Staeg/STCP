@@ -21,3 +21,4 @@ export * from './sim/events';
 export * from './content/events';
 export * from './stash';
 export * from './lobby';
+export * from './sim/skills';

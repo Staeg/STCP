@@ -73,8 +73,8 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
   });
 
-  it('ties go to heroes before monsters, and to the leftmost hero (back rank first) before the rightmost', () => {
-    // Cutthroat (front) in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Hexer (back) and the Acolyte.
+  it('ties go to heroes before monsters, and to the leftmost hero (equal Speed: join order) before the rightmost', () => {
+    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Hexer and the Acolyte.
     const { world, ids, room, monsters } = arena(['cutthroat', 'hexer'], ['acolyte']);
     world.heroes.h0.weapon = 'shortsword';
     world.heroes.h0.armor = 'jerkin';
@@ -85,11 +85,11 @@ describe('encounters', () => {
     expect(enc.next.h0).toBe(enc.next[monsters[0].id]);
     untilTurn(world, room, monsters[0].id);
     const order = enc.events.filter((e) => e.kind === 'info' && e.text.includes('hesitates')).map((e) => e.actor);
-    expect(order).toEqual(['h1', 'h0']); // Hexer (shown leftmost) first
+    expect(order).toEqual(['h0', 'h1']); // same Speed, so the Cutthroat (joined first, shown leftmost) goes first
     const firstMonster = enc.events.findIndex((e) => e.actor === monsters[0].id);
-    const lastHero = enc.events.map((e) => e.actor).lastIndexOf('h0');
+    const lastHero = enc.events.map((e) => e.actor).lastIndexOf('h1');
     expect(firstMonster).toBeGreaterThan(lastHero);
-    expect(buildView(world, 'h0').encounter!.heroes.map((u) => u.id)).toEqual(['h1', 'h0']);
+    expect(buildView(world, 'h0').encounter!.heroes.map((u) => u.id)).toEqual(['h0', 'h1']);
   });
 
   it('an undecided hero falls back on the next ability off cooldown, and braces only if none is ready', () => {

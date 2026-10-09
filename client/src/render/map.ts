@@ -259,6 +259,22 @@ export class MapRenderer {
       ctx.strokeRect(this.sx(dest.x) - size / 2 - 4 - i * 3, this.sy(dest.y) - size / 2 - 4 - i * 3, size + 8 + i * 6, size + 8 + i * 6);
     });
 
+    // A bell was tolled: rings ripple out from that room in the Bellringer's colour while it's heard.
+    for (const toll of view.tolls) {
+      const room = rooms.get(toll.room);
+      if (!room) continue;
+      ctx.strokeStyle = colorOf.get(toll.by) ?? '#d98a3a';
+      ctx.lineWidth = 3;
+      for (let k = 0; k < 3; k++) {
+        const phase = ((t * 0.8 + k / 3) % 1);
+        ctx.globalAlpha = 0.8 * (1 - phase);
+        ctx.beginPath();
+        ctx.arc(this.sx(room.x), this.sy(room.y), size / 2 + 6 + phase * size * 1.6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // Heroes: ghosts first, then live allies, then you on top.
     const r = Math.max(6, 9 * this.x.s);
     const ordered = [...view.allies].sort((a, b) => Number(a.live) - Number(b.live));

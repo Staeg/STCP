@@ -261,6 +261,8 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
         notify(world, h, 'Warmth spreads through you. (+15 HP)');
       } else if (h.cls === 'hexer') {
         notify(world, h, 'The whispers try to take hold, but you know their tricks.');
+      } else if (h.cls === 'zealot') {
+        notify(world, h, 'The whispers find nothing in you they can break.');
       } else {
         afflict(world, h, rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'the well');
       }
@@ -445,7 +447,8 @@ export function tickStress(world: World, dt: number) {
     if (!isConscious(h)) continue;
     if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
     else if (h.light < LIGHT_DIM && !h.items.includes('catseye')) addStress(h, STRESS.dimPerSec * dt);
-    if (h.stress < 100) continue;
+    // The Zealot never breaks: stress just stays at 100 (and makes them hit harder).
+    if (h.stress < 100 || h.cls === 'zealot') continue;
     if (!h.affliction) {
       afflict(world, h, world.rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'stress');
       h.stress = STRESS.afterBreak;

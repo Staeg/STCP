@@ -1,5 +1,5 @@
 import {
-  ABILITIES, AFFLICTION_RULES, AFFLICTIONS, fmtSpeed, ITEMS, readyAbilities,
+  ABILITIES, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, ITEMS, readyAbilities,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -35,6 +35,8 @@ export class CombatUi {
   private floaters: { unit: string; text: string; cls: string; at: number }[] = [];
   private flashes = new Map<string, number>();
   private prevMonsters = new Map<string, CombatUnitView>();
+  /** Where each monster stood last render, so the slain stay in place until their death plays. */
+  private prevSlot = new Map<string, number>();
   private timers: number[] = [];
   private shownLog: string[] = [];
   private lastHtml = '';
@@ -70,6 +72,7 @@ export class CombatUi {
     this.onNewEvents(enc);
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
+    if (enc.risen) this.prevMonsters.set(enc.risen.id, enc.risen);
   }
 
   // ---- Replay of each turn's events ----
@@ -159,8 +162,14 @@ export class CombatUi {
     for (const h of enc.heroes) {
       if (h.choiceTarget && h.choiceTarget !== h.id) (this.aimedBy.get(h.choiceTarget) ?? this.aimedBy.set(h.choiceTarget, []).get(h.choiceTarget)!).push(h.color!);
     }
-    const heroes = enc.heroes;
-    const monsters = [...enc.monsters, ...this.pending.dying.values()].sort((a, b) => (a.rank === b.rank ? 0 : a.rank === 'front' ? -1 : 1));
+    // The risen stand right of the heroes, nearest the enemy (and so take the hits).
+    const dyingRisen = [...this.pending.dying.values()].filter((u) => u.kind === 'risen' && u.id !== enc.risen?.id);
+    const heroes = [...enc.heroes, ...(enc.risen ? [enc.risen] : []), ...dyingRisen];
+    const monsters = [...enc.monsters];
+    for (const d of this.pending.dying.values()) {
+      if (d.kind === 'monster') monsters.splice(Math.min(this.prevSlot.get(d.id) ?? monsters.length, monsters.length), 0, d);
+    }
+    this.prevSlot = new Map(monsters.map((m, i) => [m.id, i]));
     const stage = `<div class="cb-stage">
       <div class="cb-side heroes">${heroes.map((u) => this.unitHtml(u, valid, you.id)).join('')}</div>
       <div class="cb-vs">⚔</div>
@@ -212,10 +221,20 @@ export class CombatUi {
         <div class="cb-desc">${esc(desc)}</div></button>`;
     };
     const anyDowned = !!enc?.heroes.some((h) => h.downed);
+    const ability = (i: number) => {
+      const ab = abilities[i];
+      const action = `a${i}` as CombatAction;
+      const opt = enc?.yourOptions[action];
+      const blocked = !!opt && (opt.blocked !== null || (this.needsTarget(view, action) && opt.targets.length === 0));
+      const cd = enc ? you.cooldowns[ab.id] ?? 0 : 0;
+      // The cooldown already says why; otherwise explain what's stopping it.
+      const why = opt?.blocked && cd === 0 ? ` Not now: ${opt.blocked}` : '';
+      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown) + why, cd, blocked);
+    };
     const actions = `<div class="cb-actions">
-      ${abilities.map((ab, i) => btn(`a${i}` as CombatAction, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown), enc ? you.cooldowns[ab.id] ?? 0 : 0)).join('')}
+      ${abilities.map((_, i) => ability(i)).join('')}
       ${btn('revive', 'R', 'Revive', 'Get a downed ally back up (30% HP).', 0, !anyDowned)}
-      ${btn('flee', 'F', 'Flee', '70% chance to escape to the previous room. +5 stress.')}
+      ${btn('flee', 'F', 'Flee', `${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +5 stress.`)}
       ${btn('brace', 'B', 'Brace', `Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)`)}
     </div>`;
 
@@ -230,7 +249,8 @@ export class CombatUi {
    */
   private itemsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
     const chosen = enc?.yourChoice ?? null;
-    const btns = view.you.items.map((it, i) => {
+    const elixir = view.you.elixir ? '<span class="elixir" title="Elixir: your next item has double effect.">⚗×2</span>' : '';
+    const btns = elixir + view.you.items.map((it, i) => {
       const def = ITEMS[it];
       if (!def.combat && !def.field) return '';
       if (!enc) {
@@ -252,7 +272,7 @@ export class CombatUi {
     const dying = this.pending.dying.has(u.id);
     const pct = (hp / u.maxHp) * 100;
     const flash = now - (this.flashes.get(u.id) ?? -1e9) < 260;
-    const color = u.kind === 'hero' ? u.color : '#9a4a3a';
+    const color = u.kind === 'hero' ? u.color : u.kind === 'risen' ? '#8fa39a' : '#9a4a3a';
     const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed) : spriteUrl(u.enemy!, undefined, dying);
     const st = u.st;
     const rounds = (n: number) => `${n} more turn${n === 1 ? '' : 's'} of theirs`;
@@ -261,7 +281,10 @@ export class CombatUi {
     const icons = [
       aff && icon('⚠', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
       st.stun && icon('★', 'Stunned: skips their next action.'),
-      st.bleed && icon(`🩸${st.bleed.rounds}`, `Bleeding: takes ${st.bleed.dmg} damage at the end of each of their turns (${rounds(st.bleed.rounds)}). Mend cures it.`),
+      st.bleed && icon(`🩸${st.bleed.length > 1 ? `×${st.bleed.length}` : st.bleed[0].rounds}`,
+        `Bleeding: ${st.bleed.map((b) => `${b.dmg} damage for ${rounds(b.rounds)}`).join('; ')}, each at the end of their turns. Mend or a Bandage cures it.`),
+      st.acid && icon('☣', `Acid: takes +2 from every hit, Bleed included (${rounds(st.acid)}).`),
+      u.kind === 'hero' && (u.stress ?? 0) > 0 && icon(`✶${u.stress}`, `Stress ${u.stress}/100.`),
       st.mark && icon('◎', `Marked: Backstab crits it for double damage (${rounds(st.mark)}).`),
       st.block && icon(`⛨${st.block}`, `Block ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
       st.weak && icon('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
@@ -274,9 +297,11 @@ export class CombatUi {
       .filter((f) => f.unit === u.id && now - f.at < 1100)
       .map((f) => `<div class="float ${f.cls}" style="animation-delay:-${now - f.at}ms">${esc(f.text)}</div>`)
       .join('');
-    const classes = ['cb-unit', u.kind, u.rank, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
+    const classes = ['cb-unit', u.kind, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
-    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.kind === 'hero' ? (u.choice ? '' : 'choosing…') : u.rank;
+    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s`
+      : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
+      : u.kind === 'risen' ? `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left` : '';
     // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.
     const timed = u.nextIn !== null && !dying;
     const fill = timed ? Math.max(0, Math.min(1, 1 - u.nextIn! / u.speed)) : 0;
@@ -319,17 +344,8 @@ export class CombatUi {
       if (def.target === 'downed') return enc.heroes.filter((h) => h.downed).map((h) => h.id);
       return [];
     }
-    const idx = Number(action.slice(1));
-    const ab = ABILITIES[view.you.cls][idx];
-    if (!ab) return [];
-    const front = enc.monsters.filter((m) => m.rank === 'front');
-    switch (ab.target) {
-      case 'enemy': return enc.monsters.map((m) => m.id);
-      case 'enemyFront': return (front.length ? front : enc.monsters).map((m) => m.id);
-      case 'ally': return allies.map((a) => a.id);
-      case 'otherAlly': return allies.filter((a) => a.id !== view.you.id).map((a) => a.id);
-      default: return [];
-    }
+    // Abilities: the server says who each can be aimed at.
+    return enc.yourOptions[action]?.targets ?? [];
   }
 
   private needsTarget(view: PlayerView, action: CombatAction) {
@@ -340,7 +356,7 @@ export class CombatUi {
     }
     if (!action.startsWith('a')) return false;
     const ab = ABILITIES[view.you.cls][Number(action.slice(1))];
-    return ['enemy', 'enemyFront', 'ally', 'otherAlly'].includes(ab.target);
+    return ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
   }
 
   private pick(action: CombatAction, item?: number) {
@@ -405,6 +421,8 @@ export class CombatUi {
     if (action.startsWith('a')) {
       const ab = ABILITIES[view.you.cls][Number(action.slice(1))];
       if ((view.you.cooldowns[ab.id] ?? 0) > 0) return false;
+      const opt = enc.yourOptions[action];
+      if (opt?.blocked || (this.needsTarget(view, action) && !opt?.targets.length)) return false;
     }
     if (action === 'revive') return enc.heroes.some((h) => h.downed);
     if (action === 'item') {

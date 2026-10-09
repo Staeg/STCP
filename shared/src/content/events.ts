@@ -10,7 +10,7 @@ export interface AfflictionDef {
 
 export const AFFLICTIONS: Record<AfflictionId, AfflictionDef> = {
   selfish: { id: 'selfish', name: 'Selfish', desc: 'Always votes to take loot for themself. After 10s, votes go ahead without them.' },
-  fearful: { id: 'fearful', name: 'Fearful', desc: 'Each combat turn, 25% chance to try to flee (70% to escape, +5 stress) instead of the chosen action.' },
+  fearful: { id: 'fearful', name: 'Fearful', desc: 'Each combat turn, 25% chance to try to flee (50% to escape, +5 stress) instead of the chosen action.' },
   paranoid: {
     id: 'paranoid', name: 'Paranoid',
     desc: "Refuses allies' Mend, Vigil, Guard, Blood Pact healing and items (Smelling Salts still work).",

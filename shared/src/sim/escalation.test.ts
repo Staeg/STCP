@@ -115,7 +115,7 @@ describe('escalation', () => {
     expect(h.knownCollapsed).toContain(c.id);
     expect(h.messages.some((m) => /Rubble/.test(m.text))).toBe(true);
     expect(h.channel?.kind).toBe('dig');
-    run(world, ESCALATION.digTimeWarden + 6.5);
+    run(world, ESCALATION.digTime + 6.5);
     expect(h.pos).toEqual({ kind: 'room', room: far });
   });
 

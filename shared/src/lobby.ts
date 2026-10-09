@@ -76,6 +76,7 @@ export class Lobby {
 
   start(rng: Rng): string | null {
     if (this.members.some((m) => !m.cls || !m.ready)) return 'Everyone must pick a class and ready up.';
+    // Players may share a class; bots get random classes no player picked.
     const taken = new Set(this.members.map((m) => m.cls));
     const freeClasses = rng.shuffle(CLASS_IDS.filter((c) => !taken.has(c)));
     const botNames = rng.shuffle(BOT_NAMES);
@@ -100,7 +101,7 @@ export class Lobby {
       if (this.speed === 1) {
         for (const m of this.members) {
           const h = this.game.world.heroes[m.id];
-          if (h) this.stash.recordRun(m.name, h.extracted, h.gold);
+          if (h) this.stash.recordRun(m.name, h.extracted, h.gold, h.legacy);
         }
       }
       this.opts.log?.(`[${this.code}] run over (${this.game.world.phase})`);
@@ -181,7 +182,6 @@ export class LobbyManager {
         break;
       case 'pickClass':
         if (lobby.state !== 'lobby') return;
-        if (msg.cls && lobby.members.some((m) => m !== member && m.cls === msg.cls)) return err('Someone already picked that class.');
         member.cls = msg.cls;
         if (!msg.cls) member.ready = false;
         break;

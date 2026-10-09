@@ -1,4 +1,7 @@
-import { AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, CLASSES, ESCALATION, EVENT_SEEDING, REVIVE_CHANNEL, TIER_TEXT, type PlayerView } from '@stcp/shared';
+import {
+  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, CLASSES, ESCALATION, EVENT_SEEDING,
+  FIELD_SKILLS, fieldSkillOf, REVIVE_CHANNEL, TIER_TEXT, type PlayerView,
+} from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
@@ -23,6 +26,12 @@ export class Hud {
       const id = $('btn-mend').dataset.target;
       if (id && !$('btn-mend').classList.contains('cooling')) net.intent({ type: 'fieldMend', target: id });
     });
+    // Out-of-combat class skills (Toll / Take Their Sins / Elixir): one button per possible target.
+    $('skills').addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest('button[data-skill]') as HTMLButtonElement | null;
+      if (!b || b.classList.contains('cooling')) return;
+      net.intent(b.dataset.target ? { type: 'skill', target: b.dataset.target } : { type: 'skill' });
+    });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
       if (id) net.intent({ type: 'revive', target: id });
@@ -38,6 +47,7 @@ export class Hud {
         if (room !== null) net.intent({ type: 'goto', room, step: true });
       }
       if (e.code === 'KeyM' && !$('btn-mend').hidden) $('btn-mend').click();
+      if (e.code === 'KeyM' && !$('skills').hidden) ($('skills').querySelector('button[data-skill]') as HTMLButtonElement | null)?.click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -137,6 +147,8 @@ export class Hud {
       mendBtn.innerHTML = wait > 0 ? `✚ Mend ready in ${wait}s` : `✚ Mend ${escape(patients[0].name)} (+8) <kbd>M</kbd>`;
     }
 
+    renderSkills(view, free, here);
+
     // Channel progress (reviving, digging), or else your Speed timer and what happens when it runs out.
     const ch = $('channel');
     ch.hidden = you.channel?.kind === 'event' || (!you.channel && !free); // events show progress in their own panel
@@ -215,7 +227,9 @@ function locationText(view: PlayerView): string {
   const pos = view.you.pos;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (pos.kind === 'room') return name(pos.room);
-  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil(pos.dur - pos.t))}s)`;
+  // Seconds left at your own pace (escorting a villager slows you down).
+  const rate = view.leading ? EVENT_SEEDING.villagerSpeed : 1;
+  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil((pos.dur - pos.t) / rate))}s)`;
 }
 
 /** What you'll do when your timer runs out (out of combat, standing in a room). */
@@ -223,12 +237,18 @@ function turnPlan(view: PlayerView): string {
   const you = view.you;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (you.queuedEvent) return 'then you start on the event';
+  const skill = fieldSkillOf(you);
+  if (you.queuedSkill && skill) {
+    const t = you.queuedSkill.target;
+    const who = !t || !FIELD_SKILLS[skill].targeted ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
+    return `then you use ${FIELD_SKILLS[skill].name}${who}`;
+  }
   const next = you.path[0];
   if (next === undefined) return 'pick a direction, or you wait a turn';
   const here = you.pos.kind === 'room' ? you.pos.room : -1;
   const rubble = view.corridors.some((c) => c.collapsed && ((c.a === here && c.b === next) || (c.b === here && c.a === next)));
-  const dig = you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime;
-  return rubble ? `then you dig toward ${name(next)} (${dig}s)` : `arriving in ${name(next)}`;
+  const dig = you.cls === 'undertaker' ? speedOf(you, view.time) : ESCALATION.digTime;
+  return rubble ? `then you dig toward ${name(next)} (${fmtSpeed(dig)})` : `arriving in ${name(next)}`;
 }
 
 /**
@@ -256,4 +276,35 @@ export function roomInDir(view: PlayerView | null, dir: Dir): number | null {
 
 function escape(s: string) {
   return s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** Toll (no target), or Take Their Sins / Elixir with a button per person here it can go to. */
+function renderSkills(view: PlayerView, free: boolean, here: number) {
+  const box = $('skills');
+  const you = view.you;
+  const skill = fieldSkillOf(you);
+  if (!skill || !free) {
+    box.hidden = true;
+    return;
+  }
+  const def = FIELD_SKILLS[skill];
+  const wait = Math.ceil(you.skillReadyAt - view.time);
+  const cooling = wait > 0;
+  const queued = !!you.queuedSkill;
+  type Option = { id: string | null; label: string };
+  let options: Option[] = [{ id: null, label: def.name }];
+  if (def.targeted) {
+    const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
+    options = skill === 'sins'
+      ? near.filter((a) => (a.stress ?? 0) > 0).map((a) => ({ id: a.id, label: `${def.name}: ${a.name} (${a.stress} stress)` }))
+      : [{ id: you.id, label: `${def.name}: yourself` }, ...near.map((a) => ({ id: a.id, label: `${def.name}: ${a.name}` }))];
+  }
+  box.hidden = options.length === 0;
+  const html = options.map((o, i) => {
+    const text = cooling ? `${def.name} ready in ${wait}s` : queued ? `${o.label} (when your timer runs out)` : o.label;
+    return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${cooling ? 'cooling' : ''}" title="${escape(def.desc)}">${escape(text)}${i === 0 && !cooling ? ' <kbd>M</kbd>' : ''}</button>`;
+  }).join('');
+  // Cooling down, the buttons all say the same thing: show just one.
+  const out = cooling ? html.split('</button>')[0] + '</button>' : html;
+  if (box.innerHTML !== out) box.innerHTML = out;
 }

@@ -98,18 +98,17 @@ export class Screens {
         <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span>
       </li>`);
     }
-    const taken = new Map(lobby.members.filter((m) => m.cls).map((m) => [m.cls!, m]));
+    // Classes can be shared; the card just says who else picked it.
     const cards = CLASS_IDS.map((id) => {
       const c = CLASSES[id];
-      const owner = taken.get(id);
-      const mine = owner?.id === lobby.youId;
-      const disabled = owner && !mine ? 'disabled' : '';
-      return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" ${disabled} style="--cls:${c.color}">
+      const mine = you.cls === id;
+      const others = lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId);
+      return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
         <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <div class="class-name">${c.name}</div>
         <div class="muted" title="Speed: seconds between turns in a fight, and to walk a tunnel. Lower is faster.">${c.role} · ${c.maxHp} HP · Speed ${c.speed}s</div>
         <div class="blurb">${c.blurb}</div>
-        ${owner && !mine ? `<div class="muted">taken by ${esc(owner.name)}</div>` : ''}
+        ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
       </button>`;
     }).join('');
     // Solo: no one to wait for, so Descend readies you up itself.

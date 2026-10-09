@@ -42,8 +42,11 @@ export class Stash {
     return r ? { gold: r.gold, runs: r.runs, escapes: r.escapes, best: r.best } : { gold: 0, runs: 0, escapes: 0, best: 0 };
   }
 
-  /** Record one finished run for a player. */
-  recordRun(name: string, escaped: boolean, gold: number) {
+  /**
+   * Record one finished run for a player. `gold` only counts if they escaped; `legacy` is gold an
+   * Undertaker carried out for them after they died, which counts either way.
+   */
+  recordRun(name: string, escaped: boolean, gold: number, legacy = 0) {
     const key = name.toLowerCase();
     const r = (this.data[key] ??= { name, gold: 0, runs: 0, escapes: 0, best: 0 });
     r.name = name;
@@ -52,6 +55,8 @@ export class Stash {
       r.escapes++;
       r.gold += gold;
       r.best = Math.max(r.best, gold);
+    } else {
+      r.gold += legacy;
     }
     this.store?.save(JSON.stringify(this.data, null, 2));
   }

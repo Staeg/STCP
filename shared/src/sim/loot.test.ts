@@ -177,7 +177,7 @@ describe('items', () => {
     const h = world.heroes.h0;
     h.items = ['bandage', 'torch', 'tonic'];
     h.hp = 10;
-    h.st.bleed = { dmg: 2, rounds: 3 };
+    h.st.bleed = [{ dmg: 2, rounds: 3 }];
     h.light = 20;
     h.stress = 40;
     applyIntent(world, 'h0', { type: 'useItem', index: 0 });

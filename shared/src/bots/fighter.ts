@@ -3,7 +3,7 @@ import type { ItemId } from '../content/items';
 import type { Rng } from '../rng';
 import { BOTS } from './tuning';
 import type { Choice, CombatAction } from '../sim/combat';
-import type { CombatUnitView, EncounterView, PlayerView } from '../sim/views';
+import type { EncounterView, PlayerView } from '../sim/views';
 
 
 /**
@@ -23,7 +23,11 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const allies = enc.heroes.filter((h) => !h.downed);
   const downed = enc.heroes.filter((h) => h.downed);
   const enemies = enc.monsters;
-  const ready = (i: 0 | 1 | 2) => (view.you.cooldowns[ABILITIES[view.you.cls][i].id] ?? 0) === 0;
+  const ready = (i: 0 | 1 | 2) => {
+    const opt = enc.yourOptions[`a${i}` as CombatAction];
+    return (view.you.cooldowns[ABILITIES[view.you.cls][i].id] ?? 0) === 0 && !!opt && !opt.blocked && (opt.targets.length > 0 || !needsPick(i));
+  };
+  const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ABILITIES[view.you.cls][i].target);
   const weakestEnemy = minBy(enemies, (m) => m.hp);
   const softTarget = enemies.find((m) => m.st.mark || m.st.stun);
   const hurtAlly = minBy(allies.filter((a) => a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
@@ -46,7 +50,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
     case 'warden': {
       const fragile = allies.find((a) => a.id !== me.id && a.hp / a.maxHp < 0.4);
       if (fragile && ready(1)) return { action: 'a1', target: fragile.id };
-      if (ready(0)) return { action: 'a0', target: (enemies.find((m) => m.rank === 'front') ?? weakestEnemy)!.id };
+      if (ready(0)) return { action: 'a0', target: enemies[0].id };
       if (ready(2) && (view.you.stress > 20 || allies.length > 1)) return { action: 'a2' };
       break;
     }
@@ -66,6 +70,27 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
       if (enemies.length >= 3 && ready(2) && me.hp > 12) return { action: 'a2' };
       if (enemies.length >= 2 && ready(1)) return { action: 'a1', target: maxBy(enemies, (m) => m.maxHp)!.id };
       return { action: 'a0', target: (enemies.find((m) => !m.st.mark) ?? weakestEnemy)!.id };
+    case 'undertaker': {
+      // Finish off the toughest wounded enemy; raise the dead when the fight is still on.
+      const wounded = enc.yourOptions.a1?.targets ?? [];
+      if (ready(1) && wounded.length) return { action: 'a1', target: maxBy(enemies.filter((m) => wounded.includes(m.id)), (m) => m.hp)!.id };
+      if (ready(2)) return { action: 'a2' };
+      return { action: 'a0', target: weakestEnemy!.id };
+    }
+    case 'bellringer':
+      if (ready(2) && enemies.length >= 2) return { action: 'a2' };
+      if (ready(1) && allies.length >= 2) return { action: 'a1' };
+      return { action: 'a0', target: enemies[0].id };
+    case 'zealot': {
+      if (ready(2) && enemies.length >= 2) return { action: 'a2' };
+      const burdened = maxBy(allies.filter((a) => a.id !== me.id && (a.stress ?? 0) >= 30), (a) => a.stress ?? 0);
+      if (ready(1) && burdened && view.you.stress < 90) return { action: 'a1', target: burdened.id };
+      return { action: 'a0', target: (softTarget ?? weakestEnemy)!.id };
+    }
+    case 'alchemist':
+      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
+      if (ready(2) && view.you.items.some((it) => it === 'firebomb' || it === 'bandage') && !view.you.elixir) return { action: 'a2', target: me.id };
+      return { action: 'a0', target: maxBy(enemies, (m) => m.hp)!.id };
   }
   // Fallback: any legal attack, else brace.
   const attack = options.find((o) => o.action.startsWith('a'));
@@ -76,19 +101,14 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
 function legalChoices(view: PlayerView, enc: EncounterView): Choice[] {
   const out: Choice[] = [];
   const me = view.you;
-  const allies = enc.heroes.filter((h) => !h.downed);
-  const front = enc.monsters.filter((m) => m.rank === 'front');
   ABILITIES[me.cls].forEach((ab, i) => {
     if ((me.cooldowns[ab.id] ?? 0) > 0) return;
     const action = `a${i}` as CombatAction;
-    const pool: CombatUnitView[] | null =
-      ab.target === 'enemy' ? enc.monsters
-      : ab.target === 'enemyFront' ? (front.length ? front : enc.monsters)
-      : ab.target === 'ally' ? allies
-      : ab.target === 'otherAlly' ? allies.filter((a) => a.id !== me.id)
-      : null;
-    if (pool === null) out.push({ action });
-    else for (const t of pool) out.push({ action, target: t.id });
+    const opt = enc.yourOptions[action];
+    if (!opt || opt.blocked) return;
+    const targeted = ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
+    if (!targeted) out.push({ action });
+    else for (const t of opt.targets) out.push({ action, target: t });
   });
   return out;
 }

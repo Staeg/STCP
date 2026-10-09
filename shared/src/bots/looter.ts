@@ -81,6 +81,8 @@ export function botUseItem(view: PlayerView): Intent | null {
     ].sort((a, b) => a.frac - b.frac)[0];
     if (hurt && hurt.frac < 0.75) return { type: 'fieldMend', target: hurt.id };
   }
+  const skill = botSkill(view);
+  if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
   const hp = me.hp / me.maxHp;
   let i = idx((x) => x === 'bandage');
@@ -95,3 +97,17 @@ export function botUseItem(view: PlayerView): Intent | null {
   return null;
 }
 
+
+/** Out-of-combat class skills: the Zealot lifts a burdened ally's stress; the Alchemist primes a Bandage when hurt. */
+function botSkill(view: PlayerView): Intent | null {
+  const me = view.you;
+  if (me.pos.kind !== 'room' || view.time < me.skillReadyAt) return null;
+  const here = me.pos.room;
+  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here && a.affliction !== 'paranoid');
+  if (me.cls === 'zealot' && me.stress < 90) {
+    const burdened = near.filter((a) => (a.stress ?? 0) >= 40).sort((a, b) => (b.stress ?? 0) - (a.stress ?? 0))[0];
+    if (burdened) return { type: 'skill', target: burdened.id };
+  }
+  if (me.cls === 'alchemist' && !me.elixir && me.hp / me.maxHp < 0.5 && me.items.includes('bandage')) return { type: 'skill', target: me.id };
+  return null;
+}

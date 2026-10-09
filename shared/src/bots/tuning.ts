@@ -8,4 +8,7 @@ export const BOTS = {
   exitWaitMax: 75,
   /** Chance per combat decision of a random-but-legal action. */
   blunder: 0.25,
+  /** Bots answer a bell tolled at most this far away (route cost, ~6 per tunnel), and keep heading there this long. */
+  tollAnswerCost: 30,
+  tollAnswerFor: 40,
 };

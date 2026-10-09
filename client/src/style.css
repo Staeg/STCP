@@ -394,6 +394,9 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .aff { color: #ff8a6a; font-size: 15px; pointer-events: auto; cursor: help; }
 .icons span, #light-text { cursor: help; }
 #btn-mend.cooling { opacity: 0.5; cursor: default; }
+#skills:not([hidden]) { display: contents; }
+#skills button.cooling { opacity: 0.5; cursor: default; }
+.cb-actions .elixir { align-self: center; padding: 0 6px; color: #5fc46a; }
 
 /* ---- Sprites & juice ---- */
 .cb-unit .sprite { width: 64px; height: 64px; image-rendering: pixelated; display: block; margin: 0 auto; filter: drop-shadow(0 2px 0 #000); }

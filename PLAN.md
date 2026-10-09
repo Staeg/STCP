@@ -30,7 +30,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Turn model | **Real-time exploration**, **turn-based combat**. A combat round ends when every hero in that fight has locked in, or after 5s. The world clock keeps running during combat. |
 | Map | **Room graph**: rooms joined by corridors. Crossroads are rooms with 3+ exits. Walking a corridor takes real time. |
 | Run shape | **One expedition, one rendezvous.** The rendezvous room is the exit, and its location is known to everyone from the start. |
-| Extraction | At **10:00** the exit opens. During a fight at the open exit, Flee = escape (same 70%/Smoke rules). Each player decides for themselves when to leave. Waves spawn at the exit while it's open. At **13:00** the dungeon collapses and everyone still inside dies. |
+| Extraction | At **10:00** the exit opens. During a fight at the open exit, Flee = escape (same 50%/Smoke rules). Each player decides for themselves when to leave. Waves spawn at the exit while it's open. At **13:00** the dungeon collapses and everyone still inside dies. |
 | 0 HP | **Downed** → bleeds out over 30s (combat rounds count as their real time). An ally in the room can revive. Otherwise the hero dies and drops their items in the room. |
 | Loot | **Co-op.** Every *item* goes to exactly one player. All living heroes in the room must agree on the recipient (or unanimously agree to leave it), and the vote resolves among whoever is still in the room. ~~Nobody present can leave until they agree~~ (lock dropped by the user, 2026-10-09: walking out just takes you out of the vote). **Gold** is split equally among all heroes present (downed but alive heroes count). |
 | Information | **Individual fog.** You see only rooms you've explored. Allies show up live when they're in your room or an adjacent one; otherwise they're a greyed-out ghost at their *last known position*. At crossroads you see **chalk marks** for which exits allies have taken (this satisfies the requirement to "see which way others chose"). |
@@ -56,7 +56,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Climax metric (M8) | The key balance target is now **"drama at 10:00"**: when the exit opens, someone is waiting there while someone else is still alive elsewhere. Target ≥50% of all-bot runs. "Arrived after 10:30" stays a secondary metric; for bots it's capped by survival, since bots sent home later just die on the way. |
 | Class basics (M10) | Every class needs an attack it can use every round, because the game is about splitting up: Shield Bash has no cooldown (7 dmg, 35% Stun), Flare has a 1-round cooldown (+10 light). |
 | Auto-path (M10) | Click-to-walk detours around rooms you know hold monsters (`THREAT_DETOUR` = 15s per monster) unless that room is your destination. |
-| Collapses (tuned in M10) | Every 60s from T3. 75% of the time they hit a tunnel that leaves another way round; the rest can cut people off (dig 15s, Warden 9s). A dug-out tunnel can't re-collapse for 60s. |
+| Collapses (tuned in M10) | Every 60s from T3. 75% of the time they hit a tunnel that leaves another way round; the rest can cut people off (dig 18s; the Undertaker digs in one of their own turns). A dug-out tunnel can't re-collapse for 60s. |
 | Movement UX | Click any known room to auto-path to it over known corridors. Space turns back mid-corridor, Esc cancels the queued path. |
 | 6-second beat (user, post-M11; **replaced by Speed, 2026-10-09**) | **Every corridor takes exactly 6s** (per hero, starting when you choose it; not a shared global beat, which was the user's choice). **Combat rounds are 6s and never resolve early**, even when everyone has locked in. Revive 6s, dig 18s (Warden 12s), bleed-out 36s. Every event choice is a channel in 6s steps: altar 18s (Hexer 12s), vault 24s (Cutthroat 12s), everything else 6s. Villagers are still instant. |
 | Event claims (user, post-M11) | The first hero to choose an event is the only one who carries it out (`RoomEvent.by`); others in the room see "Mara is cleansing the altar · 12s left" and a toast the moment she starts. Walking off, a fight or going down releases the claim and resets the progress. Channels no longer stack. |
@@ -69,6 +69,12 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Speed (user, 2026-10-09) | Replaces the 6-second beat. Every hero and monster has a personal timer called **Speed** (in seconds; lower is faster; the name in game and in code). Class base: Warden 6, Lampbearer 5, Hexer 4, Cutthroat 3; default 5. **Max HP = 9 × base Speed** (54 / 45 / 36 / 27), my reading of "HP inversely proportional to speed": the nimble have less. Worn weapon/armor +0.5s each, each carried trinket +0.1s (`GEAR_SPEED`, `ItemDef.speed`). Events can add run-long or timed modifiers (`hero.speedMods`). Floor 2s. `sim/speed.ts` has `speedOf`/`speedParts`. **Tunnels** take your Speed (fixed when you set out, stored as `pos.dur`). Heroes in the same tunnel going the same way **arrive together**: the quicker wait at the end for the rest. **Combat has no rounds**: each unit acts when its own timer runs out (`enc.next[id]`), using the hero's current pick (changeable until then) or, if none, their first ability that's ready (Brace only if all three are cooling down). Ties: heroes before monsters, then left to right as the fight screen shows them (heroes back rank first, then join order; monsters front first). Joiners and the revived start a full timer. Cooldowns and Mark/Weak/Calm/Bleed count the unit's **own** turns. Brace lasts until your next turn; Guard and Smoke last until the Warden's/Cutthroat's next turn. Monster Speeds: Crawler 3, Acolyte 4, Ghoul 5, Bone Brute 8 (its every-other-round rule is gone). Packs walk a tunnel in 1.5 × their slowest member's Speed. Revive 6s, dig 18s/12s and bleed-out 36s are unchanged. Events no longer need 6s steps. |
 | Speed events (user, 2026-10-09) | Four new events (weight 1 each; event chance 0.28 → 0.34 so the old ones stay as common): **Quicksilver Pool** (3s: Speed −1 for the run, −6 max HP), **Courier's Satchel** (3s: +45 gold to you alone, Speed +1 for the run), **Cracked Hourglass** (3s: everyone in the room Speed −1.5 for 90s), **Clockwork Shrine** (15s wind: Speed −0.5 for the run). Numbers in `SPEED_EVENTS`. |
 | Always-running timer (user, 2026-10-09) | Out of combat every hero's Speed timer **runs all the time** (`hero.turnStart`/`turnAt`), not from when they choose a direction. A move picked during it **lands when it runs out**: walking the tunnel fills the timer, so picking 2s into a 5s timer puts you 2/5 of the way down the tunnel (user's choice over "depart at timer end"). Multi-room paths walk at the same pace as before. Nothing picked when it runs out = the turn is skipped and a new timer starts. **Event choices are queued** (`hero.queuedEvent`) and start when the timer runs out; the timer is **held** while channelling (events, dig, revive), fighting or down, and restarts when that ends. **No dig hotkey or intent**: routes may go through known rubble (costs dig time in the pathfinder), and walking into rubble digs (starting when the timer runs out), then walks on. Revive and Field Mend stay immediate. **Combat:** picking a targeted move locks it in at once; if the turn comes before a target is clicked, it goes to the **leftmost** valid target on the fight screen (for heals that's the leftmost ally), not the default action. |
+| Line-ups & targeting (user, 2026-10-09) | **No ranks.** Each side is sorted by current Speed with the slowest nearest the enemy: heroes left→right fastest→slowest, monsters left→right slowest→fastest (ties: join order). The Undertaker's risen stands right of all heroes. Monsters attack the **rightmost** unit on the heroes' side (the risen, else the slowest conscious hero), except: Crawler bites at random, Bone Brute slams the two nearest, Acolyte whispers to a random hero or curses the leftmost. Shield Bash/Clang hit the nearest enemy (`enemyFirst`). The server sends each hero their valid targets and why an ability is blocked (`EncounterView.yourOptions`). |
+| Bleed stacking (user, 2026-10-09) | `Statuses.bleed` is a list: every Bleed ticks separately (own damage, own countdown) at the end of the unit's turn. Mend, Bandage and field Mend cure all of them. |
+| Out-of-combat class skills (user, 2026-10-09) | Toll / Take Their Sins / Elixir are picked like an event (`{type:'skill', target?}`, `hero.queuedSkill`) and happen when the hero's timer runs out, using that turn. HUD buttons (one per valid target) on **M**. Cooldown: Toll 30s, the others their CD × your Speed. Bots: Zealot lifts allies' stress ≥40, Alchemist primes a Bandage when hurt, Bellringer tolls while waiting at the open exit; any bot answers a bell within route cost 30 (`BOTS.tollAnswerCost`) for up to 40s. |
+| Same class (user, 2026-10-09) | Players may pick the same class. Bots take random classes no player picked. A second hero of a class gets a spare colour (`SPARE_COLORS`). |
+| Flee (user, 2026-10-09) | 50% (was 70%). Smoke still makes it sure. |
+| Route costs | Auto-path and its detours now cost each tunnel at the hero's own Speed (not the fixed 6s `CORRIDOR_TIME`), so the Undertaker's quick dig and slow heroes' walks weigh correctly. The corridor countdown ("Corridor → X (Ns)") was already Speed-based; it now also allows for the escort slowdown. |
 | Combat bar | The combat action bar (abilities, Revive/Flee/Brace) is always on screen while you're in the dungeon, greyed out outside fights; the "if your turn comes before you pick" fallback is explained once in its header. Out of combat the pack consumables sit in a separate **Items** panel beside it, clickable when they work while exploring. |
 | Hotkeys & WASD (user, 2026-10-09) | Event choices and loot-vote options are numbered **1, 2, 3…** (vote: candidates in order, "Leave it" last); while a vote or event claims a number, the 4–7 item keys yield to it. **WASD** (`goto` with `step: true`) takes only the one known tunnel in that direction, or does nothing; it never routes around. |
 | Solo pickup & combat rings (user, 2026-10-09) | When you're the only conscious, non-fighting hero in a room, you take every item you can carry (current vote, queued and abandoned ones) with no vote, and don't stop walking for it. Exception: items **you** dropped (✕, displaced gear, your corpse). Each floor item remembers who put it there last (`Pile.itemsBy` / `abandonedBy`, `Vote.droppedBy`), so if someone else picks it up and drops it, it's fair game for you again. A picked-up item's inventory slot flashes its outline for 0.9s. In combat the Speed timers are rings round each sprite (as on the map), replacing the header bar and the per-card bars; yours turns red when your turn is close and you haven't picked. |
@@ -98,40 +104,47 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 
 ### 3.3 Combat
 - Starts when a hero enters a room with monsters, or when monsters enter a hero's room. Heroes who enter a room mid-fight join at the next round.
-- Two ranks per side: **Front** and **Back**. Some abilities only work from or against a particular rank.
+- *(Ranks removed, user 2026-10-09.)* No Front/Back ranks: each side lines up by current Speed, slowest nearest the enemy (see Decisions, "Line-ups & targeting").
 - *(Superseded by Speed, see Decisions.)* There are no rounds: each unit acts when its own Speed timer runs out. A hero picks one of Ability 1/2/3, Use Item, Revive, Flee or Brace for their next turn; if they haven't picked, they use their first ability that's off cooldown (and has a target), and Brace only if none is (user, 2026-10-09).
-- **Flee:** 70% success (100% with Smoke Bomb). The hero retreats to the previous room and gains stress.
+- **Flee:** 50% success (100% with Smoke Bomb; was 70% until 2026-10-09). The hero retreats to the previous room and gains stress.
 - Cooldowns are counted in the hero's own turns.
 
 ### 3.4 Classes (HP / Speed / Perk / 3 abilities)
+Current numbers (the v1 draft is in git history). Max HP = 9 × Speed. CD = cooldown in the hero's own turns. "Nearest" = the enemy at the front of their line-up. Numbers live in `content/classes.ts`, `content/abilities.ts` (`ABILITIES`, `CLASS_RULES`). Players may pick the same class (user, 2026-10-09); a second hero of a class gets a spare colour.
 
-**Warden** (tank). 45 HP, Speed 2. *Perk: Stalwart. Takes 20% less damage while in the Front rank.*
-- **Shield Bash** (CD 2): 6 damage to a Front enemy, 50% chance to Stun (it skips its next action).
-- **Guard** (CD 1): Choose an ally. Damage aimed at them goes to you this round.
-- **Rally** (CD 4): All allies lose 10 stress and gain 4 Block.
+**Warden** (tank). 54 HP, Speed 6. *Perk: Stalwart. Takes 20% less damage while the rightmost (nearest) hero.*
+- **Shield Bash** (CD 0): 7 damage to the nearest enemy, 35% Stun. · **Guard** (CD 1): take the hits aimed at an ally until your next turn. · **Rally** (CD 4): all allies −10 stress, +5 Block.
 
-**Cutthroat** (burst damage, utility). 30 HP, Speed 5. *Perk: Light Fingers. Opens locks and chests 3× faster, and sees loot in neighbouring rooms.*
-- **Backstab** (CD 0): 8 damage to any enemy. Crits (×2) against Stunned or Marked targets.
-- **Poison Blade** (CD 2): 4 damage + Bleed (3 per round for 3 rounds).
-- **Smoke Bomb** (CD 5): Everyone on your side can flee this round with a 100% success chance, or else gains 50% dodge.
+**Cutthroat** (burst, locks). 27 HP, Speed 3. *Perk: Light Fingers. Vaults twice as fast; sees loot in neighbouring rooms.*
+- **Backstab** (CD 0): 10 damage, ×2 vs Stunned/Marked. · **Poison Blade** (CD 2): 5 damage + Bleed 3×3. · **Smoke Bomb** (CD 5): allies 50% dodge and sure flee until your next turn.
 
-**Lampbearer** (healer, light). 32 HP, Speed 3. *Perk: Beacon. Allies in the same room drain light 50% slower.*
-- **Mend** (CD 1): Heal an ally for 10 and cure Bleed.
-- **Flare** (CD 3): 4 damage to all enemies and +15 light to everyone present. Undead are Marked.
-- **Vigil** (CD 3): One ally gets −15 stress and becomes immune to stress damage for 2 rounds.
+**Lampbearer** (healer, light). 45 HP, Speed 5. *Perk: Beacon (allies nearby burn light slower); field Mend (heal 8, 20s).*
+- **Mend** (CD 1): heal 10, cure Bleed. · **Flare** (CD 1): 5 damage to all, +10 light, Marks undead. · **Vigil** (CD 3): −15 stress, immune to stress for 2 turns.
 
-**Hexer** (control, objectives). 30 HP, Speed 4. *Perk: Ritualist. Cleanses altars 2× faster, and is immune to the Whispering Well's curse.*
-- **Hex** (CD 0): 5 damage, and the target is Marked.
-- **Wither** (CD 3): Target enemy deals −50% damage for 2 rounds.
-- **Blood Pact** (CD 4): Lose 6 HP, deal 12 damage split across all enemies, and heal the ally with the lowest HP by 6.
+**Hexer** (control, rituals). 36 HP, Speed 4. *Perk: Ritualist. Altars twice as fast; immune to the Well's curse.*
+- **Hex** (CD 0): 7 damage + Mark. · **Wither** (CD 3): target deals −50% for 2 turns. · **Blood Pact** (CD 4): lose 6 HP, 15 damage split across enemies, heal weakest ally 6.
+
+**Undertaker** (executions, the dead; user 2026-10-09). 54 HP, Speed 6. *Perk: Mortician. Digs through rubble in one of their own turns (the Warden lost its dig bonus). Takes a fallen ally's items (gear only if an upgrade) and gold with no vote; the gold is carried separately and, if the Undertaker escapes, goes to the dead player's stash (`hero.bodies` → `hero.legacy`). An ally's death relieves 10 stress instead of adding 25.*
+- **Spade** (CD 0): 6 damage. · **Last Rites** (CD 4): kill any wounded enemy outright (elites included). · **Raise** (CD 5): the last enemy slain in this fight rises on your side at half HP for 2 of its turns, attacking with its old move. It stands rightmost, so monsters hit it.
+
+**Bellringer** (tempo, the call; user 2026-10-09). 63 HP, Speed 7. *Perk: Toll (out of combat, 30s cooldown, uses a turn). Every ally anywhere sees a ping on the Bellringer's room and their live position for 10s; monsters resting in adjacent rooms head for the bell. User's explicit exception to pillar 5: it costs a turn and draws monsters.*
+- **Clang** (CD 0): 5 damage to the nearest enemy; its next turn comes 5s later. · **Peal** (CD 3): every other ally's next turn comes 3s sooner. · **Knell** (CD 4): 9 damage to every enemy, −3 per other conscious hero in the fight; unusable with 3.
+
+**Zealot** (stress as fuel; user 2026-10-09). 36 HP, Speed 4. *Perk: never gets afflictions (stress events, the Well) or heart attacks; stress stops at 100. +1% damage per stress point, multiplied with the weapon bonus.*
+- **Scourge** (CD 0): 5 damage. · **Take Their Sins** (CD 2): move up to 25 stress from an ally to yourself; also out of combat (uses a turn; cooldown 2 of your turns). · **Absolution** (CD 4): spend your stress above 50 as damage split across enemies (dealt at the pre-spend bonus).
+
+**Alchemist** (brews, poisons; user 2026-10-09). 45 HP, Speed 5. *Perk: Brewer. A random consumable every 60s if the pack has room.*
+- **Acid Flask** (CD 0): 5 damage; for its next 2 turns the target takes +2 from every hit, Bleed ticks included. · **Fumes** (CD 3): Bleed 3×3 on every enemy (stacks). · **Elixir** (CD 4): an ally's (or your own) next item has double effect; also out of combat (uses a turn).
 
 ### 3.5 Enemies
-| Enemy | HP | Rank | Behaviour |
-|---|---|---|---|
-| **Ghoul** (undead) | 18 | Front | Claw: 5 damage. Bruiser. |
-| **Crawler** | 10 | Front | Fast. Bite: 3 damage + Bleed. Arrives in pairs. |
-| **Acolyte** (cultist) | 14 | Back | Whisper: 6 stress to one hero, or Curse: 4 damage to a back-rank hero. |
-| **Bone Brute** (undead, elite, T3+) | 40 | Front | Slam: 9 damage, hits all Front heroes. Acts every other round. |
+*(v1 numbers; current ones in `content/enemies.ts`. Targets per the 2026-10-09 rules: nearest hero unless noted.)*
+
+| Enemy | HP | Behaviour |
+|---|---|---|
+| **Ghoul** (undead) | 18 | Claw: 5 damage to the nearest hero. Bruiser. |
+| **Crawler** | 10 | Fast. Bite: 3 damage + Bleed to a **random** hero. Arrives in pairs. |
+| **Acolyte** (cultist) | 14 | Whisper: 6 stress to a random hero, or Curse: 4 damage to the **farthest** hero. |
+| **Bone Brute** (undead, elite, T3+) | 40 | Slam: 9 damage to the **two nearest**. |
 
 Scaling: HP and damage go up ×(1 + 0.15·tier). Group size goes up at T2 and T4.
 
@@ -291,12 +304,17 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 - Is the game title "So They Can Prosper" (from the folder name)? Ask at M9.
 - What should gold buy (M11)?
 - Sprite pack choice and download permission (M9).
-- Should class duplicates be allowed? Disallowed in v1 so the 4 classes stay distinct.
+- ~~Should class duplicates be allowed?~~ Yes (user, 2026-10-09). Bots take random classes no player picked.
 
 ---
 
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-09 · **Four new classes, Speed line-ups, same-class parties (user request).** Undertaker, Bellringer, Zealot, Alchemist (3.4); ranks replaced by Speed line-ups and rightmost targeting; stacking Bleed; out-of-combat class skills; Flee 50%; duplicate classes. New `sim/skills.ts`; sprites in `tools/sprites.py`; sim parties are a random 4 of 8 per game (`--classes a,b,c,d` to fix them) and print an escape rate per class. 125 tests (new `sim/classes.test.ts`). Checked in the browser: Toll rings on the map, corridor countdown at Speed 7, Knell/Clang/Bleed ×2, Raise (risen stands right and takes hits), Elixir out of combat.
+  - Sim, original 4 classes (120 games, seed 500): escape 48% ✓, drama 72% ✓, late 46% ✓, early deaths 7% ✓, 17.3s/fight (just under the 18s band), wipes 10%. Escape fell from ~57%, mostly from Flee 50% and the rightmost targeting.
+  - Sim, random 4 of 8 (200 games, seed 500): escape 53% ✓, drama 58% ✓, late 31% ✓, early deaths 8% ✓, 18.1s/fight ✓, wipes 11%. Per class (300 games, seed 900, ~150 runs each): Lampbearer 58%, Cutthroat 53%, Bellringer 52%, Undertaker 50%, Alchemist 48%, Hexer 47%, Zealot 47%, Warden 46%: no outlier beyond noise (±4%).
+  - Known/open: bots don't use Raise cleverly (they just raise when ready), and only answer bells, never ring them in danger.
 
 - 2026-10-09 · **No communication (user request, design only).** The game no longer assumes voice/Discord: players can't communicate except through in-game actions. New pillar 5 and a rewritten **Comms** row. The "Help!" button candidate (below, M11 entry) and in-game pings are dropped; rescue signalling has to come from visible actions instead (e.g. being seen going down, a downed hero's last heading). README and PLAYTEST.md updated. No code changes; nothing in the game relied on voice.
 

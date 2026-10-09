@@ -30,6 +30,8 @@ export interface BotMemory {
   escortReturnAt: number | null;
   /** Remaining rooms of the route being walked. */
   route: number[];
+  /** A bell this bot is answering: the room, and when it gives up. */
+  answering: { room: number; until: number } | null;
 }
 
 export function createBotMemory(seed: number): BotMemory {
@@ -37,12 +39,13 @@ export function createBotMemory(seed: number): BotMemory {
   const greed = rng.float(0.2, 0.8);
   // Greedier bots head home later (and are often late, by design).
   const returnAt = BOTS.returnStart + ((greed - 0.2) / 0.6) * BOTS.returnSpan;
-  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null, route: [] };
+  return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null, route: [], answering: null };
 }
 
 export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   const you = view.you;
-  if (view.phase !== 'running' || you.pos.kind !== 'room' || you.path.length > 0) return null;
+  // A class skill is waiting on the timer: don't walk off and cancel it.
+  if (view.phase !== 'running' || you.pos.kind !== 'room' || you.path.length > 0 || you.queuedSkill) return null;
   const here = you.pos.room;
 
   // Mid-route through rooms known to be clear: keep walking without stopping to think.
@@ -85,6 +88,8 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
     if (hurt || late || everyoneHere || view.time >= mem.leaveAt) return { type: 'extract' };
+    // A Bellringer waiting at the open exit rings to call the stragglers home.
+    if (you.cls === 'bellringer' && view.time >= you.skillReadyAt) return { type: 'skill' };
     return null;
   }
   const costs = viewDistances(view, here);
@@ -106,6 +111,17 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     .sort((x, y) => x.cost! - y.cost!)[0];
   if (rescue) {
     const go = travel((rescue.a.pos as { room: number }).room);
+    if (go) return go;
+  }
+
+  // A bell: an ally wants company there. Answer it if it's close enough, there's time, and we're fit.
+  const heard = view.tolls.filter((t) => t.by !== you.id).at(-1);
+  if (heard && heard.room !== here && (costs.get(heard.room) ?? Infinity) <= BOTS.tollAnswerCost) {
+    mem.answering = { room: heard.room, until: view.time + BOTS.tollAnswerFor };
+  }
+  if (mem.answering && (mem.answering.room === here || view.time > mem.answering.until)) mem.answering = null;
+  if (mem.answering && view.time < view.collapseAt - 90 && you.hp / you.maxHp >= 0.3) {
+    const go = travel(mem.answering.room);
     if (go) return go;
   }
 

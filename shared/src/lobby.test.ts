@@ -48,10 +48,10 @@ describe('LobbyManager', () => {
     b.say({ t: 'join', code });
     expect(b.ws.lastLobby()!.members.map((m) => m.name)).toEqual(['Ann', 'Bob']);
 
+    // Players may share a class; bots take classes nobody picked.
     a.say({ t: 'pickClass', cls: 'warden' });
     b.say({ t: 'pickClass', cls: 'warden' });
-    expect(b.ws.errors()).toContain('Someone already picked that class.');
-    b.say({ t: 'pickClass', cls: 'hexer' });
+    expect(b.ws.errors()).toHaveLength(0);
 
     a.say({ t: 'ready', ready: true });
     b.say({ t: 'start' });
@@ -67,11 +67,15 @@ describe('LobbyManager', () => {
     const view = a.ws.sent.find((m) => m.t === 'view');
     expect(view).toBeDefined();
     if (view?.t !== 'view') throw new Error();
-    // 3 others: Bob + 2 bots, all visible at the entrance; classes unique.
+    // 3 others: Bob + 2 bots, all visible at the entrance. Both humans are Wardens, the bots something else.
     expect(view.view.allies).toHaveLength(3);
-    const classes = [view.view.you.cls, ...view.view.allies.map((x) => x.cls)];
-    expect(new Set(classes).size).toBe(4);
-    expect(view.view.allies.filter((x) => x.isBot)).toHaveLength(2);
+    const bots = view.view.allies.filter((x) => x.isBot);
+    expect(bots).toHaveLength(2);
+    expect(view.view.allies.find((x) => !x.isBot)!.cls).toBe('warden');
+    expect(bots.every((x) => x.cls !== 'warden')).toBe(true);
+    expect(bots[0].cls).not.toBe(bots[1].cls);
+    // Same class, different colours, so they can be told apart.
+    expect(view.view.allies.find((x) => !x.isBot)!.color).not.toBe(view.view.you.color);
   });
 
   it('accepts a rename before joining a lobby without an error', () => {

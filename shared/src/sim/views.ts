@@ -1,12 +1,15 @@
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
-import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
+import { ENEMIES, type EnemyId } from '../content/enemies';
+import { ABILITIES, CLASS_RULES } from '../content/abilities';
 import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
 import { canTake, votersIn } from './loot';
-import { abilityOf, BLEED_OUT, combatOrder, heroRank, inDungeon, isConscious, type Choice, type CombatEvent, type Statuses } from './combat';
+import {
+  abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
+} from './combat';
 import { speedOf } from './speed';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
@@ -80,6 +83,8 @@ export interface AllyView {
   /** You saw them escape. */
   extracted: boolean;
   affliction: AfflictionId | null;
+  /** Only while you can see them. */
+  stress?: number;
 }
 
 export interface ResultHero {
@@ -103,12 +108,16 @@ export type CorridorView = Corridor & { collapsed?: boolean };
 
 export interface CombatUnitView {
   id: string;
-  kind: 'hero' | 'monster';
+  /** risen: a slain monster the Undertaker raised, fighting on the heroes' side. */
+  kind: 'hero' | 'monster' | 'risen';
   name: string;
   hp: number;
   maxHp: number;
-  rank: Rank;
   st: Statuses;
+  /** Heroes only. */
+  stress?: number;
+  /** The risen: own turns left. */
+  turnsLeft?: number;
   cls?: ClassId;
   color?: string;
   enemy?: EnemyId;
@@ -132,8 +141,12 @@ export interface EncounterView {
   room: number;
   /** Left to right as the fight screen shows them (also the order ties are broken in). */
   heroes: CombatUnitView[];
+  /** The Undertaker's risen, shown right of the heroes (nearest the enemy). */
+  risen: CombatUnitView | null;
   monsters: CombatUnitView[];
   yourChoice: Choice | null;
+  /** For each of your abilities ('a0'…): who it can be aimed at now ([] = no target needed), or why it can't be used. */
+  yourOptions: Partial<Record<CombatAction, { targets: string[]; blocked: string | null }>>;
   /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
@@ -171,6 +184,8 @@ export interface PlayerView {
   objectives: { altars: number; villagers: number };
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
+  /** Bells heard in the last few seconds: where, who, and how long ago. */
+  tolls: { room: number; by: string; ago: number }[];
 }
 
 /**
@@ -198,6 +213,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, heading: null, seenAt: sighting.time,
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
       affliction: sighting.affliction ?? null,
+      stress: live && inDungeon(h) ? Math.round(h.stress) : undefined,
     });
     // Make sure the client can place them, even in a room you only know the position of.
     for (const r of posRooms(sighting.pos)) roomIds.add(r);
@@ -259,6 +275,9 @@ export function buildView(world: World, heroId: string): PlayerView {
     leading: you.leading ? { hp: world.villagers[you.leading].hp, maxHp: world.villagers[you.leading].maxHp } : null,
     objectives: { ...world.objectives },
     results: world.phase === 'running' ? null : resultsView(world),
+    tolls: world.tolls
+      .filter((t) => world.time - t.time <= CLASS_RULES.tollReveal)
+      .map((t) => ({ room: t.room, by: t.by, ago: world.time - t.time })),
   };
 }
 
@@ -287,8 +306,8 @@ function resultsView(world: World): ResultsView {
     heroes: Object.values(world.heroes).map((h) => ({
       id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot,
       outcome: h.extracted ? 'escaped' : 'dead',
-      fate: h.fate ?? 'was lost',
-      gold: h.extracted ? h.gold : 0,
+      fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; the Undertaker carried ${h.legacy} of their gold home` : ''),
+      gold: h.extracted ? h.gold : h.legacy,
       time: h.extracted ? h.extractedAt : h.diedAt,
     })),
     chronicle: world.chronicle,
@@ -330,7 +349,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
   const heroUnit = (h: Hero): CombatUnitView => {
     const id = h.id;
     return {
-      id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, rank: heroRank(h), st: { ...h.st }, cls: h.cls, color: h.color,
+      id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, stress: Math.round(h.stress), cls: h.cls, color: h.color,
       downed: h.downedAt !== null,
       bleedOut: h.downedAt !== null ? Math.max(0, BLEED_OUT - (world.time - h.downedAt)) : undefined,
       speed: speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
@@ -341,14 +360,30 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     };
   };
   const order = combatOrder(world, enc);
+  const risen = risenOf(enc);
+  const risenUnit: CombatUnitView | null = risen
+    ? {
+        id: risen.id, kind: 'risen', name: `Risen ${ENEMIES[risen.type].name}`, hp: risen.hp, maxHp: risen.maxHp, st: {}, enemy: risen.type,
+        speed: ENEMIES[risen.type].speed, nextIn: nextIn(risen.id), turnsLeft: risen.turns,
+      }
+    : null;
+  const yourOptions: EncounterView['yourOptions'] = {};
+  if (isConscious(you) && enc.heroes.includes(you.id)) {
+    ABILITIES[you.cls].forEach((ab, i) => {
+      const action = `a${i}` as CombatAction;
+      yourOptions[action] = { targets: validTargets(world, enc, you, action), blocked: unusableReason(world, enc, you, ab) };
+    });
+  }
   return {
     room: enc.room,
     heroes: order.heroes.map(heroUnit),
+    risen: risenUnit,
     monsters: order.monsters.map((m) => ({
-      id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, rank: m.rank, st: { ...m.st }, enemy: m.type,
+      id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, st: { ...m.st }, enemy: m.type,
       speed: ENEMIES[m.type].speed, nextIn: nextIn(m.id),
     })),
     yourChoice: enc.choices[you.id] ?? null,
+    yourOptions,
     events: enc.events,
     log: enc.log.slice(-12),
   };

@@ -1,11 +1,9 @@
 export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'brute';
-export type Rank = 'front' | 'back';
 
 export interface EnemyDef {
   id: EnemyId;
   name: string;
   maxHp: number;
-  rank: Rank;
   /** Speed: seconds between its turns. Default 5; lower is quicker. */
   speed: number;
   /** Base damage of its main attack (scaled by tier). */
@@ -17,10 +15,10 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyId, EnemyDef> = {
-  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, rank: 'front', speed: 5, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to a front hero.' },
-  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, rank: 'front', speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed.' },
-  acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, rank: 'back', speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress, or Curse: 3 dmg to a back hero.' },
-  brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, rank: 'front', speed: 8, dmg: 7, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to all front heroes.' },
+  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, speed: 5, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to the nearest hero.' },
+  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed to a random hero.' },
+  acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
+  brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, speed: 8, dmg: 7, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes.' },
 };
 
 export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: number }[] = [
@@ -46,9 +44,8 @@ export const ESCALATION = {
   collapseEvery: 60,
   /** When a collapse can hit a tunnel that cuts nothing off (part of a loop), it does so this often. */
   collapsePreferLoops: 0.75,
-  /** Seconds to dig through rubble (Warden is faster). Multiples of the 6s beat. */
+  /** Seconds to dig through rubble (the Undertaker takes one turn instead). */
   digTime: 18,
-  digTimeWarden: 12,
   waveEvery: 45,
   waveEveryLate: 25,
   /** Max live monsters = capBase + capPerTier × tier. */

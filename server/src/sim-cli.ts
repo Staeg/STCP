@@ -2,10 +2,12 @@
  * Headless balance simulator: runs all-bot games and prints metrics against the PLAN.md M8 targets.
  *   npm run sim -- --games 100 --seed 1
  *   npm run sim -- --games 60 --set ESCALATION.capPerTier=2 --set ENEMIES.ghoul.dmg=3 --json
+ *   npm run sim -- --classes warden,cutthroat,lampbearer,hexer
  * --set may repeat; it overrides any number in the tunable content tables below.
+ * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
 import * as shared from '@stcp/shared';
-import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, TIER_INTERVAL } from '@stcp/shared';
+import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, TIER_INTERVAL, type ClassId } from '@stcp/shared';
 
 const args = new Map<string, string>();
 const sets: string[] = [];
@@ -24,6 +26,7 @@ for (let i = 2; i < process.argv.length; i++) {
 const TUNABLE: Record<string, unknown> = {
   ESCALATION: shared.ESCALATION, ENEMIES: shared.ENEMIES, CLASSES: shared.CLASSES, LOOT: shared.LOOT,
   EVENT_SEEDING: shared.EVENT_SEEDING, BOTS: shared.BOTS, STRESS: shared.STRESS, FIELD_MEND: shared.FIELD_MEND, ABILITIES: shared.ABILITIES,
+  CLASS_RULES: shared.CLASS_RULES,
 };
 for (const s of sets) {
   const [path, raw] = s.split('=');
@@ -37,9 +40,13 @@ for (const s of sets) {
 const games = Number(args.get('games') ?? 50);
 const seed0 = Number(args.get('seed') ?? 1);
 const worldOpts = { events: args.get('events') !== '0' };
+const fixedParty = args.get('classes')?.split(',') as ClassId[] | undefined;
+if (fixedParty?.some((c) => !CLASS_IDS.includes(c))) throw new Error(`--classes: pick from ${CLASS_IDS.join(', ')}`);
 
 const deathsByTier = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
+const runsByClass: Record<string, number> = {};
+const escapesByClass: Record<string, number> = {};
 const causes: Record<string, number> = {};
 let heroes = 0, deaths = 0, escaped = 0, wiped = 0, lateRuns = 0, goldOut = 0, dramaRuns = 0;
 let fights = 0, turns = 0, fightTime = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
@@ -48,7 +55,8 @@ const arrivals: number[] = [];
 const t0 = performance.now();
 
 for (let g = 0; g < games; g++) {
-  const game = new Game(seed0 + g, CLASS_IDS.map((cls, i) => ({ id: `b${i}`, name: cls, cls, isBot: true })), worldOpts);
+  const party = fixedParty ?? new Rng(seed0 + g).shuffle([...CLASS_IDS]).slice(0, 4);
+  const game = new Game(seed0 + g, party.map((cls, i) => ({ id: `b${i}`, name: cls, cls, isBot: true })), worldOpts);
   const w = game.world;
   // The climax check: when the exit opens, is someone waiting there while someone else is still alive out there?
   let drama = false;
@@ -65,10 +73,12 @@ for (let g = 0; g < games; g++) {
   let late = false;
   for (const h of Object.values(w.heroes)) {
     heroes++;
+    runsByClass[h.cls] = (runsByClass[h.cls] ?? 0) + 1;
     if (h.arrivedAt !== null) arrivals.push(h.arrivedAt);
     if (h.arrivedAt !== null && h.arrivedAt > EXIT_OPENS_AT + 30) late = true;
     if (h.extracted) {
       escaped++;
+      escapesByClass[h.cls] = (escapesByClass[h.cls] ?? 0) + 1;
       goldOut += h.gold;
     } else {
       deaths++;
@@ -110,6 +120,7 @@ console.log(`${check(secs >= 18 && secs <= 36)} seconds per fight: ${secs.toFixe
 console.log(`full wipes: ${pct(wiped, games)}`);
 console.log(`deaths by tier: ${deathsByTier.map((n, i) => `T${i}:${n}`).join(' ')}`);
 console.log(`deaths by class: ${JSON.stringify(deathsByClass)}`);
+console.log(`escape rate by class: ${Object.keys(runsByClass).sort().map((c) => `${c} ${Math.round((100 * (escapesByClass[c] ?? 0)) / runsByClass[c])}% (n=${runsByClass[c]})`).join(' · ')}`);
 console.log(`death causes: ${JSON.stringify(causes)}`);
 console.log(`exit arrivals: median ${arrivals.length ? fmt(arrivals[Math.floor(arrivals.length / 2)]) : '-'}, n=${arrivals.length}`);
 console.log(`per game: ${(fights / games).toFixed(1)} fights, ${(slain / games).toFixed(1)} slain, ${(downs / games).toFixed(1)} downs, ${(revives / games).toFixed(1)} revives, ${(collapses / games).toFixed(1)} collapses, ${(waves / games).toFixed(1)} waves`);

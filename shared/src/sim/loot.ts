@@ -1,4 +1,4 @@
-import { INVENTORY_SLOTS, isGear, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
+import { gearGain, INVENTORY_SLOTS, isGear, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
@@ -30,6 +30,8 @@ export interface Pile {
   /** Who dropped each item, parallel to `items` and `abandoned` (null: found there). */
   itemsBy: (string | null)[];
   abandonedBy: (string | null)[];
+  /** Gold the dead dropped, by whose it was: an Undertaker carries it out for them; anyone else just splits it. */
+  corpseGold?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +153,9 @@ export function tickLoot(world: World) {
     const voters = votersIn(world, room);
     if (voters.length === 0) continue;
 
+    if (pile.corpseGold) claimCorpseGold(world, pile, voters);
+    const undertaker = voters.find((v) => v.cls === 'undertaker');
+    if (undertaker) mortician(world, room, pile, undertaker);
     if (pile.gold > 0) splitGold(world, room, pile);
     if (voters.length === 1) autoPickup(world, room, voters[0]);
     if (!pile.vote && pile.items.length) {
@@ -173,7 +178,47 @@ export function tickLoot(world: World) {
       const values = voters.map((v) => vote.votes[v.id]);
       if (values.every((v) => v !== undefined && v === values[0])) resolveVote(world, room, pile, values[0]!);
     }
-    if (pile.gold === 0 && pile.items.length === 0 && pile.abandoned.length === 0 && !pile.vote) delete world.piles[room];
+    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0 && pile.abandoned.length === 0 && !pile.vote) delete world.piles[room];
+  }
+}
+
+/** Gold off the dead: the Undertaker keeps each share apart for its owner; without one, it's just gold to split. */
+function claimCorpseGold(world: World, pile: Pile, voters: Hero[]) {
+  const undertaker = voters.find((v) => v.cls === 'undertaker');
+  for (const [id, gold] of Object.entries(pile.corpseGold ?? {})) {
+    if (undertaker) {
+      undertaker.bodies[id] = (undertaker.bodies[id] ?? 0) + gold;
+      notify(world, undertaker, `You gather ${world.heroes[id]?.name ?? 'the fallen'}'s ${gold} gold, to carry home for them.`);
+    } else {
+      pile.gold += gold;
+    }
+  }
+  delete pile.corpseGold;
+}
+
+/** Was this floor item dropped by someone now dead? */
+function fromTheDead(world: World, by: string | null | undefined): boolean {
+  return !!by && !!world.heroes[by]?.dead;
+}
+
+/** Mortician: the Undertaker takes what the fallen carried without a vote (gear only if it's an upgrade). */
+function mortician(world: World, room: number, pile: Pile, u: Hero) {
+  const wanted = (item: ItemId) => {
+    const def = ITEMS[item];
+    if (def.kind === 'weapon' || def.kind === 'armor') return gearGain(item, u[def.kind]) > 0;
+    return hasSpace(u);
+  };
+  if (pile.vote && fromTheDead(world, pile.vote.droppedBy) && wanted(pile.vote.item)) resolveVote(world, room, pile, u.id);
+  for (const [list, by] of [[pile.items, pile.itemsBy], [pile.abandoned, pile.abandonedBy]] as const) {
+    for (let i = 0; i < list.length; ) {
+      if (!fromTheDead(world, by[i]) || !wanted(list[i])) {
+        i++;
+        continue;
+      }
+      const [item] = list.splice(i, 1);
+      by.splice(i, 1);
+      take(world, room, u, item);
+    }
   }
 }
 
@@ -292,8 +337,15 @@ export function dropEverything(world: World, h: Hero) {
     if (h[slot]) items.push(h[slot]!);
     h[slot] = null;
   }
-  addToPile(world, room, h.gold, items, h.id);
+  addToPile(world, room, 0, items, h.id);
+  const pile = world.piles[room];
+  const corpse = (pile.corpseGold ??= {});
+  if (h.gold > 0) corpse[h.id] = (corpse[h.id] ?? 0) + h.gold;
+  // A fallen Undertaker drops what they carried for others, still marked as theirs.
+  for (const [id, gold] of Object.entries(h.bodies)) corpse[id] = (corpse[id] ?? 0) + gold;
+  if (Object.keys(corpse).length === 0) delete pile.corpseGold;
   h.gold = 0;
+  h.bodies = {};
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +385,9 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
     const room = h.encounter;
     if (room === null) return '!Only in a fight.';
     takeItem(h, index);
-    return `${h.name} hurls a Firebomb!`; // damage applied by combat
+    const doubled = h.elixir;
+    h.elixir = false;
+    return `${h.name} hurls a Firebomb!${doubled ? ' (Elixir: double!)' : ''}`; // damage applied by combat
   }
   const targets = itemTargets(world, h, index);
   const tid = targetId ?? (def.target === 'self' || def.target === 'ally' ? h.id : targets[0]);
@@ -343,22 +397,26 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   if (item === 'bandage' && t.hp >= t.maxHp && !t.st.bleed) return `!${t === h ? "You're" : `${t.name} is`} not hurt.`;
   if (item === 'tonic' && t.stress <= 0) return '!You feel steady already.';
   takeItem(h, index);
+  // Elixir: this one counts double.
+  const x = h.elixir ? 2 : 1;
+  h.elixir = false;
+  const boost = x > 1 ? ' (Elixir: double!)' : '';
   switch (item) {
     case 'bandage': {
       const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + 12);
+      t.hp = Math.min(t.maxHp, t.hp + 12 * x);
       delete t.st.bleed;
-      return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).`;
+      return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).${boost}`;
     }
     case 'torch':
-      t.light = Math.min(LIGHT_MAX, t.light + 50);
-      return `${h.name} lights a fresh torch.`;
+      t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
+      return `${h.name} lights a fresh torch.${boost}`;
     case 'tonic':
-      addStress(t, -25);
-      return `${h.name} drinks a tonic. (−25 stress)`;
+      addStress(t, -25 * x);
+      return `${h.name} drinks a tonic. (−${25 * x} stress)${boost}`;
     case 'salts':
-      reviveHero(t, 0.5, world, h);
-      return `${h.name} revives ${t.name} with smelling salts!`;
+      reviveHero(t, Math.min(1, 0.5 * x), world, h);
+      return `${h.name} revives ${t.name} with smelling salts!${boost}`;
   }
   return `${h.name} uses ${def.name}.`;
 }
