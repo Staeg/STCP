@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { STRESS } from '../content/events';
 import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { EXIT_OPENS_AT } from '../content/constants';
@@ -9,6 +10,11 @@ import { buildView } from './views';
 import { addHero, applyIntent, createWorld, digTime, extractHero, step, type World } from './world';
 import type { ClassId } from '../content/classes';
 import type { EnemyId } from '../content/enemies';
+
+// These tests check exact stress amounts; the dungeon's steady background stress would blur them.
+const baseStress = STRESS.basePerSec;
+beforeEach(() => void (STRESS.basePerSec = 0));
+afterEach(() => void (STRESS.basePerSec = baseStress));
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);

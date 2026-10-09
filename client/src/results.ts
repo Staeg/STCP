@@ -15,7 +15,11 @@ export class ResultsUi {
 
   constructor(private net: Net) {
     $('results').addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('[data-act="lobby"]')) net.send({ t: 'toLobby' });
+      if ((e.target as HTMLElement).closest('[data-act="lobby"]')) {
+        // Already back in the lobby (just looking at the old map): only switch views.
+        if (net.reviewing) net.review(false);
+        else net.send({ t: 'toLobby' });
+      }
       if ((e.target as HTMLElement).closest('[data-act="map"]')) $('results').classList.toggle('peek');
     });
   }
@@ -29,6 +33,8 @@ export class ResultsUi {
       this.lastHtml = '';
       return;
     }
+    // Coming over from the lobby to look at the old map: open straight onto the map.
+    if (el.hidden && this.net.reviewing) el.classList.add('peek');
     el.hidden = false;
     const me = res.heroes.find((h) => h.id === view.you.id)!;
     const title = me.outcome === 'escaped' ? `You escaped with ${me.gold} gold` : `You ${me.fate}`;
@@ -61,7 +67,8 @@ export class ResultsUi {
       <h3>What really happened</h3>
       <div class="chronicle">${story}</div>
       <div class="row">
-        ${isHost ? '<button class="primary" data-act="lobby">Return to lobby</button>' : '<span class="muted">Waiting for the host…</span>'}
+        ${this.net.reviewing ? '<button class="primary" data-act="lobby">Back to lobby</button>'
+          : isHost ? '<button class="primary" data-act="lobby">Return to lobby</button>' : '<span class="muted">Waiting for the host…</span>'}
         <button class="quiet" data-act="map">Toggle map</button>
       </div>
     </div>`;

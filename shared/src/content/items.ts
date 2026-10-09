@@ -101,6 +101,11 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
   { item: 'wardmail', weight: 0.5, rarity: 3 },
 ];
 
+/** An item's tier (its loot rarity): 1 common · 2 uncommon · 3 rare. */
+export function itemTier(item: ItemId): 1 | 2 | 3 {
+  return LOOT_TABLE.find((e) => e.item === item)?.rarity ?? 1;
+}
+
 /** Loot seeding per room, and what monsters drop. */
 export const LOOT = {
   guardedChance: 0.75,

@@ -32,6 +32,8 @@ export class Screens {
     for (const ev of ['pointerup', 'pointercancel'] as const) window.addEventListener(ev, () => (this.pressing = false));
     root().addEventListener('click', (e) => this.onClick(e));
     root().addEventListener('change', (e) => this.onChange(e));
+    new ResizeObserver(() => this.fitClasses()).observe(root());
+    void document.fonts.ready.then(() => this.fitClasses());
     root().addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.target as HTMLElement).id === 'code-input') this.join();
     });
@@ -41,7 +43,7 @@ export class Screens {
   update(): boolean {
     const lobby = this.net.lobby;
     const el = root();
-    if (lobby?.state === 'game') {
+    if (lobby?.state === 'game' || this.net.reviewing) {
       el.hidden = true;
       this.rendered = '';
       return false;
@@ -60,8 +62,30 @@ export class Screens {
         if (values.has(input.id)) input.value = values.get(input.id)!;
         if (input.id === focused) input.focus();
       }
+      this.fitClasses();
     }
     return true;
+  }
+
+  /** Grow the class-card text to the largest size where every card still fits its grid cell, so the lobby fills the window without scrolling. */
+  private fitClasses() {
+    const grid = root().querySelector<HTMLElement>('.classes');
+    if (!grid) return;
+    const cards = [...grid.querySelectorAll<HTMLElement>('.class-card')];
+    const fits = () => cards.every((c) => c.scrollHeight <= c.clientHeight + 1 && c.scrollWidth <= c.clientWidth + 1);
+    const min = 12;
+    grid.classList.remove('scroll');
+    grid.style.setProperty('--fs', `${min}px`);
+    // Too small a window (phones) to fit legibly: keep the minimum size and let just the grid scroll.
+    if (!fits()) return grid.classList.add('scroll');
+    let lo = min, hi = 28;
+    while (hi - lo > 0.25) {
+      const mid = (lo + hi) / 2;
+      grid.style.setProperty('--fs', `${mid}px`);
+      if (fits()) lo = mid;
+      else hi = mid;
+    }
+    grid.style.setProperty('--fs', `${lo}px`);
   }
 
   private menuHtml() {
@@ -94,8 +118,7 @@ export class Screens {
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${esc(m.name)} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
-        <span class="muted">${cls?.name ?? 'choosing…'}</span>
-        <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span>
+        <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span></span>
       </li>`);
     }
     // Classes can be shared; the card just says who else picked it.
@@ -104,9 +127,14 @@ export class Screens {
       const mine = you.cls === id;
       const others = lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId);
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
-        <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
-        <div class="class-name">${c.name}</div>
-        <div class="class-stats"><span class="muted">${c.role}</span> ${iconNum('hp', c.maxHp)} ${iconNum('speed', `${c.speed}s`)}</div>
+        <div class="class-head">
+          <div>
+            <div class="class-name">${c.name}</div>
+            <div class="muted">${c.role}</div>
+            <div class="class-stats">${iconNum('hp', c.maxHp)} ${iconNum('speed', `${c.speed}s`)}</div>
+          </div>
+          <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
+        </div>
         <div class="blurb">${iconize(c.blurb)}</div>
         <ul class="class-abilities">${ABILITIES[id].map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
         ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
@@ -115,7 +143,7 @@ export class Screens {
     // Solo: no one to wait for, so Descend readies you up itself.
     const allReady = SOLO ? !!you.cls : lobby.members.every((m) => m.ready && m.cls);
     const link = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
-    return `<div class="card wide">
+    return `<div class="card wide lobby">
       ${SOLO ? '<div class="muted">Pick a class. Bots take the other three.</div>' : `<div class="lobby-head">
         <div><div class="muted">Lobby code</div><div class="code-big">${lobby.code}</div></div>
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
@@ -126,6 +154,7 @@ export class Screens {
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
         ${SOLO ? '' : `<button data-act="ready" ${you.cls ? '' : 'disabled'}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
         ${isHost ? `<button data-act="start" ${allReady ? '' : 'disabled'} class="primary">Descend</button>` : `<span class="muted">Waiting for the host to start…</span>`}
+        ${this.net.lastRun ? '<button data-act="review">Last run’s map</button>' : ''}
         <button data-act="leave" class="quiet">Leave</button>
       </div>
     </div>`;
@@ -157,6 +186,9 @@ export class Screens {
       case 'start':
         if (SOLO) net.send({ t: 'ready', ready: true });
         net.send({ t: 'start' });
+        break;
+      case 'review':
+        net.review(true);
         break;
       case 'leave':
         net.send({ t: 'leave' });

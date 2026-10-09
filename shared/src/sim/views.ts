@@ -31,6 +31,19 @@ export interface RoomView {
   loot?: number;
   /** An event you saw here and haven't seen resolved. */
   event?: EventKind;
+  /** Only once the expedition is over: what was really here at the end. */
+  reveal?: RoomReveal;
+}
+
+/** The truth about a room after the run: what was left in it. */
+export interface RoomReveal {
+  monsters: EnemyId[];
+  items: ItemId[];
+  gold: number;
+  /** An event nobody finished. */
+  event?: EventKind;
+  /** A captive nobody freed. */
+  captive?: boolean;
 }
 
 export interface EventView {
@@ -197,10 +210,12 @@ export interface PlayerView {
 export function buildView(world: World, heroId: string): PlayerView {
   const d = world.dungeon;
   const you = world.heroes[heroId];
+  // Once it's over the fog lifts: every room and tunnel, and what was left in them.
+  const over = world.phase !== 'running';
   const corridors: CorridorView[] = d.corridors
-    .filter((c) => knowsCorridor(you, c))
-    .map((c) => (you.knownCollapsed.includes(c.id) ? { ...c, collapsed: true } : c));
-  const roomIds = new Set<number>(you.seen);
+    .filter((c) => over || knowsCorridor(you, c))
+    .map((c) => ((over ? world.collapsed : you.knownCollapsed).includes(c.id) ? { ...c, collapsed: true } : c));
+  const roomIds = new Set<number>(over ? d.rooms.map((r) => r.id) : you.seen);
   for (const c of corridors) {
     roomIds.add(c.a);
     roomIds.add(c.b);
@@ -241,7 +256,8 @@ export function buildView(world: World, heroId: string): PlayerView {
   }));
   const rooms: RoomView[] = [...roomIds].map((id) => {
     const r = d.rooms[id];
-    const knowledge: RoomKnowledge = you.explored.includes(id) ? 'explored' : you.seen.includes(id) ? 'seen' : 'unknown';
+    const knowledge: RoomKnowledge = over || you.explored.includes(id) ? 'explored' : you.seen.includes(id) ? 'seen' : 'unknown';
+    const reveal = over ? revealRoom(world, id) : undefined;
     return {
       id,
       x: r.x,
@@ -249,10 +265,11 @@ export function buildView(world: World, heroId: string): PlayerView {
       knowledge,
       name: knowledge === 'unknown' ? undefined : r.name,
       kind: knowledge === 'unknown' ? undefined : r.kind,
-      corridors: r.corridors.filter((cid) => knowsCorridor(you, d.corridors[cid])),
-      threat: you.knownThreat[id],
-      loot: you.knownLoot[id],
-      event: you.knownEvents[id],
+      corridors: r.corridors.filter((cid) => over || knowsCorridor(you, d.corridors[cid])),
+      threat: reveal ? reveal.monsters.length || undefined : you.knownThreat[id],
+      loot: reveal ? reveal.items.length + (reveal.gold > 0 ? 1 : 0) || undefined : you.knownLoot[id],
+      event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : you.knownEvents[id],
+      reveal,
     };
   });
   return {
@@ -302,6 +319,18 @@ function eventView(world: World, you: Hero): EventView | null {
   return {
     kind: opts.kind, name: def.name, glyph: def.glyph, text: def.text, choices: opts.choices,
     progress: opts.progress, worker, blocked: opts.choices.length === 0,
+  };
+}
+
+function revealRoom(world: World, room: number): RoomReveal {
+  const pile = world.piles[room];
+  const ev = world.events[room];
+  return {
+    monsters: Object.values(world.monsters).filter((m) => m.room === room).map((m) => m.type),
+    items: pile ? [...(pile.vote ? [pile.vote.item] : []), ...pile.items, ...pile.abandoned] : [],
+    gold: pile?.gold ?? 0,
+    event: ev && !ev.done ? ev.kind : undefined,
+    captive: Object.values(world.villagers).some((v) => v.room === room && (v.state === 'captive' || v.state === 'waiting')) || undefined,
   };
 }
 

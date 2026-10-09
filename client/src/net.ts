@@ -19,6 +19,10 @@ export class Net {
   prev: PlayerView | null = null;
   cur: PlayerView | null = null;
   curAt = 0;
+  /** The final snapshot of the last finished run, kept after returning to the lobby so its map can be looked over. */
+  lastRun: PlayerView | null = null;
+  /** In the lobby, looking at the last run's map (`cur` is then `lastRun`). */
+  reviewing = false;
   name = localStorage.getItem('stcp-name') ?? '';
   onError: (msg: string) => void = () => {};
   onLobby: (lobby: LobbyView | null) => void = () => {};
@@ -62,7 +66,14 @@ export class Net {
         break;
       }
       case 'lobby':
-        if (msg.lobby?.state !== 'game') this.prev = this.cur = null;
+        if (msg.lobby?.state !== 'game') {
+          if (!msg.lobby) {
+            this.lastRun = null;
+            this.reviewing = false;
+          }
+          this.prev = null;
+          this.cur = this.reviewing ? this.lastRun : null;
+        }
         this.lobby = msg.lobby;
         this.onLobby(msg.lobby);
         break;
@@ -73,12 +84,21 @@ export class Net {
         this.leaderboard = msg.entries;
         break;
       case 'view':
+        this.reviewing = false;
         this.prev = this.cur;
         this.cur = msg.view;
+        this.lastRun = msg.view.results ? msg.view : null;
         this.curAt = performance.now();
         for (const hook of this.viewHooks) hook(msg.view);
         break;
     }
+  }
+
+  /** Switch between the lobby and the last run's revealed map. */
+  review(on: boolean) {
+    this.reviewing = on && !!this.lastRun;
+    this.cur = this.reviewing ? this.lastRun : null;
+    this.prev = null;
   }
 
   send(msg: ClientMsg) {

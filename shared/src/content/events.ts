@@ -22,7 +22,9 @@ export const AFFLICTIONS: Record<AfflictionId, AfflictionDef> = {
 export const AFFLICTION_RULES = 'Afflictions last the rest of the run. Reaching 100 stress again stops your heart: you go down and stress resets to 80.';
 
 export const STRESS = {
-  /** Per second while Dim / in total darkness. */
+  /** Per second, always, just for being down here: about 100 in 10 minutes if nothing relieves it. */
+  basePerSec: 0.16,
+  /** Per second on top of that while Dim / in total darkness. */
   dimPerSec: 0.15,
   darkPerSec: 0.5,
   /** After the first break, stress resets here. */

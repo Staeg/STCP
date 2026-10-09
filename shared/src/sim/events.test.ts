@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { STRESS } from '../content/events';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
@@ -6,6 +7,11 @@ import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { RoomEvent } from './events';
 import { speedOf } from './speed';
+
+// These tests check exact stress amounts; the dungeon's steady background stress would blur them.
+const baseStress = STRESS.basePerSec;
+beforeEach(() => void (STRESS.basePerSec = 0));
+afterEach(() => void (STRESS.basePerSec = baseStress));
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);

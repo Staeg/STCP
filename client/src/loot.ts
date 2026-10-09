@@ -1,4 +1,4 @@
-import { INVENTORY_SLOTS, ITEMS, LEAVE, type PlayerView } from '@stcp/shared';
+import { INVENTORY_SLOTS, itemTier, ITEMS, LEAVE, type ItemId, type PlayerView } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
 import { digitClaimed, digitKey } from './events';
@@ -7,6 +7,11 @@ const $ = (id: string) => document.getElementById(id)!;
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** An item's name, coloured by tier (white · blue · purple). */
+export function itemName(item: ItemId): string {
+  return `<span class="tier-${itemTier(item)}">${esc(ITEMS[item].name)}</span>`;
 }
 
 /** Use a pack item while exploring (Smelling Salts go to a downed ally you can see). */
@@ -116,13 +121,13 @@ export class LootUi {
       const options = vote.candidates.map((c, i) => `
         <button class="vote-opt ${mine === c.id ? 'sel' : ''}" data-vote="${c.id}" ${canVote ? '' : 'disabled'}>
           <kbd>${i + 1}</kbd> ${esc(c.id === view.you.id ? 'Me' : c.name)}${c.isBot ? ' <span class="muted">(bot)</span>' : ''}
-          <span class="muted small">${c.wearing !== undefined ? (c.wearing ? `has ${esc(ITEMS[c.wearing].name)}` : 'nothing worn') : `${c.free} free`}</span>
+          <span class="muted small">${c.wearing !== undefined ? (c.wearing ? `has ${itemName(c.wearing)}` : 'nothing worn') : `${c.free} free`}</span>
           <div class="backers">${backers(c.id)}</div>
         </button>`).join('');
       const pending = vote.voters.filter((v) => !vote.votes[v]).map(nameOf);
       const agreed = vote.voters.every((v) => vote.votes[v] && vote.votes[v] === vote.votes[vote.voters[0]]);
       html += `
-        <div class="loot-head"><span class="item-glyph">${def.glyph}</span> <b>${def.name}</b> <span class="muted">— ${iconize(def.desc)}</span></div>
+        <div class="loot-head"><span class="item-glyph">${def.glyph}</span> <b>${itemName(vote.item)}</b> <span class="muted">— ${iconize(def.desc)}</span></div>
         <div class="muted">Who takes it?${loot.queued.length ? ` <span class="small">(${loot.queued.length} more after this)</span>` : ''}</div>
         <div class="vote-opts">${options}
           <button class="vote-opt leave ${mine === LEAVE ? 'sel' : ''}" data-vote="${LEAVE}" ${canVote ? '' : 'disabled'}><kbd>${vote.candidates.length + 1}</kbd> Leave it<div class="backers">${backers(LEAVE)}</div></button>
@@ -130,7 +135,7 @@ export class LootUi {
         <div class="lock">${agreed ? 'Agreed!' : `Everyone here must agree. Walking out takes you out of the vote.${pending.length ? ` Waiting on: ${esc(pending.join(', '))}` : ' You disagree.'}`}</div>`;
     }
     if (showAbandoned) {
-      html += `<div class="abandoned muted">Left here: ${loot.abandoned.map((it, i) => `${ITEMS[it].glyph} ${ITEMS[it].name} <button class="mini" data-claim="${i}">claim</button>`).join(' ')}</div>`;
+      html += `<div class="abandoned muted">Left here: ${loot.abandoned.map((it, i) => `${ITEMS[it].glyph} ${itemName(it)} <button class="mini" data-claim="${i}">claim</button>`).join(' ')}</div>`;
     }
     if (html !== this.lastVoteHtml) {
       panel.innerHTML = html;
@@ -182,7 +187,7 @@ export class LootUi {
       const def = ITEMS[item];
       const f = this.flashAttr(`p${i}`);
       slots.push(`<div class="slot-item ${def.kind}${f.cls}"${f.style} data-slot="${i}" title="${esc(`${def.name}: ${def.desc}`)}">
-        <kbd>${i + 4}</kbd><span class="item-glyph">${def.glyph}</span><span class="item-name">${def.name}</span>
+        <kbd>${i + 4}</kbd><span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>
         <span class="drop" title="Drop on the floor">✕</span></div>`);
     }
     const gear = (['weapon', 'armor'] as const).map((slot) => {
@@ -191,7 +196,7 @@ export class LootUi {
       const def = ITEMS[item];
       const f = this.flashAttr(slot);
       return `<div class="slot-item gear ${slot}${f.cls}"${f.style} data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}`)}">
-        <span class="item-glyph">${def.glyph}</span><span class="item-name">${def.name}</span>
+        <span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>
         <span class="drop" title="Take it off and drop it">✕</span></div>`;
     });
     const html = `<div class="gold">⛀ ${you.gold} gold</div><div class="slots-row gear-row">${gear.join('')}</div><div class="slots-row">${slots.join('')}</div>`;

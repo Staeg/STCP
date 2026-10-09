@@ -1,6 +1,6 @@
 import {
-  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, CLASSES, ESCALATION, EVENT_SEEDING,
-  FIELD_SKILLS, fieldSkillsOf, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, type PlayerView,
+  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
+  FIELD_SKILLS, fieldSkillsOf, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -47,7 +47,8 @@ export class Hud {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
-      if (e.code === 'KeyE' && !$('btn-escape').hidden) $('btn-escape').click();
+      // F: flee in a fight (combat.ts), get out through the exit here.
+      if (e.code === 'KeyF' && !$('btn-escape').hidden) $('btn-escape').click();
       const dir = ({ KeyW: 'north', KeyA: 'west', KeyS: 'south', KeyD: 'east' } as const)[e.code as 'KeyW'];
       if (dir) {
         const room = roomInDir(net.cur, dir);
@@ -75,7 +76,7 @@ export class Hud {
     const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
-    $('tier').textContent = `Tier ${view.tier}`;
+    setHtml($('tier'), tierHtml(view.tier));
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
@@ -107,8 +108,9 @@ export class Hud {
     $('stress-fill').style.width = `${you.stress}%`;
     $('light-text').textContent = view.dim ? (you.light <= 0 ? '(DARK)' : '(DIM)') : '';
     $('light-text').title = you.light <= 0
-      ? 'Darkness: +0.5 stress per second, and monsters hit you 25% harder.'
-      : `Dim (light under ${LIGHT_DIM}): +0.15 stress per second, and you can't see into neighbouring rooms.`;
+      ? `Darkness: +${STRESS.darkPerSec} stress per second, and monsters hit you 25% harder.`
+      : `Dim (light under ${LIGHT_DIM}): +${STRESS.dimPerSec} stress per second, and you can't see into neighbouring rooms.`;
+    $('stress-text').title = `The dungeon wears on you: +${STRESS.basePerSec} stress per second, more while Dim or dark, in fights and from what you see. At 100 something breaks.`;
     // Speed: seconds per turn in a fight and per tunnel. Hover for what's making it up.
     const speed = speedOf(you, view.time);
     $('speed-text').textContent = `${fmtSpeed(speed)} per turn / tunnel`;
@@ -154,15 +156,15 @@ export class Hud {
     const esc = $('btn-escape');
     const atExit = free && here === view.exitRoom;
     esc.hidden = !atExit || !view.exitOpen;
-    if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>E</kbd>`;
+    if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>F</kbd>`;
     setHtml($('roster'), rosterHtml(view));
     const isHost = net.lobby?.hostId === net.lobby?.youId;
-    $('btn-lobby').hidden = !(view.phase !== 'running' && isHost);
+    $('btn-lobby').hidden = !(view.phase !== 'running' && isHost) || net.reviewing;
 
     // Tier-change banner
     if (view.tier > this.lastTier) {
       this.lastTier = view.tier;
-      this.showBanner(`Tier ${view.tier}<br><span style="font-size:26px">${TIER_TEXT[view.tier] ?? ''}</span>`, 4500);
+      this.showBanner(`Tier ${view.tier}<br><span class="banner-sub">${TIER_TEXT[view.tier] ?? ''}</span>`, 8000, 'tier-up');
       beep(view.tier >= 5 ? 'alarm' : 'tier');
       juice(view.tier >= 5 ? 'alarm' : 'tier');
     }
@@ -186,13 +188,23 @@ export class Hud {
     $('btn-lobby').hidden = true;
   }
 
-  private showBanner(html: string, ms: number) {
+  /** `cls` styles one kind of banner (tier-ups sit higher up, clear of the map around you). */
+  private showBanner(html: string, ms: number, cls = '') {
     const b = $('banner');
     b.innerHTML = html;
+    b.className = cls;
     b.hidden = false;
     clearTimeout(this.bannerTimer);
     if (ms > 0) this.bannerTimer = window.setTimeout(() => (b.hidden = true), ms);
   }
+}
+
+/** "Tier N", with what every tier so far has done on hover. */
+function tierHtml(tier: number): string {
+  const lines = [];
+  for (let t = 1; t <= tier; t++) lines.push(`<div><b>Tier ${t}</b>: ${TIER_TEXT[t] ?? ''}</div>`);
+  const next = tier < MAX_TIER ? `<div class="muted">Tier ${tier + 1} comes at ${fmtTime((tier + 1) * TIER_INTERVAL)}.</div>` : '';
+  return `Tier ${tier}<div class="hover-tip">${lines.join('') || '<div>Nothing has stirred yet.</div>'}${next}</div>`;
 }
 
 function rosterHtml(view: PlayerView): string {

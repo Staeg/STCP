@@ -1,4 +1,4 @@
-import { gearGain, INVENTORY_SLOTS, isGear, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
+import { gearGain, INVENTORY_SLOTS, isGear, itemTier, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
@@ -102,9 +102,17 @@ export function hasSpace(h: Hero): boolean {
   return h.items.length < INVENTORY_SLOTS;
 }
 
-/** Gear can always be taken (it swaps with what you wear); anything else needs a free pack slot. */
+/**
+ * Gear swaps with what you wear, unless it's a lower tier than that (take yours off first if you
+ * really want it); anything else needs a free pack slot.
+ */
 export function canTake(h: Hero, item: ItemId): boolean {
-  return isGear(item) || hasSpace(h);
+  const kind = ITEMS[item].kind;
+  if (kind === 'weapon' || kind === 'armor') {
+    const worn = h[kind];
+    return !worn || itemTier(item) >= itemTier(worn);
+  }
+  return hasSpace(h);
 }
 
 /** Returns the gear this displaced, if any (the caller puts it on the floor). */

@@ -3,7 +3,7 @@ import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { BLEED_OUT, spawnGroup } from './combat';
 import { Game } from './game';
-import { addToPile, LEAVE } from './loot';
+import { addToPile, canTake, LEAVE } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -267,5 +267,22 @@ describe('bot games with loot', () => {
     expect(stuckVotes).toBe(0);
     expect(gold).toBeGreaterThan(0);
     console.log(`bot loot: ${gold} gold held, ${items} items held across 4 games`);
+  });
+});
+
+describe('gear tiers', () => {
+  it('a lower-tier piece is not offered over what you wear, until you take yours off', () => {
+    const { world, d } = party(1);
+    const h = world.heroes.h0;
+    h.weapon = 'runeblade'; // tier 3
+    expect(canTake(h, 'shortsword')).toBe(false); // tier 1
+    expect(canTake(h, 'emberaxe')).toBe(true); // same tier
+    expect(canTake(h, 'jerkin')).toBe(true); // other slot
+    addToPile(world, d.entrance, 0, ['shortsword']);
+    run(world, 1);
+    expect(h.weapon).toBe('runeblade');
+    h.weapon = null;
+    run(world, 1);
+    expect(h.weapon).toBe('shortsword');
   });
 });

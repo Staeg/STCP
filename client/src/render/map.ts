@@ -1,6 +1,9 @@
-import { dirBetween, EVENTS, type AllyView, type HeroPos, type PlayerView, type RoomView } from '@stcp/shared';
+import { dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
 import { drawSprite } from './sprites';
+
+/** Item tier colours, as in the HUD (style.css .tier-N). */
+const TIER_COLORS = { 1: '#f4f0e8', 2: '#5aa8ff', 3: '#c07cff' } as const;
 
 const COLORS = {
   bg: '#0d0b0a',
@@ -40,6 +43,7 @@ export class MapRenderer {
     canvas.addEventListener('mousemove', (e) => {
       this.mouse = { x: e.clientX, y: e.clientY };
     });
+    canvas.addEventListener('mouseleave', () => (this.mouse = { x: -1, y: -1 }));
     canvas.addEventListener('click', (e) => {
       const room = this.hitTest(e.clientX, e.clientY);
       if (room !== null) this.net.intent({ type: 'goto', room });
@@ -62,6 +66,16 @@ export class MapRenderer {
     const w = innerWidth - left - right;
     const h = innerHeight - top - bottom;
     // About 7 rooms across and 4–5 down, whatever the window size.
+    if (view.results) {
+      // After the run the whole dungeon is revealed: fit all of it on screen, clear of the status panel too.
+      const w = innerWidth - left - 290;
+      const xs = view.rooms.map((r) => r.x);
+      const ys = view.rooms.map((r) => r.y);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      const fit = Math.max(0.3, Math.min(2.2, Math.min(w / (x1 - x0 + 80), h / (y1 - y0 + 80))));
+      this.x = { s: fit, ox: left + w / 2 - ((x0 + x1) / 2) * fit, oy: top + h / 2 - ((y0 + y1) / 2) * fit };
+      return;
+    }
     const s = Math.max(0.8, Math.min(2.2, Math.min(w / 750, h / 450)));
     const target = posXY(view, view.you.pos);
     const now = performance.now();
@@ -288,6 +302,7 @@ export class MapRenderer {
     // A ring in each hero's colour fills with their Speed timer: to arrival in a tunnel (where they wait at its
     // midpoint), or to their next turn standing in a room.
     const youFree = you.encounter === null && you.downedAt === null && !you.dead && !you.channel;
+    let yourFrac: number | null = null;
     for (const h of [...view.allies.filter((a) => a.live), you]) {
       let frac: number;
       if (h.pos.kind === 'corridor') frac = Math.min(1, h.pos.t / h.pos.dur);
@@ -296,6 +311,7 @@ export class MapRenderer {
         if (!turn || turn.at <= turn.start) continue;
         frac = Math.max(0, Math.min(1, (view.time - turn.start) / (turn.at - turn.start)));
       }
+      if (h === you) yourFrac = frac;
       const p = tokens.get(h.id)!;
       ctx.lineWidth = h.id === you.id ? 3 : 2;
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
@@ -312,8 +328,8 @@ export class MapRenderer {
     this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
     if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
 
-    // Light vignette around the hero
-    {
+    // Light vignette around the hero (gone once the run is over and the map is revealed)
+    if (!view.results) {
       const frac = you.light / 100;
       const r0 = 90 + frac * 520;
       const g = ctx.createRadialGradient(hp.x, hp.y, r0 * 0.35, hp.x, hp.y, r0);
@@ -348,7 +364,56 @@ export class MapRenderer {
       ctx.fillText(label, tx + 1, ty + 1);
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
+      if (r.reveal) this.drawReveal(r.reveal, tx, this.sy(r.y) + size / 2 + 8);
     }
+
+    // Your Speed ring again, round the mouse pointer, so you can watch it without looking at your hero.
+    if (yourFrac !== null && this.mouse.x >= 0 && !view.results) {
+      const { x, y } = this.mouse;
+      const rr = 13;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.beginPath();
+      ctx.arc(x, y, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = you.color;
+      ctx.beginPath();
+      ctx.arc(x, y, rr, -Math.PI / 2, -Math.PI / 2 + yourFrac * Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  /** After the run: what was left in the hovered room, in a box under it. */
+  private drawReveal(rv: RoomReveal, cx: number, top: number) {
+    const lines: { text: string; color: string }[] = [];
+    const counts = new Map<string, number>();
+    for (const m of rv.monsters) counts.set(ENEMIES[m].name, (counts.get(ENEMIES[m].name) ?? 0) + 1);
+    for (const [name, n] of counts) lines.push({ text: `☠ ${n > 1 ? `${n}× ` : ''}${name}`, color: '#e07a5a' });
+    for (const it of rv.items) lines.push({ text: `${ITEMS[it as ItemId].glyph} ${ITEMS[it as ItemId].name}`, color: TIER_COLORS[itemTier(it)] });
+    if (rv.gold > 0) lines.push({ text: `⛀ ${rv.gold} gold`, color: '#e0b44a' });
+    if (rv.event) lines.push({ text: `${EVENTS[rv.event].glyph} ${EVENTS[rv.event].name} (not done)`, color: '#c08aff' });
+    if (rv.captive) lines.push({ text: '☺ A captive, never freed', color: '#e0c890' });
+    if (!lines.length) lines.push({ text: 'Nothing left here.', color: COLORS.muted });
+    const { ctx } = this;
+    ctx.font = '18px VT323, monospace';
+    const lh = 18;
+    const w = Math.max(...lines.map((l) => ctx.measureText(l.text).width)) + 16;
+    const h = lines.length * lh + 8;
+    const x = Math.max(4, Math.min(innerWidth - w - 4, cx - w / 2));
+    const y = Math.min(innerHeight - h - 4, top);
+    ctx.fillStyle = 'rgba(22,18,15,0.95)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = COLORS.border;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    lines.forEach((l, i) => {
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, x + 8, y + 5 + i * lh);
+    });
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
   }
 
   /** W/A/S/D next to each tunnel out of your room. */

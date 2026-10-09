@@ -441,10 +441,11 @@ export function maybeHitVillager(world: World, room: number, dmg: number, attack
   return `${attacker} kills the villager!`;
 }
 
-/** Darkness wears on the mind; at 100 stress something breaks. Called every tick. */
+/** The dungeon wears on the mind, darkness most of all; at 100 stress something breaks. Called every tick. */
 export function tickStress(world: World, dt: number) {
   for (const h of Object.values(world.heroes)) {
     if (!isConscious(h)) continue;
+    addStress(h, STRESS.basePerSec * dt);
     if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
     else if (h.light < LIGHT_DIM && !h.items.includes('catseye')) addStress(h, STRESS.dimPerSec * dt);
     // The Zealot never breaks: stress just stays at 100 (and makes them hit harder).

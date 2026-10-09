@@ -5,7 +5,7 @@ import {
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
 import { juice } from './juice';
-import { useFromField } from './loot';
+import { itemName, useFromField } from './loot';
 import { cooldownIcon, icon, iconize, iconNum, type IconId } from './icons';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -264,12 +264,12 @@ export class CombatUi {
       if (!enc) {
         const usable = def.field;
         return `<button class="cb-act item ${usable ? 'usable' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
-          <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+          <span class="cb-label"><kbd>${i + 4}</kbd> ${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
       }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
       return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'}>
-        <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${iconize(def.desc)}</div></button>`;
+        <span class="cb-label"><kbd>${i + 4}</kbd> ${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
     return btns ? `<div class="cb-actions items">${btns}</div>` : '';
   }
