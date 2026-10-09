@@ -259,7 +259,7 @@ export class MapRenderer {
       ctx.strokeRect(this.sx(dest.x) - size / 2 - 4 - i * 3, this.sy(dest.y) - size / 2 - 4 - i * 3, size + 8 + i * 6, size + 8 + i * 6);
     });
 
-    // A bell was tolled: rings ripple out from that room in the Bellringer's colour while it's heard.
+    // A bell was tolled: rings ripple out from that room in the Bellwright's colour while it's heard.
     for (const toll of view.tolls) {
       const room = rooms.get(toll.room);
       if (!room) continue;

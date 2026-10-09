@@ -188,6 +188,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .class-card.selected { border-color: var(--cls); background: #3a2c20; box-shadow: 0 0 0 2px #000, 0 0 16px var(--cls); }
 .class-name { font-size: 26px; color: var(--cls); }
 .blurb { margin-top: 6px; }
+.class-abilities { list-style: none; margin: 8px 0 0; padding: 0; font-size: 15px; line-height: 1.15; }
+.class-abilities li { margin-top: 5px; }
 
 #toast {
   position: fixed;
@@ -393,7 +395,6 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #escort { color: #9fe0ff; font-size: 17px; }
 .aff { color: #ff8a6a; font-size: 15px; pointer-events: auto; cursor: help; }
 .icons span, #light-text { cursor: help; }
-#btn-mend.cooling { opacity: 0.5; cursor: default; }
 #skills:not([hidden]) { display: contents; }
 #skills button.cooling { opacity: 0.5; cursor: default; }
 .cb-actions .elixir { align-self: center; padding: 0 6px; color: #5fc46a; }

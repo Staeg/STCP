@@ -88,8 +88,8 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
     if (hurt || late || everyoneHere || view.time >= mem.leaveAt) return { type: 'extract' };
-    // A Bellringer waiting at the open exit rings to call the stragglers home.
-    if (you.cls === 'bellringer' && view.time >= you.skillReadyAt) return { type: 'skill' };
+    // A Bellwright waiting at the open exit rings to call the stragglers home.
+    if (you.cls === 'bellwright' && !(you.cooldowns.toll > 0)) return { type: 'skill', skill: 'toll' };
     return null;
   }
   const costs = viewDistances(view, here);

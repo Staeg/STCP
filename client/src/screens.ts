@@ -1,4 +1,4 @@
-import { CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } from '@stcp/shared';
+import { ABILITIES, CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } from '@stcp/shared';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
@@ -108,6 +108,7 @@ export class Screens {
         <div class="class-name">${c.name}</div>
         <div class="muted" title="Speed: seconds between turns in a fight, and to walk a tunnel. Lower is faster.">${c.role} · ${c.maxHp} HP · Speed ${c.speed}s</div>
         <div class="blurb">${c.blurb}</div>
+        <ul class="class-abilities">${ABILITIES[id].map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` <span class="muted">(cooldown ${ab.cooldown})</span>` : ''}${ab.field ? ' <span class="muted">· also outside fights</span>' : ''}<br>${esc(ab.desc)}</li>`).join('')}</ul>
         ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
       </button>`;
     }).join('');

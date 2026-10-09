@@ -30,7 +30,7 @@ describe('equipping gear', () => {
   });
 
   it('swaps: the old piece goes on the floor for a vote', () => {
-    const { world, d } = party(['warden', 'hexer']);
+    const { world, d } = party(['warden', 'witch']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
     addToPile(world, d.entrance, 0, ['cuirass']);
@@ -73,7 +73,7 @@ describe('equipping gear', () => {
   });
 
   it('bots back the biggest upgrade, and leave pieces nobody needs', () => {
-    const { world, d } = party(['warden', 'hexer']);
+    const { world, d } = party(['warden', 'witch']);
     world.heroes.h0.isBot = world.heroes.h1.isBot = true;
     world.heroes.h0.weapon = 'runeblade';
     addToPile(world, d.entrance, 0, ['hatchet']);
@@ -108,24 +108,25 @@ describe('gear in combat', () => {
     applyIntent(world, 'h0', { type: 'goto', room });
     for (let i = 0; i < 100 && h.encounter === null; i++) step(world, 0.1);
     const enc = world.encounters[room];
+    ghoul.st.acted = true; // no first-strike crit
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: ghoul.id } });
     run(world, 5.2); // the Cutthroat (Speed 3 + 1 for the gear) acts, then the ghouls (5)
     const stab = enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage');
-    expect(stab?.amount).toBe(14); // Backstab 10 × 1.35
+    expect(stab?.amount).toBe(9); // Backstab 7 × 1.35
     const claw = enc.events.find((e) => e.actor === other.id && e.kind === 'damage');
     expect(claw?.amount).toBe(1); // 4 − 3
   });
 
   it('armor softens a Pact\'s blood price', () => {
-    const { world, room } = party(['hexer']);
+    const { world, room } = party(['witch']);
     const h = world.heroes.h0;
     h.armor = 'chainshirt';
     spawnGroup(world, room, ['brute'], 0);
     applyIntent(world, 'h0', { type: 'goto', room });
     for (let i = 0; i < 100 && h.encounter === null; i++) step(world, 0.1);
     const enc = world.encounters[room];
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
-    run(world, 4.7); // Hexer: Speed 4 + 0.5 for the armor
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
+    run(world, 4.7); // Witch: Speed 4 + 0.5 for the armor
     const price = enc.events.find((e) => e.text.includes('spills their own blood'));
     expect(price?.amount).toBe(4);
   });

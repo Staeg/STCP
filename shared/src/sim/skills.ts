@@ -1,35 +1,46 @@
-import { ABILITIES, CLASS_RULES } from '../content/abilities';
+import { ABILITIES, CLASS_RULES, abilityById } from '../content/abilities';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { inDungeon, isConscious, takeSins } from './combat';
+import { addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
 import { lureToward } from './escalation';
 import { giveItem, hasSpace } from './loot';
 import { notify } from './notify';
-import { speedOf } from './speed';
 import type { Hero, World } from './world';
 
 /**
- * Class skills used outside a fight (the Lampbearer's Mend is separate and instant). Like an event choice,
- * the skill is picked now and happens when the hero's timer runs out, using up that turn.
+ * Class skills used outside a fight: the Bellwright's Toll, and every ability marked `field`. Like an event
+ * choice, the skill is picked now and happens when the hero's timer runs out, using up that turn. Each shares its
+ * cooldown with the ability in fights (same `cooldowns` entry, counted in the hero's turns).
  */
-export type FieldSkill = 'toll' | 'sins' | 'elixir';
+export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil';
 
-export function fieldSkillOf(h: Hero): FieldSkill | null {
-  return h.cls === 'bellringer' ? 'toll' : h.cls === 'zealot' ? 'sins' : h.cls === 'alchemist' ? 'elixir' : null;
-}
+/** none: no target · any: anyone conscious in your room, you included · other: not you */
+type FieldTarget = 'none' | 'any' | 'other';
 
-/** Display name and whether the skill is aimed at someone in your room. */
-export const FIELD_SKILLS: Record<FieldSkill, { name: string; targeted: boolean; desc: string }> = {
-  toll: { name: 'Toll', targeted: false, desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Monsters next door come to the bell.` },
-  sins: { name: 'Take Their Sins', targeted: true, desc: `Take up to ${ABILITIES.zealot[1].power} stress off an ally onto yourself.` },
-  elixir: { name: 'Elixir', targeted: true, desc: 'Their next item (or yours) has double effect.' },
+/** Display name, who it can be aimed at, and what it does out of a fight. */
+export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string }> = {
+  toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Monsters next door come to the bell.` },
+  sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
+  elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
+  mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Bleed.` },
+  flare: { name: 'Flare', target: 'none', desc: `+${CLASS_RULES.flareLight} light to everyone here.` },
+  vigil: { name: 'Vigil', target: 'any', desc: `−${abilityById('vigil')!.power} stress.` },
 };
 
-/** Seconds of cooldown after using it out of a fight: the Toll's own, or the ability's cooldown in your turns. */
-function cooldownSecs(world: World, h: Hero, skill: FieldSkill): number {
-  if (skill === 'toll') return CLASS_RULES.tollCooldown;
-  const ab = skill === 'sins' ? ABILITIES.zealot[1] : ABILITIES.alchemist[2];
-  return ab.cooldown * speedOf(h, world.time);
+/** This hero's field skills, in ability-slot order (the Toll first). */
+export function fieldSkillsOf(h: Hero): FieldSkill[] {
+  const skills: FieldSkill[] = h.cls === 'bellwright' ? ['toll'] : [];
+  for (const ab of ABILITIES[h.cls]) if (ab.field) skills.push(ab.id as FieldSkill);
+  return skills;
+}
+
+export function skillTargeted(skill: FieldSkill): boolean {
+  return FIELD_SKILLS[skill].target !== 'none';
+}
+
+/** Cooldown in the hero's own turns after using it. */
+function cooldownOf(skill: FieldSkill): number {
+  return skill === 'toll' ? CLASS_RULES.tollCooldown : abilityById(skill)!.cooldown;
 }
 
 function sameRoom(a: Hero, b: Hero) {
@@ -37,34 +48,36 @@ function sameRoom(a: Hero, b: Hero) {
 }
 
 /** Returns an error message, or null if the skill can be used on `targetId` (null = untargeted). */
-export function checkSkill(world: World, h: Hero, targetId: string | null): string | null {
-  const skill = fieldSkillOf(h);
-  if (!skill) return 'You have no such skill.';
+export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null): string | null {
+  if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
-  if (world.time < h.skillReadyAt) return `${FIELD_SKILLS[skill].name} is ready in ${Math.ceil(h.skillReadyAt - world.time)}s.`;
-  if (!FIELD_SKILLS[skill].targeted) return null;
+  const cd = h.cooldowns[skill] ?? 0;
+  if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
+  const kind = FIELD_SKILLS[skill].target;
+  if (kind === 'none') return null;
   const t = targetId ? world.heroes[targetId] : undefined;
   if (!t || !isConscious(t) || !sameRoom(h, t)) return 'They must be standing here with you.';
-  if (skill === 'sins') {
-    if (t === h) return 'You can only take the sins of others.';
-    if (t.stress <= 0) return `${t.name} has nothing weighing on them.`;
-  }
+  if (kind === 'other' && t === h) return skill === 'sins' ? 'You can only take the sins of others.' : 'Only on someone else.';
+  if (skill === 'sins' && t.stress <= 0) return `${t.name} has nothing weighing on them.`;
+  if (skill === 'mend' && t.hp >= t.maxHp && !t.st.bleed) return `${t.name} is not hurt.`;
+  if (skill === 'vigil' && t.stress <= 0) return `${t === h ? 'You are' : `${t.name} is`} already calm.`;
   if (t !== h && t.affliction === 'paranoid') return `${t.name} refuses your help. (Paranoid)`;
   return null;
 }
 
 /** The timer ran out with this skill queued: do it (if it still works). */
-export function useSkill(world: World, h: Hero, targetId: string | null) {
-  const err = checkSkill(world, h, targetId);
+export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null) {
+  const err = checkSkill(world, h, skill, targetId);
   if (err) return notify(world, h, err);
-  const skill = fieldSkillOf(h)!;
-  h.skillReadyAt = world.time + cooldownSecs(world, h, skill);
+  const cd = cooldownOf(skill);
+  if (cd > 0) h.cooldowns[skill] = cd;
+  h.cdClock = 0;
   const t = targetId ? world.heroes[targetId] : h;
   switch (skill) {
     case 'toll':
       return toll(world, h);
     case 'sins': {
-      const moved = takeSins(h, t, ABILITIES.zealot[1].power);
+      const moved = takeSins(h, t, abilityById('sins')!.power);
       notify(world, h, `You take ${t.name}'s sins upon yourself. (+${moved} stress)`);
       notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress)`);
       return;
@@ -74,10 +87,30 @@ export function useSkill(world: World, h: Hero, targetId: string | null) {
       notify(world, h, t === h ? 'You drink an elixir: your next item has double effect.' : `You give ${t.name} an elixir.`);
       if (t !== h) notify(world, t, `${h.name} gives you an elixir: your next item has double effect.`);
       return;
+    case 'mend': {
+      const before = t.hp;
+      t.hp = Math.min(t.maxHp, t.hp + abilityById('mend')!.power);
+      delete t.st.bleed;
+      notify(world, h, `You mend ${t.name} (+${t.hp - before}).`);
+      notify(world, t, `${h.name} mends your wounds (+${t.hp - before}).`);
+      return;
+    }
+    case 'flare':
+      if (h.pos.kind === 'room') flareLight(world, h.pos.room);
+      for (const o of Object.values(world.heroes)) {
+        if (inDungeon(o) && sameRoom(o, h)) notify(world, o, o === h ? `You light a flare. (+${CLASS_RULES.flareLight} light)` : `${h.name} lights a flare. (+${CLASS_RULES.flareLight} light)`);
+      }
+      return;
+    case 'vigil': {
+      const eased = -addStress(t, -abilityById('vigil')!.power);
+      notify(world, h, t === h ? `You keep a quiet vigil. (−${eased} stress)` : `You keep vigil over ${t.name}. (−${eased} stress)`);
+      if (t !== h) notify(world, t, `${h.name} keeps vigil over you. (−${eased} stress)`);
+      return;
+    }
   }
 }
 
-/** Bellringer: everyone in the dungeon hears it, sees you for a while, and the monsters next door come running. */
+/** Bellwright: everyone in the dungeon hears it, sees you for a while, and the monsters next door come running. */
 function toll(world: World, h: Hero) {
   if (h.pos.kind !== 'room') return;
   const room = h.pos.room;

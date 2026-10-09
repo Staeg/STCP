@@ -25,8 +25,8 @@ window.startAutopilot = (opts = {}) => {
   };
   let lastRound = '';
   let busyUntil = 0;
-  const abilityIds = { warden: ['bash', 'guard', 'rally'], cutthroat: ['backstab', 'poison', 'smoke'], lampbearer: ['mend', 'flare', 'vigil'], hexer: ['hex', 'wither', 'pact'] };
-  const ready = (you, i) => (you.cooldowns[abilityIds[you.cls][i]] ?? 0) === 0;
+  const abilityIds = { warden: ['bash', 'vengeance', 'rally'], cutthroat: ['backstab', 'cheap', 'smoke'], lampbearer: ['flare', 'vigil', 'mend'], witch: ['hex', 'pact', 'wither'] };
+  const ready = (you, i) => abilityIds[you.cls] && (you.cooldowns[abilityIds[you.cls][i]] ?? 0) === 0;
   // Driven by incoming snapshots (10/s) rather than timers, which background tabs throttle.
   const step = (v) => {
     if (!ap.on || v.phase !== 'running') {
@@ -44,19 +44,19 @@ window.startAutopilot = (opts = {}) => {
       const key = enc.room + ':' + (me && me.nextIn !== null ? Math.round(v.time + me.nextIn) : 'down');
       if (me && !me.downed && !enc.yourChoice && key !== lastRound) {
         lastRound = key;
-        const soft = enc.monsters.find((m) => m.st.mark || m.st.stun) ?? enc.monsters.slice().sort((a, b) => a.hp - b.hp)[0];
+        const soft = enc.monsters.find((m) => m.st.stun || !m.st.acted) ?? enc.monsters.slice().sort((a, b) => a.hp - b.hp)[0];
         const front = enc.monsters.find((m) => m.rank === 'front') ?? soft;
         const downed = enc.heroes.find((h) => h.downed);
-        const hurtAlly = enc.heroes.filter((h) => !h.downed && h.hp / h.maxHp < 0.5).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+        const hurtAlly = enc.heroes.filter((h) => !h.downed && h.id !== you.id && h.hp / h.maxHp < 0.5).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
         const bi = you.items.indexOf('bandage');
         let choice;
         if (enc.room === v.exitRoom && v.exitOpen && v.time > ap.waitUntil) choice = { action: 'flee' };
         else if (downed) choice = { action: 'revive', target: downed.id };
         else if (you.hp / you.maxHp < 0.3 && bi >= 0) choice = { action: 'item', item: bi, target: you.id };
-        else if (you.cls === 'lampbearer' && hurtAlly && ready(you, 0)) choice = { action: 'a0', target: hurtAlly.id };
-        else if (you.cls === 'lampbearer' && ready(you, 1)) choice = { action: 'a1' };
+        else if (you.cls === 'lampbearer' && hurtAlly && ready(you, 2)) choice = { action: 'a2', target: hurtAlly.id };
+        else if (you.cls === 'lampbearer' && ready(you, 0)) choice = { action: 'a0' };
         else if (you.cls === 'warden' && ready(you, 0)) choice = { action: 'a0', target: front.id };
-        else if (you.cls === 'hexer' && enc.monsters.length >= 3 && ready(you, 2) && you.hp > 12) choice = { action: 'a2' };
+        else if (you.cls === 'witch' && enc.monsters.length >= 3 && ready(you, 1) && you.hp > 12) choice = { action: 'a1' };
         else if (you.cls === 'cutthroat' && enc.monsters.length > 1 && ready(you, 1)) choice = { action: 'a1', target: soft.id };
         else if (you.cls === 'lampbearer' || you.cls === 'warden') choice = { action: 'brace' };
         else choice = { action: 'a0', target: soft.id };
@@ -82,7 +82,6 @@ window.startAutopilot = (opts = {}) => {
     if (bi >= 0 && you.hp / you.maxHp < 0.5) { n.intent({ type: 'useItem', index: bi }); return; }
     const ti = you.items.indexOf('torch');
     if (ti >= 0 && you.light < 25) { n.intent({ type: 'useItem', index: ti }); return; }
-    if (you.cls === 'lampbearer' && v.time >= you.fieldMendAt && you.hp / you.maxHp < 0.8) { n.intent({ type: 'fieldMend', target: you.id }); return; }
     const downedHere = v.allies.find((a) => a.live && a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
     if (downedHere) { n.intent({ type: 'revive', target: downedHere.id }); L('revive ' + downedHere.name); return; }
     const d = dists(v, here);

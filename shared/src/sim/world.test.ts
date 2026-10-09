@@ -141,7 +141,7 @@ describe('buildView (fog)', () => {
 
   it('shows where an ally in sight has chosen to go, as soon as they choose', () => {
     const { world, d } = setup();
-    addHero(world, { id: 'h2', name: 'Bo', cls: 'hexer' });
+    addHero(world, { id: 'h2', name: 'Bo', cls: 'witch' });
     // Pick a room two hops out, so the chosen room differs from the next step.
     const dist = hopDistances(d, d.entrance);
     const target = dist.indexOf(2);

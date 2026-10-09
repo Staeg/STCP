@@ -84,7 +84,7 @@ export const SPRITES: Record<string, string[]> = {
     '....kBBBBBBBBk..',
     '....kkkkkkkkkk..',
   ],
-  hexer: [
+  witch: [
     '.......kk.......',
     '......kbbk......',
     '.....kbbbbk.....',
@@ -120,7 +120,7 @@ export const SPRITES: Record<string, string[]> = {
     '...kDDk.kDDk....',
     '...kkkk.kkkk....',
   ],
-  bellringer: [
+  bellwright: [
     '................',
     '.....kkkkk......',
     '....kbbbbbk.....',

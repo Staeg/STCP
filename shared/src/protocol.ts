@@ -6,6 +6,7 @@ import type { CombatAction } from './sim/combat';
 import type { LeaderboardEntry } from './content/titles';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
+import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 
 export type LobbyState = 'lobby' | 'game';
 
@@ -124,8 +125,17 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       }
       if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
-      if (i.type === 'fieldMend' && str(i.target, 32)) return { t: 'intent', intent: { type: 'fieldMend', target: i.target as string } };
-      if (i.type === 'skill') return { t: 'intent', intent: str(i.target, 32) ? { type: 'skill', target: i.target as string } : { type: 'skill' } };
+      if (i.type === 'skill') {
+        if (i.skill !== undefined && !(typeof i.skill === 'string' && i.skill in FIELD_SKILLS)) return null;
+        return {
+          t: 'intent',
+          intent: {
+            type: 'skill',
+            ...(i.skill !== undefined ? { skill: i.skill as FieldSkill } : {}),
+            ...(str(i.target, 32) ? { target: i.target as string } : {}),
+          },
+        };
+      }
       if (i.type === 'event' && str(i.choice, 16)) return { t: 'intent', intent: { type: 'event', choice: i.choice as string } };
       if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
       if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };

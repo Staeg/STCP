@@ -71,16 +71,6 @@ function majority(values: string[]): string {
 /** Use a consumable out of combat when it obviously helps. */
 export function botUseItem(view: PlayerView): Intent | null {
   const me = view.you;
-  if (me.cls === 'lampbearer' && view.time >= me.fieldMendAt && me.pos.kind === 'room') {
-    const here = me.pos.room;
-    const hurt = [
-      { id: me.id, frac: me.hp / me.maxHp },
-      ...view.allies
-        .filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here && a.affliction !== 'paranoid')
-        .map((a) => ({ id: a.id, frac: a.hp / a.maxHp })),
-    ].sort((a, b) => a.frac - b.frac)[0];
-    if (hurt && hurt.frac < 0.75) return { type: 'fieldMend', target: hurt.id };
-  }
   const skill = botSkill(view);
   if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
@@ -98,16 +88,28 @@ export function botUseItem(view: PlayerView): Intent | null {
 }
 
 
-/** Out-of-combat class skills: the Zealot lifts a burdened ally's stress; the Alchemist primes a Bandage when hurt. */
+/**
+ * Out-of-combat class skills: the Zealot lifts a burdened ally's stress; the Alchemist primes a Bandage when hurt;
+ * the Lampbearer mends a hurt ally, eases their own stress, and lights a flare when the dark closes in.
+ */
 function botSkill(view: PlayerView): Intent | null {
   const me = view.you;
-  if (me.pos.kind !== 'room' || view.time < me.skillReadyAt) return null;
+  if (me.pos.kind !== 'room' || me.queuedSkill) return null;
+  const ready = (id: string) => (me.cooldowns[id] ?? 0) <= 0;
   const here = me.pos.room;
   const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here && a.affliction !== 'paranoid');
-  if (me.cls === 'zealot' && me.stress < 90) {
+  if (me.cls === 'zealot' && me.stress < 90 && ready('sins')) {
     const burdened = near.filter((a) => (a.stress ?? 0) >= 40).sort((a, b) => (b.stress ?? 0) - (a.stress ?? 0))[0];
-    if (burdened) return { type: 'skill', target: burdened.id };
+    if (burdened) return { type: 'skill', skill: 'sins', target: burdened.id };
   }
-  if (me.cls === 'alchemist' && !me.elixir && me.hp / me.maxHp < 0.5 && me.items.includes('bandage')) return { type: 'skill', target: me.id };
+  if (me.cls === 'alchemist' && ready('elixir') && !me.elixir && me.hp / me.maxHp < 0.5 && me.items.includes('bandage')) {
+    return { type: 'skill', skill: 'elixir', target: me.id };
+  }
+  if (me.cls === 'lampbearer') {
+    const hurt = near.filter((a) => a.hp / a.maxHp < 0.75).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (hurt && ready('mend')) return { type: 'skill', skill: 'mend', target: hurt.id };
+    if (me.stress > 30 && ready('vigil')) return { type: 'skill', skill: 'vigil', target: me.id };
+    if (me.light < LIGHT_DIM + 5 && ready('flare')) return { type: 'skill', skill: 'flare' };
+  }
   return null;
 }

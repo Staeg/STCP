@@ -53,6 +53,7 @@ describe('encounters', () => {
   it('each unit acts when its own Speed timer runs out, falling back on the first ability if the hero has not picked', () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);
+    monsters[0].hp = 999;
     const enc = world.encounters[room];
     const start = enc.startedAt;
     expect(enc.next.h0).toBeCloseTo(start + 3); // Cutthroat: Speed 3
@@ -74,8 +75,8 @@ describe('encounters', () => {
   });
 
   it('ties go to heroes before monsters, and to the leftmost hero (equal Speed: join order) before the rightmost', () => {
-    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Hexer and the Acolyte.
-    const { world, ids, room, monsters } = arena(['cutthroat', 'hexer'], ['acolyte']);
+    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Witch and the Acolyte.
+    const { world, ids, room, monsters } = arena(['cutthroat', 'witch'], ['acolyte']);
     world.heroes.h0.weapon = 'shortsword';
     world.heroes.h0.armor = 'jerkin';
     monsters[0].hp = 999;
@@ -113,8 +114,8 @@ describe('encounters', () => {
     expect(world.encounters[room].choices.h0).toEqual({ action: 'a1', target: undefined });
     const leftmost = combatOrder(world, world.encounters[room]).monsters[0];
     untilTurn(world, room, 'h0');
-    expect(leftmost.st.bleed).toBeTruthy(); // Poison Blade, not the fallback Backstab
-    expect(monstersIn(world, room).filter((m) => m.st.bleed)).toHaveLength(1);
+    expect(leftmost.st.stun).toBeTruthy(); // Cheap Shot, not the fallback Backstab
+    expect(monstersIn(world, room).filter((m) => m.st.stun)).toHaveLength(1);
   });
 
   it("shows allies' picks to everyone in the fight as soon as they're made", () => {
@@ -127,30 +128,45 @@ describe('encounters', () => {
     expect(buildView(world, 'h0').encounter!.heroes.find((u) => u.id === 'h1')!.choice).toBeUndefined();
   });
 
-  it("enforces cooldowns in the hero's own turns (Poison Blade: cooldown 2 = unusable for the next two turns)", () => {
+  it("enforces cooldowns in the hero's own turns (Cheap Shot: cooldown 4 = unusable for the next four turns)", () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);
     world.monsters[monsters[0].id].hp = 999;
     const enc = world.encounters[room];
-    const poison = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
+    const cheap = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
     const brace = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
-    poison();
+    cheap();
     expect(enc.choices.h0?.action).toBe('a1');
-    untilTurn(world, room, 'h0'); // turn 1: poison
-    poison();
-    expect(enc.choices.h0).toBeUndefined();
-    brace();
-    untilTurn(world, room, 'h0'); // turn 2
-    poison();
-    expect(enc.choices.h0).toBeUndefined();
-    brace();
-    untilTurn(world, room, 'h0'); // turn 3
-    poison();
+    untilTurn(world, room, 'h0'); // turn 1: Cheap Shot
+    for (let turn = 2; turn <= 5; turn++) {
+      cheap();
+      expect(enc.choices.h0).toBeUndefined();
+      brace();
+      untilTurn(world, room, 'h0');
+    }
+    cheap();
     expect(enc.choices.h0?.action).toBe('a1');
   });
 
-  it('ends on victory, resets cooldowns and frees movement', () => {
-    const { world, d, ids, room, monsters } = arena(['cutthroat', 'hexer'], ['crawler']);
+  it('cooldowns carry over after a fight and tick down once per Speed of time outside it', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['ghoul']);
+    walkIn(world, ids, room);
+    const h = world.heroes.h0;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
+    untilTurn(world, room, 'h0');
+    expect(h.cooldowns.cheap).toBe(4);
+    delete world.monsters[monsters[0].id];
+    step(world, 0.1);
+    expect(h.encounter).toBeNull();
+    expect(h.cooldowns.cheap).toBe(4);
+    run(world, 3.05); // Cutthroat: Speed 3
+    expect(h.cooldowns.cheap).toBe(3);
+    run(world, 9);
+    expect(h.cooldowns.cheap).toBeUndefined();
+  });
+
+  it('ends on victory and frees movement', () => {
+    const { world, d, ids, room, monsters } = arena(['cutthroat', 'witch'], ['crawler']);
     walkIn(world, ids, room);
     for (let i = 0; i < 10 && monstersIn(world, room).length; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
@@ -169,7 +185,7 @@ describe('encounters', () => {
   });
 
   it('downed heroes bleed out unless revived; monsters ignore the downed', () => {
-    const { world, ids, room } = arena(['hexer'], ['ghoul']);
+    const { world, ids, room } = arena(['witch'], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     h.hp = 1;
@@ -211,18 +227,25 @@ describe('encounters', () => {
     expect(lamp.downedAt).toBeNull();
   });
 
-  it("Guard redirects attacks to the Warden until the Warden's next turn", () => {
-    const { world, ids, room } = arena(['warden', 'lampbearer'], ['acolyte']);
+  it("Vengeance sends each attack on the Warden back at full strength, for the Warden's next 2 turns", () => {
+    const { world, ids, room, monsters } = arena(['warden'], ['ghoul']);
+    const h = world.heroes.h0;
+    h.armor = 'jerkin';
     walkIn(world, ids, room);
+    monsters[0].hp = 999;
     const enc = world.encounters[room];
-    let redirected = false;
-    for (let i = 0; i < 12 && !redirected; i++) {
-      applyIntent(world, 'h0', { type: 'combat', choice: { action: i % 2 === 0 ? 'a1' : 'brace', target: 'h1' } });
-      applyIntent(world, 'h1', { type: 'combat', choice: { action: 'brace' } });
-      untilTurn(world, room, 'h0');
-      redirected = enc.events.some((e) => e.text.includes('steps in front'));
-    }
-    expect(redirected).toBe(true);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
+    untilTurn(world, room, 'h0');
+    expect(h.st.vengeance).toBe(2);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
+    untilTurn(world, room, monsters[0].id);
+    const back = enc.events.find((e) => e.text.startsWith('Vengeance!'))!;
+    const hit = enc.events.find((e) => e.actor === monsters[0].id && e.kind === 'damage' && e.target === 'h0')!;
+    expect(back.target).toBe(monsters[0].id);
+    expect(back.amount).toBeGreaterThan(hit.amount!); // returned before armor and Stalwart
+    untilTurn(world, room, 'h0');
+    untilTurn(world, room, 'h0');
+    expect(h.st.vengeance).toBeUndefined();
   });
 
   it('fleeing heads back toward the previous room and leaves the fight', () => {
@@ -244,7 +267,7 @@ describe('encounters', () => {
     const { world, d, room } = arena(['warden'], ['brute']);
     walkIn(world, ['h0'], room);
     run(world, 1.5);
-    const late = addHero(world, { id: 'late', name: 'Late', cls: 'hexer' });
+    const late = addHero(world, { id: 'late', name: 'Late', cls: 'witch' });
     expect(late.pos).toEqual({ kind: 'room', room: d.entrance });
     applyIntent(world, 'late', { type: 'goto', room });
     for (let i = 0; i < 60 && late.encounter === null; i++) step(world, 0.1);
@@ -310,7 +333,7 @@ describe('full bot games with monsters', () => {
         { id: 'a', name: 'A', cls: 'warden', isBot: true },
         { id: 'b', name: 'B', cls: 'cutthroat', isBot: true },
         { id: 'c', name: 'C', cls: 'lampbearer', isBot: true },
-        { id: 'd', name: 'D', cls: 'hexer', isBot: true },
+        { id: 'd', name: 'D', cls: 'witch', isBot: true },
       ]);
       for (let t = 0; t < COLLAPSE_AT + 1 && game.world.phase === 'running'; t += 0.1) game.tick(0.1);
       fights += game.world.stats.slain;

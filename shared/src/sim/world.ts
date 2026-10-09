@@ -1,20 +1,20 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
 import { ESCALATION } from '../content/enemies';
-import { CLASS_RULES, FIELD_MEND } from '../content/abilities';
+import { CLASS_RULES } from '../content/abilities';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
+  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
 import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
-import { checkSkill, hearsToll, tickBrew, useSkill } from './skills';
+import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
   autoPickup, castVote, claimAbandoned, votersIn, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
 } from './loot';
@@ -60,8 +60,10 @@ export interface Hero {
   maxHp: number;
   stress: number;
   st: Statuses;
-  /** Ability id → own turns until usable. Reset after each fight. */
+  /** Ability id → own turns until usable. Shared by fights and the field; outside a fight they tick once per Speed's worth of time. */
   cooldowns: Record<string, number>;
+  /** Seconds out of a fight since cooldowns last ticked. */
+  cdClock: number;
   /** Time this hero went down, or null if standing. */
   downedAt: number | null;
   dead: boolean;
@@ -83,12 +85,10 @@ export interface Hero {
   leading: string | null;
   /** Events this hero has seen, by room (for map icons). */
   knownEvents: Record<number, EventKind>;
-  /** Lampbearer: game time when the out-of-combat Mend is ready again. */
-  fieldMendAt: number;
-  /** Bellringer/Zealot/Alchemist: game time when their out-of-combat skill (Toll/Sins/Elixir) is ready again. */
-  skillReadyAt: number;
-  /** That skill, picked and waiting for the timer to run out (like an event choice). */
-  queuedSkill: { target: string | null } | null;
+  /** An out-of-combat skill, picked and waiting for the timer to run out (like an event choice). */
+  queuedSkill: { skill: FieldSkill; target: string | null } | null;
+  /** Undertaker: extra Spade damage, earned by Last Rites kills this run. */
+  spadeBonus: number;
   /** Elixir: this hero's next item has double effect. */
   elixir: boolean;
   /** Alchemist: when the next brew is done. */
@@ -207,10 +207,8 @@ export type Intent =
   | { type: 'extract' }
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
-  /** Lampbearer only: heal someone in your room outside a fight. */
-  | { type: 'fieldMend'; target: string }
-  /** Bellringer Toll / Zealot Take Their Sins / Alchemist Elixir, out of a fight: happens when your timer runs out. */
-  | { type: 'skill'; target?: string };
+  /** A class skill out of a fight (Toll, or an ability that works in the field): happens when your timer runs out. Default: your first one. */
+  | { type: 'skill'; skill?: FieldSkill; target?: string };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
@@ -262,6 +260,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     stress: 0,
     st: {},
     cooldowns: {},
+    cdClock: 0,
     downedAt: null,
     dead: false,
     diedAt: null,
@@ -283,9 +282,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     affliction: null,
     leading: null,
     knownEvents: {},
-    fieldMendAt: 0,
-    skillReadyAt: 0,
     queuedSkill: null,
+    spadeBonus: 0,
     elixir: false,
     brewAt: world.time + CLASS_RULES.brewEvery,
     bodies: {},
@@ -314,7 +312,8 @@ export function step(world: World, dt: number): void {
   const drain = LIGHT_DRAIN * (world.tier >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
-    hero.light = Math.max(0, hero.light - drain * dt);
+    hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * dt);
+    if (isConscious(hero) && hero.encounter === null) tickFieldCooldowns(world, hero, dt);
     if (hero.channel) tickChannel(world, hero);
     else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
     // The next timer only starts once the hero is free again.
@@ -440,26 +439,13 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.heading = null;
       return;
     }
-    case 'fieldMend': {
-      const t = world.heroes[intent.target];
-      if (hero.cls !== 'lampbearer' || !t || !isConscious(t) || !sameRoom(hero, t)) return;
-      if (world.time < hero.fieldMendAt) return notify(world, hero, `Mend is ready in ${Math.ceil(hero.fieldMendAt - world.time)}s.`);
-      if (t !== hero && t.affliction === 'paranoid') return notify(world, hero, `${t.name} refuses your help. (Paranoid)`);
-      if (t.hp >= t.maxHp && !t.st.bleed) return notify(world, hero, `${t === hero ? "You're" : `${t.name} is`} not hurt.`);
-      const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + FIELD_MEND.heal);
-      delete t.st.bleed;
-      hero.fieldMendAt = world.time + FIELD_MEND.cooldown;
-      notify(world, hero, `You mend ${t === hero ? 'yourself' : t.name} (+${t.hp - before}).`);
-      if (t !== hero) notify(world, t, `${hero.name} mends your wounds (+${t.hp - before}).`);
-      return;
-    }
     case 'skill': {
-      const err = checkSkill(world, hero, intent.target ?? null);
+      const skill = intent.skill ?? fieldSkillsOf(hero)[0];
+      const err = skill ? checkSkill(world, hero, skill, intent.target ?? null) : 'You have no such skill.';
       if (err) return notify(world, hero, err);
       hero.channel = null;
       hero.queuedEvent = null;
-      hero.queuedSkill = { target: intent.target ?? null };
+      hero.queuedSkill = { skill: skill!, target: intent.target ?? null };
       hero.path = [];
       hero.heading = null;
       return;
@@ -555,7 +541,7 @@ function endIdleTurn(world: World, hero: Hero) {
   }
   const skill = hero.queuedSkill;
   hero.queuedSkill = null;
-  if (skill) useSkill(world, hero, skill.target);
+  if (skill) useSkill(world, hero, skill.skill, skill.target);
   if (!hero.channel) startTimer(world, hero, hero.turnAt);
 }
 

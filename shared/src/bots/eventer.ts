@@ -33,7 +33,7 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return go;
     }
     case 'altar':
-      if (healthy && timeLeft > 40 && (you.cls === 'hexer' || rng.chance(0.4))) {
+      if (healthy && timeLeft > 40 && (you.cls === 'witch' || rng.chance(0.4))) {
         mem.channelling = room;
         return pick('channel');
       }

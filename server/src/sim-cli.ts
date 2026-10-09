@@ -2,7 +2,7 @@
  * Headless balance simulator: runs all-bot games and prints metrics against the PLAN.md M8 targets.
  *   npm run sim -- --games 100 --seed 1
  *   npm run sim -- --games 60 --set ESCALATION.capPerTier=2 --set ENEMIES.ghoul.dmg=3 --json
- *   npm run sim -- --classes warden,cutthroat,lampbearer,hexer
+ *   npm run sim -- --classes warden,cutthroat,lampbearer,witch
  * --set may repeat; it overrides any number in the tunable content tables below.
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
@@ -25,7 +25,7 @@ for (let i = 2; i < process.argv.length; i++) {
 // Tunables: content tables are plain mutable objects, so overrides apply to every game in this process.
 const TUNABLE: Record<string, unknown> = {
   ESCALATION: shared.ESCALATION, ENEMIES: shared.ENEMIES, CLASSES: shared.CLASSES, LOOT: shared.LOOT,
-  EVENT_SEEDING: shared.EVENT_SEEDING, BOTS: shared.BOTS, STRESS: shared.STRESS, FIELD_MEND: shared.FIELD_MEND, ABILITIES: shared.ABILITIES,
+  EVENT_SEEDING: shared.EVENT_SEEDING, BOTS: shared.BOTS, STRESS: shared.STRESS, ABILITIES: shared.ABILITIES,
   CLASS_RULES: shared.CLASS_RULES,
 };
 for (const s of sets) {
@@ -99,6 +99,7 @@ for (let g = 0; g < games; g++) {
 const json = {
   games, sets, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByTier[0] + deathsByTier[1]) / Math.max(1, deaths),
   secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByTier, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
+  runsByClass, escapesByClass,
   perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, afflictions: afflictions / games, altars: altars / games, saved: saved / games },
 };
 if (args.has('json')) {

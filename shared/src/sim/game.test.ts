@@ -9,7 +9,7 @@ const fourBots = () => [
   { id: 'a', name: 'A', cls: 'warden' as const, isBot: true },
   { id: 'b', name: 'B', cls: 'cutthroat' as const, isBot: true },
   { id: 'c', name: 'C', cls: 'lampbearer' as const, isBot: true },
-  { id: 'd', name: 'D', cls: 'hexer' as const, isBot: true },
+  { id: 'd', name: 'D', cls: 'witch' as const, isBot: true },
 ];
 
 describe('bots', () => {
@@ -51,7 +51,7 @@ describe('sightings and chalk', () => {
   function twoHeroes() {
     const world = createWorld(12345, { monsters: false });
     addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-    addHero(world, { id: 'b', name: 'B', cls: 'hexer' });
+    addHero(world, { id: 'b', name: 'B', cls: 'witch' });
     return world;
   }
 
@@ -81,7 +81,7 @@ describe('sightings and chalk', () => {
     for (let seed = 1; !isCrossroads(world.dungeon, world.dungeon.entrance); seed++) {
       world = createWorld(seed, { monsters: false });
       addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-      addHero(world, { id: 'b', name: 'B', cls: 'hexer' });
+      addHero(world, { id: 'b', name: 'B', cls: 'witch' });
     }
     const d = world.dungeon;
     const target = neighbours(d, d.entrance)[0];

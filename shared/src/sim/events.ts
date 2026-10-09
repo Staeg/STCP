@@ -259,7 +259,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       } else if (roll === 1) {
         h.hp = Math.min(h.maxHp, h.hp + 15);
         notify(world, h, 'Warmth spreads through you. (+15 HP)');
-      } else if (h.cls === 'hexer') {
+      } else if (h.cls === 'witch') {
         notify(world, h, 'The whispers try to take hold, but you know their tricks.');
       } else if (h.cls === 'zealot') {
         notify(world, h, 'The whispers find nothing in you they can break.');

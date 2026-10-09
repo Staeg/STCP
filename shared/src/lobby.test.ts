@@ -138,7 +138,7 @@ describe('LobbyManager', () => {
     const b = client(mgr, 'tokenBBBB', 'Bob');
     b.say({ t: 'join', code: a.ws.lastLobby()!.code });
     a.say({ t: 'pickClass', cls: 'warden' });
-    b.say({ t: 'pickClass', cls: 'hexer' });
+    b.say({ t: 'pickClass', cls: 'witch' });
     a.say({ t: 'ready', ready: true });
     b.say({ t: 'ready', ready: true });
     a.say({ t: 'start' });

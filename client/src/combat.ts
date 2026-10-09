@@ -42,6 +42,8 @@ export class CombatUi {
   private lastHtml = '';
   /** Unit id → name, and unit id → colours of the heroes whose next move targets it. */
   private names = new Map<string, string>();
+  /** Game time of the view being drawn (smoke runs out by the clock). */
+  private time = 0;
   private aimedBy = new Map<string, string[]>();
   /** Your turn is close and you haven't picked: your ring turns red. */
   private hurry = false;
@@ -134,6 +136,7 @@ export class CombatUi {
   // ---- Rendering ----
 
   private render(view: PlayerView, enc: EncounterView) {
+    this.time = view.time;
     const you = view.you;
     const me = enc.heroes.find((h) => h.id === you.id);
     const canAct = !!me && !me.downed;
@@ -226,10 +229,12 @@ export class CombatUi {
       const action = `a${i}` as CombatAction;
       const opt = enc?.yourOptions[action];
       const blocked = !!opt && (opt.blocked !== null || (this.needsTarget(view, action) && opt.targets.length === 0));
-      const cd = enc ? you.cooldowns[ab.id] ?? 0 : 0;
+      // Cooldowns carry over between fights, so they show out of one too.
+      const cd = you.cooldowns[ab.id] ?? 0;
       // The cooldown already says why; otherwise explain what's stopping it.
       const why = opt?.blocked && cd === 0 ? ` Not now: ${opt.blocked}` : '';
-      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown) + why, cd, blocked);
+      const extra = (ab.id === 'spade' && you.spadeBonus ? ` Now ${ab.power + you.spadeBonus} dmg.` : '') + (ab.field ? ' Works outside fights too.' : '');
+      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown) + extra + why, cd, blocked);
     };
     const actions = `<div class="cb-actions">
       ${abilities.map((_, i) => ability(i)).join('')}
@@ -275,6 +280,7 @@ export class CombatUi {
     const color = u.kind === 'hero' ? u.color : u.kind === 'risen' ? '#8fa39a' : '#9a4a3a';
     const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed) : spriteUrl(u.enemy!, undefined, dying);
     const st = u.st;
+    const time = this.time;
     const rounds = (n: number) => `${n} more turn${n === 1 ? '' : 's'} of theirs`;
     const icon = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
     const aff = u.affliction ? AFFLICTIONS[u.affliction] : null;
@@ -285,12 +291,14 @@ export class CombatUi {
         `Bleeding: ${st.bleed.map((b) => `${b.dmg} damage for ${rounds(b.rounds)}`).join('; ')}, each at the end of their turns. Mend or a Bandage cures it.`),
       st.acid && icon('☣', `Acid: takes +2 from every hit, Bleed included (${rounds(st.acid)}).`),
       u.kind === 'hero' && (u.stress ?? 0) > 0 && icon(`✶${u.stress}`, `Stress ${u.stress}/100.`),
-      st.mark && icon('◎', `Marked: Backstab crits it for double damage (${rounds(st.mark)}).`),
+      st.hexed && icon(`⛧${st.hexed.length > 1 ? `×${st.hexed.length}` : ''}`,
+        `Hexed ×${st.hexed.length}: Hex deals +${st.hexed.length * 100}% to it (${st.hexed.map((n) => rounds(n)).join('; ')}).`),
+      u.kind === 'monster' && !st.acted && icon('◌', "Hasn't acted yet: Backstab crits it for double damage."),
       st.block && icon(`⛨${st.block}`, `Block ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
       st.weak && icon('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
-      st.calm && icon('☾', `Calm: immune to stress (${rounds(st.calm)}).`),
-      st.guardedBy && icon('⛉', `Guarded by ${this.names.get(st.guardedBy) ?? 'an ally'}: attacks aimed here hit the guard instead, until the guard's next turn.`),
-      st.dodge && icon('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works, until ${this.names.get(st.dodge) ?? 'the thrower'}'s next turn.`),
+      st.vengeance && icon('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
+      st.vigil && icon('☀', 'Lone Vigil: every enemy action sets off a free Flare, until their next turn.'),
+      st.dodge !== undefined && st.dodge > time && icon('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works (${Math.ceil(st.dodge - time)}s).`),
       st.brace && icon('▣', 'Bracing: takes 30% less damage until their next turn.'),
     ].filter(Boolean).join('');
     const floats = this.floaters

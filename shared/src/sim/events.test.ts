@@ -18,7 +18,7 @@ function choose(world: World, id: string, choice: string) {
 }
 
 /** A quiet world with one hero standing in a room that holds the given event. */
-function withEvent(kind: RoomEvent['kind'], cls: 'warden' | 'cutthroat' | 'lampbearer' | 'hexer' = 'warden') {
+function withEvent(kind: RoomEvent['kind'], cls: 'warden' | 'cutthroat' | 'lampbearer' | 'witch' = 'warden') {
   const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
   const h = addHero(world, { id: 'h', name: 'H', cls });
   const d = world.dungeon;
@@ -119,7 +119,7 @@ describe('room events', () => {
 
   it('hourglass: everyone in the room is faster for a while', () => {
     const { world, h } = withEvent('hourglass', 'warden');
-    const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     choose(world, 'h', 'turn');
     run(world, 3.1);
     expect(speedOf(h, world.time)).toBe(4.5);
@@ -156,11 +156,11 @@ describe('room events', () => {
   });
 
   it('altar: guardians at 50%, then cleansing relieves everyone and pays out at the end', () => {
-    const { world, h, room } = withEvent('altar', 'hexer');
+    const { world, h, room } = withEvent('altar', 'witch');
     h.stress = 50;
     choose(world, 'h', 'channel');
     run(world, 6.2);
-    expect(h.encounter).toBe(room); // the guardians came at the halfway mark (Hexer: 12s)
+    expect(h.encounter).toBe(room); // the guardians came at the halfway mark (Witch: 12s)
     // Clear them and finish.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
     run(world, 4);
@@ -200,7 +200,7 @@ describe('timing', () => {
 describe('claims', () => {
   it('only the first hero to choose does the work; the others see who and what at once', () => {
     const { world, room } = withEvent('altar');
-    const o = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     choose(world, 'h', 'channel');
     const seen = buildView(world, 'o').event!;
     expect(seen.worker).toMatchObject({ name: 'H', doing: 'cleansing the altar', you: false });
@@ -252,7 +252,7 @@ describe('villagers', () => {
 
   it('wait where their leader fell, and someone else can pick them up', () => {
     const { world, h, room } = captive();
-    const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     other.pos = { kind: 'room', room };
     choose(world, 'h', 'lead');
     h.hp = 0;
@@ -282,7 +282,7 @@ describe('stress and afflictions', () => {
   it('Selfish heroes always vote for themselves and are ignored after 10s', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalation: false });
     const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
-    addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     s.affliction = 'selfish';
     world.piles[world.dungeon.entrance] = { gold: 0, items: ['torch'], abandoned: [], vote: null, itemsBy: [null], abandonedBy: [] };
     step(world, 0.1);
@@ -297,7 +297,7 @@ describe('stress and afflictions', () => {
   it('Paranoid heroes refuse bandages from others', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalation: false });
     const p = addHero(world, { id: 'p', name: 'P', cls: 'warden' });
-    const o = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     p.affliction = 'paranoid';
     p.hp = 10;
     o.items = ['bandage'];

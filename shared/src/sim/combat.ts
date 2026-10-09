@@ -1,4 +1,4 @@
-import { ABILITIES, CLASS_RULES, type AbilityDef } from '../content/abilities';
+import { ABILITIES, CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
 import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
 import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { corridorBetween, neighbours } from '../dungeon/gen';
@@ -22,18 +22,20 @@ export interface Statuses {
   bleed?: Bleed[];
   /** Acid: takes CLASS_RULES.acidBonus more from every hit; turns remaining. */
   acid?: number;
-  /** Turns remaining. */
-  mark?: number;
+  /** Hexed: one entry per stack, each the turns it has left. Every stack adds CLASS_RULES.hexedBonus to Hex's damage. */
+  hexed?: number[];
   block?: number;
   /** Deals half damage; turns remaining. */
   weak?: number;
-  /** Immune to stress; turns remaining. */
-  calm?: number;
+  /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
+  vengeance?: number;
+  /** Monster: has taken a turn in this fight (Backstab crits those that haven't). */
+  acted?: boolean;
+  /** In smoke (50% dodge, sure to flee) until this game time. */
+  dodge?: number;
   // ---- Until someone's next turn ----
-  /** Guarded by this hero until the guard's next turn. */
-  guardedBy?: string;
-  /** In this hero's smoke (50% dodge, sure to flee) until the smoker's next turn. */
-  dodge?: string;
+  /** Lampbearer's lone Vigil: every enemy action sets off a Flare, until this hero's next turn. */
+  vigil?: string;
   /** Bracing until their own next turn. */
   brace?: boolean;
 }
@@ -167,7 +169,6 @@ export function isConscious(h: Hero): boolean {
 }
 
 export function addStress(h: Hero, amount: number) {
-  if (amount > 0 && h.st.calm) return 0;
   if (amount > 0 && h.items.includes('ward')) amount *= 0.75;
   const before = h.stress;
   h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
@@ -243,9 +244,10 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
   resetAfterFight(h);
 }
 
+/** Cooldowns carry on outside the fight (see `tickFieldCooldowns`). */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
-  h.cooldowns = {};
+  h.cdClock = 0;
   const bleed = h.st.bleed;
   h.st = bleed ? { bleed } : {};
 }
@@ -479,8 +481,7 @@ function takeTurn(world: World, enc: Encounter, unit: Unit) {
 function endLingering(world: World, enc: Encounter, id: string) {
   for (const hid of enc.heroes) {
     const st = world.heroes[hid].st;
-    if (st.guardedBy === id) delete st.guardedBy;
-    if (st.dodge === id) delete st.dodge;
+    if (st.vigil === id) delete st.vigil;
   }
 }
 
@@ -497,8 +498,39 @@ function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) =
     if (st.bleed?.length === 0) delete st.bleed;
     if (!hurt(dmg)) return;
   }
-  for (const k of ['mark', 'weak', 'calm', 'acid'] as const) {
+  for (const k of ['weak', 'acid'] as const) {
     if (st[k] !== undefined && --st[k]! <= 0) delete st[k];
+  }
+  if (st.hexed) {
+    st.hexed = st.hexed.map((n) => n - 1).filter((n) => n > 0);
+    if (st.hexed.length === 0) delete st.hexed;
+  }
+}
+
+/** Is this unit in smoke right now? */
+export function inSmoke(world: World, st: Statuses): boolean {
+  return st.dodge !== undefined && st.dodge > world.time;
+}
+
+/** Cooldowns count the hero's own turns: "cooldown N" = unusable for their next N turns. */
+export function tickCooldowns(h: Hero) {
+  for (const k of Object.keys(h.cooldowns)) {
+    h.cooldowns[k] = Math.max(0, h.cooldowns[k] - 1);
+    if (h.cooldowns[k] === 0) delete h.cooldowns[k];
+  }
+}
+
+/** Outside a fight, a turn's worth of time (the hero's Speed) ticks cooldowns down just as a turn in a fight does. */
+export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
+  if (Object.keys(h.cooldowns).length === 0) {
+    h.cdClock = 0;
+    return;
+  }
+  h.cdClock += dt;
+  const speed = speedOf(h, world.time);
+  while (h.cdClock >= speed - 1e-6) {
+    h.cdClock -= speed;
+    tickCooldowns(h);
   }
 }
 
@@ -531,8 +563,8 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     const target = leftmostTarget(world, enc, h, choice);
     if (target) choice = { ...choice, target };
   }
-  // Cooldowns count the hero's own turns: "cooldown N" = unusable for their next N turns.
-  for (const k of Object.keys(h.cooldowns)) h.cooldowns[k] = Math.max(0, h.cooldowns[k] - 1);
+  tickCooldowns(h);
+  if (h.st.vengeance !== undefined && --h.st.vengeance <= 0) delete h.st.vengeance;
   if (h.st.stun) {
     h.st.stun = false;
     events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
@@ -573,6 +605,8 @@ function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEve
     events.push({ actor: m.id, kind: 'status', text: `${ENEMIES[m.type].name} is stunned!` });
   } else {
     monsterAct(world, enc, m, events);
+    if (world.monsters[m.id]) m.st.acted = true;
+    vigilFlares(world, enc, events);
   }
   if (world.monsters[m.id]) {
     endOfTurn(m.st, ENEMIES[m.type].name, m.id, (n) => acidic(m, n), (n) => {
@@ -644,7 +678,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     return;
   }
   if (c.action === 'flee') {
-    if (h.st.dodge || rng.chance(FLEE_CHANCE)) {
+    if (inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
       if (enc.room === world.dungeon.exit && world.time >= EXIT_OPENS_AT) {
         leaveEncounter(world, enc, h);
         extractHero(world, h);
@@ -687,24 +721,21 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
   }
 
   const ab = abilityOf(h, c.action)!;
-  h.cooldowns[ab.id] = ab.cooldown;
+  if (ab.cooldown > 0) h.cooldowns[ab.id] = ab.cooldown;
   switch (ab.id) {
     case 'bash': {
       const t = pickEnemy(true);
       if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(0.35)) {
+      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(CLASS_RULES.bashStun)) {
         t.st.stun = true;
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
       return;
     }
-    case 'guard': {
-      const t = pickAlly();
-      if (!t) return;
-      t.st.guardedBy = h.id;
-      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} guards ${t.name}.` });
+    case 'vengeance':
+      h.st.vengeance = CLASS_RULES.vengeanceTurns;
+      events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
       return;
-    }
     case 'rally':
       for (const a of allies()) {
         a.st.block = (a.st.block ?? 0) + ab.power;
@@ -715,79 +746,76 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'backstab': {
       const t = pickEnemy(false);
       if (!t) return;
-      const crit = !!(t.st.stun || t.st.mark);
+      const crit = !!(t.st.stun || !t.st.acted);
       heroHits(world, enc, h, t, crit ? ab.power * 2 : ab.power, events, ab.name, crit);
       return;
     }
-    case 'poison': {
+    case 'cheap': {
       const t = pickEnemy(false);
       if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) {
-        addBleed(t.st, Math.round(3 * damageMult(h)), 3);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is bleeding.` });
+      heroHits(world, enc, h, t, ab.power, events, ab.name);
+      if (world.monsters[t.id]) {
+        t.st.stun = true;
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
       return;
     }
     case 'smoke':
-      for (const a of allies()) a.st.dodge = h.id;
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb!` });
+      for (const a of allies()) a.st.dodge = world.time + CLASS_RULES.smokeSecs;
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${CLASS_RULES.smokeSecs}s)` });
       return;
     case 'mend': {
       const t = pickAlly();
-      if (!t) return;
+      if (!t || t === h) return;
       const healed = heal(t, ab.power);
       delete t.st.bleed;
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
       return;
     }
     case 'flare':
-      for (const x of Object.values(world.heroes)) {
-        if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + 10);
-      }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} ignites a flare! (+10 light)` });
-      for (const m of enemies()) {
-        if (heroHits(world, enc, h, m, ab.power, events, ab.name) && world.monsters[m.id] && ENEMIES[m.type].undead) m.st.mark = 3;
-      }
+      flare(world, enc, h, events);
       return;
     case 'vigil': {
       const t = pickAlly();
-      if (!t) return;
-      addStress(t, -ab.power);
-      t.st.calm = 2;
-      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t.name}. (−15 stress)` });
+      if (t) {
+        addStress(t, -ab.power);
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t === h ? 'themself' : t.name}. (−${ab.power} stress)` });
+      }
+      if (othersIn(world, enc, h).length === 0) {
+        h.st.vigil = h.id;
+        events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} stands alone, lamp raised. Any move against them will meet the light.` });
+      }
       return;
     }
     case 'hex': {
       const t = pickEnemy(false);
       if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) t.st.mark = 3;
-      return;
-    }
-    case 'wither': {
-      const t = pickEnemy(false);
-      if (!t) return;
-      t.st.weak = 2;
-      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} withers the ${ENEMIES[t.type].name}.` });
-      return;
-    }
-    case 'pact': {
-      const cost = armored(h, 6);
-      h.hp = Math.max(1, h.hp - cost);
-      events.push({ actor: h.id, kind: 'damage', target: h.id, amount: cost, text: `${h.name} spills their own blood.` });
-      const targets = enemies();
-      const each = Math.ceil(ab.power / Math.max(1, targets.length));
-      for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
-      const weakest = allies().filter((a) => a === h || a.affliction !== 'paranoid').sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-      if (weakest) {
-        const healed = heal(weakest, 6);
-        events.push({ actor: h.id, kind: 'heal', target: weakest.id, amount: healed, text: `${weakest.name} is restored (+${healed}).` });
+      const stacks = t.st.hexed?.length ?? 0;
+      heroHits(world, enc, h, t, ab.power * (1 + CLASS_RULES.hexedBonus * stacks), events, ab.name);
+      if (world.monsters[t.id]) {
+        (t.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is Hexed (×${t.st.hexed.length}).` });
       }
+      return;
+    }
+    case 'wither':
+      for (const m of enemies()) m.st.weak = CLASS_RULES.witherTurns;
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} withers every foe. (−50% damage)` });
+      return;
+    case 'pact': {
+      for (const a of allies()) {
+        const cost = Math.min(a.hp - 1, armored(a, CLASS_RULES.pactCost));
+        if (cost <= 0) continue;
+        a.hp -= cost;
+        events.push({ actor: h.id, kind: 'damage', target: a.id, amount: cost, text: a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.` });
+      }
+      for (const m of enemies()) heroHits(world, enc, h, m, ab.power, events, ab.name);
       return;
     }
     // ---- Undertaker ----
     case 'spade': {
       const t = pickEnemy(false);
-      if (t) heroHits(world, enc, h, t, ab.power, events, ab.name);
+      if (t) heroHits(world, enc, h, t, ab.power + h.spadeBonus, events, ab.name);
       return;
     }
     case 'rites': {
@@ -800,6 +828,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       }
       events.push({ actor: h.id, kind: 'damage', target: t.id, amount: t.hp, crit: true, text: `${h.name} reads the Last Rites over the ${ENEMIES[t.type].name}.` });
       applyMonsterDamage(world, t, t.hp, events);
+      h.spadeBonus += CLASS_RULES.spadePerRites;
+      events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name}'s spade grows heavier. (Spade +${h.spadeBonus})` });
       return;
     }
     case 'raise': {
@@ -810,7 +840,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       events.push({ actor: h.id, kind: 'status', target: enc.risen.id, text: `${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.` });
       return;
     }
-    // ---- Bellringer ----
+    // ---- Bellwright ----
     case 'clang': {
       const t = pickEnemy(true);
       if (!t) return;
@@ -877,6 +907,28 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} hands ${t === h ? 'themself' : t.name} an elixir. (next item ×2)` });
       return;
     }
+  }
+}
+
+/** Light for everyone in the room (Flare, in or out of a fight). */
+export function flareLight(world: World, room: number) {
+  for (const x of Object.values(world.heroes)) {
+    if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + CLASS_RULES.flareLight);
+  }
+}
+
+/** The Lampbearer's Flare: damage to every enemy and light for the room. */
+function flare(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false) {
+  flareLight(world, enc.room);
+  events.push({ actor: h.id, kind: 'status', text: `${h.name} ${free ? 'answers with a flare' : 'ignites a flare'}! (+${CLASS_RULES.flareLight} light)` });
+  for (const m of monstersIn(world, enc.room)) heroHits(world, enc, h, m, abilityById('flare')!.power, events, 'Flare');
+}
+
+/** A lone Lampbearer keeping Vigil answers every enemy action with a free Flare (no cooldown). */
+function vigilFlares(world: World, enc: Encounter, events: CombatEvent[]) {
+  for (const id of enc.heroes) {
+    const h = world.heroes[id];
+    if (h.st.vigil === h.id && isConscious(h) && h.encounter === enc.room && monstersIn(world, enc.room).length) flare(world, enc, h, events, true);
   }
 }
 
@@ -992,19 +1044,16 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     }
     return null;
   }
-  let t = victim.h;
-  const guard = t.st.guardedBy ? world.heroes[t.st.guardedBy] : undefined;
-  if (guard && isConscious(guard) && guard.encounter === enc.room && guard !== t) {
-    events.push({ actor: guard.id, kind: 'info', target: t.id, text: `${guard.name} steps in front of ${t.name}!` });
-    t = guard;
-  }
-  if (t.st.dodge && world.rng.chance(0.5)) {
+  const t = victim.h;
+  if (inSmoke(world, t.st) && world.rng.chance(0.5)) {
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });
     return null;
   }
   let dmg = base * m.dmgMult;
   if (m.st.weak) dmg *= 0.5;
   if (t.light <= 0) dmg *= 1.25;
+  // Vengeance: the attacker takes the whole blow back, before any of the Warden's defences.
+  const returned = t.st.vengeance ? Math.max(1, Math.round(dmg)) : 0;
   // Stalwart: the Warden takes less while standing nearest the enemy.
   if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
   if (t.st.brace) dmg *= 0.7;
@@ -1020,6 +1069,11 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but it's blocked.`,
   });
   applyHeroDamage(world, enc, t, dmg, events);
+  if (returned > 0 && world.monsters[m.id]) {
+    const back = acidic(m, returned);
+    events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
+    applyMonsterDamage(world, m, back, events);
+  }
   return t;
 }
 

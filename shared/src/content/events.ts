@@ -114,7 +114,7 @@ export const SPEED_EVENTS = {
 /** Seconds an event choice takes to carry out, by class. */
 export function channelTime(kind: EventKind, cls: ClassId): number {
   switch (kind) {
-    case 'altar': return cls === 'hexer' ? 12 : 18;
+    case 'altar': return cls === 'witch' ? 12 : 18;
     case 'vault': return cls === 'cutthroat' ? 12 : 24;
     case 'quicksilver':
     case 'satchel':

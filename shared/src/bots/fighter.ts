@@ -29,8 +29,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   };
   const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ABILITIES[view.you.cls][i].target);
   const weakestEnemy = minBy(enemies, (m) => m.hp);
-  const softTarget = enemies.find((m) => m.st.mark || m.st.stun);
-  const hurtAlly = minBy(allies.filter((a) => a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
+  const softTarget = enemies.find((m) => m.st.stun || !m.st.acted);
 
   const slot = (id: ItemId) => view.you.items.indexOf(id);
   if (downed.length && slot('salts') >= 0) return { action: 'item', item: slot('salts'), target: downed[0].id };
@@ -47,29 +46,30 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   if (atOpenExit && (me.hp / me.maxHp < 0.5 || view.time > view.collapseAt - 90)) return { action: 'flee' };
 
   switch (view.you.cls) {
-    case 'warden': {
-      const fragile = allies.find((a) => a.id !== me.id && a.hp / a.maxHp < 0.4);
-      if (fragile && ready(1)) return { action: 'a1', target: fragile.id };
+    case 'warden':
+      if (ready(1) && (enemies.length >= 2 || me.hp / me.maxHp < 0.6)) return { action: 'a1' };
       if (ready(0)) return { action: 'a0', target: enemies[0].id };
       if (ready(2) && (view.you.stress > 20 || allies.length > 1)) return { action: 'a2' };
       break;
-    }
     case 'cutthroat':
       if (softTarget) return { action: 'a0', target: softTarget.id };
-      if (ready(1) && enemies.length > 1) return { action: 'a1', target: maxBy(enemies, (m) => m.hp)!.id };
+      if (ready(1)) return { action: 'a1', target: maxBy(enemies, (m) => m.hp)!.id };
       if (me.hp / me.maxHp < 0.35 && ready(2)) return { action: 'a2' };
       return { action: 'a0', target: weakestEnemy!.id };
-    case 'lampbearer':
-      if (hurtAlly && ready(0)) return { action: 'a0', target: hurtAlly.id };
-      if (enemies.length >= 2 && ready(1)) return { action: 'a1' };
-      // Bots only know their own stress, so Vigil is self-care.
-      if (ready(2) && view.you.stress > 30) return { action: 'a2', target: me.id };
-      if (ready(1)) return { action: 'a1' };
+    case 'lampbearer': {
+      const hurtOther = minBy(allies.filter((a) => a.id !== me.id && a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
+      if (hurtOther && ready(2)) return { action: 'a2', target: hurtOther.id };
+      // Alone, Vigil turns every enemy move into a Flare. Bots only know their own stress, so it's self-care.
+      if (ready(1) && (allies.length === 1 || view.you.stress > 30)) return { action: 'a1', target: me.id };
+      if (ready(0)) return { action: 'a0' };
       break;
-    case 'hexer':
-      if (enemies.length >= 3 && ready(2) && me.hp > 12) return { action: 'a2' };
-      if (enemies.length >= 2 && ready(1)) return { action: 'a1', target: maxBy(enemies, (m) => m.maxHp)!.id };
-      return { action: 'a0', target: (enemies.find((m) => !m.st.mark) ?? weakestEnemy)!.id };
+    }
+    case 'witch': {
+      if (enemies.length >= 2 && ready(1) && allies.every((a) => a.hp > 12)) return { action: 'a1' };
+      if (enemies.length >= 2 && ready(2)) return { action: 'a2' };
+      const hexed = maxBy(enemies.filter((m) => m.st.hexed?.length), (m) => m.st.hexed!.length);
+      return { action: 'a0', target: (hexed ?? weakestEnemy)!.id };
+    }
     case 'undertaker': {
       // Finish off the toughest wounded enemy; raise the dead when the fight is still on.
       const wounded = enc.yourOptions.a1?.targets ?? [];
@@ -77,14 +77,14 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
       if (ready(2)) return { action: 'a2' };
       return { action: 'a0', target: weakestEnemy!.id };
     }
-    case 'bellringer':
-      if (ready(2) && enemies.length >= 2) return { action: 'a2' };
-      if (ready(1) && allies.length >= 2) return { action: 'a1' };
+    case 'bellwright':
+      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
+      if (ready(2) && allies.length >= 2) return { action: 'a2' };
       return { action: 'a0', target: enemies[0].id };
     case 'zealot': {
-      if (ready(2) && enemies.length >= 2) return { action: 'a2' };
+      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
       const burdened = maxBy(allies.filter((a) => a.id !== me.id && (a.stress ?? 0) >= 30), (a) => a.stress ?? 0);
-      if (ready(1) && burdened && view.you.stress < 90) return { action: 'a1', target: burdened.id };
+      if (ready(2) && burdened && view.you.stress < 90) return { action: 'a2', target: burdened.id };
       return { action: 'a0', target: (softTarget ?? weakestEnemy)!.id };
     }
     case 'alchemist':

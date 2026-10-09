@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { hopDistances, neighbours } from '../dungeon/gen';
@@ -53,7 +53,7 @@ describe('line-ups and targeting', () => {
   });
 
   it('monsters hit the rightmost (slowest) hero', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat', 'hexer', 'warden'], ['ghoul']);
+    const { world, ids, room, monsters } = arena(['cutthroat', 'witch', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     for (let k = 0; k < 3; k++) untilTurn(world, room, monsters[0].id);
@@ -125,27 +125,28 @@ describe('Undertaker', () => {
   });
 });
 
-describe('Bellringer', () => {
-  it('Clang pushes the target back 5s; Knell weakens with every ally and is blocked with 3', () => {
-    const { world, ids, room, monsters } = arena(['bellringer'], ['ghoul']);
+describe('Bellwright', () => {
+  it('Clang pushes the target back; Knell weakens with every ally and is blocked with 3', () => {
+    const { world, ids, room, monsters } = arena(['bellwright'], ['ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0' } });
-    untilTurn(world, room, monsters[0].id); // the Ghoul (Speed 5) goes before the Bellringer (Speed 7)
+    untilTurn(world, room, monsters[0].id); // the Ghoul (Speed 5) goes before the Bellwright (Speed 7)
     const before = enc.next[monsters[0].id];
     untilTurn(world, room, 'h0');
     expect(enc.next[monsters[0].id]).toBeCloseTo(before + CLASS_RULES.clangDelay);
-    expect(knellDamage(9, 0)).toBe(9);
-    expect(knellDamage(9, 2)).toBe(3);
-    expect(knellDamage(9, 3)).toBe(0);
+    const knell = abilityById('knell')!.power;
+    expect(knellDamage(knell, 0)).toBe(knell);
+    expect(knellDamage(knell, 2)).toBe(knell - 2 * CLASS_RULES.knellPerAlly);
+    expect(knellDamage(knell, 3)).toBe(0);
 
-    const four = arena(['bellringer', 'warden', 'hexer', 'cutthroat'], ['ghoul']);
+    const four = arena(['bellwright', 'warden', 'witch', 'cutthroat'], ['ghoul']);
     walkIn(four.world, four.ids, four.room);
-    expect(buildView(four.world, 'h0').encounter!.yourOptions.a2!.blocked).toBeTruthy();
+    expect(buildView(four.world, 'h0').encounter!.yourOptions.a1!.blocked).toBeTruthy();
   });
 
-  it('Toll: after the timer, every ally sees the Bellringer live and monsters next door come to the bell', () => {
-    const { world, heroes } = quiet(['bellringer', 'warden'], true); // packs only move with escalation on
+  it('Toll: after the timer, every ally sees the Bellwright live and monsters next door come to the bell', () => {
+    const { world, heroes } = quiet(['bellwright', 'warden'], true); // packs only move with escalation on
     const d = world.dungeon;
     const hops = hopDistances(d, d.entrance);
     const far = d.rooms.find((r) => hops[r.id] >= 4)!.id;
@@ -154,7 +155,7 @@ describe('Bellringer', () => {
     const [ghoul] = spawnGroup(world, next, ['ghoul'], 0);
     applyIntent(world, 'h0', { type: 'skill' });
     expect(world.tolls).toHaveLength(0); // waits for the timer
-    run(world, CLASSES.bellringer.speed + 0.2);
+    run(world, CLASSES.bellwright.speed + 0.2);
     expect(world.tolls).toHaveLength(1);
     expect(heroes[1].lastKnown.h0.time).toBe(world.time);
     expect(buildView(world, 'h1').tolls[0].room).toBe(d.entrance);
@@ -170,7 +171,7 @@ describe('Zealot', () => {
     const z = heroes[0];
     z.stress = 50;
     z.weapon = 'shortsword';
-    expect(damageMult(z)).toBeCloseTo(1.1 * 1.5);
+    expect(damageMult(z)).toBeCloseTo(1.1 * (1 + 50 * CLASS_RULES.zealotDmgPerStress));
     z.stress = 100;
     run(world, 1);
     expect(z.affliction).toBeNull();
@@ -185,7 +186,7 @@ describe('Zealot', () => {
     run(world, CLASSES.zealot.speed + 0.2);
     expect(heroes[1].stress).toBe(15);
     expect(heroes[0].stress).toBe(25);
-    expect(heroes[0].skillReadyAt).toBeGreaterThan(world.time);
+    expect(heroes[0].cooldowns.sins).toBe(2); // the same cooldown as in a fight
   });
 });
 
@@ -217,5 +218,112 @@ describe('party', () => {
     const { heroes } = quiet(['warden', 'warden']);
     expect(heroes[0].color).toBe(CLASSES.warden.color);
     expect(heroes[1].color).not.toBe(heroes[0].color);
+  });
+});
+
+describe('reworked kits', () => {
+  it('Backstab crits an enemy that has not acted yet; Cheap Shot always stuns', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute', 'ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const [brute, ghoul] = monsters;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: brute.id } });
+    untilTurn(world, room, 'h0');
+    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power, crit: true });
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: ghoul.id } });
+    untilTurn(world, room, 'h0');
+    expect(ghoul.st.stun).toBe(true);
+  });
+
+  it('Smoke Bomb covers every ally for 6 seconds, not turns', () => {
+    const { world, ids, room } = arena(['cutthroat', 'warden'], ['ghoul']);
+    walkIn(world, ids, room);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
+    untilTurn(world, room, 'h0');
+    const until = world.time + CLASS_RULES.smokeSecs;
+    for (const id of ids) expect(world.heroes[id].st.dodge).toBeCloseTo(until, 1);
+  });
+
+  it('Hex stacks: each Hexed adds +100% to the next Hex, for 2 of the target\'s turns', () => {
+    const { world, ids, room, monsters } = arena(['witch'], ['brute']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const hexes = () => enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').map((e) => e.amount);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    untilTurn(world, room, 'h0');
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    untilTurn(world, room, 'h0');
+    const hex = abilityById('hex')!.power;
+    expect(hexes()).toEqual([hex, 2 * hex]);
+    // The Brute (Speed 8) took its turn right after the second Hex (same moment): both stacks ticked once.
+    expect(monsters[0].st.hexed).toEqual([1, 1]);
+    world.heroes.h0.cooldowns = { hex: 99, pact: 99, wither: 99 }; // just brace from here
+    untilTurn(world, room, monsters[0].id);
+    expect(monsters[0].st.hexed).toBeUndefined();
+  });
+
+  it('Wither weakens every enemy; Blood Pact hits every enemy for 15 and bleeds every ally (never below 1)', () => {
+    const { world, ids, room, monsters } = arena(['witch', 'warden'], ['ghoul', 'ghoul']);
+    walkIn(world, ids, room);
+    const [witch, warden] = ids.map((id) => world.heroes[id]);
+    warden.hp = 3;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
+    untilTurn(world, room, 'h0');
+    expect(monsters.map((m) => m.hp)).toEqual([999 - 15, 999 - 15]);
+    expect(witch.hp).toBe(witch.maxHp - CLASS_RULES.pactCost);
+    expect(warden.hp).toBe(1);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
+    untilTurn(world, room, 'h0');
+    for (const m of monsters) expect(m.st.weak).toBeGreaterThan(0);
+  });
+
+  it('Mend cannot target the Lampbearer; a lone Vigil answers every enemy action with a free Flare', () => {
+    const { world, ids, room, monsters } = arena(['lampbearer'], ['ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    expect(buildView(world, 'h0').encounter!.yourOptions.a2!.targets).toEqual([]);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: 'h0' } });
+    untilTurn(world, room, 'h0'); // the Ghoul (also Speed 5) acts right after, at the same moment
+    expect(world.heroes.h0.st.vigil).toBe('h0');
+    expect(enc.events.some((e) => e.text.includes('answers with a flare'))).toBe(true);
+    expect(monsters[0].hp).toBe(999 - abilityById('flare')!.power);
+    expect(world.heroes.h0.cooldowns.flare).toBeUndefined(); // free
+  });
+
+  it('the Lampbearer uses Mend, Vigil and Flare outside fights, on the shared cooldowns, and their light fades at half rate', () => {
+    const { world, heroes } = quiet(['lampbearer', 'warden']);
+    const [lamp, warden] = heroes;
+    warden.hp = 20;
+    lamp.stress = 30;
+    applyIntent(world, 'h0', { type: 'skill', skill: 'mend', target: 'h0' });
+    expect(lamp.queuedSkill).toBeNull(); // not on yourself
+    applyIntent(world, 'h0', { type: 'skill', skill: 'mend', target: 'h1' });
+    run(world, CLASSES.lampbearer.speed + 0.2);
+    expect(warden.hp).toBe(20 + abilityById('mend')!.power);
+    expect(lamp.cooldowns.mend).toBe(1);
+    applyIntent(world, 'h0', { type: 'skill', skill: 'vigil', target: 'h0' });
+    run(world, CLASSES.lampbearer.speed);
+    expect(lamp.stress).toBe(30 - abilityById('vigil')!.power);
+    expect(lamp.cooldowns.mend).toBeUndefined(); // ticked off by a turn's worth of time
+    expect(lamp.light).toBeGreaterThan(warden.light);
+    const dark = warden.light;
+    applyIntent(world, 'h0', { type: 'skill', skill: 'flare' });
+    run(world, CLASSES.lampbearer.speed);
+    expect(warden.light).toBeGreaterThan(dark);
+  });
+
+  it('every Last Rites kill makes the Spade hit 1 harder for the rest of the run', () => {
+    const { world, ids, room, monsters } = arena(['undertaker'], ['ghoul', 'ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const [a, b] = monsters;
+    a.hp = 500;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: a.id } });
+    untilTurn(world, room, 'h0');
+    expect(world.monsters[a.id]).toBeUndefined();
+    expect(world.heroes.h0.spadeBonus).toBe(1);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: b.id } });
+    untilTurn(world, room, 'h0');
+    expect(enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').at(-1)!.amount).toBe(abilityById('spade')!.power + 1);
   });
 });

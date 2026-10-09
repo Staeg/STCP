@@ -1,6 +1,6 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, CLASSES, ESCALATION, EVENT_SEEDING,
-  FIELD_SKILLS, fieldSkillOf, REVIVE_CHANNEL, TIER_TEXT, type PlayerView,
+  FIELD_SKILLS, fieldSkillsOf, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, type PlayerView,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -22,15 +22,12 @@ export class Hud {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
-    $('btn-mend').addEventListener('click', () => {
-      const id = $('btn-mend').dataset.target;
-      if (id && !$('btn-mend').classList.contains('cooling')) net.intent({ type: 'fieldMend', target: id });
-    });
-    // Out-of-combat class skills (Toll / Take Their Sins / Elixir): one button per possible target.
+    // Out-of-combat class skills (Toll, and abilities that work in the field): one button per possible target.
     $('skills').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button[data-skill]') as HTMLButtonElement | null;
       if (!b || b.classList.contains('cooling')) return;
-      net.intent(b.dataset.target ? { type: 'skill', target: b.dataset.target } : { type: 'skill' });
+      const skill = b.dataset.skill as FieldSkill;
+      net.intent(b.dataset.target ? { type: 'skill', skill, target: b.dataset.target } : { type: 'skill', skill });
     });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
@@ -46,8 +43,7 @@ export class Hud {
         const room = roomInDir(net.cur, dir);
         if (room !== null) net.intent({ type: 'goto', room, step: true });
       }
-      if (e.code === 'KeyM' && !$('btn-mend').hidden) $('btn-mend').click();
-      if (e.code === 'KeyM' && !$('skills').hidden) ($('skills').querySelector('button[data-skill]') as HTMLButtonElement | null)?.click();
+      if (e.code === 'KeyM' && !$('skills').hidden) ($('skills').querySelector('button[data-skill]:not(.cooling)') as HTMLButtonElement | null)?.click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -128,24 +124,6 @@ export class Hud {
     }
 
     const free = !view.encounter && you.downedAt === null && !you.dead && !you.extracted && you.pos.kind === 'room';
-
-    // Lampbearer: mend the most hurt person here between fights.
-    const mendBtn = $('btn-mend');
-    const patients = you.cls === 'lampbearer' && free
-      ? [
-          { id: you.id, name: 'yourself', frac: you.hp / you.maxHp },
-          ...view.allies
-            .filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here)
-            .map((a) => ({ id: a.id, name: a.name, frac: a.hp / a.maxHp })),
-        ].filter((p) => p.frac < 1).sort((a, b) => a.frac - b.frac)
-      : [];
-    mendBtn.hidden = patients.length === 0;
-    if (patients.length) {
-      const wait = Math.ceil(you.fieldMendAt - view.time);
-      mendBtn.dataset.target = patients[0].id;
-      mendBtn.classList.toggle('cooling', wait > 0);
-      mendBtn.innerHTML = wait > 0 ? `✚ Mend ready in ${wait}s` : `✚ Mend ${escape(patients[0].name)} (+8) <kbd>M</kbd>`;
-    }
 
     renderSkills(view, free, here);
 
@@ -237,10 +215,9 @@ function turnPlan(view: PlayerView): string {
   const you = view.you;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (you.queuedEvent) return 'then you start on the event';
-  const skill = fieldSkillOf(you);
-  if (you.queuedSkill && skill) {
-    const t = you.queuedSkill.target;
-    const who = !t || !FIELD_SKILLS[skill].targeted ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
+  if (you.queuedSkill) {
+    const { skill, target: t } = you.queuedSkill;
+    const who = !t || !skillTargeted(skill) ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
     return `then you use ${FIELD_SKILLS[skill].name}${who}`;
   }
   const next = you.path[0];
@@ -278,33 +255,39 @@ function escape(s: string) {
   return s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** Toll (no target), or Take Their Sins / Elixir with a button per person here it can go to. */
+/** Each field skill: one button if untargeted (Toll, Flare), else one per person here it can go to. */
 function renderSkills(view: PlayerView, free: boolean, here: number) {
   const box = $('skills');
   const you = view.you;
-  const skill = fieldSkillOf(you);
-  if (!skill || !free) {
+  const skills = fieldSkillsOf(you);
+  if (!skills.length || !free) {
     box.hidden = true;
     return;
   }
-  const def = FIELD_SKILLS[skill];
-  const wait = Math.ceil(you.skillReadyAt - view.time);
-  const cooling = wait > 0;
-  const queued = !!you.queuedSkill;
-  type Option = { id: string | null; label: string };
-  let options: Option[] = [{ id: null, label: def.name }];
-  if (def.targeted) {
-    const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
-    options = skill === 'sins'
-      ? near.filter((a) => (a.stress ?? 0) > 0).map((a) => ({ id: a.id, label: `${def.name}: ${a.name} (${a.stress} stress)` }))
-      : [{ id: you.id, label: `${def.name}: yourself` }, ...near.map((a) => ({ id: a.id, label: `${def.name}: ${a.name}` }))];
-  }
-  box.hidden = options.length === 0;
-  const html = options.map((o, i) => {
-    const text = cooling ? `${def.name} ready in ${wait}s` : queued ? `${o.label} (when your timer runs out)` : o.label;
-    return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${cooling ? 'cooling' : ''}" title="${escape(def.desc)}">${escape(text)}${i === 0 && !cooling ? ' <kbd>M</kbd>' : ''}</button>`;
+  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
+  let first = true;
+  const html = skills.map((skill) => {
+    const def = FIELD_SKILLS[skill];
+    const wait = you.cooldowns[skill] ?? 0;
+    const queued = you.queuedSkill?.skill === skill;
+    type Option = { id: string | null; label: string };
+    let options: Option[] = [{ id: null, label: def.name }];
+    if (def.target !== 'none') {
+      const others = skill === 'sins' ? near.filter((a) => (a.stress ?? 0) > 0) : skill === 'mend' ? near.filter((a) => a.hp < a.maxHp) : near;
+      const label = (a: { name: string; stress?: number; hp: number; maxHp: number }) =>
+        skill === 'sins' || skill === 'vigil' ? `${a.name} (${a.stress ?? 0} stress)` : skill === 'mend' ? `${a.name} (${a.hp}/${a.maxHp})` : a.name;
+      options = others.map((a) => ({ id: a.id, label: `${def.name}: ${label(a)}` }));
+      if (def.target === 'any') options.unshift({ id: you.id, label: `${def.name}: yourself${skill === 'vigil' ? ` (${Math.round(you.stress)} stress)` : ''}` });
+    }
+    // Cooling down, the buttons all say the same thing: show just one.
+    if (wait > 0) options = options.slice(0, 1);
+    return options.map((o) => {
+      const text = wait > 0 ? `${def.name} ready in ${wait} turn${wait === 1 ? '' : 's'}` : queued && you.queuedSkill?.target === o.id ? `${o.label} (when your timer runs out)` : o.label;
+      const key = first && wait <= 0 ? ' <kbd>M</kbd>' : '';
+      if (wait <= 0) first = false;
+      return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${wait > 0 ? 'cooling' : ''}" title="${escape(def.desc)}">${escape(text)}${key}</button>`;
+    }).join('');
   }).join('');
-  // Cooling down, the buttons all say the same thing: show just one.
-  const out = cooling ? html.split('</button>')[0] + '</button>' : html;
-  if (box.innerHTML !== out) box.innerHTML = out;
+  box.hidden = html === '';
+  if (box.innerHTML !== html) box.innerHTML = html;
 }
