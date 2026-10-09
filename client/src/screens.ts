@@ -1,5 +1,6 @@
 import { CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } from '@stcp/shared';
 import type { Net } from './net';
+import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
 
 const root = () => document.getElementById('screen')!;
@@ -59,14 +60,15 @@ export class Screens {
     return `<div class="card">
       <h1>So They Can Prosper</h1>
       <p class="muted">Up to four heroes. One rendezvous. Ten minutes until the exit opens.</p>
+      ${SOLO ? '<p class="muted small">Solo playtest build: you and three bots, all running in this tab.</p>' : ''}
       <label>Your name<br><input id="name-input" maxlength="16" value="${esc(this.net.name)}" placeholder="Nameless"></label>
       <div class="row">
-        <button data-act="create">Start an expedition</button>
+        <button data-act="create">${SOLO ? 'Start a run' : 'Start an expedition'}</button>
       </div>
-      <div class="row">
+      ${SOLO ? '' : `<div class="row">
         <input id="code-input" maxlength="4" placeholder="CODE" class="code">
         <button data-act="join">Join</button>
-      </div>
+      </div>`}
       ${hallOfFortune(this.net.leaderboard, this.net.name)}
     </div>`;
   }
@@ -103,18 +105,19 @@ export class Screens {
         ${owner && !mine ? `<div class="muted">taken by ${esc(owner.name)}</div>` : ''}
       </button>`;
     }).join('');
-    const allReady = lobby.members.every((m) => m.ready && m.cls);
+    // Solo: no one to wait for, so Descend readies you up itself.
+    const allReady = SOLO ? !!you.cls : lobby.members.every((m) => m.ready && m.cls);
     const link = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
     return `<div class="card wide">
-      <div class="lobby-head">
+      ${SOLO ? '<div class="muted">Pick a class. Bots take the other three.</div>' : `<div class="lobby-head">
         <div><div class="muted">Lobby code</div><div class="code-big">${lobby.code}</div></div>
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
-      </div>
+      </div>`}
       <ul class="slots">${slots.join('')}</ul>
       <div class="classes">${cards}</div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
-        <button data-act="ready" ${you.cls ? '' : 'disabled'}>${you.ready ? 'Not ready' : 'Ready'}</button>
+        ${SOLO ? '' : `<button data-act="ready" ${you.cls ? '' : 'disabled'}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
         ${isHost ? `<button data-act="start" ${allReady ? '' : 'disabled'} class="primary">Descend</button>` : `<span class="muted">Waiting for the host to start…</span>`}
         <button data-act="leave" class="quiet">Leave</button>
       </div>
@@ -145,6 +148,7 @@ export class Screens {
         break;
       }
       case 'start':
+        if (SOLO) net.send({ t: 'ready', ready: true });
         net.send({ t: 'start' });
         break;
       case 'leave':

@@ -3,8 +3,8 @@ import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { parseClientMsg, SERVER_TICK } from '@stcp/shared';
-import { LobbyManager, send } from './lobby';
+import { LobbyManager, parseClientMsg, send, SERVER_TICK, Stash } from '@stcp/shared';
+import { fileStore } from './persistence';
 
 const PORT = Number(process.env.GAME_PORT ?? 3001);
 const CLIENT_DIST = resolve(fileURLToPath(import.meta.url), '../../../client/dist');
@@ -31,7 +31,12 @@ const http = createServer((req, res) => {
 });
 
 // ---- Lobbies & games ----
-const lobbies = new LobbyManager();
+const DEBUG = process.argv.includes('--debug');
+const lobbies = new LobbyManager(new Stash(fileStore()), {
+  debug: DEBUG,
+  seed: process.env.SEED ? Number(process.env.SEED) : undefined,
+  log: (msg) => console.log(msg),
+});
 
 const wss = new WebSocketServer({ server: http, path: '/ws' });
 wss.on('connection', (ws) => {
@@ -57,4 +62,4 @@ wss.on('connection', (ws) => {
 
 setInterval(() => lobbies.tick(), SERVER_TICK * 1000);
 
-http.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}${process.argv.includes('--debug') ? ' (debug commands enabled)' : ''}`));
+http.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}${DEBUG ? ' (debug commands enabled)' : ''}`));

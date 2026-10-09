@@ -1,15 +1,34 @@
-import type { WebSocket } from 'ws';
-import { Stash } from './persistence';
-import {
-  addToPile, buildView, CLASS_IDS, titleFor, Game, MAX_PLAYERS, onHeroInRoom, Rng, SERVER_TICK, spawnGroup, tierAt,
-  type ClassId, type ClientMsg, type LobbyState, type LobbyView, type PlayerSlot, type ServerMsg,
-} from '@stcp/shared';
+import { Stash } from './stash';
+import { Rng } from './rng';
+import { CLASS_IDS, type ClassId } from './content/classes';
+import { titleFor } from './content/titles';
+import { SERVER_TICK, tierAt } from './content/constants';
+import { Game, type PlayerSlot } from './sim/game';
+import { buildView } from './sim/views';
+import { addToPile } from './sim/loot';
+import { onHeroInRoom, spawnGroup } from './sim/combat';
+import { MAX_PLAYERS, type ClientMsg, type LobbyState, type LobbyView, type ServerMsg } from './protocol';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O, to avoid confusion when read aloud
 const BOT_NAMES = ['Aldric', 'Brynn', 'Corvin', 'Dagny', 'Edda', 'Fenn', 'Gisla', 'Hob', 'Ilse', 'Jory'];
-const DEBUG = process.argv.includes('--debug');
 /** Lobbies with nobody connected are removed after this long. */
 const ABANDON_MS = 10 * 60 * 1000;
+
+/** The bits of a WebSocket the lobby uses, so it runs against `ws` on the server and an in-page fake for solo play. */
+export interface Socket {
+  readonly OPEN: number;
+  readonly readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+export interface LobbyOptions {
+  /** Allow the debug* client messages. */
+  debug?: boolean;
+  /** Fixed seed for every game (reproducing a run). */
+  seed?: number;
+  log?: (msg: string) => void;
+}
 
 interface Member {
   token: string;
@@ -18,7 +37,7 @@ interface Member {
   name: string;
   cls: ClassId | null;
   ready: boolean;
-  ws: WebSocket | null;
+  ws: Socket | null;
 }
 
 export class Lobby {
@@ -32,7 +51,7 @@ export class Lobby {
   /** Dev-only fast-forward multiplier. */
   speed = 1;
 
-  constructor(readonly code: string, host: Member, private stash: Stash) {
+  constructor(readonly code: string, host: Member, private stash: Stash, private opts: LobbyOptions) {
     this.hostToken = host.token;
     this.members.push(host);
   }
@@ -64,8 +83,8 @@ export class Lobby {
     for (let i = 0; slots.length < MAX_PLAYERS; i++) {
       slots.push({ id: `bot${i}`, name: botNames[i], cls: freeClasses[i], isBot: true });
     }
-    const seed = Number(process.env.SEED ?? rng.int(1, 2 ** 30));
-    console.log(`[${this.code}] starting game, seed ${seed}`);
+    const seed = this.opts.seed ?? rng.int(1, 2 ** 30);
+    this.opts.log?.(`[${this.code}] starting game, seed ${seed}`);
     this.game = new Game(seed, slots);
     this.state = 'game';
     this.banked = false;
@@ -84,7 +103,7 @@ export class Lobby {
           if (h) this.stash.recordRun(m.name, h.extracted, h.gold);
         }
       }
-      console.log(`[${this.code}] run over (${this.game.world.phase})`);
+      this.opts.log?.(`[${this.code}] run over (${this.game.world.phase})`);
       this.broadcast();
       const board: ServerMsg = { t: 'leaderboard', entries: this.stash.leaderboard() };
       for (const m of this.members) if (m.ws) send(m.ws, board);
@@ -99,7 +118,7 @@ export class LobbyManager {
   private lobbies = new Map<string, Lobby>();
   private rng = new Rng(Date.now() & 0x7fffffff);
 
-  constructor(private stash = new Stash()) {}
+  constructor(private stash: Stash, private opts: LobbyOptions = {}) {}
 
   private find(token: string): { lobby: Lobby; member: Member } | null {
     for (const lobby of this.lobbies.values()) {
@@ -110,7 +129,7 @@ export class LobbyManager {
   }
 
   /** Handle one message from a client that has said hello (token known). */
-  handle(ws: WebSocket, token: string, name: string, msg: ClientMsg) {
+  handle(ws: Socket, token: string, name: string, msg: ClientMsg) {
     const found = this.find(token);
     const err = (text: string) => send(ws, { t: 'error', msg: text });
 
@@ -129,7 +148,7 @@ export class LobbyManager {
       }
       case 'create': {
         if (found) this.leave(found.lobby, found.member);
-        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws), this.stash);
+        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws), this.stash, this.opts);
         this.lobbies.set(lobby.code, lobby);
         lobby.broadcast();
         return;
@@ -187,7 +206,7 @@ export class LobbyManager {
         lobby.game?.intent(member.id, msg.intent);
         return;
       case 'debugSpawn': {
-        if (!DEBUG) return err('Debug commands are disabled.');
+        if (!this.opts.debug) return err('Debug commands are disabled.');
         const w = lobby.game?.world;
         const h = w?.heroes[member.id];
         if (!w || !h || h.pos.kind !== 'room') return;
@@ -199,11 +218,11 @@ export class LobbyManager {
         return;
       }
       case 'debugSpeed':
-        if (!DEBUG) return err('Debug commands are disabled.');
+        if (!this.opts.debug) return err('Debug commands are disabled.');
         lobby.speed = msg.speed;
         return;
       case 'debugEvent': {
-        if (!DEBUG) return err('Debug commands are disabled.');
+        if (!this.opts.debug) return err('Debug commands are disabled.');
         const w = lobby.game?.world;
         const h = w?.heroes[member.id];
         if (!w || h?.pos.kind !== 'room') return;
@@ -217,13 +236,13 @@ export class LobbyManager {
         return;
       }
       case 'debugLoot': {
-        if (!DEBUG) return err('Debug commands are disabled.');
+        if (!this.opts.debug) return err('Debug commands are disabled.');
         const h = lobby.game?.world.heroes[member.id];
         if (lobby.game && h?.pos.kind === 'room') addToPile(lobby.game.world, h.pos.room, msg.gold, msg.items);
         return;
       }
       case 'debugSkip':
-        if (!DEBUG) return err('Debug commands are disabled.');
+        if (!this.opts.debug) return err('Debug commands are disabled.');
         if (lobby.game) for (let t = 0; t < msg.seconds; t += SERVER_TICK) lobby.game.tick(SERVER_TICK);
         return;
       default:
@@ -232,7 +251,7 @@ export class LobbyManager {
     lobby.broadcast();
   }
 
-  disconnected(ws: WebSocket, token: string) {
+  disconnected(ws: Socket, token: string) {
     const found = this.find(token);
     if (!found || found.member.ws !== ws) return;
     found.member.ws = null;
@@ -244,7 +263,7 @@ export class LobbyManager {
     const now = Date.now();
     for (const [code, lobby] of this.lobbies) {
       if (lobby.emptySince !== null && now - lobby.emptySince > ABANDON_MS) {
-        console.log(`[${code}] abandoned, removing`);
+        this.opts.log?.(`[${code}] abandoned, removing`);
         this.lobbies.delete(code);
         continue;
       }
@@ -263,7 +282,7 @@ export class LobbyManager {
     lobby.broadcast();
   }
 
-  private newMember(token: string, name: string, ws: WebSocket): Member {
+  private newMember(token: string, name: string, ws: Socket): Member {
     return { token, id: `p${this.rng.int(100000, 999999)}`, name: name || 'Nameless', cls: null, ready: false, ws };
   }
 
@@ -275,6 +294,6 @@ export class LobbyManager {
   }
 }
 
-export function send(ws: WebSocket, msg: ServerMsg) {
+export function send(ws: Socket, msg: ServerMsg) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
 }

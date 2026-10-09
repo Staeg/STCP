@@ -6,6 +6,7 @@ import { ResultsUi } from './results';
 import { Net } from './net';
 import { MapRenderer } from './render/map';
 import { Screens } from './screens';
+import { SOLO } from './local';
 
 const net = new Net();
 const map = new MapRenderer(document.getElementById('map') as HTMLCanvasElement, net);
@@ -20,6 +21,8 @@ const results = new ResultsUi(net);
 const urlCode = new URLSearchParams(location.search).get('lobby');
 let triedUrlJoin = false;
 net.onLobby = (lobby) => {
+  // Solo lobbies live only in this page, so there's nothing to share or rejoin.
+  if (SOLO) return;
   if (lobby) {
     history.replaceState(null, '', `?lobby=${lobby.code}`);
   } else if (urlCode && !triedUrlJoin) {

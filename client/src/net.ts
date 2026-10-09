@@ -1,4 +1,5 @@
 import type { ClientMsg, Intent, LeaderboardEntry, LobbyView, PlayerView, ServerMsg } from '@stcp/shared';
+import { LocalSocket, SOLO } from './local';
 
 /** Per-tab secret: survives refresh (sessionStorage) but differs between tabs, so one browser can host several test players. */
 function getToken(): string {
@@ -39,7 +40,7 @@ export class Net {
   private connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     this.status = 'connecting';
-    this.ws = new WebSocket(`${proto}://${location.host}/ws`);
+    this.ws = SOLO ? (new LocalSocket() as unknown as WebSocket) : new WebSocket(`${proto}://${location.host}/ws`);
     this.ws.onopen = () => {
       this.status = 'open';
       this.send({ t: 'hello', token: this.token, name: this.name });

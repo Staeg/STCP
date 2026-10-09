@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { WebSocket } from 'ws';
-import type { ClientMsg, LobbyView, ServerMsg } from '@stcp/shared';
+import type { ClientMsg, LobbyView, ServerMsg } from './protocol';
 import { LobbyManager } from './lobby';
-import { Stash } from './persistence';
+import { Stash } from './stash';
 
 class FakeWs {
   readonly OPEN = 1;
@@ -30,7 +29,7 @@ class FakeWs {
 
 function client(mgr: LobbyManager, token: string, name: string) {
   const ws = new FakeWs();
-  const sock = ws as unknown as WebSocket;
+  const sock = ws;
   const say = (msg: ClientMsg) => mgr.handle(sock, token, name, msg);
   say({ t: 'hello', token, name });
   return { ws, sock, say };

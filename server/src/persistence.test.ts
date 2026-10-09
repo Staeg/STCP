@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { nextTitle, titleFor } from '@stcp/shared';
-import { Stash } from './persistence';
+import { nextTitle, Stash, titleFor } from '@stcp/shared';
+import { fileStore } from './persistence';
 
 describe('Stash (career stats)', () => {
   it('records runs, escapes, total and best haul, case-insensitively', () => {
@@ -30,7 +30,7 @@ describe('Stash (career stats)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'stcp-'));
     const file = join(dir, 'stash.json');
     writeFileSync(file, JSON.stringify({ tobin: 340 }));
-    const s = new Stash(file);
+    const s = new Stash(fileStore(file));
     expect(s.stats('Tobin')).toEqual({ gold: 340, runs: 0, escapes: 0, best: 340 });
     s.recordRun('Tobin', true, 10);
     const saved = JSON.parse(readFileSync(file, 'utf8'));

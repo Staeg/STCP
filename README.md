@@ -15,6 +15,10 @@ Friends join through your LAN IP (`http://<your-ip>:3001` with `npm start`), or 
 
 Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed. In dev, `CLIENT_PORT` moves the Vite client too (the `dev-alt` launch config uses 5190/3011, so two dev servers can run side by side).
 
+### Solo playtest build
+
+**https://staeg.github.io/STCP/** is a no-server build for quick playtests: you and three bots, with the whole game running in the browser tab. Every push to `main` rebuilds it (`.github/workflows/pages.yml`). Career stats live in that browser's localStorage. Add `?solo` to any build (for example `http://localhost:5180/?solo` in dev) to get the same mode locally. The run slows down while its tab is in the background, because browsers throttle timers in hidden tabs.
+
 ## How to play
 
 - **Explore:** the map follows your hero. Click a known room to walk there; every tunnel takes 6 seconds, and routes avoid rooms you know hold monsters. You start at the ⚑ exit in the middle of the dungeon, and the paths loop and cross back on each other. You only see what you've explored. Allies show live when they're in sight (with a ring in their colour on the room they've chosen to walk to), otherwise as a grey ghost where you last saw them. Coloured chalk marks at crossroads show which way each ally went.

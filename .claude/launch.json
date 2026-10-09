@@ -4,14 +4,33 @@
     {
       "name": "dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5180
     },
     {
       "name": "dev-alt",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set GAME_PORT=3011&& set CLIENT_PORT=5190&& npm run dev"],
+      "runtimeArgs": [
+        "/c",
+        "set GAME_PORT=3011&& set CLIENT_PORT=5190&& npm run dev"
+      ],
       "port": 5190
+    },
+    {
+      "name": "solo-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "client",
+        "--port",
+        "4180",
+        "--strictPort"
+      ],
+      "port": 4180
     }
   ]
 }
