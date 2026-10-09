@@ -8,7 +8,7 @@ export interface ClassDef {
   maxHp: number;
   /** Speed: seconds between this hero's turns in a fight, and to walk a tunnel. Lower is faster. */
   speed: number;
-  /** One-line pitch for the class picker. */
+  /** The class perk, for the class picker. */
   blurb: string;
 }
 
@@ -17,13 +17,13 @@ export const HP_PER_SPEED = 9;
 
 export const CLASSES: Record<ClassId, ClassDef> = {
   warden: { id: 'warden', name: 'Warden', role: 'Tank', color: '#5b8fd9', maxHp: 54, speed: 6,
-    blurb: 'Holds the line and hits back. Takes 20% less while standing nearest the enemy.' },
+    blurb: 'Takes 20% less damage while standing nearest the enemy.' },
   cutthroat: { id: 'cutthroat', name: 'Cutthroat', role: 'Burst & locks', color: '#d94a4a', maxHp: 27, speed: 3,
-    blurb: 'Strikes before the enemy can move. Opens vaults twice as fast and spots loot next door.' },
+    blurb: 'Opens vaults twice as fast and spots loot next door.' },
   lampbearer: { id: 'lampbearer', name: 'Lampbearer', role: 'Healer & light', color: '#e8c547', maxHp: 45, speed: 5,
-    blurb: 'Keeps the dark at bay: their own light fades half as fast. Every ability works outside fights too.' },
+    blurb: 'Their own light fades half as fast.' },
   witch: { id: 'witch', name: 'Witch', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
-    blurb: 'Curses that build on each other, and blood magic. Cleanses altars faster; the well cannot curse her.' },
+    blurb: 'Cleanses altars faster; the well cannot curse her.' },
   undertaker: { id: 'undertaker', name: 'Undertaker', role: 'Executions & the dead', color: '#8fa39a', maxHp: 54, speed: 6,
     blurb: 'Digs through rubble in one turn. Carries the fallen\'s gold home for them.' },
   bellwright: { id: 'bellwright', name: 'Bellwright', role: 'Tempo & the call', color: '#d98a3a', maxHp: 63, speed: 7,

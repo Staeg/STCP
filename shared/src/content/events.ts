@@ -15,7 +15,7 @@ export const AFFLICTIONS: Record<AfflictionId, AfflictionDef> = {
     id: 'paranoid', name: 'Paranoid',
     desc: "Refuses allies' Mend, Vigil, Guard, Blood Pact healing and items (Smelling Salts still work).",
   },
-  hopeless: { id: 'hopeless', name: 'Hopeless', desc: 'Every hit they deal does 30% less damage (×0.7, before Block).' },
+  hopeless: { id: 'hopeless', name: 'Hopeless', desc: 'Every hit they deal does 30% less damage (×0.7, before Shield).' },
 };
 
 /** Shown alongside an affliction's description. */

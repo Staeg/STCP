@@ -2,6 +2,7 @@ import { ABILITIES, CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } 
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
+import { cooldownIcon, icon, iconize, iconNum } from './icons';
 
 declare const __BUILD__: string;
 
@@ -66,7 +67,6 @@ export class Screens {
   private menuHtml() {
     return `<div class="card">
       <h1>So They Can Prosper</h1>
-      <p class="muted">Up to four heroes. One rendezvous. Ten minutes until the exit opens.</p>
       ${SOLO ? '<p class="muted small">Solo playtest build: you and three bots, all running in this tab.</p>' : ''}
       <label>Your name<br><input id="name-input" maxlength="16" value="${esc(this.net.name)}" placeholder="Nameless"></label>
       <div class="row">
@@ -106,9 +106,9 @@ export class Screens {
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
         <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <div class="class-name">${c.name}</div>
-        <div class="muted" title="Speed: seconds between turns in a fight, and to walk a tunnel. Lower is faster.">${c.role} · ${c.maxHp} HP · Speed ${c.speed}s</div>
-        <div class="blurb">${c.blurb}</div>
-        <ul class="class-abilities">${ABILITIES[id].map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` <span class="muted">(cooldown ${ab.cooldown})</span>` : ''}${ab.field ? ' <span class="muted">· also outside fights</span>' : ''}<br>${esc(ab.desc)}</li>`).join('')}</ul>
+        <div class="class-stats"><span class="muted">${c.role}</span> ${iconNum('hp', c.maxHp)} ${iconNum('speed', `${c.speed}s`)}</div>
+        <div class="blurb">${iconize(c.blurb)}</div>
+        <ul class="class-abilities">${ABILITIES[id].map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
         ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
       </button>`;
     }).join('');

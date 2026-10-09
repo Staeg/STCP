@@ -8,7 +8,7 @@ import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/eve
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned, tickFieldCooldowns,
+  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickCooldowns, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
@@ -60,9 +60,9 @@ export interface Hero {
   maxHp: number;
   stress: number;
   st: Statuses;
-  /** Ability id → own turns until usable. Shared by fights and the field; outside a fight they tick once per Speed's worth of time. */
+  /** Ability id → own turns until usable. Shared by fights and the field; outside a fight they tick each time the Speed timer runs out. */
   cooldowns: Record<string, number>;
-  /** Seconds out of a fight since cooldowns last ticked. */
+  /** Seconds channelling since cooldowns last ticked. */
   cdClock: number;
   /** Time this hero went down, or null if standing. */
   downedAt: number | null;
@@ -313,7 +313,9 @@ export function step(world: World, dt: number): void {
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
     hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * dt);
-    if (isConscious(hero) && hero.encounter === null) tickFieldCooldowns(world, hero, dt);
+    // Cooldowns tick when the Speed timer runs out (see endIdleTurn and arrive); a channel holds the timer, so time it instead.
+    if (isConscious(hero) && hero.encounter === null && hero.channel) tickFieldCooldowns(world, hero, dt);
+    else hero.cdClock = 0;
     if (hero.channel) tickChannel(world, hero);
     else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
     // The next timer only starts once the hero is free again.
@@ -533,6 +535,7 @@ export function digTime(hero: Hero, now: number): number {
 
 /** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
 function endIdleTurn(world: World, hero: Hero) {
+  tickCooldowns(hero);
   const choice = hero.queuedEvent;
   hero.queuedEvent = null;
   if (choice !== null) {
@@ -616,6 +619,7 @@ function arrive(world: World, hero: Hero, at = world.time): boolean {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return false;
   hero.pos = { kind: 'room', room: pos.to };
+  tickCooldowns(hero); // the walk was this turn
   startTimer(world, hero, at);
   if (hero.path.length === 0) hero.heading = null;
   if (pos.to === world.dungeon.exit) hero.arrivedAt = world.time;

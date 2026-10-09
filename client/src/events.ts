@@ -1,5 +1,6 @@
 import type { PlayerView } from '@stcp/shared';
 import type { Net } from './net';
+import { iconize } from './icons';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -50,7 +51,7 @@ export class EventUi {
           const queued = view.you.queuedEvent === c.id
             ? `<div class="small">✔ starts in ${Math.max(0, view.you.turnAt - view.time).toFixed(1)}s</div>` : '';
           return `<button data-choice="${c.id}" ${c.disabled || channelling ? 'disabled' : ''} title="${esc(c.disabled ?? '')}">
-          <kbd>${i + 1}</kbd> ${esc(c.label)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
+          <kbd>${i + 1}</kbd> ${iconize(c.label)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
         }).join('');
     const html = `
       <div class="ev-head"><span class="item-glyph">${ev.glyph}</span> <b>${esc(ev.name)}</b></div>

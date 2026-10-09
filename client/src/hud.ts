@@ -5,8 +5,17 @@ import {
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
+import { cooldownIcon, icon, ICON_TIPS, type IconId } from './icons';
 
 const $ = (id: string) => document.getElementById(id)!;
+
+/** Replace an element's HTML only when it changed, so hover tooltips and clicks survive the 10 Hz redraws. */
+const shown = new WeakMap<HTMLElement, string>();
+function setHtml(el: HTMLElement, html: string) {
+  if (shown.get(el) === html) return;
+  shown.set(el, html);
+  el.innerHTML = html;
+}
 
 export function fmtTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -19,6 +28,7 @@ export class Hud {
   private persistentBanner = false;
 
   constructor(private net: Net) {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-icon]')) el.outerHTML = icon(el.dataset.icon as IconId);
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
@@ -102,7 +112,8 @@ export class Hud {
     // Speed: seconds per turn in a fight and per tunnel. Hover for what's making it up.
     const speed = speedOf(you, view.time);
     $('speed-text').textContent = `${fmtSpeed(speed)} per turn / tunnel`;
-    $('speed-line').title = 'Speed (lower is faster): '
+    $('speed-line').title = `${ICON_TIPS.speed}
+`
       + speedParts(you, view.time).map((p, i) => `${i === 0 ? '' : p.amount < 0 ? '− ' : '+ '}${fmtSpeed(Math.abs(p.amount))} ${p.label}`).join(' ')
       + ` = ${fmtSpeed(speed)}${speedParts(you, view.time).reduce((t, p) => t + p.amount, 0) < MIN_SPEED ? ` (never below ${fmtSpeed(MIN_SPEED)})` : ''}`;
     const fill = $('light-fill');
@@ -134,7 +145,9 @@ export class Hud {
       const left = Math.max(0, you.channel.until - view.time);
       ch.textContent = `${you.channel.kind === 'dig' ? 'Digging' : 'Reviving'}… ${left.toFixed(1)}s (walk elsewhere to cancel)`;
     } else if (!you.channel && free) {
-      ch.textContent = `⏱ ${Math.max(0, you.turnAt - time).toFixed(1)}s · ${turnPlan(view)}`;
+      // Only the text changes each frame, so the icon's hover explanation stays up.
+      if (!ch.querySelector('#channel-text')) ch.innerHTML = `${icon('speed', 'Your Speed timer: when it runs out, you take your turn.')} <span id="channel-text"></span>`;
+      $('channel-text').textContent = `${Math.max(0, you.turnAt - time).toFixed(1)}s · ${turnPlan(view)}`;
     }
 
     // The way out
@@ -142,7 +155,7 @@ export class Hud {
     const atExit = free && here === view.exitRoom;
     esc.hidden = !atExit || !view.exitOpen;
     if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>E</kbd>`;
-    $('roster').innerHTML = rosterHtml(view);
+    setHtml($('roster'), rosterHtml(view));
     const isHost = net.lobby?.hostId === net.lobby?.youId;
     $('btn-lobby').hidden = !(view.phase !== 'running' && isHost);
 
@@ -186,7 +199,7 @@ function rosterHtml(view: PlayerView): string {
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'somewhere unknown';
   const rows = view.allies.map((a) => {
     let status: string;
-    const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${Math.max(0, Math.ceil(a.hp))}/${a.maxHp} HP`;
+    const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
     if (a.extracted) status = `escaped at ${fmtTime(a.seenAt)}`;
     else if (a.live) status = (sameRoom ? 'with you' : 'in sight') + (a.heading !== null ? ` · → ${name(a.heading)}` : '');
@@ -194,9 +207,8 @@ function rosterHtml(view: PlayerView): string {
       const where = a.heading !== null ? `heading to ${name(a.heading)}` : a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
-    status += hp;
     const aff = a.affliction ? ` <span class="aff" title="${escape(`${AFFLICTIONS[a.affliction].desc} ${AFFLICTION_RULES}`)}">${AFFLICTIONS[a.affliction].name}</span>` : '';
-    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}</div></div>`;
+    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}${hp}</div></div>`;
   });
   return rows.join('');
 }
@@ -275,19 +287,20 @@ function renderSkills(view: PlayerView, free: boolean, here: number) {
     if (def.target !== 'none') {
       const others = skill === 'sins' ? near.filter((a) => (a.stress ?? 0) > 0) : skill === 'mend' ? near.filter((a) => a.hp < a.maxHp) : near;
       const label = (a: { name: string; stress?: number; hp: number; maxHp: number }) =>
-        skill === 'sins' || skill === 'vigil' ? `${a.name} (${a.stress ?? 0} stress)` : skill === 'mend' ? `${a.name} (${a.hp}/${a.maxHp})` : a.name;
+        skill === 'sins' || skill === 'vigil' ? `${escape(a.name)} (${a.stress ?? 0}${icon('stress')})` : skill === 'mend' ? `${escape(a.name)} (${icon('hp')}${a.hp}/${a.maxHp})` : escape(a.name);
       options = others.map((a) => ({ id: a.id, label: `${def.name}: ${label(a)}` }));
-      if (def.target === 'any') options.unshift({ id: you.id, label: `${def.name}: yourself${skill === 'vigil' ? ` (${Math.round(you.stress)} stress)` : ''}` });
+      if (def.target === 'any') options.unshift({ id: you.id, label: `${def.name}: yourself${skill === 'vigil' ? ` (${Math.round(you.stress)}${icon('stress')})` : ''}` });
     }
     // Cooling down, the buttons all say the same thing: show just one.
     if (wait > 0) options = options.slice(0, 1);
     return options.map((o) => {
-      const text = wait > 0 ? `${def.name} ready in ${wait} turn${wait === 1 ? '' : 's'}` : queued && you.queuedSkill?.target === o.id ? `${o.label} (when your timer runs out)` : o.label;
+      // Labels are HTML (names escaped above).
+      const text = wait > 0 ? `${def.name} ${cooldownIcon(0, wait)}` : queued && you.queuedSkill?.target === o.id ? `${o.label} (when your timer runs out)` : o.label;
       const key = first && wait <= 0 ? ' <kbd>M</kbd>' : '';
       if (wait <= 0) first = false;
-      return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${wait > 0 ? 'cooling' : ''}" title="${escape(def.desc)}">${escape(text)}${key}</button>`;
+      return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${wait > 0 ? 'cooling' : ''}" title="${escape(def.desc)}">${text}${key}</button>`;
     }).join('');
   }).join('');
   box.hidden = html === '';
-  if (box.innerHTML !== html) box.innerHTML = html;
+  setHtml(box, html);
 }

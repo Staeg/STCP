@@ -1,4 +1,4 @@
-import { dirBetween, EVENTS, type HeroPos, type PlayerView, type RoomView } from '@stcp/shared';
+import { dirBetween, EVENTS, type AllyView, type HeroPos, type PlayerView, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
 import { drawSprite } from './sprites';
 
@@ -285,11 +285,18 @@ export class MapRenderer {
       this.drawHero(p.x, p.y, sprite, a.cls, a.color, a.live ? 'live' : 'ghost');
       if (a.downed || a.dead) this.drawCross(p.x, p.y, r, a.dead);
     }
-    // Heroes in a tunnel wait at its midpoint; a ring in their colour counts down their Speed to arrival.
+    // A ring in each hero's colour fills with their Speed timer: to arrival in a tunnel (where they wait at its
+    // midpoint), or to their next turn standing in a room.
+    const youFree = you.encounter === null && you.downedAt === null && !you.dead && !you.channel;
     for (const h of [...view.allies.filter((a) => a.live), you]) {
-      if (h.pos.kind !== 'corridor') continue;
+      let frac: number;
+      if (h.pos.kind === 'corridor') frac = Math.min(1, h.pos.t / h.pos.dur);
+      else {
+        const turn = h === you ? (youFree ? { start: you.turnStart, at: you.turnAt } : undefined) : (h as AllyView).turn;
+        if (!turn || turn.at <= turn.start) continue;
+        frac = Math.max(0, Math.min(1, (view.time - turn.start) / (turn.at - turn.start)));
+      }
       const p = tokens.get(h.id)!;
-      const frac = Math.min(1, h.pos.t / h.pos.dur);
       ctx.lineWidth = h.id === you.id ? 3 : 2;
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.beginPath();

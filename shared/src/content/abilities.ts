@@ -72,8 +72,8 @@ export const CLASS_RULES = {
 export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = {
   warden: [
     { id: 'bash', name: 'Shield Bash', cooldown: 0, target: 'enemyFirst', power: 10, desc: '10 dmg to the nearest enemy. 35% Stun.' },
-    { id: 'vengeance', name: 'Vengeance', cooldown: 4, target: 'self', power: 0, desc: 'For your next 2 turns, anyone who attacks you takes the full damage of the attack back (before armor, Block or bracing).' },
-    { id: 'rally', name: 'Rally', cooldown: 4, target: 'allAllies', power: 3, desc: 'All allies: −10 stress, +3 Block.' },
+    { id: 'vengeance', name: 'Vengeance', cooldown: 4, target: 'self', power: 0, desc: 'For your next 2 turns, anyone who attacks you takes the full damage of the attack back (before armor, Shield or bracing).' },
+    { id: 'rally', name: 'Rally', cooldown: 4, target: 'allAllies', power: 3, desc: 'All allies: −10 stress, +3 Shield.' },
   ],
   cutthroat: [
     { id: 'backstab', name: 'Backstab', cooldown: 0, target: 'enemy', power: 7, desc: "7 dmg. Crits (×2) vs an enemy that is Stunned or hasn't acted yet this fight." },

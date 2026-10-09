@@ -534,7 +534,7 @@ export function tickCooldowns(h: Hero) {
   }
 }
 
-/** Outside a fight, a turn's worth of time (the hero's Speed) ticks cooldowns down just as a turn in a fight does. */
+/** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks cooldowns down as a turn would. */
 export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
   if (Object.keys(h.cooldowns).length === 0) {
     h.cdClock = 0;
@@ -755,7 +755,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         a.st.block = (a.st.block ?? 0) + ab.power;
         addStress(a, -10);
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${ab.power} Block, −10 stress)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${ab.power} Shield, −10 stress)` });
       return;
     case 'backstab': {
       const t = pickEnemy(false);
@@ -1036,7 +1036,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
 }
 
 /**
- * Monster attacks a hero (or the risen), honouring Guard, dodge, brace, Block and darkness.
+ * Monster attacks a hero (or the risen), honouring Guard, dodge, brace, Shield and darkness.
  * Returns the hero actually hit, if it was a hero.
  */
 function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, base: number, verb: string, events: CombatEvent[]): Hero | null {

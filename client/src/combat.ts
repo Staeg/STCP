@@ -6,6 +6,7 @@ import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
 import { juice } from './juice';
 import { useFromField } from './loot';
+import { cooldownIcon, icon, iconize, iconNum, type IconId } from './icons';
 
 const $ = (id: string) => document.getElementById(id)!;
 /** Events from one turn play out this far apart; a busy fight queues them up. */
@@ -32,6 +33,7 @@ export class CombatUi {
   /** When the replay queue runs dry (performance.now()). */
   private queueEnd = 0;
   private pending: Pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
+  /** `text` is HTML (fixed strings, numbers and icons). */
   private floaters: { unit: string; text: string; cls: string; at: number }[] = [];
   private flashes = new Map<string, number>();
   private prevMonsters = new Map<string, CombatUnitView>();
@@ -120,7 +122,7 @@ export class CombatUi {
     if (e.kind === 'damage') this.floaters.push({ unit: t, text: `${e.crit ? 'CRIT ' : ''}-${e.amount}`, cls: e.crit ? 'crit' : 'dmg', at: now });
     else if (e.kind === 'heal') this.floaters.push({ unit: t, text: `+${e.amount}`, cls: 'heal', at: now });
     else if (e.kind === 'miss') this.floaters.push({ unit: t, text: 'DODGE', cls: 'miss', at: now });
-    else if (e.kind === 'stress' && e.amount) this.floaters.push({ unit: t, text: `+${e.amount} stress`, cls: 'stress', at: now });
+    else if (e.kind === 'stress' && e.amount) this.floaters.push({ unit: t, text: `+${e.amount}${icon('stress')}`, cls: 'stress', at: now });
     else if (e.kind === 'death') this.pending.dying.delete(t);
     else if (e.kind === 'down') this.floaters.push({ unit: t, text: 'DOWN', cls: 'crit', at: now });
     else if (e.kind === 'flee') this.floaters.push({ unit: t, text: 'FLED', cls: 'miss', at: now });
@@ -147,11 +149,11 @@ export class CombatUi {
     const left = me?.nextIn ?? null;
     let status: string;
     if (me?.downed) status = 'You are down! An ally must revive you.';
-    else if (this.targeting) status = 'Choose a target (if your turn comes first: the leftmost)';
+    else if (this.targeting) status = 'Choose a target (defaults to the leftmost)';
     else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
-    else status = `Pick your next move! (if your turn comes first: ${this.fallbackName(view)})`;
+    else status = `Pick your next move! (defaults to ${this.fallbackName(view)})`;
     const header = `<div class="cb-head">
-      <span title="Speed: seconds between your turns">⏱ ${me ? fmtSpeed(me.speed) : ''}</span>
+      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
       <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
     </div>`;
@@ -189,7 +191,7 @@ export class CombatUi {
   private renderIdle(view: PlayerView) {
     const items = this.itemsHtml(view, null, false);
     this.setHtml(`<div class="cb-group">
-        <div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight · if your turn comes before you pick, you use your first ability that's ready</span></div>
+        <div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight · defaults to your first ability that's ready</span></div>
         ${this.actionsHtml(view, null, false)}
       </div>`
       + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now, or in a fight</span></div>${items}</div>` : ''));
@@ -217,11 +219,12 @@ export class CombatUi {
     const abilities = ABILITIES[you.cls];
     const chosen = enc?.yourChoice ?? null;
     const off = (disabled: boolean) => (!disabled ? '' : enc ? 'disabled' : 'aria-disabled="true"');
-    const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false) => {
+    /** `desc` is HTML. Revive, Flee and Brace are just an icon (`body`), their name in the description. */
+    const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false, body?: IconId) => {
       const sel = chosen?.action === action || this.targeting === action;
-      return `<button class="cb-act ${sel ? 'sel' : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
-        <kbd>${key}</kbd> ${esc(label)}${cd > 0 ? ` <span class="cd">${cd}</span>` : ''}
-        <div class="cb-desc">${esc(desc)}</div></button>`;
+      return `<button class="cb-act ${body ? 'mini' : ''} ${sel ? 'sel' : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
+        <kbd>${key}</kbd> ${body ? icon(body, label) : esc(label)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+        <div class="cb-desc">${body ? `<b>${esc(label)}</b>: ` : ''}${desc}</div></button>`;
     };
     const anyDowned = !!enc?.heroes.some((h) => h.downed);
     const ability = (i: number) => {
@@ -232,15 +235,15 @@ export class CombatUi {
       // Cooldowns carry over between fights, so they show out of one too.
       const cd = you.cooldowns[ab.id] ?? 0;
       // The cooldown already says why; otherwise explain what's stopping it.
-      const why = opt?.blocked && cd === 0 ? ` Not now: ${opt.blocked}` : '';
-      const extra = (ab.id === 'spade' && you.spadeBonus ? ` Now ${ab.power + you.spadeBonus} dmg.` : '') + (ab.field ? ' Works outside fights too.' : '');
-      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown) + extra + why, cd, blocked);
+      const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
+      const extra = ab.id === 'spade' && you.spadeBonus ? ` Now ${ab.power + you.spadeBonus} dmg.` : '';
+      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc + extra, ab.cooldown, !!ab.field) + why, cd, blocked);
     };
     const actions = `<div class="cb-actions">
       ${abilities.map((_, i) => ability(i)).join('')}
-      ${btn('revive', 'R', 'Revive', 'Get a downed ally back up (30% HP).', 0, !anyDowned)}
-      ${btn('flee', 'F', 'Flee', `${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +5 stress.`)}
-      ${btn('brace', 'B', 'Brace', `Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)`)}
+      ${btn('revive', 'R', 'Revive', iconize('Get a downed ally back up (30% HP).'), 0, !anyDowned, 'revive')}
+      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +5 stress.`), 0, false, 'flee')}
+      ${btn('brace', 'B', 'Brace', iconize('Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)'), 0, false, 'brace')}
     </div>`;
 
     if (!enc) return actions;
@@ -261,12 +264,12 @@ export class CombatUi {
       if (!enc) {
         const usable = def.field;
         return `<button class="cb-act item ${usable ? 'usable' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
-          <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+          <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
       }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
       return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'}>
-        <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}</div></button>`;
+        <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${iconize(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
     return btns ? `<div class="cb-actions items">${btns}</div>` : '';
   }
@@ -282,28 +285,28 @@ export class CombatUi {
     const st = u.st;
     const time = this.time;
     const rounds = (n: number) => `${n} more turn${n === 1 ? '' : 's'} of theirs`;
-    const icon = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
+    const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
     const aff = u.affliction ? AFFLICTIONS[u.affliction] : null;
     const icons = [
-      aff && icon('⚠', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
-      st.stun && icon('★', 'Stunned: skips their next action.'),
-      st.bleed && icon(`🩸${st.bleed.length > 1 ? `×${st.bleed.length}` : st.bleed[0].rounds}`,
+      aff && sym('⚠', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
+      st.stun && icon('stun', 'Stunned: skips their next action.'),
+      st.bleed && sym(`🩸${st.bleed.length > 1 ? `×${st.bleed.length}` : st.bleed[0].rounds}`,
         `Bleeding: ${st.bleed.map((b) => `${b.dmg} damage for ${rounds(b.rounds)}`).join('; ')}, each at the end of their turns. Mend or a Bandage cures it.`),
-      st.acid && icon('☣', `Acid: takes +2 from every hit, Bleed included (${rounds(st.acid)}).`),
-      u.kind === 'hero' && (u.stress ?? 0) > 0 && icon(`✶${u.stress}`, `Stress ${u.stress}/100.`),
-      st.hexed && icon(`⛧${st.hexed.length > 1 ? `×${st.hexed.length}` : ''}`,
+      st.acid && sym('☣', `Acid: takes +2 from every hit, Bleed included (${rounds(st.acid)}).`),
+      u.kind === 'hero' && (u.stress ?? 0) > 0 && iconNum('stress', u.stress!, `Stress ${u.stress}/100.`),
+      st.hexed && sym(`⛧${st.hexed.length > 1 ? `×${st.hexed.length}` : ''}`,
         `Hexed ×${st.hexed.length}: Hex deals +${st.hexed.length * 100}% to it (${st.hexed.map((n) => rounds(n)).join('; ')}).`),
-      u.kind === 'monster' && !st.acted && icon('◌', "Hasn't acted yet: Backstab crits it for double damage."),
-      st.block && icon(`⛨${st.block}`, `Block ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
-      st.weak && icon('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
-      st.vengeance && icon('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
-      st.vigil && icon('☀', 'Lone Vigil: every enemy action sets off a free Flare, until their next turn.'),
-      st.dodge !== undefined && st.dodge > time && icon('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works (${Math.ceil(st.dodge - time)}s).`),
-      st.brace && icon('▣', 'Bracing: takes 30% less damage until their next turn.'),
+      u.kind === 'monster' && !st.acted && sym('◌', "Hasn't acted yet: Backstab crits it for double damage."),
+      st.block && iconNum('shield', st.block, `Shield ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
+      st.weak && sym('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
+      st.vengeance && sym('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
+      st.vigil && sym('☀', 'Lone Vigil: every enemy action sets off a free Flare, until their next turn.'),
+      st.dodge !== undefined && st.dodge > time && sym('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works (${Math.ceil(st.dodge - time)}s).`),
+      st.brace && sym('▣', 'Bracing: takes 30% less damage until their next turn.'),
     ].filter(Boolean).join('');
     const floats = this.floaters
       .filter((f) => f.unit === u.id && now - f.at < 1100)
-      .map((f) => `<div class="float ${f.cls}" style="animation-delay:-${now - f.at}ms">${esc(f.text)}</div>`)
+      .map((f) => `<div class="float ${f.cls}" style="animation-delay:-${now - f.at}ms">${f.text}</div>`)
       .join('');
     const classes = ['cb-unit', u.kind, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
@@ -320,7 +323,7 @@ export class CombatUi {
           <circle cx="50" cy="50" r="46" pathLength="100" stroke="${ringColor}" stroke-dasharray="${(fill * 100).toFixed(1)} 100"/></svg>`
       : '';
     const turn = timed
-      ? `<div class="spd" title="Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn!.toFixed(1)}s">⏱ ${fmtSpeed(u.speed)} · ${u.nextIn!.toFixed(1)}s</div>`
+      ? `<div class="spd">${iconNum('speed', fmtSpeed(u.speed), `Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn!.toFixed(1)}s`)} · ${u.nextIn!.toFixed(1)}s</div>`
       : '';
     const target = u.choiceTarget ? this.names.get(u.choiceTarget) : undefined;
     const pick = u.kind === 'hero' && u.choice
@@ -442,8 +445,7 @@ export class CombatUi {
   }
 }
 
-/** Ability text with its cooldown spelled out. */
-function abilityDesc(desc: string, cooldown: number): string {
-  const cd = cooldown ? ` Cooldown: your next ${cooldown === 1 ? 'turn' : `${cooldown} turns`}.` : '';
-  return desc + cd;
+/** Ability text (HTML) with icons for its cooldown and whether it works outside fights. */
+function abilityDesc(desc: string, cooldown: number, field: boolean): string {
+  return iconize(desc) + (cooldown ? ` ${cooldownIcon(cooldown)}` : '') + (field ? ` ${icon('field')}` : '');
 }

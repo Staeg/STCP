@@ -1,5 +1,6 @@
 import { INVENTORY_SLOTS, ITEMS, LEAVE, type PlayerView } from '@stcp/shared';
 import type { Net } from './net';
+import { iconize } from './icons';
 import { digitClaimed, digitKey } from './events';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -121,7 +122,7 @@ export class LootUi {
       const pending = vote.voters.filter((v) => !vote.votes[v]).map(nameOf);
       const agreed = vote.voters.every((v) => vote.votes[v] && vote.votes[v] === vote.votes[vote.voters[0]]);
       html += `
-        <div class="loot-head"><span class="item-glyph">${def.glyph}</span> <b>${def.name}</b> <span class="muted">— ${esc(def.desc)}</span></div>
+        <div class="loot-head"><span class="item-glyph">${def.glyph}</span> <b>${def.name}</b> <span class="muted">— ${iconize(def.desc)}</span></div>
         <div class="muted">Who takes it?${loot.queued.length ? ` <span class="small">(${loot.queued.length} more after this)</span>` : ''}</div>
         <div class="vote-opts">${options}
           <button class="vote-opt leave ${mine === LEAVE ? 'sel' : ''}" data-vote="${LEAVE}" ${canVote ? '' : 'disabled'}><kbd>${vote.candidates.length + 1}</kbd> Leave it<div class="backers">${backers(LEAVE)}</div></button>

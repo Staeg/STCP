@@ -85,6 +85,8 @@ export interface AllyView {
   affliction: AfflictionId | null;
   /** Only while you can see them. */
   stress?: number;
+  /** Their Speed timer (start, end), while you can see them standing free in a room. */
+  turn?: { start: number; at: number };
 }
 
 export interface ResultHero {
@@ -214,6 +216,8 @@ export function buildView(world: World, heroId: string): PlayerView {
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
       affliction: sighting.affliction ?? null,
       stress: live && inDungeon(h) ? Math.round(h.stress) : undefined,
+      turn: live && inDungeon(h) && isConscious(h) && h.encounter === null && !h.channel && h.pos.kind === 'room'
+        ? { start: h.turnStart, at: h.turnAt } : undefined,
     });
     // Make sure the client can place them, even in a room you only know the position of.
     for (const r of posRooms(sighting.pos)) roomIds.add(r);
