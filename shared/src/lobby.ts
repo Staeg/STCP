@@ -166,7 +166,8 @@ export class LobbyManager {
       }
     }
 
-    if (!found) return err('You are not in a lobby.');
+    // Renaming on the menu is fine: the connection remembers the name for create/join.
+    if (!found) return msg.t === 'setName' ? undefined : err('You are not in a lobby.');
     const { lobby, member } = found;
     const isHost = lobby.hostToken === token;
 

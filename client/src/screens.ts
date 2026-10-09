@@ -21,8 +21,12 @@ export function hallOfFortune(entries: LeaderboardEntry[], you: string): string 
 /** Menu (no lobby) and lobby-room screens. The game itself is the map canvas + HUD. */
 export class Screens {
   private rendered = '';
+  /** A mouse button is down on the screen: replacing the DOM now would swallow the click (mousedown and mouseup on different elements). */
+  private pressing = false;
 
   constructor(private net: Net) {
+    root().addEventListener('pointerdown', () => (this.pressing = true));
+    for (const ev of ['pointerup', 'pointercancel'] as const) window.addEventListener(ev, () => (this.pressing = false));
     root().addEventListener('click', (e) => this.onClick(e));
     root().addEventListener('change', (e) => this.onChange(e));
     root().addEventListener('keydown', (e) => {
@@ -42,7 +46,7 @@ export class Screens {
     el.hidden = false;
     const html = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
-    if (html !== this.rendered) {
+    if (html !== this.rendered && !this.pressing) {
       // Preserve typed text and focus across re-renders (other players' changes trigger these).
       const values = new Map([...el.querySelectorAll('input')].map((i) => [i.id, i.value]));
       const focused = document.activeElement?.id;

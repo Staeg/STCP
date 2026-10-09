@@ -74,6 +74,13 @@ describe('LobbyManager', () => {
     expect(view.view.allies.filter((x) => x.isBot)).toHaveLength(2);
   });
 
+  it('accepts a rename before joining a lobby without an error', () => {
+    const mgr = new LobbyManager(new Stash(null));
+    const a = client(mgr, 'tokA', 'Mara');
+    a.say({ t: 'setName', name: 'Tobin' });
+    expect(a.ws.errors()).toEqual([]);
+  });
+
   it('never leaks tokens to other players', () => {
     const mgr = new LobbyManager(new Stash(null));
     const a = client(mgr, 'secretAAAA', 'Ann');
