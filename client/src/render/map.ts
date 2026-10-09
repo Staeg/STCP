@@ -1,5 +1,6 @@
 import { dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
+import { icon, iconize } from '../icons';
 import { drawSprite } from './sprites';
 
 /** Item tier colours, as in the HUD (style.css .tier-N). */
@@ -35,6 +36,10 @@ export class MapRenderer {
   private cam: { x: number; y: number } | null = null;
   private camAt = 0;
   private camFor = '';
+  /** After the run: a room clicked to pin its contents open, so each line can be hovered for the details. */
+  private locked: number | null = null;
+  private lockEl: HTMLDivElement;
+  private lockHtml = '';
 
   constructor(private canvas: HTMLCanvasElement, private net: Net) {
     this.ctx = canvas.getContext('2d')!;
@@ -45,8 +50,19 @@ export class MapRenderer {
     });
     canvas.addEventListener('mouseleave', () => (this.mouse = { x: -1, y: -1 }));
     canvas.addEventListener('click', (e) => {
+      if (this.net.cur?.results) return;
       const room = this.hitTest(e.clientX, e.clientY);
       if (room !== null) this.net.intent({ type: 'goto', room });
+    });
+    this.lockEl = document.createElement('div');
+    this.lockEl.className = 'reveal-lock';
+    this.lockEl.hidden = true;
+    document.body.appendChild(this.lockEl);
+    // Post-game map: click a room to pin what was in it; the next click, anywhere, lets go.
+    document.addEventListener('click', (e) => {
+      if (!this.net.cur?.results) return;
+      if (this.locked !== null) this.locked = null;
+      else if (e.target === canvas) this.locked = this.hitTest(e.clientX, e.clientY);
     });
   }
 
@@ -151,7 +167,11 @@ export class MapRenderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, innerWidth, innerHeight);
-    if (!view) return;
+    if (!view) {
+      this.locked = null;
+      this.drawLock(undefined, 0);
+      return;
+    }
     this.layout(view);
 
     const rooms = new Map(view.rooms.map((r) => [r.id, r]));
@@ -264,7 +284,11 @@ export class MapRenderer {
 
     // Rooms
     const t = performance.now() / 1000;
-    for (const r of view.rooms) this.drawRoom(r, size, r.id === this.hover, r.id === curRoom, t);
+    // The pinned room only counts while the revealed map is actually on show (not under the results card).
+    const peeking = !!view.results && !!document.getElementById('results')?.classList.contains('peek');
+    if (!peeking) this.locked = null;
+    const pinned = this.locked !== null ? rooms.get(this.locked) : undefined;
+    for (const r of view.rooms) this.drawRoom(r, size, r.id === this.hover || r === pinned, r.id === curRoom, t);
 
     headings.forEach((a, i) => {
       const dest = rooms.get(a.heading!)!;
@@ -353,8 +377,9 @@ export class MapRenderer {
     }
 
     // Hover label drawn last so it sits above the vignette
-    if (this.hover !== null) {
-      const r = rooms.get(this.hover)!;
+    const labelled = pinned ?? (this.hover !== null ? rooms.get(this.hover) : undefined);
+    if (labelled) {
+      const r = labelled;
       const label = r.name ?? 'Unknown passage';
       ctx.font = '20px VT323, monospace';
       ctx.textAlign = 'center';
@@ -364,8 +389,9 @@ export class MapRenderer {
       ctx.fillText(label, tx + 1, ty + 1);
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
-      if (r.reveal) this.drawReveal(r.reveal, tx, this.sy(r.y) + size / 2 + 8);
+      if (r.reveal && !pinned) this.drawReveal(r.reveal, tx, this.sy(r.y) + size / 2 + 8);
     }
+    this.drawLock(pinned, size);
 
     // Your Speed ring again, round the mouse pointer, so you can watch it without looking at your hero.
     if (yourFrac !== null && this.mouse.x >= 0 && !view.results) {
@@ -381,6 +407,51 @@ export class MapRenderer {
       ctx.arc(x, y, rr, -Math.PI / 2, -Math.PI / 2 + yourFrac * Math.PI * 2);
       ctx.stroke();
     }
+  }
+
+  /** The pinned room's contents as a real box under it, each line with a hover tip giving the full description. */
+  private drawLock(r: RoomView | undefined, size: number) {
+    const el = this.lockEl;
+    if (!r?.reveal) {
+      el.hidden = true;
+      this.lockHtml = '';
+      return;
+    }
+    const rv = r.reveal;
+    const row = (color: string, text: string, tip?: string) =>
+      `<div class="rl-row${tip ? ' has-tip' : ''}" style="color:${color}">${text}${tip ? `<div class="hover-tip">${tip}</div>` : ''}</div>`;
+    const rows: string[] = [];
+    const counts = new Map<string, number>();
+    for (const m of rv.monsters) counts.set(m, (counts.get(m) ?? 0) + 1);
+    for (const [m, n] of counts) {
+      const e = ENEMIES[m as keyof typeof ENEMIES];
+      rows.push(row('#e07a5a', `${e.glyph} ${n > 1 ? `${n}× ` : ''}${e.name}`,
+        `<div><b>${e.name}</b> ${icon('hp')} ${e.maxHp} · ${icon('speed')} ${e.speed}s${e.undead ? ' · undead' : ''}</div><div>${iconize(e.desc)}</div>`));
+    }
+    for (const it of rv.items) {
+      const def = ITEMS[it as ItemId];
+      rows.push(row(TIER_COLORS[itemTier(it)], `${def.glyph} ${def.name}`, `<div><b>${def.name}</b></div><div>${iconize(def.desc)}</div>`));
+    }
+    if (rv.gold > 0) rows.push(row('#e0b44a', `⛀ ${rv.gold} gold`));
+    if (rv.event) {
+      const ev = EVENTS[rv.event];
+      rows.push(row('#c08aff', `${ev.glyph} ${ev.name} (not done)`, `<div><b>${ev.name}</b></div><div>${ev.text}</div>`));
+    }
+    if (rv.captive) rows.push(row('#e0c890', '☺ A captive, never freed', `<div>${EVENTS.villager.text}</div>`));
+    if (!rows.length) rows.push(row(COLORS.muted, 'Nothing left here.'));
+    const html = `<div class="muted small">Hover for details · click to let go</div>${rows.join('')}`;
+    el.hidden = false;
+    if (html !== this.lockHtml) {
+      el.innerHTML = html;
+      this.lockHtml = html;
+    }
+    const cx = this.sx(r.x);
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    el.style.left = `${Math.max(4, Math.min(innerWidth - w - 4, cx - w / 2))}px`;
+    el.style.top = `${Math.max(4, Math.min(innerHeight - h - 4, this.sy(r.y) + size / 2 + 8))}px`;
+    // Tips open on whichever side has more room.
+    el.classList.toggle('flip', cx > innerWidth / 2);
   }
 
   /** After the run: what was left in the hovered room, in a box under it. */

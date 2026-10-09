@@ -24,7 +24,9 @@ describe('equipping gear', () => {
     const h = world.heroes.h0;
     h.items = ['torch', 'torch', 'torch', 'torch'];
     addToPile(world, d.entrance, 0, ['mace']);
-    step(world, 0.1); // alone: picked up straight away
+    step(world, 0.1);
+    applyIntent(world, 'h0', { type: 'vote', item: world.piles[d.entrance].items[0].id, choice: 'h0' });
+    step(world, 0.1);
     expect(h.weapon).toBe('mace');
     expect(h.items).toHaveLength(4);
   });
@@ -35,23 +37,28 @@ describe('equipping gear', () => {
     h.armor = 'jerkin';
     addToPile(world, d.entrance, 0, ['cuirass']);
     step(world, 0.1);
-    expect(buildView(world, 'h0').loot?.vote?.candidates[0].wearing).toBe('jerkin');
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
+    const loot = buildView(world, 'h0').loot!;
+    expect(loot.items[0].candidates[0].wearing).toBe('jerkin');
+    applyIntent(world, 'h0', { type: 'vote', item: loot.items[0].id, choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: loot.items[0].id, choice: 'h0' });
     step(world, 0.1);
     expect(h.armor).toBe('cuirass');
     step(world, 0.1);
-    expect(world.piles[d.entrance].vote?.item).toBe('jerkin');
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['jerkin']); // up for h1, not for h0
   });
 
-  it('alone, you swap automatically but never pick your old piece back up', () => {
+  it('alone, your old piece lies ignored after a swap', () => {
     const { world, d } = party(['warden']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
     addToPile(world, d.entrance, 0, ['cuirass']);
+    step(world, 0.1);
+    applyIntent(world, 'h0', { type: 'vote', item: world.piles[d.entrance].items[0].id, choice: 'h0' });
     run(world, 1);
     expect(h.armor).toBe('cuirass');
-    expect(world.piles[d.entrance].vote?.item).toBe('jerkin'); // yours to decide on
+    const loot = buildView(world, 'h0').loot!;
+    expect(loot.items).toEqual([]);
+    expect(loot.ignored.map((f) => f.item)).toEqual(['jerkin']);
   });
 
   it('can be taken off and dropped, and falls with the dead', () => {
@@ -61,7 +68,7 @@ describe('equipping gear', () => {
     h.armor = 'chainshirt';
     applyIntent(world, 'h0', { type: 'unequip', slot: 'weapon' });
     expect(h.weapon).toBeNull();
-    expect(world.piles[d.entrance].items).toEqual(['spear']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['spear']);
 
     h.hp = 0;
     h.downedAt = world.time;
@@ -69,7 +76,7 @@ describe('equipping gear', () => {
     expect(h.dead).toBe(true);
     expect(h.armor).toBeNull();
     const pile = world.piles[d.entrance];
-    expect([...pile.items, ...pile.abandoned, pile.vote?.item]).toContain('chainshirt');
+    expect(pile.items.map((f) => f.item)).toContain('chainshirt');
   });
 
   it('bots back the biggest upgrade, and leave pieces nobody needs', () => {
@@ -78,10 +85,14 @@ describe('equipping gear', () => {
     world.heroes.h0.weapon = 'runeblade';
     addToPile(world, d.entrance, 0, ['hatchet']);
     step(world, 0.1);
-    expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', choice: 'h1' });
+    const item = world.piles[d.entrance].items[0].id;
+    expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', item, choice: 'h1' });
 
+    // Nobody would bother with it now; claimed back, the bots still vote to leave it.
     world.heroes.h1.weapon = 'emberaxe';
-    expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', choice: LEAVE });
+    expect(botVote(buildView(world, 'h0'))).toBeUndefined();
+    applyIntent(world, 'h1', { type: 'claim', item });
+    expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', item, choice: LEAVE });
   });
 });
 

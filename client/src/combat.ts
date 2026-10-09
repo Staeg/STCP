@@ -49,10 +49,19 @@ export class CombatUi {
   private aimedBy = new Map<string, string[]>();
   /** Your turn is close and you haven't picked: your ring turns red. */
   private hurry = false;
+  /** Out of a fight: the action whose description was clicked open, so its icons can be hovered. */
+  private pinned: string | null = null;
+  private pinTouched = false;
 
   constructor(private net: Net) {
     // pointerdown, not click: the panel re-renders often and a click can straddle two renders.
     $('combat').addEventListener('pointerdown', (e) => this.onClick(e));
+    // Any click that didn't (re)pin a description lets go of the pinned one.
+    document.addEventListener('pointerdown', () => {
+      if (!this.pinTouched) this.pinned = null;
+      this.pinTouched = false;
+      this.applyPin();
+    });
     addEventListener('keydown', (e) => this.onKey(e));
   }
 
@@ -208,6 +217,20 @@ export class CombatUi {
       $('combat').innerHTML = html;
       this.lastHtml = html;
     }
+    this.applyPin();
+  }
+
+  /** Which button an out-of-fight click pins: an ability or other action, or a pack item that can't be used now. */
+  private static pinKey(el: HTMLElement): string | null {
+    if (el.dataset.action) return el.dataset.action;
+    if (el.dataset.fieldItem !== undefined && !el.classList.contains('usable')) return `item${el.dataset.fieldItem}`;
+    return null;
+  }
+
+  private applyPin() {
+    const idle = $('combat').classList.contains('idle');
+    if (!idle) this.pinned = null;
+    for (const b of $('combat').querySelectorAll<HTMLElement>('button.cb-act')) b.classList.toggle('pinned', CombatUi.pinKey(b) === this.pinned && this.pinned !== null);
   }
 
   /**
@@ -393,6 +416,15 @@ export class CombatUi {
 
   private onClick(e: Event) {
     const el = e.target as HTMLElement;
+    // Exploring: clicking a greyed action keeps its description open (click it again, or anywhere, to close).
+    const pinBtn = !this.net.cur?.encounter ? (el.closest('button.cb-act') as HTMLElement | null) : null;
+    const key = pinBtn && CombatUi.pinKey(pinBtn);
+    if (key) {
+      this.pinned = this.pinned === key ? null : key;
+      this.pinTouched = true;
+      this.applyPin();
+      return;
+    }
     const field = el.closest('button[data-field-item]') as HTMLButtonElement | null;
     if (field) {
       if (!this.net.cur?.encounter && field.classList.contains('usable')) useFromField(this.net, Number(field.dataset.fieldItem));

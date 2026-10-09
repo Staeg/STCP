@@ -83,6 +83,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   const msg = m as Record<string, unknown>;
   const str = (v: unknown, max: number) => typeof v === 'string' && v.length <= max;
   const slot = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) < 16;
+  /** A floor item id. */
+  const id = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
   switch (msg.t) {
     case 'ping':
       return typeof msg.id === 'number' ? { t: 'ping', id: msg.id } : null;
@@ -137,8 +139,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
         };
       }
       if (i.type === 'event' && str(i.choice, 16)) return { t: 'intent', intent: { type: 'event', choice: i.choice as string } };
-      if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
-      if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };
+      if (i.type === 'vote' && id(i.item) && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', item: i.item as number, choice: i.choice as string } };
+      if (i.type === 'claim' && id(i.item)) return { t: 'intent', intent: { type: 'claim', item: i.item as number } };
+      if (i.type === 'drop' && slot(i.index)) return { t: 'intent', intent: { type: 'drop', index: i.index as number } };
       if (i.type === 'unequip' && (i.slot === 'weapon' || i.slot === 'armor')) return { t: 'intent', intent: { type: 'unequip', slot: i.slot } };
       if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
         return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };

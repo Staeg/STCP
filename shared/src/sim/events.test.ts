@@ -3,6 +3,7 @@ import { STRESS } from '../content/events';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
+import { addToPile } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { RoomEvent } from './events';
@@ -59,7 +60,7 @@ describe('room events', () => {
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBe(20);
-    expect(h.items).toHaveLength(1); // alone: the loot is picked up
+    expect(buildView(world, 'h').loot?.items).toHaveLength(1); // alone: up for you to pick up
   });
 
   it('idol: lots of gold, and the way you came in caves in', () => {
@@ -290,10 +291,11 @@ describe('stress and afflictions', () => {
     const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
     addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     s.affliction = 'selfish';
-    world.piles[world.dungeon.entrance] = { gold: 0, items: ['torch'], abandoned: [], vote: null, itemsBy: [null], abandonedBy: [] };
+    addToPile(world, world.dungeon.entrance, 0, ['torch']);
     step(world, 0.1);
-    applyIntent(world, 'o', { type: 'vote', choice: 'o' });
-    applyIntent(world, 's', { type: 'vote', choice: 'o' }); // refused
+    const item = world.piles[world.dungeon.entrance].items[0].id;
+    applyIntent(world, 'o', { type: 'vote', item, choice: 'o' });
+    applyIntent(world, 's', { type: 'vote', item, choice: 'o' }); // refused
     run(world, 2);
     expect(world.heroes.o.items).toEqual([]);
     run(world, 9);

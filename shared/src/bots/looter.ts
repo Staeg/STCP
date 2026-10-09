@@ -1,39 +1,39 @@
 import { LIGHT_DIM } from '../content/constants';
 import { gearGain, isGear } from '../content/items';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
-import type { PlayerView } from '../sim/views';
+import type { LootItemView, PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
 
 /**
- * Loot votes for bots. A bot first backs whoever its heuristic likes, then after a couple of
- * seconds defers to the humans' majority. In an all-bot room every bot converges on the
- * lowest-id bot's choice, so votes can never deadlock.
- * Returns an intent, null to wait, or undefined if there's no vote to deal with.
+ * Loot votes for bots, one floor item at a time (each has its own vote). A bot first backs whoever its heuristic
+ * likes, then after a couple of seconds defers to the humans' majority. In an all-bot room every bot converges on
+ * the lowest-id bot's choice, so votes can never deadlock. Alone, backing yourself just picks it up.
+ * Returns an intent, null to wait, or undefined if there's nothing to vote on.
  */
 export function botVote(view: PlayerView): Intent | null | undefined {
-  const vote = view.loot?.vote;
+  const loot = view.loot;
   const me = view.you;
-  if (!vote || !vote.voters.includes(me.id)) return undefined;
-  const current = vote.votes[me.id];
+  if (!loot || loot.items.length === 0 || !loot.voters.includes(me.id)) return undefined;
   const isBot = (id: string) => (id === me.id ? me.isBot : view.allies.find((a) => a.id === id)?.isBot ?? false);
-
-  let choice = preferredRecipient(view);
-  if (view.time - vote.startedAt >= BOT_DEFER_AFTER) {
-    const humanVotes = vote.voters.filter((v) => !isBot(v)).map((v) => vote.votes[v]).filter((v): v is string => !!v);
-    if (humanVotes.length) {
-      choice = majority(humanVotes);
-    } else if (vote.voters.every(isBot)) {
-      const leader = [...vote.voters].sort()[0];
-      if (leader !== me.id && vote.votes[leader]) choice = vote.votes[leader];
+  for (const f of loot.items) {
+    let choice = preferredRecipient(view, f);
+    if (view.time - f.startedAt >= BOT_DEFER_AFTER) {
+      const humanVotes = loot.voters.filter((v) => !isBot(v)).map((v) => f.votes[v]).filter((v): v is string => !!v);
+      if (humanVotes.length) {
+        choice = majority(humanVotes);
+      } else if (loot.voters.every(isBot)) {
+        const leader = [...loot.voters].sort()[0];
+        if (leader !== me.id && f.votes[leader]) choice = f.votes[leader];
+      }
     }
+    if (choice !== f.votes[me.id]) return { type: 'vote', item: f.id, choice };
   }
-  return choice !== current ? { type: 'vote', choice } : null;
+  return null;
 }
 
-function preferredRecipient(view: PlayerView): string {
-  const vote = view.loot!.vote!;
+function preferredRecipient(view: PlayerView, f: LootItemView): string {
   const me = view.you;
-  const cands = vote.candidates;
+  const cands = f.candidates;
   if (cands.length === 0) return LEAVE;
   const meCand = cands.find((c) => c.id === me.id);
   const hpFrac = (id: string) => {
@@ -41,15 +41,15 @@ function preferredRecipient(view: PlayerView): string {
     const a = view.allies.find((x) => x.id === id);
     return a ? a.hp / a.maxHp : 1;
   };
-  if (isGear(vote.item)) {
+  if (isGear(f.item)) {
     // Whoever it's the biggest upgrade for (ties: me). Nobody gains → leave it, so swaps can't ping-pong.
     const best = cands
-      .map((c) => ({ id: c.id, gain: gearGain(vote.item, c.wearing ?? null) }))
+      .map((c) => ({ id: c.id, gain: gearGain(f.item, c.wearing ?? null) }))
       .filter((c) => c.gain > 0)
       .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
     return best ? best.id : LEAVE;
   }
-  switch (vote.item) {
+  switch (f.item) {
     case 'bandage':
       return [...cands].sort((a, b) => hpFrac(a.id) - hpFrac(b.id))[0].id;
     case 'torch':

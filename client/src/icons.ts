@@ -17,7 +17,8 @@ const ART: Record<Exclude<IconId, 'bleed'>, string[]> = {
   stress: ['.ww..ww.', 'wwwwwwwW', 'wwwwwwwW', 'wwwwwwwW', '.wwwwwW.', '..wwwW..', '...wW...', '........'],
   speed: ['..gggg..', '.gwwwwg.', 'gwwkwwwg', 'gwwkwwwg', 'gwwkkkwg', 'gwwwwwwg', '.gwwwwg.', '..gggg..'],
   cooldown: ['bbbbbbbb', '.g....g.', '..gyyg..', '...yy...', '...gg...', '..g..g..', '.gyyyyg.', 'bbbbbbbb'],
-  field: ['...o....', '..oo.o..', '..oyoo..', '.oyyyo..', '.oyyyoo.', '..oyyo..', 'bB.bb.Bb', '.bBBBBb.'],
+  // A tent: works out in the field (a campfire read too much like the torch).
+  field: ['...wW...', '..wwWW..', '..wwWW..', '.wwwkWW.', '.wwkkWW.', 'wwwkkWWW', 'wwkkkkWW', 'BBBBBBBB'],
   dmg: ['.......s', '......sS', '.....sS.', '....sS..', 'y..sS...', '.ysS....', '.by.....', 'b..y....'],
   stun: ['.pppppp.', 'p......p', 'p.pppp.p', 'p.p..p.p', 'p.p.pp.p', 'p.p....p', 'p.pppppp', '........'],
   light: ['...o....', '..oyo...', '..oyyo..', '...yo...', '..BbbB..', '...bb...', '...bb...', '...bb...'],

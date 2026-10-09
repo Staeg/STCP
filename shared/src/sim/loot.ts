@@ -11,25 +11,28 @@ export const LEAVE = 'leave';
 /** Bots defer to the humans' majority after this many seconds. */
 export const BOT_DEFER_AFTER = 2;
 
-export interface Vote {
+/** One thing lying on the floor, with its own vote: everything in a room is divvied up at once. */
+export interface FloorItem {
+  /** Stable id: votes, claims and the client's cards refer to it. */
+  id: number;
   item: ItemId;
+  /** Who last put it on the floor (null: found there). */
+  by: string | null;
   /** voterId → recipient hero id, or LEAVE. */
   votes: Record<string, string>;
+  /** When the people now around it first saw it (bots defer, Selfish grace). */
   startedAt: number;
-  /** Who last put it on the floor (null: found there). They don't pick it up automatically. */
-  droppedBy: string | null;
+  /** Heroes who have stood in the room with it; once they walk out they've passed it by. */
+  seen: string[];
+  /** Heroes who walked past it, dropped it or voted to leave it: they ignore it from now on. */
+  passed: string[];
+  /** Someone asked for it back: it's up for grabs again while they're here. */
+  claimedBy: string | null;
 }
 
 export interface Pile {
   gold: number;
-  /** Items waiting to be voted on (first one is next). */
-  items: ItemId[];
-  /** Items everyone agreed to leave. Anyone can claim one to start a new vote. */
-  abandoned: ItemId[];
-  vote: Vote | null;
-  /** Who dropped each item, parallel to `items` and `abandoned` (null: found there). */
-  itemsBy: (string | null)[];
-  abandonedBy: (string | null)[];
+  items: FloorItem[];
   /** Gold the dead dropped, by whose it was: an Undertaker carries it out for them; anyone else just splits it. */
   corpseGold?: Record<string, number>;
 }
@@ -83,16 +86,29 @@ export function dropBounty(world: World, room: number) {
   delete world.bounty[room];
   if (points <= 0) return;
   const quality = points >= LOOT.dropQuality3 ? 3 : points >= LOOT.dropQuality2 ? 2 : 1;
-  const count = 1 + Math.floor(points / LOOT.dropPointsPerItem);
+  const count = Math.min(LOOT.maxDrops, 1 + Math.floor(points / LOOT.dropPointsPerItem));
   const items = Array.from({ length: count }, () => rollItem(world, quality));
   addToPile(world, room, 0, items);
 }
 
+/**
+ * Put things on a room's floor. Found loot (`droppedBy` null) never takes a room past LOOT.maxDrops; whoever drops
+ * something ignores it from then on (they just put it down), so it won't pop up for them again.
+ */
 export function addToPile(world: World, room: number, gold: number, items: ItemId[], droppedBy: string | null = null) {
-  const pile = (world.piles[room] ??= { gold: 0, items: [], abandoned: [], vote: null, itemsBy: [], abandonedBy: [] });
+  const pile = (world.piles[room] ??= { gold: 0, items: [] });
   pile.gold += gold;
-  pile.items.push(...items);
-  pile.itemsBy.push(...items.map(() => droppedBy));
+  if (droppedBy === null) items = items.slice(0, Math.max(0, LOOT.maxDrops - pile.items.length));
+  for (const item of items) {
+    pile.items.push({
+      id: world.nextId++, item, by: droppedBy, votes: {}, startedAt: world.time, seen: [], passed: droppedBy ? [droppedBy] : [], claimedBy: null,
+    });
+  }
+}
+
+/** Is there room on this floor for one more thing you put down? */
+export function floorFull(world: World, room: number): boolean {
+  return (world.piles[room]?.items.length ?? 0) >= LOOT.maxDrops;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,12 +169,34 @@ export function votersIn(world: World, room: number): Hero[] {
   return presentIn(world, room).filter((h) => isConscious(h) && h.encounter === null);
 }
 
+/**
+ * Would this hero bother with it? Not if they walked past it before, can't carry it, or it's gear no better than
+ * what they wear (same tier or lower).
+ */
+export function wants(h: Hero, f: FloorItem): boolean {
+  if (f.passed.includes(h.id) || !canTake(h, f.item)) return false;
+  const kind = ITEMS[f.item].kind;
+  if (kind === 'weapon' || kind === 'armor') {
+    const worn = h[kind];
+    return !worn || itemTier(f.item) > itemTier(worn);
+  }
+  return true;
+}
+
+/** The floor items up for grabs right now: someone here wants it, or asked for it back. The rest lie ignored. */
+export function activeItems(world: World, room: number, voters = votersIn(world, room)): FloorItem[] {
+  const pile = world.piles[room];
+  if (!pile || world.encounters[room] || monstersIn(world, room).length > 0) return [];
+  return pile.items.filter((f) => voters.some((v) => v.id === f.claimedBy || wants(v, f)));
+}
+
 // ---------------------------------------------------------------------------
 // Pickup & voting
 
 export function tickLoot(world: World) {
   for (const [key, pile] of Object.entries(world.piles)) {
     const room = Number(key);
+    passBy(world, room, pile);
     if (world.encounters[room] || monstersIn(world, room).length > 0) continue;
     const voters = votersIn(world, room);
     if (voters.length === 0) continue;
@@ -167,28 +205,39 @@ export function tickLoot(world: World) {
     const undertaker = voters.find((v) => v.cls === 'undertaker');
     if (undertaker) mortician(world, room, pile, undertaker);
     if (pile.gold > 0) splitGold(world, room, pile);
-    if (voters.length === 1) autoPickup(world, room, voters[0]);
-    if (!pile.vote && pile.items.length) {
-      pile.vote = { item: pile.items.shift()!, votes: {}, startedAt: world.time, droppedBy: pile.itemsBy.shift() ?? null };
+    for (const f of pile.items) {
+      if (f.seen.length === 0) f.startedAt = world.time;
+      for (const v of voters) if (!f.seen.includes(v.id)) f.seen.push(v.id);
     }
 
-    const vote = pile.vote;
-    if (vote) {
+    // Every item has its own vote, all at once; each goes as soon as everyone agrees on it.
+    for (const f of activeItems(world, room, voters)) {
+      if (!pile.items.includes(f)) continue;
+      let deciders = voters;
       // Selfish heroes always claim it, and get outvoted by being ignored after a grace period.
-      const graceOver = world.time - vote.startedAt > STRESS.selfishGrace;
-      for (const v of voters) if (v.affliction === 'selfish' && canTake(v, vote.item)) vote.votes[v.id] = v.id;
-      if (graceOver) {
+      for (const v of voters) if (v.affliction === 'selfish' && canTake(v, f.item)) f.votes[v.id] = v.id;
+      if (world.time - f.startedAt > STRESS.selfishGrace) {
         const fair = voters.filter((v) => v.affliction !== 'selfish');
-        if (fair.length) voters.splice(0, voters.length, ...fair);
+        if (fair.length) deciders = fair;
       }
-      const ids = new Set(voters.map((v) => v.id));
-      for (const id of Object.keys(vote.votes)) if (!ids.has(id)) delete vote.votes[id];
+      const ids = new Set(deciders.map((v) => v.id));
+      for (const id of Object.keys(f.votes)) if (!ids.has(id)) delete f.votes[id];
       // A vote for someone who can no longer take it is void.
-      for (const [id, choice] of Object.entries(vote.votes)) if (!validChoice(world, room, choice, vote.item)) delete vote.votes[id];
-      const values = voters.map((v) => vote.votes[v.id]);
-      if (values.every((v) => v !== undefined && v === values[0])) resolveVote(world, room, pile, values[0]!);
+      for (const [id, choice] of Object.entries(f.votes)) if (!validChoice(world, room, choice, f.item)) delete f.votes[id];
+      const values = deciders.map((v) => f.votes[v.id]);
+      if (values.every((v) => v !== undefined && v === values[0])) resolveItem(world, room, pile, f, values[0]!);
     }
-    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0 && pile.abandoned.length === 0 && !pile.vote) delete world.piles[room];
+    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0) delete world.piles[room];
+  }
+}
+
+/** Whoever saw an item and has since walked out passed it by: it won't pop up for them again unless claimed. */
+function passBy(world: World, room: number, pile: Pile) {
+  const here = new Set(presentIn(world, room).map((h) => h.id));
+  for (const f of pile.items) {
+    for (const id of f.seen) if (!here.has(id) && !f.passed.includes(id)) f.passed.push(id);
+    f.seen = f.seen.filter((id) => here.has(id));
+    if (f.claimedBy && !here.has(f.claimedBy)) f.claimedBy = null;
   }
 }
 
@@ -218,49 +267,17 @@ function mortician(world: World, room: number, pile: Pile, u: Hero) {
     if (def.kind === 'weapon' || def.kind === 'armor') return gearGain(item, u[def.kind]) > 0;
     return hasSpace(u);
   };
-  if (pile.vote && fromTheDead(world, pile.vote.droppedBy) && wanted(pile.vote.item)) resolveVote(world, room, pile, u.id);
-  for (const [list, by] of [[pile.items, pile.itemsBy], [pile.abandoned, pile.abandonedBy]] as const) {
-    for (let i = 0; i < list.length; ) {
-      if (!fromTheDead(world, by[i]) || !wanted(list[i])) {
-        i++;
-        continue;
-      }
-      const [item] = list.splice(i, 1);
-      by.splice(i, 1);
-      take(world, room, u, item);
-    }
-  }
-}
-
-/**
- * Alone in a room, you just take everything you can carry, except what you dropped yourself
- * (the last person to drop an item is remembered, so it can change hands and be dropped again).
- */
-export function autoPickup(world: World, room: number, h: Hero) {
-  const pile = world.piles[room];
-  if (!pile || world.encounters[room] || monstersIn(world, room).length > 0) return;
-  const mine = (by: string | null | undefined) => by === h.id;
-  if (pile.vote && !mine(pile.vote.droppedBy) && canTake(h, pile.vote.item)) resolveVote(world, room, pile, h.id);
-  for (const [list, by] of [[pile.items, pile.itemsBy], [pile.abandoned, pile.abandonedBy]] as const) {
-    for (let i = 0; i < list.length; ) {
-      if (mine(by[i]) || !canTake(h, list[i])) {
-        i++;
-        continue;
-      }
-      const [item] = list.splice(i, 1);
-      by.splice(i, 1);
-      take(world, room, h, item);
-    }
-  }
+  for (const f of [...pile.items]) if (fromTheDead(world, f.by) && wanted(f.item)) take(world, room, pile, u, f);
 }
 
 /** Give a floor item to a hero; gear they had on goes back on the floor as theirs. */
-function take(world: World, room: number, h: Hero, item: ItemId) {
-  const def = ITEMS[item];
-  const old = giveItem(h, item);
-  const verb = isGear(item) ? ['equip', 'equips'] : ['take', 'takes'];
+function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
+  pile.items.splice(pile.items.indexOf(f), 1);
+  const def = ITEMS[f.item];
+  const old = giveItem(h, f.item);
+  const verb = isGear(f.item) ? ['equip', 'equips'] : ['take', 'takes'];
   for (const x of presentIn(world, room)) notify(world, x, x === h ? `You ${verb[0]} the ${def.name}.` : `${h.name} ${verb[1]} the ${def.name}.`);
-  // The piece it replaced goes on the floor, to be voted on like any other find.
+  // The piece it replaced goes on the floor, up for grabs like any other find (but not for them).
   if (old) addToPile(world, room, 0, [old], h.id);
 }
 
@@ -283,54 +300,67 @@ function validChoice(world: World, room: number, choice: string, item: ItemId): 
   return !!h && !h.dead && h.pos.kind === 'room' && h.pos.room === room && canTake(h, item);
 }
 
-function resolveVote(world: World, room: number, pile: Pile, choice: string) {
-  const vote = pile.vote!;
-  const def = ITEMS[vote.item];
-  pile.vote = null;
+/** Everyone agreed: hand it over, or leave it lying (ignored by all of them from now on). */
+function resolveItem(world: World, room: number, pile: Pile, f: FloorItem, choice: string) {
+  f.votes = {};
   if (choice === LEAVE) {
-    pile.abandoned.push(vote.item);
-    pile.abandonedBy.push(vote.droppedBy);
-    for (const h of presentIn(world, room)) notify(world, h, `Left the ${def.name} behind.`);
+    for (const v of votersIn(world, room)) if (!f.passed.includes(v.id)) f.passed.push(v.id);
+    f.claimedBy = null;
+    for (const h of presentIn(world, room)) notify(world, h, `Left the ${ITEMS[f.item].name} behind.`);
     return;
   }
-  take(world, room, world.heroes[choice], vote.item);
+  take(world, room, pile, world.heroes[choice], f);
 }
 
-/** Returns an error message or null. */
-export function castVote(world: World, h: Hero, choice: string): string | null {
-  if (h.pos.kind !== 'room') return 'Nothing to vote on.';
-  const pile = world.piles[h.pos.room];
-  if (!pile?.vote) return 'Nothing to vote on.';
-  if (!votersIn(world, h.pos.room).includes(h)) return 'You cannot vote right now.';
-  if (!validChoice(world, h.pos.room, choice, pile.vote.item)) return 'They cannot carry it.';
-  if (h.affliction === 'selfish' && canTake(h, pile.vote.item) && choice !== h.id) return 'Mine! (Selfish)';
-  pile.vote.votes[h.id] = choice;
+function floorItem(world: World, h: Hero, id: number): FloorItem | undefined {
+  return h.pos.kind === 'room' ? world.piles[h.pos.room]?.items.find((f) => f.id === id) : undefined;
+}
+
+/** Vote on who gets a floor item (alone, voting for yourself just picks it up). Returns an error message or null. */
+export function castVote(world: World, h: Hero, id: number, choice: string): string | null {
+  const f = floorItem(world, h, id);
+  if (!f || h.pos.kind !== 'room') return 'Nothing to vote on.';
+  const room = h.pos.room;
+  if (!votersIn(world, room).includes(h)) return 'You cannot vote right now.';
+  if (!activeItems(world, room).includes(f)) return 'Nobody wants that. Claim it first.';
+  if (!validChoice(world, room, choice, f.item)) return 'They cannot carry it.';
+  if (h.affliction === 'selfish' && canTake(h, f.item) && choice !== h.id) return 'Mine! (Selfish)';
+  f.votes[h.id] = choice;
   return null;
 }
 
-export function claimAbandoned(world: World, h: Hero, index: number): string | null {
+/** Pick an ignored item back up off the floor: alone, you just take it; with company, it goes up for grabs again. */
+export function claimItem(world: World, h: Hero, id: number): string | null {
   if (h.pos.kind !== 'room' || !isConscious(h) || h.encounter !== null) return 'Not now.';
-  const pile = world.piles[h.pos.room];
-  const item = pile?.abandoned[index];
-  if (!pile || item === undefined) return 'Nothing there.';
-  pile.abandoned.splice(index, 1);
-  pile.items.push(item);
-  pile.itemsBy.push(pile.abandonedBy.splice(index, 1)[0] ?? null);
+  const room = h.pos.room;
+  const pile = world.piles[room];
+  const f = floorItem(world, h, id);
+  if (!pile || !f || world.encounters[room] || monstersIn(world, room).length > 0) return 'Nothing there.';
+  f.passed = f.passed.filter((x) => x !== h.id);
+  if (votersIn(world, room).length === 1) {
+    if (!canTake(h, f.item)) return isGear(f.item) ? 'Take yours off first.' : 'Your pack is full.';
+    take(world, room, pile, h, f);
+    return null;
+  }
+  f.claimedBy = h.id;
+  f.startedAt = world.time;
   return null;
 }
 
-/** Put an item from your pack on the floor of your room. Everyone present then votes on it. */
+/** Put an item from your pack on the floor of your room. Others there can then take it; you'll ignore it. */
 export function dropItem(world: World, h: Hero, index: number): string | null {
   if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
+  if (floorFull(world, h.pos.room)) return 'No room on the floor here.';
   const item = takeItem(h, index);
   if (!item) return 'Nothing there.';
   addToPile(world, h.pos.room, 0, [item], h.id);
   return null;
 }
 
-/** Take off a weapon or armor and put it on the floor of your room for a vote. */
+/** Take off a weapon or armor and put it on the floor of your room. */
 export function unequip(world: World, h: Hero, slot: GearSlot): string | null {
   if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
+  if (floorFull(world, h.pos.room)) return 'No room on the floor here.';
   const item = h[slot];
   if (!item) return 'Nothing there.';
   h[slot] = null;

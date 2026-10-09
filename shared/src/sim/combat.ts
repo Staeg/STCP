@@ -1130,24 +1130,26 @@ function flee(world: World, enc: Encounter, h: Hero) {
 /** Bleed-out and death for downed heroes. Called every tick. */
 export function tickDowned(world: World) {
   for (const h of Object.values(world.heroes)) {
-    if (!inDungeon(h) || h.downedAt === null) continue;
-    if (world.time - h.downedAt >= BLEED_OUT) {
-      h.dead = true;
-      h.diedAt = world.time;
-      h.fate = `bled out in ${roomName(world, h)}`;
-      chronicle(world, `${h.name} bled out in ${roomName(world, h)}.`);
-      dropEverything(world, h);
-      const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
-      if (enc) {
-        enc.log.push(`${h.name} has died.`);
-        enc.heroes = enc.heroes.filter((id) => id !== h.id);
-      }
-      h.encounter = null;
-      for (const w of Object.values(world.heroes)) {
-        // Mortician: the Undertaker finds a strange peace in it.
-        if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, w.cls === 'undertaker' ? -CLASS_RULES.morticianRelief : 25);
-      }
-    }
+    if (inDungeon(h) && h.downedAt !== null && world.time - h.downedAt >= BLEED_OUT) bleedOut(world, h);
+  }
+}
+
+/** A downed hero dies where they lie: their things hit the floor, and anyone watching takes it hard. */
+export function bleedOut(world: World, h: Hero) {
+  h.dead = true;
+  h.diedAt = world.time;
+  h.fate = `bled out in ${roomName(world, h)}`;
+  chronicle(world, `${h.name} bled out in ${roomName(world, h)}.`);
+  dropEverything(world, h);
+  const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+  if (enc) {
+    enc.log.push(`${h.name} has died.`);
+    enc.heroes = enc.heroes.filter((id) => id !== h.id);
+  }
+  h.encounter = null;
+  for (const w of Object.values(world.heroes)) {
+    // Mortician: the Undertaker finds a strange peace in it.
+    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, w.cls === 'undertaker' ? -CLASS_RULES.morticianRelief : 25);
   }
 }
 

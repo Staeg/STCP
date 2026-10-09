@@ -8,7 +8,7 @@ import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/eve
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickCooldowns, tickDowned, tickFieldCooldowns,
+  bleedOut, inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickCooldowns, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
@@ -16,7 +16,7 @@ import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  autoPickup, castVote, claimAbandoned, votersIn, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
+  activeItems, castVote, claimItem, wants, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -196,9 +196,10 @@ export type Intent =
   | { type: 'combat'; choice: Choice }
   /** Out of combat: spend a few seconds getting a downed ally in your room back up. */
   | { type: 'revive'; target: string }
-  /** Loot vote: a hero id, or 'leave'. */
-  | { type: 'vote'; choice: string }
-  | { type: 'claim'; index: number }
+  /** Loot vote on one floor item (by its id): a hero id, or 'leave'. */
+  | { type: 'vote'; item: number; choice: string }
+  /** Bring an ignored floor item back up for grabs (alone: just take it). */
+  | { type: 'claim'; item: number }
   | { type: 'drop'; index: number }
   /** Take off a weapon or armor and put it on the floor. */
   | { type: 'unequip'; slot: GearSlot }
@@ -348,10 +349,11 @@ function checkEnd(world: World) {
       chronicle(world, `The dungeon collapsed on ${h.name}.`);
     }
     world.phase = 'collapsed';
-  } else if (heroes.every((h) => h.dead)) {
-    world.phase = 'wiped';
-  } else if (heroes.every((h) => !inDungeon(h))) {
-    world.phase = 'ended';
+  } else {
+    // Nobody left standing to get the downed back up: they bleed out now instead of after the wait.
+    if (heroes.every((h) => !inDungeon(h) || h.downedAt !== null)) for (const h of heroes) if (inDungeon(h)) bleedOut(world, h);
+    if (heroes.every((h) => h.dead)) world.phase = 'wiped';
+    else if (heroes.every((h) => !inDungeon(h))) world.phase = 'ended';
   }
   if (world.phase !== 'running') {
     const { altars, villagers } = world.objectives;
@@ -414,11 +416,13 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
   if (hero.encounter !== null) return; // movement is locked during a fight
   switch (intent.type) {
     case 'vote':
-      castVote(world, hero, intent.choice);
+      castVote(world, hero, intent.item, intent.choice);
       return;
-    case 'claim':
-      claimAbandoned(world, hero, intent.index);
+    case 'claim': {
+      const err = claimItem(world, hero, intent.item);
+      if (err) notify(world, hero, err);
       return;
+    }
     case 'drop':
       dropItem(world, hero, intent.index);
       return;
@@ -491,9 +495,10 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
   }
 }
 
-function lootCount(world: World, room: number): number {
+/** Loot in a room worth this hero's notice: gold, and items they don't ignore. */
+function lootCount(world: World, room: number, h: Hero): number {
   const p = world.piles[room];
-  return p ? p.items.length + p.abandoned.length + (p.vote ? 1 : 0) + (p.gold > 0 ? 1 : 0) : 0;
+  return p ? p.items.filter((f) => wants(h, f)).length + (p.gold > 0 ? 1 : 0) : 0;
 }
 
 function sameRoom(a: Hero, b: Hero) {
@@ -626,12 +631,9 @@ function arrive(world: World, hero: Hero, at = world.time): boolean {
   explore(world, hero, pos.to);
   onHeroInRoom(world, hero, pos.to);
   if (hero.encounter !== null) return false;
-  // Alone, you grab what you can on the way through; anything left needs a vote (or is yours).
-  const others = votersIn(world, pos.to);
-  if (others.length === 1 && others[0] === hero) autoPickup(world, pos.to, hero);
-  const pile = world.piles[pos.to];
-  if (pile && (pile.vote || pile.itemsBy.some((by) => by !== hero.id))) {
-    hero.path = []; // stop: there's loot to agree on
+  // Stop for loot worth a look (alone: to pick it up; with others: to divvy it up). Walking on leaves it.
+  if (activeItems(world, pos.to).length > 0) {
+    hero.path = [];
     return false;
   }
   return true;
@@ -658,12 +660,12 @@ function updateKnowledge(world: World) {
       }
       if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
       a.knownThreat[room] = monstersIn(world, room).length;
-      a.knownLoot[room] = lootCount(world, room);
+      a.knownLoot[room] = lootCount(world, room, a);
       const ev = world.events[room];
       if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
       else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
       else delete a.knownEvents[room];
-      if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n);
+      if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n, a);
       if (a.light >= LIGHT_DIM || seesInDark(a)) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
     }
   }

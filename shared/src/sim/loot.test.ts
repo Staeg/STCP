@@ -3,7 +3,7 @@ import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { BLEED_OUT, spawnGroup } from './combat';
 import { Game } from './game';
-import { addToPile, canTake, LEAVE } from './loot';
+import { activeItems, addToPile, canTake, LEAVE, votersIn } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -41,29 +41,49 @@ describe('gold', () => {
   });
 });
 
+/** The floor item id of the first `item` lying in `room`. */
+function fid(world: World, room: number, item: string): number {
+  return world.piles[room].items.find((f) => f.item === item)!.id;
+}
+
 describe('item votes', () => {
   it('needs unanimous agreement', () => {
     const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['bandage']);
     step(world, 0.1);
-    expect(world.piles[d.entrance].vote?.item).toBe('bandage');
+    const id = fid(world, d.entrance, 'bandage');
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['bandage']);
 
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h1' });
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h1' });
     step(world, 0.1);
-    expect(world.piles[d.entrance].vote).not.toBeNull(); // disagreement
+    expect(world.piles[d.entrance].items).toHaveLength(1); // disagreement
 
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual(['bandage']);
+  });
+
+  it('every item is up at once, each settled on its own', () => {
+    const { world, d } = party(2);
+    addToPile(world, d.entrance, 0, ['bandage', 'torch', 'tonic']);
+    step(world, 0.1);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['bandage', 'torch', 'tonic']);
+    const torch = fid(world, d.entrance, 'torch');
+    applyIntent(world, 'h0', { type: 'vote', item: torch, choice: 'h1' });
+    applyIntent(world, 'h1', { type: 'vote', item: torch, choice: 'h1' });
+    step(world, 0.1);
+    expect(world.heroes.h1.items).toEqual(['torch']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['bandage', 'tonic']);
   });
 
   it("doesn't stop you leaving; whoever stays decides", () => {
     const { world, d, room } = party(2);
     addToPile(world, d.entrance, 0, ['bandage']);
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h1' });
+    const id = fid(world, d.entrance, 'bandage');
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h1' });
     applyIntent(world, 'h0', { type: 'goto', room });
     expect(world.heroes.h0.path).toEqual([room]);
     for (let i = 0; i < 100 && world.heroes.h0.pos.kind === 'room'; i++) step(world, 0.1);
@@ -72,18 +92,22 @@ describe('item votes', () => {
     expect(world.heroes.h1.items).toEqual(['bandage']);
   });
 
-  it('"leave it" abandons the item; it can be claimed later', () => {
+  it('"leave it" makes everyone ignore it; it can be claimed back', () => {
     const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['torch']);
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: LEAVE });
-    applyIntent(world, 'h1', { type: 'vote', choice: LEAVE });
+    const id = fid(world, d.entrance, 'torch');
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: LEAVE });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: LEAVE });
     step(world, 0.1);
-    expect(world.piles[d.entrance].abandoned).toEqual(['torch']);
-    applyIntent(world, 'h0', { type: 'claim', index: 0 });
+    const loot = buildView(world, 'h0').loot!;
+    expect(loot.items).toEqual([]);
+    expect(loot.ignored).toEqual([{ id, item: 'torch' }]);
+    applyIntent(world, 'h0', { type: 'claim', item: id });
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.id)).toEqual([id]);
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual(['torch']);
   });
@@ -93,10 +117,11 @@ describe('item votes', () => {
     world.heroes.h0.items = ['torch', 'torch', 'torch', 'torch'];
     addToPile(world, d.entrance, 0, ['tonic']);
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    expect(world.piles[d.entrance].vote!.votes.h0).toBeUndefined();
+    const id = fid(world, d.entrance, 'tonic');
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
+    expect(world.piles[d.entrance].items[0].votes.h0).toBeUndefined();
     const view = buildView(world, 'h1');
-    expect(view.loot?.vote?.candidates.map((c) => c.id)).toEqual(['h1']);
+    expect(view.loot?.items[0].candidates.map((c) => c.id)).toEqual(['h1']);
   });
 
   it('a newcomer joins the vote and stops walking', () => {
@@ -104,70 +129,100 @@ describe('item votes', () => {
     applyIntent(world, 'h1', { type: 'goto', room });
     run(world, 9);
     addToPile(world, d.entrance, 0, ['tonic']);
-    step(world, 0.1);
-    expect(world.heroes.h0.items).toEqual(['tonic']); // alone → taken
-    world.heroes.h0.items.push('bandage');
-    applyIntent(world, 'h0', { type: 'drop', index: 1 }); // dropped by h0: it stays put
     const beyond = neighbours(d, d.entrance).find((n) => n !== room);
     applyIntent(world, 'h1', { type: 'goto', room: beyond ?? d.entrance });
     run(world, 9);
     if (beyond !== undefined) expect(world.heroes.h1.pos).toEqual({ kind: 'room', room: d.entrance }); // stopped for loot
-    expect(buildView(world, 'h1').loot?.vote?.voters.sort()).toEqual(['h0', 'h1']);
+    expect(buildView(world, 'h1').loot?.voters.sort()).toEqual(['h0', 'h1']);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['tonic']);
   });
 
   it('a fight in the room pauses the vote', () => {
     const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['tonic']);
     step(world, 0.1);
+    const id = fid(world, d.entrance, 'tonic');
     spawnGroup(world, d.entrance, ['ghoul'], 0);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
+    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual([]);
   });
 });
 
 describe('picking up alone', () => {
-  it('takes everything it can, but not what you dropped yourself', () => {
-    const { world, d } = party(1);
+  it('nothing is taken until you click it; walking away leaves it', () => {
+    const { world, d, room } = party(1);
+    const h = world.heroes.h0;
+    addToPile(world, d.entrance, 0, ['tonic', 'bandage']);
+    run(world, 1);
+    expect(h.items).toEqual([]);
+    applyIntent(world, 'h0', { type: 'vote', item: fid(world, d.entrance, 'bandage'), choice: 'h0' });
+    step(world, 0.1);
+    expect(h.items).toEqual(['bandage']);
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 9);
+    expect(h.items).toEqual(['bandage']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['tonic']);
+  });
+
+  it('ignores what you walked past once, and what you dropped (claim brings it back)', () => {
+    const { world, d, room } = party(1);
     const h = world.heroes.h0;
     h.items = ['torch'];
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
-    addToPile(world, d.entrance, 0, ['tonic', 'bandage']);
-    run(world, 1);
-    expect(h.items).toEqual(['tonic', 'bandage']);
-    expect(world.piles[d.entrance].vote?.item).toBe('torch');
+    step(world, 0.1);
+    expect(buildView(world, 'h0').loot?.items).toEqual([]);
+    addToPile(world, d.entrance, 0, ['tonic']);
+    step(world, 0.1);
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['tonic']);
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 9);
+    applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
+    run(world, 9);
+    expect(h.pos).toEqual({ kind: 'room', room: d.entrance });
+    const loot = buildView(world, 'h0').loot!;
+    expect(loot.items).toEqual([]);
+    expect(loot.ignored.map((f) => f.item)).toEqual(['torch', 'tonic']);
+    applyIntent(world, 'h0', { type: 'claim', item: fid(world, d.entrance, 'tonic') });
+    expect(h.items).toEqual(['tonic']); // alone, claiming just takes it
   });
 
-  it("someone else's drop is fair game, and the mark moves with whoever dropped it last", () => {
+  it("someone else's drop is fair game", () => {
     const { world, d, room } = party(2);
-    const [h0, h1] = [world.heroes.h0, world.heroes.h1];
-    h0.items = ['tonic'];
+    const h1 = world.heroes.h1;
+    world.heroes.h0.items = ['tonic'];
     applyIntent(world, 'h1', { type: 'goto', room });
     run(world, 9);
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
-    run(world, 1);
-    expect(h0.items).toEqual([]); // h0's own drop
-    // h0 leaves; h1 comes back alone and takes it.
     applyIntent(world, 'h0', { type: 'goto', room });
     applyIntent(world, 'h1', { type: 'goto', room: d.entrance });
     run(world, 9);
     expect(h1.pos).toEqual({ kind: 'room', room: d.entrance });
-    expect(h1.items).toEqual(['tonic']);
-    // h1 drops it and leaves; h0 returns alone and takes it back.
-    applyIntent(world, 'h1', { type: 'drop', index: 0 });
-    applyIntent(world, 'h1', { type: 'goto', room });
-    applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
-    run(world, 9);
-    expect(h0.items).toEqual(['tonic']);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['tonic']);
   });
 
-  it("doesn't happen with someone else in the room", () => {
-    const { world, d } = party(2);
-    addToPile(world, d.entrance, 0, ['tonic']);
-    run(world, 1);
-    expect(world.heroes.h0.items).toEqual([]);
-    expect(world.piles[d.entrance].vote?.item).toBe('tonic');
+  it('gear no better than yours is ignored', () => {
+    const { world, d } = party(1);
+    const h = world.heroes.h0;
+    h.weapon = 'emberaxe'; // tier 3
+    addToPile(world, d.entrance, 0, ['runeblade', 'hatchet']);
+    step(world, 0.1);
+    expect(buildView(world, 'h0').loot?.items).toEqual([]);
+    h.weapon = 'hatchet';
+    step(world, 0.1);
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['runeblade']);
+  });
+});
+
+describe('floor space', () => {
+  it('a room never holds more than six finds, and you cannot drop onto a full floor', () => {
+    const { world, d } = party(1);
+    addToPile(world, d.entrance, 0, ['torch', 'torch', 'torch', 'torch', 'torch', 'torch', 'torch', 'torch']);
+    expect(world.piles[d.entrance].items).toHaveLength(6);
+    world.heroes.h0.items = ['tonic'];
+    applyIntent(world, 'h0', { type: 'drop', index: 0 });
+    expect(world.heroes.h0.items).toEqual(['tonic']);
   });
 });
 
@@ -209,7 +264,7 @@ describe('items', () => {
     const base = h.maxHp;
     addToPile(world, d.entrance, 0, ['locket']);
     step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', choice: 'h0' });
+    applyIntent(world, 'h0', { type: 'vote', item: fid(world, d.entrance, 'locket'), choice: 'h0' });
     step(world, 0.1);
     expect(h.maxHp).toBe(base + 8);
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
@@ -230,6 +285,17 @@ describe('items', () => {
     expect(h.items).toEqual([]);
   });
 
+  it('with nobody left standing, the downed bleed out at once and the run ends', () => {
+    const { world } = party(2);
+    world.heroes.h0.dead = true;
+    const h1 = world.heroes.h1;
+    h1.hp = 0;
+    h1.downedAt = world.time;
+    step(world, 0.1);
+    expect(h1.dead).toBe(true);
+    expect(world.phase).toBe('wiped');
+  });
+
   it('the dead drop everything where they fall', () => {
     const { world } = party(2);
     const h1 = world.heroes.h1;
@@ -239,9 +305,9 @@ describe('items', () => {
     h1.downedAt = world.time;
     run(world, BLEED_OUT + 0.2);
     expect(h1.dead).toBe(true);
-    // h0 is in the same room, now alone: takes the gold and the items.
+    // h0 is in the same room, now alone: gets the gold, and the items are there to pick up.
     expect(world.heroes.h0.gold).toBe(17);
-    expect(world.heroes.h0.items).toEqual(['torch', 'tonic']);
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['torch', 'tonic']);
   });
 });
 
@@ -262,7 +328,10 @@ describe('bot games with loot', () => {
         gold += h.gold;
         items += h.items.length;
       }
-      for (const p of Object.values(game.world.piles)) if (p.vote && game.world.time - p.vote.startedAt > 20) stuckVotes++;
+      for (const room of Object.keys(game.world.piles).map(Number)) {
+        if (votersIn(game.world, room).length === 0) continue;
+        stuckVotes += activeItems(game.world, room).filter((f) => game.world.time - f.startedAt > 20).length;
+      }
     }
     expect(stuckVotes).toBe(0);
     expect(gold).toBeGreaterThan(0);
@@ -280,9 +349,9 @@ describe('gear tiers', () => {
     expect(canTake(h, 'jerkin')).toBe(true); // other slot
     addToPile(world, d.entrance, 0, ['shortsword']);
     run(world, 1);
-    expect(h.weapon).toBe('runeblade');
+    expect(buildView(world, 'h0').loot?.items).toEqual([]);
     h.weapon = null;
     run(world, 1);
-    expect(h.weapon).toBe('shortsword');
+    expect(buildView(world, 'h0').loot?.items[0].candidates.map((c) => c.id)).toEqual(['h0']);
   });
 });

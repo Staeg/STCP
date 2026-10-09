@@ -126,4 +126,6 @@ export const LOOT = {
   /** Weight multiplier for items of exactly the rolled quality, and per step above it. */
   qualityMatchBonus: 3,
   qualityAbovePenalty: 0.3,
+  /** Most items a room's floor holds from finds (the loot panel lays out up to this many cards). */
+  maxDrops: 6,
 };

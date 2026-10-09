@@ -179,7 +179,7 @@ describe('encounters', () => {
     expect(world.heroes.h0.encounter).toBeNull();
     expect(world.heroes.h0.cooldowns).toEqual({});
     // The kill always drops something to vote on, but nobody has to stay for it.
-    expect(world.piles[room]?.vote).toBeTruthy();
+    expect(world.piles[room]?.items.length).toBeGreaterThan(0);
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
     expect(world.heroes.h0.path).toEqual([d.entrance]);
   });

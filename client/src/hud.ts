@@ -30,7 +30,6 @@ export class Hud {
   constructor(private net: Net) {
     for (const el of document.querySelectorAll<HTMLElement>('[data-icon]')) el.outerHTML = icon(el.dataset.icon as IconId);
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
-    $('btn-lobby').addEventListener('click', () => net.send({ t: 'toLobby' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
     // Out-of-combat class skills (Toll, and abilities that work in the field): one button per possible target.
     $('skills').addEventListener('click', (e) => {
@@ -158,8 +157,6 @@ export class Hud {
     esc.hidden = !atExit || !view.exitOpen;
     if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>F</kbd>`;
     setHtml($('roster'), rosterHtml(view));
-    const isHost = net.lobby?.hostId === net.lobby?.youId;
-    $('btn-lobby').hidden = !(view.phase !== 'running' && isHost) || net.reviewing;
 
     // Tier-change banner
     if (view.tier > this.lastTier) {
@@ -185,7 +182,6 @@ export class Hud {
   reset() {
     this.lastTier = 0;
     $('banner').hidden = true;
-    $('btn-lobby').hidden = true;
   }
 
   /** `cls` styles one kind of banner (tier-ups sit higher up, clear of the map around you). */

@@ -6,7 +6,7 @@ import { ABILITIES, CLASS_RULES } from '../content/abilities';
 import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
-import { canTake, votersIn } from './loot';
+import { activeItems, canTake, votersIn } from './loot';
 import {
   abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
@@ -63,18 +63,22 @@ export interface EventView {
 export interface LootView {
   room: number;
   gold: number;
-  /** Items still queued for a vote (the current one is in `vote`). */
-  queued: ItemId[];
-  abandoned: ItemId[];
-  vote: {
-    item: ItemId;
-    votes: Record<string, string>;
-    /** Hero ids that must agree. */
-    voters: string[];
-    /** Hero ids who can receive it (present, have a free slot; anyone for gear, which swaps). */
-    candidates: { id: string; name: string; free: number; isBot: boolean; /** Gear votes: what they wear in that slot now. */ wearing?: ItemId | null }[];
-    startedAt: number;
-  } | null;
+  /** Hero ids that must agree on who gets what. */
+  voters: string[];
+  /** Up for grabs, side by side, each with its own vote (at most LOOT.maxDrops of them, as a rule). */
+  items: LootItemView[];
+  /** Lying here, but nobody present wants it (walked past it, no better than theirs, no room): claim to bring it back. */
+  ignored: { id: number; item: ItemId }[];
+}
+
+export interface LootItemView {
+  /** Floor item id: what a vote names. */
+  id: number;
+  item: ItemId;
+  votes: Record<string, string>;
+  /** Hero ids who can receive it (present, have a free slot; anyone for gear, which swaps). */
+  candidates: { id: string; name: string; free: number; isBot: boolean; /** Gear: what they wear in that slot now. */ wearing?: ItemId | null }[];
+  startedAt: number;
 }
 
 export interface AllyView {
@@ -327,7 +331,7 @@ function revealRoom(world: World, room: number): RoomReveal {
   const ev = world.events[room];
   return {
     monsters: Object.values(world.monsters).filter((m) => m.room === room).map((m) => m.type),
-    items: pile ? [...(pile.vote ? [pile.vote.item] : []), ...pile.items, ...pile.abandoned] : [],
+    items: pile ? pile.items.map((f) => f.item) : [],
     gold: pile?.gold ?? 0,
     event: ev && !ev.done ? ev.kind : undefined,
     captive: Object.values(world.villagers).some((v) => v.room === room && (v.state === 'captive' || v.state === 'waiting')) || undefined,
@@ -354,22 +358,25 @@ function lootView(world: World, you: Hero): LootView | null {
   if (!pile) return null;
   const voters = votersIn(world, room);
   const present = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room);
+  const active = activeItems(world, room, voters);
   return {
     room,
     gold: pile.gold,
-    queued: [...pile.items],
-    abandoned: [...pile.abandoned],
-    vote: pile.vote && {
-      item: pile.vote.item,
-      votes: { ...pile.vote.votes },
-      voters: voters.map((v) => v.id),
-      candidates: present.filter((h) => canTake(h, pile.vote!.item)).map((h) => {
-        const kind = ITEMS[pile.vote!.item].kind;
-        const wearing = kind === 'weapon' || kind === 'armor' ? h[kind] : undefined;
-        return { id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot, wearing };
-      }),
-      startedAt: pile.vote.startedAt,
-    },
+    voters: voters.map((v) => v.id),
+    items: active.map((f) => {
+      const kind = ITEMS[f.item].kind;
+      return {
+        id: f.id,
+        item: f.item,
+        votes: { ...f.votes },
+        candidates: present.filter((h) => canTake(h, f.item)).map((h) => ({
+          id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot,
+          wearing: kind === 'weapon' || kind === 'armor' ? h[kind] : undefined,
+        })),
+        startedAt: f.startedAt,
+      };
+    }),
+    ignored: pile.items.filter((f) => !active.includes(f)).map((f) => ({ id: f.id, item: f.item })),
   };
 }
 

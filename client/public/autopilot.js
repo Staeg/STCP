@@ -65,10 +65,11 @@ window.startAutopilot = (opts = {}) => {
       }
       return;
     }
-    if (v.loot?.vote && v.loot.vote.voters.includes(you.id) && !v.loot.vote.votes[you.id]) {
-      const me = v.loot.vote.candidates.find((c) => c.id === you.id);
-      n.intent({ type: 'vote', choice: me ? you.id : 'leave' });
-      L('vote on ' + v.loot.vote.item);
+    const card = v.loot?.voters.includes(you.id) && v.loot.items.find((f) => !f.votes[you.id]);
+    if (card) {
+      const me = card.candidates.find((c) => c.id === you.id);
+      n.intent({ type: 'vote', item: card.id, choice: me ? you.id : 'leave' });
+      L('vote on ' + card.item);
       return;
     }
     if (you.pos.kind !== 'room' || you.path.length || you.channel || you.downedAt !== null) return;

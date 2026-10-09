@@ -1,4 +1,4 @@
-import type { PlayerView } from '@stcp/shared';
+import { type LootItemView, type PlayerView } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
 
@@ -29,7 +29,7 @@ export class EventUi {
   update(view: PlayerView | null) {
     const panel = $('event');
     const ev = view?.event;
-    if (!view || !ev || view.loot?.vote) {
+    if (!view || !ev || view.loot?.items.length) {
       panel.hidden = true;
       this.lastHtml = '';
       return;
@@ -74,6 +74,21 @@ export function digitKey(code: string): number | null {
 /** Number keys that an event or loot vote on screen claims, so the item hotkeys leave them alone. */
 export function digitClaimed(view: PlayerView, n: number): boolean {
   if (view.encounter) return false;
-  if (view.loot?.vote) return n <= view.loot.vote.candidates.length; // candidates, then "Leave it"
+  const loot = view.loot;
+  if (loot?.items.length && loot.voters.includes(view.you.id)) {
+    if (loot.voters.length === 1) return n < Math.min(loot.items.length, 6); // alone: take that card
+    const f = keyedLootItem(view);
+    return !!f && n <= f.candidates.length; // candidates, then "Leave it"
+  }
   return !!view.event && !view.event.blocked && n < view.event.choices.length;
+}
+
+/** With others around, the loot card the number keys vote on: the first you haven't voted on, else the first unsettled. */
+export function keyedLootItem(view: PlayerView): LootItemView | null {
+  const loot = view.loot;
+  if (!loot || !loot.voters.includes(view.you.id)) return null;
+  const me = view.you.id;
+  const settled = (f: LootItemView) => loot.voters.every((v) => f.votes[v] && f.votes[v] === f.votes[me]);
+  const cards = loot.items.slice(0, 6);
+  return cards.find((f) => !f.votes[me]) ?? cards.find((f) => !settled(f)) ?? null;
 }
