@@ -98,7 +98,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   bellwright: [
     { id: 'clang', name: 'Clang', cooldown: 0, target: 'enemyFirst', power: 8, desc: '8 dmg to the nearest enemy, and its next turn comes 6s later.' },
     { id: 'knell', name: 'Knell', cooldown: 4, target: 'allEnemies', power: 15, desc: '15 dmg to every enemy, −5 for each ally in the fight. Unusable with 3 allies.' },
-    { id: 'peal', name: 'Peal', cooldown: 3, target: 'allAllies', power: 3, desc: "Every ally's next turn comes 3s sooner." },
+    { id: 'peal', name: 'Peal', cooldown: 3, target: 'allAllies', power: 0, desc: "Every other ally's next turn comes 3s sooner." },
   ],
   zealot: [
     { id: 'scourge', name: 'Scourge', cooldown: 0, target: 'enemy', power: 8, desc: '8 dmg.' },

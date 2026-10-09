@@ -853,9 +853,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     }
     case 'peal':
       for (const a of othersIn(world, enc, h)) {
-        if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - ab.power));
+        if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - CLASS_RULES.pealHaste));
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${ab.power}s sooner)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner)` });
       return;
     case 'knell': {
       const dmg = knellDamage(ab.power, othersIn(world, enc, h).length);
