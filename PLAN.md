@@ -15,8 +15,9 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 **Design pillars.** Use these to decide anything not covered below.
 1. **The clock is the antagonist.** Every system should give players a reason to spend time and something to lose by doing so.
 2. **Uncertainty about allies.** Individual fog means you often *don't know* what happened to your friends.
-3. **Greed vs. loyalty.** Loot is tempting, and it has to be negotiated.
+3. **Greed vs. loyalty.** Loot is tempting, and it has to be fought over through votes, grabs and walking away.
 4. **Readable in 5 seconds.** Combat choices must be quick to understand. Use 3 abilities, clear cooldowns, and obvious targets.
+5. **Actions are the only language.** Players can't talk (see **Comms**). Everything an ally needs to know about your intent must be readable from what you *do*: where you walk, which exit you chalk, what you vote, what you grab, whether you wait. Make actions visible and legible to whoever can see them; never add a channel that carries words, pings or signals detached from an action.
 
 ---
 
@@ -33,7 +34,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | 0 HP | **Downed** → bleeds out over 30s (combat rounds count as their real time). An ally in the room can revive. Otherwise the hero dies and drops their items in the room. |
 | Loot | **Co-op.** Every *item* goes to exactly one player. All living heroes in the room must agree on the recipient (or unanimously agree to leave it), and the vote resolves among whoever is still in the room. ~~Nobody present can leave until they agree~~ (lock dropped by the user, 2026-10-09: walking out just takes you out of the vote). **Gold** is split equally among all heroes present (downed but alive heroes count). |
 | Information | **Individual fog.** You see only rooms you've explored. Allies show up live when they're in your room or an adjacent one; otherwise they're a greyed-out ghost at their *last known position*. At crossroads you see **chalk marks** for which exits allies have taken (this satisfies the requirement to "see which way others chose"). |
-| Comms | None in-game. Assume voice chat. Bots can't hear voice, so they act on what they can observe. |
+| Comms (user, 2026-10-09; replaces "assume voice chat") | **No communication between players at all**, in game or out: no chat, no pings, no emotes, no "Help!" button, and the design must not assume voice or Discord. The only signals are in-game actions: travel choices and headings, chalk marks, combat picks and targets, loot votes (and changing or holding them), grabbing or leaving items, claiming events, waiting at or leaving the exit. Humans and bots are therefore on equal footing: both act only on what they can observe. Design new features so the action itself is the message, and test them as if every player were a stranger. |
 | Stress | Simple stress in v1 (0–100). At 100 the hero gains an **affliction**. |
 | Visuals | **Pixel art sprites, hand-authored in code** (user's choice in M9). 16×16 text grids live in `tools/sprites.py`; running it validates them and generates `client/src/render/sprite-data.ts`. 'b'/'B' pixels take the class colour. Rendered by `client/src/render/sprites.ts`, which caches canvases and data URLs. |
 | Players | 1–4 humans. Empty slots are filled by bots of *mediocre* ability. |
@@ -161,7 +162,7 @@ Scaling: HP and damage go up ×(1 + 0.15·tier). Group size goes up at T2 and T4
 - **Locked Vault:** A 20s pick (Cutthroat 7s). Interrupting resets it. Good loot.
 - **Cursed Chest:** Loot plus +20 stress to whoever opens it.
 - **Shortcut Crawlspace:** Takes you straight toward the exit, but you take 6 damage and drop to Dim light.
-- When several heroes are present at an event, **any present hero can make the choice**. It's first come, first served on purpose, so players end up arguing on voice.
+- When several heroes are present at an event, **any present hero can make the choice**. It's first come, first served on purpose: with no way to talk it over, it's a race, and grabbing an event (or pointedly not grabbing it) is itself a statement to the others in the room.
 
 ### 3.9 Bots ("mediocre")
 - **Exploration:** a utility score over unexplored rooms, visible loot, objectives and the distance to the exit. Each bot gets a random "greed" value (0.2–0.8) that sets how late it heads to the exit. Some bots will be late, which is intended.
@@ -269,7 +270,8 @@ Run all of the following, then write `PLAYTEST.md` with findings, ranked issues 
 - [ ] Each 2-minute tier change is *noticeable* without reading the banner.
 - [ ] Combat decisions are usually made in under 5s, and the timer feels tense rather than unfair.
 - [ ] The 4 classes play differently, and each has a moment where it's clearly the hero.
-- [ ] At least once per run, an item vote causes a real (if brief) negotiation.
+- [ ] At least once per run, an item vote turns into a silent standoff: someone switches, holds out, or walks away to make a point, and the others read it.
+- [ ] Without any talking, players can usually tell what an ally they can see is about to do (heading, chalk, combat pick, vote).
 - [ ] Between 9:30 and 11:30 a player at the exit is genuinely uncertain about a missing ally. The ghost/last-known information is ambiguous enough to make that a hard choice.
 - [ ] Going back for a rescue is *possible but costly*. It sometimes works and sometimes doesn't.
 - [ ] Greed for "one more room" has caused at least one late arrival or death.
@@ -281,7 +283,7 @@ Run all of the following, then write `PLAYTEST.md` with findings, ranked issues 
 - [x] Asked the user: **cosmetic/bragging only.** Built career stats (total gold extracted, runs, escapes, best haul), titles by total gold (Nobody → Scavenger 100 → Delver 300 → Treasure-Seeker 700 → Gilded 1500 → Legend of the Deep 3000), and the **Hall of Fortune** (top 10) on the menu and results screens. Titles show next to names in the lobby. Candidate: a camp screen between runs where you spend stashed gold on starting consumables, trinkets, or a class unlock. Persistence is keyed by player name.
 
 ### Later / parking lot
-Deploying to a public host, more classes and enemies, multiple floors, in-game pings, controller support, a real art pass, music.
+Deploying to a public host, more classes and enemies, multiple floors, controller support, a real art pass, music. (In-game pings were removed from this list: they break the no-communication rule.)
 
 ---
 
@@ -295,6 +297,8 @@ Deploying to a public host, more classes and enemies, multiple floors, in-game p
 
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-09 · **No communication (user request, design only).** The game no longer assumes voice/Discord: players can't communicate except through in-game actions. New pillar 5 and a rewritten **Comms** row. The "Help!" button candidate (below, M11 entry) and in-game pings are dropped; rescue signalling has to come from visible actions instead (e.g. being seen going down, a downed hero's last heading). README and PLAYTEST.md updated. No code changes; nothing in the game relied on voice.
 
 - 2026-10-09 · **Solo auto-pickup and combat timer rings (user request).** See the Decisions row. 112 tests.
 
@@ -314,7 +318,7 @@ _(Newest first. Each entry: date · milestone · what changed · what's next · 
   - Sim (80 games, seed 500), before → after: escape 54% → 61% (66% before raising tierScaling to 0.09), drama at 10:00 49% → 78%, late arrivals after 10:30 18% → 53% (now measured as the *last* return to the exit), early deaths 0%, 3.8 rounds/fight, wipes 6% → 8%. Many late deaths are "bled out at the exit" during waves.
 
 - 2026-10-08 · **M11 done.** `content/titles.ts`, career stats in `persistence.ts` (recordRun, leaderboard), a `leaderboard` server message (on hello and when a run ends), Hall of Fortune and titles in the menu, lobby and results screens. README rewritten with controls and hosting steps for the user's friends playtest. Cleared the dev `stash.json`, which only held my test players. 83 tests.
-  - **The user asked to hold further changes until they've playtested with friends.** Next session: read their feedback (prompt in PLAYTEST.md), then prioritise. Candidates: a voice-free "Help!" signal bots respond to, bots waiting at the exit when they recently saw an ally alive, a sound cue for nearby packs, late-arrival pacing.
+  - **The user asked to hold further changes until they've playtested with friends.** Next session: read their feedback (prompt in PLAYTEST.md), then prioritise. Candidates: ~~a voice-free "Help!" signal bots respond to~~ (dropped 2026-10-09: no communication), bots waiting at the exit when they recently saw an ally alive, a sound cue for nearby packs, late-arrival pacing.
 - 2026-10-08 · **M10 (structured playtest) done, apart from the user playtest.** See **PLAYTEST.md** for the full report. Two real-time browser runs (Warden, then Lampbearer; an aborted Hexer attempt exposed the routing bug). `tools/playtest-harness.ts` played 6 networked games (1 real time, 5 at ×10 via the new `debugSpeed`) with ~45,000 snapshots fog-checked. The autopilot (`client/public/autopilot.js`) is now driven by snapshots (`net.viewHooks`) so it survives background tabs.
   - **Fixed:** (1) Warden/Lampbearer couldn't fight alone, so Bash has no cooldown and Flare a 1-round cooldown. (2) Cave-in throw-out didn't explore the landing room; the harness caught it as a fog anomaly plus 9 minutes of frozen heroes. (3) Click-to-walk marched you through known monster rooms; it now detours. (4) Collapses were too frequent and almost always cut people off; now every 60s, loop-preferring 75%, no re-collapse for 60s after digging. (5) Bots wait ≥8s at the exit and the return window is 6:30–11:30. (6) Stale toast bursts. 79 tests.
   - Final sim (120 fresh seeds): escape 57% ✓, drama 58% ✓, early deaths 7% ✓, 3.6 rounds/fight ✓, wipes 6%, late arrivals 16% (secondary ✗).

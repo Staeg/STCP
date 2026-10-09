@@ -105,7 +105,7 @@ Sim after fixes 1–4 (100 fresh seeds): **escape 51%**, wipes 5%, **drama at 10
 | 2 | Each 2-minute tier change is noticeable without the banner | 🟡 Banner, flash and sound are clear. Mechanically, T1–T2 changes are subtle until packs burst in; T3 rubble and T5 waves are unmistakable. |
 | 3 | Combat decisions usually made in <5s; the timer feels tense, not unfair | ✅ hotkeys 1–7/R/F/B, auto-target with a single target, 3.6 rounds per fight. **Feel needs humans.** |
 | 4 | The 4 classes play differently, and each has a hero moment | ✅ after the fixes: Warden tanks and bashes every round, Lampbearer sustains and lights, Hexer runs altars and AoE, Cutthroat cracks vaults and crits. |
-| 5 | An item vote causes a real negotiation at least once per run | ✅ mechanism verified with 2 tabs (M4). **Needs humans.** |
+| 5 | An item vote causes a real (silent) standoff at least once per run | ✅ mechanism verified with 2 tabs (M4). **Needs humans.** |
 | 6 | 9:30–11:30: genuine uncertainty about a missing ally | ✅ in both runs allies had been ghosts for 5–10 minutes at the exit; drama metric 58%. |
 | 7 | Going back for a rescue is possible but costly | 🟡 Possible (revive, salts from the next room, rescue bots), but rare: 0.5 revives per game in bot games. **Needs humans.** |
 | 8 | Greed has caused at least one late arrival or death | ✅ Run 1: Ilse (idol, rubble, buried). Run 2: Mara buried. |
@@ -116,18 +116,19 @@ Sim after fixes 1–4 (100 fresh seeds): **escape 51%**, wipes 5%, **drama at 10
 ## Issues, ranked
 
 1. **(Blocker for sign-off) Human playtest.** Items 1, 3, 5 and 7 need real players. See the prompt below.
-2. **(Medium) Rescues are rare.** Bots can't hear voice chat, so they only rescue what they happen to see. Option: a voice-free "Help!" button that bots respond to (it would also help in pick-up groups).
+2. **(Medium) Rescues are rare.** Bots only rescue what they happen to see. ~~Option: a "Help!" button~~ (dropped 2026-10-09: the game now has no communication between players, so any fix must come from visible actions, e.g. making a down more noticeable to those nearby).
 3. **(Medium) Bots leave at 10:00 without waiting** when they haven't seen you. Option: bots wait longer if they *saw* an ally alive recently.
 4. **(Low) Late arrivals (16%)** are below the secondary target.
 5. **(Low) Tier 1–2 changes are subtle.** Option: a distant roar or sound cue when a pack spawns nearby.
 
 ## User playtest: please try this with friends
 
-Run `npm run dev` (or `npm start` and share `http://<your-LAN-IP>:3001` or a tunnel URL). Play 2–3 runs with 2–4 people on voice. Afterwards, a sentence or two on each:
+Run `npm run dev` (or `npm start` and share `http://<your-LAN-IP>:3001` or a tunnel URL). Play 2–3 runs with 2–4 people **without talking** (no voice, no chat, ideally not in the same room). Afterwards, a sentence or two on each:
 
 1. Did you split up early? Why, or why not?
 2. Could you decide your combat moves in 5 seconds? Too tense, or not tense enough?
-3. Did a loot vote ever cause an argument?
+3. Did a loot vote ever turn into a standoff? Could you tell what the others wanted from their votes alone?
+3b. Could you tell what your allies were about to do without being told? When couldn't you?
 4. Around 10:00, were you unsure whether to wait, leave or go back? Did anyone go back?
 5. Which class was most and least fun?
 6. What was the best story from the results screen?

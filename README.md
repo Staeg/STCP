@@ -11,7 +11,7 @@ npm start       # host a game: builds the client and serves everything from http
 npm test        # unit tests
 ```
 
-Friends join through your LAN IP (`http://<your-ip>:3001` with `npm start`), or through a tunnel such as `cloudflared tunnel --url http://localhost:3001`. Create an expedition, share the 4-letter code or the link, pick classes, ready up, and the host presses **Descend**. Voice chat is assumed; there's no in-game chat.
+Friends join through your LAN IP (`http://<your-ip>:3001` with `npm start`), or through a tunnel such as `cloudflared tunnel --url http://localhost:3001`. Create an expedition, share the 4-letter code or the link, pick classes, ready up, and the host presses **Descend**. The game is designed to be played **without talking**: there's no chat, and please don't use voice either. Your only way to tell allies anything is what your hero does: where you walk, what you vote for, what you grab, whether you wait.
 
 Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed. In dev, `CLIENT_PORT` moves the Vite client too (the `dev-alt` launch config uses 5190/3011, so two dev servers can run side by side).
 
