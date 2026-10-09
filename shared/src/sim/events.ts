@@ -1,12 +1,13 @@
 import { LIGHT_DIM } from '../content/constants';
 import {
-  AFFLICTIONS, channelTime, EVENT_SEEDING, EVENTS, STRESS, type AfflictionId, type EventKind,
+  AFFLICTIONS, channelTime, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS, type AfflictionId, type EventKind,
 } from '../content/events';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
-import { addStress, downHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
+import { addStress, armored, downHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, takeItem } from './loot';
 import { notify } from './notify';
+import { addSpeedMod, fmtSpeed } from './speed';
 import { chronicle, explore, type Hero, type World } from './world';
 
 /** A one-off feature of a room (villagers are tracked separately because they move). */
@@ -128,7 +129,28 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         kind: ev.kind, progress,
         choices: [c('crawl', 'Squeeze through (4 damage, your torch gutters)', h.leading ? "The villager won't fit." : undefined)],
       };
+    case 'quicksilver': {
+      const { quicksilverSpeed: s, quicksilverMaxHp: hp } = SPEED_EVENTS;
+      return { kind: ev.kind, progress, choices: [c('quaff', `Drink it (Speed ${signed(s)} for the rest of the run, ${hp} max HP)`)] };
+    }
+    case 'satchel':
+      return {
+        kind: ev.kind, progress,
+        choices: [c('haul', `Haul it (+${SPEED_EVENTS.satchelGold} gold for you alone, Speed ${signed(SPEED_EVENTS.satchelSpeed)} for the rest of the run)`)],
+      };
+    case 'hourglass':
+      return {
+        kind: ev.kind, progress,
+        choices: [c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`)],
+      };
+    case 'clockwork':
+      return { kind: ev.kind, progress, choices: [c('wind', `Wind it (Speed ${signed(SPEED_EVENTS.clockworkSpeed)} for the rest of the run)`)] };
   }
+}
+
+/** "−1s" / "+1s" */
+function signed(seconds: number): string {
+  return `${seconds < 0 ? '−' : '+'}${fmtSpeed(Math.abs(seconds))}`;
 }
 
 /** "cleansing the altar" etc., for the event panel and for onlookers' notifications. */
@@ -137,6 +159,7 @@ export function choiceVerb(kind: EventKind, choice: string): string {
   const verbs: Record<string, string> = {
     take: 'taking the idol', help: 'bandaging the stranger', drink: 'drinking from the well',
     open: 'opening the chest', crawl: 'squeezing into the crawlspace',
+    quaff: 'drinking the quicksilver', haul: 'shouldering the satchel', turn: 'turning the hourglass', wind: 'winding the shrine',
   };
   return verbs[choice] ?? 'busy';
 }
@@ -258,11 +281,40 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       h.light = Math.min(h.light, LIGHT_DIM - 1);
       notify(world, h, `You scrape through the dark and tumble out in ${world.dungeon.rooms[dest].name}.`);
       explore(world, h, dest);
-      h.hp -= 4;
+      h.hp -= armored(h, 4);
       if (h.hp <= 0) downHero(world, h, null);
       else onHeroInRoom(world, h, dest);
       return;
     }
+    case 'quaff': {
+      const { quicksilverSpeed, quicksilverMaxHp } = SPEED_EVENTS;
+      addSpeedMod(h, world.time, quicksilverSpeed, null, 'Quicksilver');
+      h.maxHp = Math.max(1, h.maxHp + quicksilverMaxHp);
+      h.hp = Math.min(h.hp, h.maxHp);
+      notify(world, h, `It burns going down. The world slows around you. (Speed ${signed(quicksilverSpeed)}, ${quicksilverMaxHp} max HP)`);
+      chronicle(world, `${h.name} drank from the Quicksilver Pool.`);
+      return;
+    }
+    case 'haul':
+      h.gold += SPEED_EVENTS.satchelGold;
+      addSpeedMod(h, world.time, SPEED_EVENTS.satchelSpeed, null, "Courier's Satchel");
+      notify(world, h, `+${SPEED_EVENTS.satchelGold} gold, all yours. Your shoulders ache already. (Speed ${signed(SPEED_EVENTS.satchelSpeed)})`);
+      chronicle(world, `${h.name} took the dead courier's satchel (+${SPEED_EVENTS.satchelGold} gold).`);
+      return;
+    case 'turn': {
+      const party = [h, ...othersHere(world, h).filter(isConscious)];
+      for (const x of party) {
+        addSpeedMod(x, world.time, SPEED_EVENTS.hourglassSpeed, SPEED_EVENTS.hourglassDuration, 'Hourglass');
+        notify(world, x, `${x === h ? 'You turn the hourglass.' : `${h.name} turns the hourglass.`} The sand runs upward, and so do you. (Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`);
+      }
+      chronicle(world, `${h.name} turned the Cracked Hourglass${party.length > 1 ? ` for ${party.length} heroes` : ''}.`);
+      return;
+    }
+    case 'wind':
+      addSpeedMod(h, world.time, SPEED_EVENTS.clockworkSpeed, null, 'Clockwork Shrine');
+      notify(world, h, `The gears catch and begin to tick, and your heart keeps time with them. (Speed ${signed(SPEED_EVENTS.clockworkSpeed)})`);
+      chronicle(world, `${h.name} wound the Clockwork Shrine.`);
+      return;
   }
 }
 

@@ -12,7 +12,7 @@ import type { CombatUnitView, EncounterView, PlayerView } from '../sim/views';
  */
 export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const enc = view.encounter;
-  if (!enc || enc.phase !== 'choosing' || enc.youJoining || enc.yourChoice) return null;
+  if (!enc || enc.yourChoice) return null;
   const me = enc.heroes.find((h) => h.id === view.you.id);
   if (!me || me.downed) return null;
 
@@ -20,7 +20,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   if (options.length === 0) return { action: 'brace' };
   if (rng.chance(BOTS.blunder)) return rng.pick(options);
 
-  const allies = enc.heroes.filter((h) => !h.downed && !h.joining);
+  const allies = enc.heroes.filter((h) => !h.downed);
   const downed = enc.heroes.filter((h) => h.downed);
   const enemies = enc.monsters;
   const ready = (i: 0 | 1 | 2) => (view.you.cooldowns[ABILITIES[view.you.cls][i].id] ?? 0) === 0;
@@ -76,7 +76,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
 function legalChoices(view: PlayerView, enc: EncounterView): Choice[] {
   const out: Choice[] = [];
   const me = view.you;
-  const allies = enc.heroes.filter((h) => !h.downed && !h.joining);
+  const allies = enc.heroes.filter((h) => !h.downed);
   const front = enc.monsters.filter((m) => m.rank === 'front');
   ABILITIES[me.cls].forEach((ab, i) => {
     if ((me.cooldowns[ab.id] ?? 0) > 0) return;

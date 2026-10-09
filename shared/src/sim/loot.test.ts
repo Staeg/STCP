@@ -171,8 +171,7 @@ describe('items', () => {
     for (let i = 0; i < 200 && h.encounter === null; i++) step(world, 0.1);
     expect(h.encounter).toBe(room);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'item', item: 0 } });
-    const enc = world.encounters[room];
-    while (enc.phase === 'choosing') step(world, 0.1);
+    for (let i = 0; i < 60 && h.items.length; i++) step(world, 0.1);
     for (const m of ms) if (world.monsters[m.id]) expect(m.hp).toBe(m.maxHp - 8);
     expect(h.items).toEqual([]);
   });

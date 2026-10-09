@@ -5,8 +5,9 @@ import { ENEMIES, type EnemyId, type Rank } from '../content/enemies';
 import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
-import { hasSpace, votersIn } from './loot';
-import { abilityOf, BLEED_OUT, heroRank, inDungeon, isConscious, monstersIn, type Choice, type CombatEvent, type Statuses } from './combat';
+import { canTake, votersIn } from './loot';
+import { abilityOf, BLEED_OUT, combatOrder, heroRank, inDungeon, isConscious, type Choice, type CombatEvent, type Statuses } from './combat';
+import { speedOf } from './speed';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
@@ -54,8 +55,8 @@ export interface LootView {
     votes: Record<string, string>;
     /** Hero ids that must agree. */
     voters: string[];
-    /** Hero ids who can receive it (present, have a free slot). */
-    candidates: { id: string; name: string; free: number; isBot: boolean }[];
+    /** Hero ids who can receive it (present, have a free slot; anyone for gear, which swaps). */
+    candidates: { id: string; name: string; free: number; isBot: boolean; /** Gear votes: what they wear in that slot now. */ wearing?: ItemId | null }[];
     startedAt: number;
   } | null;
 }
@@ -114,26 +115,26 @@ export interface CombatUnitView {
   downed?: boolean;
   /** Seconds until a downed hero dies. */
   bleedOut?: number;
-  joining?: boolean;
-  /** Has locked in a choice this round (heroes only). */
+  /** Speed: seconds between this unit's turns. */
+  speed: number;
+  /** Seconds until this unit's next turn (null while down). */
+  nextIn: number | null;
+  /** Has picked what to do on their next turn (heroes only). */
   ready?: boolean;
-  /** What they've locked in this round, visible to everyone in the fight: "Backstab", "Flee"… */
+  /** What they've picked for their next turn, visible to everyone in the fight: "Backstab", "Flee"… */
   choice?: string;
   /** Who that choice is aimed at (a unit id), if anyone. */
   choiceTarget?: string;
+  affliction?: AfflictionId | null;
 }
 
 export interface EncounterView {
   room: number;
-  round: number;
-  phase: 'choosing' | 'resolving';
-  /** Seconds left to choose (choosing) or until the next round (resolving). */
-  timeLeft: number;
+  /** Left to right as the fight screen shows them (also the order ties are broken in). */
   heroes: CombatUnitView[];
   monsters: CombatUnitView[];
   yourChoice: Choice | null;
-  /** True if you arrived mid-round and act from the next one. */
-  youJoining: boolean;
+  /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
 }
@@ -310,7 +311,11 @@ function lootView(world: World, you: Hero): LootView | null {
       item: pile.vote.item,
       votes: { ...pile.vote.votes },
       voters: voters.map((v) => v.id),
-      candidates: present.filter(hasSpace).map((h) => ({ id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot })),
+      candidates: present.filter((h) => canTake(h, pile.vote!.item)).map((h) => {
+        const kind = ITEMS[pile.vote!.item].kind;
+        const wearing = kind === 'weapon' || kind === 'armor' ? h[kind] : undefined;
+        return { id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot, wearing };
+      }),
       startedAt: pile.vote.startedAt,
     },
   };
@@ -321,28 +326,29 @@ function encounterView(world: World, you: Hero): EncounterView | null {
   if (you.encounter === null) return null;
   const enc = world.encounters[you.encounter];
   if (!enc) return null;
-  const heroUnit = (id: string, joining: boolean): CombatUnitView => {
-    const h = world.heroes[id];
+  const nextIn = (id: string) => (enc.next[id] === undefined ? null : Math.max(0, enc.next[id] - world.time));
+  const heroUnit = (h: Hero): CombatUnitView => {
+    const id = h.id;
     return {
       id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, rank: heroRank(h), st: { ...h.st }, cls: h.cls, color: h.color,
       downed: h.downedAt !== null,
       bleedOut: h.downedAt !== null ? Math.max(0, BLEED_OUT - (world.time - h.downedAt)) : undefined,
-      joining, ready: !!enc.choices[id] || !isConscious(h),
+      speed: speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
+      ready: !!enc.choices[id] || !isConscious(h),
       choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,
       choiceTarget: enc.choices[id]?.target,
+      affliction: h.affliction,
     };
   };
+  const order = combatOrder(world, enc);
   return {
     room: enc.room,
-    round: enc.round,
-    phase: enc.phase,
-    timeLeft: Math.max(0, (enc.phase === 'choosing' ? enc.deadline : enc.resolveUntil) - world.time),
-    heroes: [...enc.heroes.map((id) => heroUnit(id, false)), ...enc.joining.map((id) => heroUnit(id, true))],
-    monsters: monstersIn(world, enc.room).map((m) => ({
+    heroes: order.heroes.map(heroUnit),
+    monsters: order.monsters.map((m) => ({
       id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, rank: m.rank, st: { ...m.st }, enemy: m.type,
+      speed: ENEMIES[m.type].speed, nextIn: nextIn(m.id),
     })),
     yourChoice: enc.choices[you.id] ?? null,
-    youJoining: enc.joining.includes(you.id),
     events: enc.events,
     log: enc.log.slice(-12),
   };

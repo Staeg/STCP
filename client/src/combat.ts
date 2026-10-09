@@ -1,5 +1,5 @@
 import {
-  ABILITIES, ITEMS, ROUND_TIME,
+  ABILITIES, AFFLICTION_RULES, AFFLICTIONS, fmtSpeed, ITEMS, readyAbilities,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -7,7 +7,8 @@ import { spriteUrl } from './render/sprites';
 import { juice } from './juice';
 
 const $ = (id: string) => document.getElementById(id)!;
-const EVENT_STEP_MS = 320;
+/** Events from one turn play out this far apart; a busy fight queues them up. */
+const EVENT_STEP_MS = 260;
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -17,7 +18,7 @@ interface Pending {
   /** Damage/heal not yet "played" per unit, so HP bars change in step with the replay. */
   dmg: Map<string, number>;
   heal: Map<string, number>;
-  /** Monsters that died this round, kept on screen until their death plays. */
+  /** Monsters that have died, kept on screen until their death plays. */
   dying: Map<string, CombatUnitView>;
 }
 
@@ -25,7 +26,10 @@ export class CombatUi {
   private targeting: CombatAction | null = null;
   /** Inventory slot being aimed, when targeting === 'item'. */
   private targetingItem: number | null = null;
-  private lastKey = '';
+  /** Fight (room) and the last event seq already queued for replay. */
+  private seen: { room: number; seq: number } | null = null;
+  /** When the replay queue runs dry (performance.now()). */
+  private queueEnd = 0;
   private pending: Pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
   private floaters: { unit: string; text: string; cls: string; at: number }[] = [];
   private flashes = new Map<string, number>();
@@ -33,7 +37,7 @@ export class CombatUi {
   private timers: number[] = [];
   private shownLog: string[] = [];
   private lastHtml = '';
-  /** Unit id → name, and unit id → colours of the heroes targeting it this round. */
+  /** Unit id → name, and unit id → colours of the heroes whose next move targets it. */
   private names = new Map<string, string>();
   private aimedBy = new Map<string, string[]>();
 
@@ -49,8 +53,9 @@ export class CombatUi {
     if (!view || !enc) {
       this.targeting = null;
       this.prevMonsters.clear();
-      this.lastKey = '';
+      this.seen = null;
       this.shownLog = [];
+      this.pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
       panel.hidden = !view || view.phase !== 'running' || view.you.dead || view.you.extracted;
       panel.classList.add('idle');
       if (view && !panel.hidden) this.renderIdle(view);
@@ -59,33 +64,38 @@ export class CombatUi {
     if (this.shownLog.length === 0 && enc.log.length) this.shownLog = enc.log.slice(0, 1); // the "Ambush!" line
     panel.hidden = false;
     panel.classList.remove('idle');
-    this.onNewResolution(enc);
+    this.onNewEvents(enc);
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
   }
 
-  // ---- Replay of a round's events ----
+  // ---- Replay of each turn's events ----
 
-  private onNewResolution(enc: EncounterView) {
-    const key = `${enc.room}:${enc.round}:${enc.phase}`;
-    if (key === this.lastKey) return;
-    this.lastKey = key;
-    if (enc.phase === 'choosing') {
-      this.targeting = null;
+  private onNewEvents(enc: EncounterView) {
+    const latest = enc.events.length ? enc.events[enc.events.length - 1].seq ?? 0 : 0;
+    // Joining a fight already under way: don't replay what happened before you got here.
+    if (this.seen?.room !== enc.room) {
+      this.seen = { room: enc.room, seq: latest };
+      for (const t of this.timers) clearTimeout(t);
+      this.timers = [];
       return;
     }
-    for (const t of this.timers) clearTimeout(t);
-    this.timers = [];
-    const p: Pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
-    const alive = new Set(enc.monsters.map((m) => m.id));
-    for (const [id, m] of this.prevMonsters) if (!alive.has(id)) p.dying.set(id, { ...m, hp: 0 });
-    for (const e of enc.events) {
+    const fresh = enc.events.filter((e) => (e.seq ?? 0) > this.seen!.seq);
+    this.seen.seq = latest;
+    if (fresh.length === 0) return;
+    const p = this.pending;
+    for (const e of fresh) {
+      // The slain stay on screen until their death plays.
+      const m = e.kind === 'death' && e.target ? this.prevMonsters.get(e.target) : undefined;
+      if (m) p.dying.set(m.id, { ...m, hp: 0, nextIn: null });
       if (!e.target || e.amount === undefined) continue;
       if (e.kind === 'damage') p.dmg.set(e.target, (p.dmg.get(e.target) ?? 0) + e.amount);
       if (e.kind === 'heal') p.heal.set(e.target, (p.heal.get(e.target) ?? 0) + e.amount);
     }
-    this.pending = p;
-    enc.events.forEach((e, i) => this.timers.push(window.setTimeout(() => this.play(e), i * EVENT_STEP_MS)));
+    const now = performance.now();
+    const start = Math.max(now, this.queueEnd);
+    fresh.forEach((e, i) => this.timers.push(window.setTimeout(() => this.play(e), start - now + i * EVENT_STEP_MS)));
+    this.queueEnd = start + fresh.length * EVENT_STEP_MS;
   }
 
   private play(e: CombatEvent) {
@@ -120,35 +130,34 @@ export class CombatUi {
   private render(view: PlayerView, enc: EncounterView) {
     const you = view.you;
     const me = enc.heroes.find((h) => h.id === you.id);
-    const canAct = enc.phase === 'choosing' && !!me && !me.downed && !enc.youJoining;
+    const canAct = !!me && !me.downed;
     if (!canAct) this.targeting = null;
     const valid = this.targeting ? this.validTargets(view, enc, this.targeting) : [];
 
-    // Header + timer
-    const frac = enc.phase === 'choosing' ? enc.timeLeft / ROUND_TIME : 0;
-    const waiting = enc.heroes.filter((h) => !h.ready && !h.joining).map((h) => h.name);
+    // Header: your own Speed timer. Everyone else's is on their card.
+    const left = me?.nextIn ?? null;
+    const frac = left !== null && me ? left / me.speed : 0;
     let status: string;
-    if (enc.phase === 'resolving') status = 'Resolving…';
-    else if (enc.youJoining) status = 'You join the fight next round…';
-    else if (me?.downed) status = 'You are down! An ally must revive you.';
+    if (me?.downed) status = 'You are down! An ally must revive you.';
     else if (this.targeting) status = 'Choose a target (Esc to cancel)';
-    else if (enc.yourChoice) status = waiting.length ? `Locked in · still choosing: ${waiting.join(', ')}` : 'Locked in · everyone is ready';
-    else status = 'Choose your action!';
+    else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
+    else status = `Pick your next move! (if your turn comes first: ${this.fallbackName(view)})`;
     const header = `<div class="cb-head">
-      <span>Round ${enc.round}</span>
+      <span title="Speed: seconds between your turns">⏱ ${me ? fmtSpeed(me.speed) : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
-      <span>${enc.phase === 'choosing' ? enc.timeLeft.toFixed(1) + 's' : ''}</span>
+      <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
     </div>
     <div class="cb-timer"><div style="width:${(frac * 100).toFixed(1)}%" class="${frac < 0.4 ? 'low' : ''}"></div></div>`;
 
-    // Stage: heroes back→front on the left, monsters front→back on the right.
-    // Who's aiming at whom this round, so everyone can see the plan forming.
+    // Stage: heroes back→front on the left, monsters front→back on the right, in the server's order
+    // (which is also who goes first when two turns come up at once).
+    // Who's aiming at whom, so everyone can see the plan forming.
     this.names = new Map([...enc.heroes, ...enc.monsters].map((u) => [u.id, u.name]));
     this.aimedBy = new Map();
     for (const h of enc.heroes) {
       if (h.choiceTarget && h.choiceTarget !== h.id) (this.aimedBy.get(h.choiceTarget) ?? this.aimedBy.set(h.choiceTarget, []).get(h.choiceTarget)!).push(h.color!);
     }
-    const heroes = [...enc.heroes].sort((a, b) => (a.rank === b.rank ? 0 : a.rank === 'back' ? -1 : 1));
+    const heroes = enc.heroes;
     const monsters = [...enc.monsters, ...this.pending.dying.values()].sort((a, b) => (a.rank === b.rank ? 0 : a.rank === 'front' ? -1 : 1));
     const stage = `<div class="cb-stage">
       <div class="cb-side heroes">${heroes.map((u) => this.unitHtml(u, valid, you.id)).join('')}</div>
@@ -167,6 +176,12 @@ export class CombatUi {
     this.setHtml(`<div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight</span></div>` + this.actionsHtml(view, null, false));
   }
 
+  /** What the sim does for you if you don't pick: your first ability that's ready, or Brace if none is. */
+  private fallbackName(view: PlayerView): string {
+    const i = readyAbilities(view.you.cls, view.you.cooldowns)[0];
+    return i === undefined ? 'Brace' : ABILITIES[view.you.cls][i].name;
+  }
+
   private setHtml(html: string) {
     if (html !== this.lastHtml) {
       $('combat').innerHTML = html;
@@ -174,30 +189,34 @@ export class CombatUi {
     }
   }
 
-  /** Abilities, Revive/Flee/Brace and combat items. Everything is shown; what you can't use right now is disabled. */
+  /**
+   * Abilities, Revive/Flee/Brace and combat items. Everything is shown; what you can't use right now is disabled.
+   * Out of combat the buttons are only greyed (not `disabled`), so hovering still shows what they do.
+   */
   private actionsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
     const you = view.you;
     const abilities = ABILITIES[you.cls];
     const chosen = enc?.yourChoice ?? null;
+    const off = (disabled: boolean) => (!disabled ? '' : enc ? 'disabled' : 'aria-disabled="true"');
     const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false) => {
       const sel = chosen?.action === action || this.targeting === action;
-      return `<button class="cb-act ${sel ? 'sel' : ''}" data-action="${action}" ${!canAct || cd > 0 || disabled ? 'disabled' : ''} title="${esc(desc)}">
+      return `<button class="cb-act ${sel ? 'sel' : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
         <kbd>${key}</kbd> ${esc(label)}${cd > 0 ? ` <span class="cd">${cd}</span>` : ''}
         <div class="cb-desc">${esc(desc)}</div></button>`;
     };
     const anyDowned = !!enc?.heroes.some((h) => h.downed);
     const actions = `<div class="cb-actions">
-      ${abilities.map((ab, i) => btn(`a${i}` as CombatAction, String(i + 1), ab.name, ab.desc, enc ? you.cooldowns[ab.id] ?? 0 : 0)).join('')}
+      ${abilities.map((ab, i) => btn(`a${i}` as CombatAction, String(i + 1), ab.name, abilityDesc(ab.desc, ab.cooldown), enc ? you.cooldowns[ab.id] ?? 0 : 0)).join('')}
       ${btn('revive', 'R', 'Revive', 'Get a downed ally back up (30% HP).', 0, !anyDowned)}
       ${btn('flee', 'F', 'Flee', '70% chance to escape to the previous room. +5 stress.')}
-      ${btn('brace', 'B', 'Brace', 'Take 30% less damage this round. (Automatic if time runs out.)')}
+      ${btn('brace', 'B', 'Brace', `Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)`)}
     </div>`;
 
     const itemBtns = you.items.map((it, i) => {
       const def = ITEMS[it];
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
-      return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'} title="${esc(def.desc)}">
+      return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${off(!canAct)}>
         <kbd>${i + 4}</kbd> ${def.glyph} ${esc(def.name)}<div class="cb-desc">${esc(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
     if (!enc) return actions.replace(/<\/div>$/, `${itemBtns}</div>`); // one compact row out of combat
@@ -213,23 +232,33 @@ export class CombatUi {
     const color = u.kind === 'hero' ? u.color : '#9a4a3a';
     const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed) : spriteUrl(u.enemy!, undefined, dying);
     const st = u.st;
+    const rounds = (n: number) => `${n} more turn${n === 1 ? '' : 's'} of theirs`;
+    const icon = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
+    const aff = u.affliction ? AFFLICTIONS[u.affliction] : null;
     const icons = [
-      st.stun && '<span title="Stunned">★</span>',
-      st.bleed && `<span title="Bleeding ${st.bleed.dmg}/round">🩸${st.bleed.rounds}</span>`,
-      st.mark && '<span title="Marked">◎</span>',
-      st.block && `<span title="Block">⛨${st.block}</span>`,
-      st.weak && '<span title="Weakened">↓</span>',
-      st.calm && '<span title="Calm: immune to stress">☾</span>',
-      st.guardedBy && '<span title="Guarded">⛉</span>',
-      st.brace && '<span title="Bracing">▣</span>',
+      aff && icon('⚠', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
+      st.stun && icon('★', 'Stunned: skips their next action.'),
+      st.bleed && icon(`🩸${st.bleed.rounds}`, `Bleeding: takes ${st.bleed.dmg} damage at the end of each of their turns (${rounds(st.bleed.rounds)}). Mend cures it.`),
+      st.mark && icon('◎', `Marked: Backstab crits it for double damage (${rounds(st.mark)}).`),
+      st.block && icon(`⛨${st.block}`, `Block ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
+      st.weak && icon('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
+      st.calm && icon('☾', `Calm: immune to stress (${rounds(st.calm)}).`),
+      st.guardedBy && icon('⛉', `Guarded by ${this.names.get(st.guardedBy) ?? 'an ally'}: attacks aimed here hit the guard instead, until the guard's next turn.`),
+      st.dodge && icon('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works, until ${this.names.get(st.dodge) ?? 'the thrower'}'s next turn.`),
+      st.brace && icon('▣', 'Bracing: takes 30% less damage until their next turn.'),
     ].filter(Boolean).join('');
     const floats = this.floaters
       .filter((f) => f.unit === u.id && now - f.at < 1100)
       .map((f) => `<div class="float ${f.cls}" style="animation-delay:-${now - f.at}ms">${esc(f.text)}</div>`)
       .join('');
     const classes = ['cb-unit', u.kind, u.rank, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
-      u.downed ? 'downed' : '', u.joining ? 'joining' : '', u.id === youId ? 'you' : ''].join(' ');
-    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.joining ? 'joining…' : u.kind === 'hero' ? (u.choice ? '' : 'choosing…') : u.rank;
+      u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
+    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s` : u.kind === 'hero' ? (u.choice ? '' : 'choosing…') : u.rank;
+    // Speed timer: fills up as their turn approaches.
+    const turn = u.nextIn !== null && !dying
+      ? `<div class="turnbar" title="Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn.toFixed(1)}s">
+          <div style="width:${((1 - u.nextIn / u.speed) * 100).toFixed(1)}%"></div><span>⏱ ${fmtSpeed(u.speed)}</span></div>`
+      : '';
     const target = u.choiceTarget ? this.names.get(u.choiceTarget) : undefined;
     const pick = u.kind === 'hero' && u.choice
       ? `<div class="pick" title="${esc(u.choice + (target ? ` → ${target}` : ''))}">✔ ${esc(u.choice)}${target ? `<br>→ ${esc(u.choiceTarget === u.id ? 'self' : target)}` : ''}</div>`
@@ -240,9 +269,10 @@ export class CombatUi {
       <div class="uname">${esc(u.name)}</div>
       <div class="hpbar"><div style="width:${pct}%"></div></div>
       <div class="hptext">${Math.ceil(hp)}/${u.maxHp}</div>
+      ${turn}
       <div class="icons">${icons}</div>
       ${pick}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
-      ${aimed ? `<div class="aimed" title="Targeted this round">${aimed}</div>` : ''}
+      ${aimed ? `<div class="aimed" title="Targeted by an ally's next move">${aimed}</div>` : ''}
       ${floats}
     </div>`;
   }
@@ -286,7 +316,7 @@ export class CombatUi {
   private pick(action: CombatAction, item?: number) {
     const view = this.net.cur;
     const enc = view?.encounter;
-    if (!view || !enc || enc.phase !== 'choosing') return;
+    if (!view || !enc) return;
     this.targetingItem = action === 'item' ? item ?? null : null;
     if (!this.needsTarget(view, action)) {
       this.targeting = null;
@@ -332,7 +362,7 @@ export class CombatUi {
   private canUse(action: CombatAction, item?: number): boolean {
     const view = this.net.cur;
     const enc = view?.encounter;
-    if (!view || !enc || enc.phase !== 'choosing' || enc.youJoining) return false;
+    if (!view || !enc) return false;
     const me = enc.heroes.find((h) => h.id === view.you.id);
     if (!me || me.downed) return false;
     if (action.startsWith('a')) {
@@ -347,4 +377,10 @@ export class CombatUi {
     }
     return true;
   }
+}
+
+/** Ability text with its cooldown spelled out, and a note on the fallback. */
+function abilityDesc(desc: string, cooldown: number): string {
+  const cd = cooldown ? ` Cooldown: your next ${cooldown === 1 ? 'turn' : `${cooldown} turns`}.` : '';
+  return desc + cd + " If your turn comes before you pick, you use your first ability that's ready.";
 }

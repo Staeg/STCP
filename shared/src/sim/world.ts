@@ -11,16 +11,17 @@ import {
   inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickDowned,
   type Choice, type Encounter, type Monster, type Statuses,
 } from './combat';
-import type { ItemId } from '../content/items';
+import type { GearSlot, ItemId } from '../content/items';
 import { notify } from './notify';
+import { speedOf, type SpeedMod } from './speed';
 import {
-  castVote, claimAbandoned, dropItem, lockedByVote, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
+  castVote, claimAbandoned, dropItem, unequip, lockedByVote, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
 } from './loot';
 
 export type HeroPos =
   | { kind: 'room'; room: number }
-  /** `t` = seconds walked from `from` toward `to`. */
-  | { kind: 'corridor'; corridor: number; from: number; to: number; t: number };
+  /** `t` = seconds walked from `from` toward `to`; `dur` = seconds this crossing takes (the hero's Speed when they set out). */
+  | { kind: 'corridor'; corridor: number; from: number; to: number; t: number; dur: number };
 
 export interface Hero {
   id: string;
@@ -49,7 +50,7 @@ export interface Hero {
   maxHp: number;
   stress: number;
   st: Statuses;
-  /** Ability id → rounds until usable. Reset after each fight. */
+  /** Ability id → own turns until usable. Reset after each fight. */
   cooldowns: Record<string, number>;
   /** Time this hero went down, or null if standing. */
   downedAt: number | null;
@@ -75,6 +76,11 @@ export interface Hero {
   /** Lampbearer: game time when the out-of-combat Mend is ready again. */
   fieldMendAt: number;
   items: ItemId[];
+  /** Temporary or run-long changes to Speed from events (see speed.ts). */
+  speedMods: SpeedMod[];
+  /** Equipped gear (separate from the pack). */
+  weapon: ItemId | null;
+  armor: ItemId | null;
   /** Carried gold. Only extracted gold counts. */
   gold: number;
   /** Short notices for this player ("+12 gold"), newest last. */
@@ -146,7 +152,8 @@ export interface World {
   objectives: { altars: number; villagers: number };
   /** Counters for the results screen and the balance simulator. */
   stats: {
-    fights: number; rounds: number; slain: number; downs: number; revives: number; collapses: number; waves: number;
+    /** turns: hero turns taken in fights · fightTime: total seconds spent fighting. */
+    fights: number; turns: number; fightTime: number; slain: number; downs: number; revives: number; collapses: number; waves: number;
     afflictions: number; heartAttacks: number; eventsUsed: number;
   };
 }
@@ -162,6 +169,8 @@ export type Intent =
   | { type: 'vote'; choice: string }
   | { type: 'claim'; index: number }
   | { type: 'drop'; index: number }
+  /** Take off a weapon or armor and put it on the floor. */
+  | { type: 'unequip'; slot: GearSlot }
   | { type: 'useItem'; index: number; target?: string }
   /** Leave the dungeon through the open exit. */
   | { type: 'extract' }
@@ -191,7 +200,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
-    stats: { fights: 0, rounds: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
+    stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 },
     nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
@@ -222,6 +231,9 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     prevRoom: null,
     channel: null,
     items: [],
+    speedMods: [],
+    weapon: null,
+    armor: null,
     gold: 0,
     messages: [],
     knownLoot: {},
@@ -346,6 +358,9 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     case 'drop':
       dropItem(world, hero, intent.index);
       return;
+    case 'unequip':
+      unequip(world, hero, intent.slot);
+      return;
     case 'useItem': {
       const err = useItemInField(world, hero, intent.index, intent.target);
       if (err) notify(world, hero, err);
@@ -466,29 +481,50 @@ function advance(world: World, hero: Hero, dt: number) {
         notify(world, hero, `Rubble blocks the way to ${theRoom(d.rooms[next].name)}!`);
         return;
       }
-      hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0 };
+      hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t: 0, dur: speedOf(hero, world.time) };
       hero.prevRoom = pos.room;
       if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
     } else {
-      const need = d.corridors[pos.corridor].length - pos.t;
+      const need = pos.dur - pos.t;
       if (remaining < need) {
         pos.t += remaining;
         return;
       }
       remaining -= need;
-      hero.pos = { kind: 'room', room: pos.to };
-      if (hero.path.length === 0) hero.heading = null;
-      if (pos.to === d.exit) hero.arrivedAt = world.time;
-      explore(world, hero, pos.to);
-      onHeroInRoom(world, hero, pos.to);
-      if (hero.encounter !== null) return;
-      const pile = world.piles[pos.to];
-      if (pile && (pile.vote || pile.items.length)) {
-        hero.path = []; // stop: there's loot to agree on
-        return;
-      }
+      pos.t = pos.dur;
+      // Heroes who took the same tunnel the same way travel together: the quicker ones wait for the rest.
+      const party = companions(world, hero);
+      if (party.some((o) => o.pos.kind === 'corridor' && o.pos.t < o.pos.dur)) return;
+      for (const o of party) arrive(world, o);
+      if (!arrive(world, hero)) return;
     }
   }
+}
+
+/** Conscious heroes in the same tunnel as `hero`, going the same way (not including `hero`). */
+export function companions(world: World, hero: Hero): Hero[] {
+  const pos = hero.pos;
+  if (pos.kind !== 'corridor') return [];
+  return Object.values(world.heroes).filter((o) =>
+    o !== hero && isConscious(o) && o.pos.kind === 'corridor' && o.pos.corridor === pos.corridor && o.pos.to === pos.to);
+}
+
+/** Step out of the tunnel into the room at its end. Returns false if the hero should stop walking (fight, loot). */
+function arrive(world: World, hero: Hero): boolean {
+  const pos = hero.pos;
+  if (pos.kind !== 'corridor') return false;
+  hero.pos = { kind: 'room', room: pos.to };
+  if (hero.path.length === 0) hero.heading = null;
+  if (pos.to === world.dungeon.exit) hero.arrivedAt = world.time;
+  explore(world, hero, pos.to);
+  onHeroInRoom(world, hero, pos.to);
+  if (hero.encounter !== null) return false;
+  const pile = world.piles[pos.to];
+  if (pile && (pile.vote || pile.items.length)) {
+    hero.path = []; // stop: there's loot to agree on
+    return false;
+  }
+  return true;
 }
 
 /** Refresh every hero's sightings of others and the chalk marks they can read. */
@@ -544,8 +580,7 @@ export function canSee(world: World, a: Hero, b: Hero): boolean {
 function turnAround(world: World, hero: Hero) {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return;
-  const len = world.dungeon.corridors[pos.corridor].length;
-  hero.pos = { kind: 'corridor', corridor: pos.corridor, from: pos.to, to: pos.from, t: len - pos.t };
+  hero.pos = { kind: 'corridor', corridor: pos.corridor, from: pos.to, to: pos.from, t: Math.max(0, pos.dur - pos.t), dur: pos.dur };
 }
 
 export function explore(world: World, hero: Hero, room: number) {
@@ -577,10 +612,9 @@ function goto(world: World, hero: Hero, target: number): boolean {
     return true;
   }
   // In a corridor: compare continuing forward vs turning back.
-  const len = d.corridors[pos.corridor].length;
   const fwd = shortestPath(world, hero, pos.to, target);
   const back = shortestPath(world, hero, pos.from, target);
-  const fwdCost = fwd ? len - pos.t + pathCost(d, pos.to, fwd) : Infinity;
+  const fwdCost = fwd ? pos.dur - pos.t + pathCost(d, pos.to, fwd) : Infinity;
   const backCost = back ? pos.t + pathCost(d, pos.from, back) : Infinity;
   if (fwdCost === Infinity && backCost === Infinity) return false;
   if (backCost < fwdCost) {
@@ -653,6 +687,6 @@ export function heroXY(d: Dungeon, pos: HeroPos): { x: number; y: number } {
   if (pos.kind === 'room') return { x: d.rooms[pos.room].x, y: d.rooms[pos.room].y };
   const a = d.rooms[pos.from];
   const b = d.rooms[pos.to];
-  const f = pos.t / d.corridors[pos.corridor].length;
+  const f = Math.min(1, pos.t / pos.dur);
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
 }

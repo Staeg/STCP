@@ -57,13 +57,13 @@ async function worker() {
 await Promise.all(Array.from({ length: Math.min(parallel, variants.length) }, worker));
 
 const pct = (x: number) => `${(100 * x).toFixed(0)}%`.padStart(5);
-console.log(`${games} games/variant, seed ${seed}.  targets: esc 40–65%, drama ≥50%, late ≥30%, early ≤10%, rounds 3–6`);
-console.log('variant'.padEnd(22) + '  esc  wipe drama  late early  rpf  gold  downs revives');
+console.log(`${games} games/variant, seed ${seed}.  targets: esc 40–65%, drama ≥50%, late ≥30%, early ≤10%, fight 18–36s`);
+console.log('variant'.padEnd(22) + '  esc  wipe drama  late early  spf  gold  downs revives');
 variants.forEach((v, i) => {
   const r = results[i];
   console.log(
     v.name.padEnd(22) + pct(r.escaped) + pct(r.wipes) + pct(r.drama) + pct(r.lateRuns) + pct(r.earlyDeathShare) +
-      r.roundsPerFight.toFixed(1).padStart(5) + r.goldPerEscaped.toFixed(0).padStart(6) +
+      r.secondsPerFight.toFixed(0).padStart(5) + r.goldPerEscaped.toFixed(0).padStart(6) +
       r.perGame.downs.toFixed(1).padStart(7) + r.perGame.revives.toFixed(1).padStart(8),
   );
 });

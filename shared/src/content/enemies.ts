@@ -6,6 +6,7 @@ export interface EnemyDef {
   name: string;
   maxHp: number;
   rank: Rank;
+  /** Speed: seconds between its turns. Default 5; lower is quicker. */
   speed: number;
   /** Base damage of its main attack (scaled by tier). */
   dmg: number;
@@ -16,10 +17,10 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyId, EnemyDef> = {
-  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, rank: 'front', speed: 2, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to a front hero.' },
-  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, rank: 'front', speed: 6, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed.' },
+  ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, rank: 'front', speed: 5, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to a front hero.' },
+  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, rank: 'front', speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed.' },
   acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, rank: 'back', speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress, or Curse: 3 dmg to a back hero.' },
-  brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, rank: 'front', speed: 1, dmg: 7, undead: true, glyph: '♜', desc: 'Every other round, Slam: 7 dmg to all front heroes.' },
+  brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, rank: 'front', speed: 8, dmg: 7, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to all front heroes.' },
 };
 
 export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: number }[] = [
@@ -53,7 +54,7 @@ export const ESCALATION = {
   /** Max live monsters = capBase + capPerTier × tier. */
   capBase: 8,
   capPerTier: 1.5,
-  /** Packs walk corridors this many times slower than heroes. */
+  /** Packs take this × their slowest member's Speed to walk a tunnel. */
   packSlowness: 1.5,
   /** Light drains this much faster from tier 4. */
   lateLightDrain: 1.5,

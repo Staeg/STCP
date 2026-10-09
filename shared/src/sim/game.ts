@@ -32,15 +32,16 @@ export class Game {
     this.bots.set(heroId, createBotMemory(this.world.seed + this.bots.size * 104729));
   }
 
-  /** Bots take 1–3s to pick, like a human reading the situation. */
+  /** Bots take 1–3s after each turn to pick the next one (less if their turn comes sooner), like a human reading the situation. */
   private botFight(id: string, mem: BotMemory) {
     const w = this.world;
     const enc = w.encounters[this.world.heroes[id].encounter!];
-    if (!enc || enc.phase !== 'choosing' || enc.choices[id] || !enc.heroes.includes(id)) return;
-    const key = `${enc.room}:${enc.round}`;
+    const next = enc?.next[id];
+    if (!enc || next === undefined || enc.choices[id] || !enc.heroes.includes(id)) return;
+    const key = `${enc.room}:${next}`;
     if (mem.combatKey !== key) {
       mem.combatKey = key;
-      mem.decideAt = w.time + mem.rng.float(1, 3);
+      mem.decideAt = Math.min(w.time + mem.rng.float(1, 3), next - 0.3);
     }
     if (w.time < mem.decideAt) return;
     const choice = chooseCombatAction(buildView(w, id), mem.rng);

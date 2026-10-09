@@ -99,12 +99,15 @@ class Client {
     }
     if (v.encounter) {
       const enc = v.encounter;
-      const key = `${enc.room}:${enc.round}`;
+      // A new decision each time our Speed timer restarts.
+      const me = enc.heroes.find((h) => h.id === v.you.id);
+      const next = me?.nextIn ?? null;
+      const key = `${enc.room}:${next === null ? 'down' : Math.round(v.time + next)}`;
       if (key !== this.combatKey) {
         this.combatKey = key;
-        this.decideAt = v.time + this.rng.float(0.5, 2.5);
+        this.decideAt = v.time + Math.min(this.rng.float(0.5, 2.5), Math.max(0, (next ?? 0) - 0.3));
       }
-      if (enc.phase === 'choosing' && !enc.yourChoice && v.time >= this.decideAt) {
+      if (next !== null && !enc.yourChoice && v.time >= this.decideAt) {
         const choice = chooseCombatAction(v, this.rng);
         if (choice) this.send({ t: 'intent', intent: { type: 'combat', choice } });
       }

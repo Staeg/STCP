@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CORRIDOR_TIME, CROSSROADS_COUNT, generateDungeon, hopDistances, isCrossroads, MIN_DEPTH, MIN_LOOPS, ROOM_COUNT,
+  CORRIDOR_TIME, CROSSROADS_COUNT, dirBetween, generateDungeon, neighbours, hopDistances, isCrossroads, MIN_DEPTH, MIN_LOOPS, ROOM_COUNT,
 } from './gen';
 
 const SEEDS = Array.from({ length: 500 }, (_, i) => i * 7919 + 1);
@@ -39,6 +39,17 @@ describe('generateDungeon', () => {
         expect(c.length, ctx).toBe(CORRIDOR_TIME);
         expect(d.rooms[c.a].corridors).toContain(c.id);
         expect(d.rooms[c.b].corridors).toContain(c.id);
+      }
+
+      // At most one neighbour in each compass direction, and the direction is unambiguous on screen.
+      for (const r of d.rooms) {
+        const dirs = neighbours(d, r.id).map((n) => d.rooms[n]);
+        for (const n of dirs) expect(Math.abs(n.gx - r.gx) + Math.abs(n.gy - r.gy), ctx).toBe(1);
+        expect(new Set(dirs.map((n) => dirBetween(r, n))).size, ctx).toBe(dirs.length);
+        for (const n of dirs) {
+          const byGrid = n.gx > r.gx ? 'east' : n.gx < r.gx ? 'west' : n.gy > r.gy ? 'south' : 'north';
+          expect(dirBetween(r, n), ctx).toBe(byGrid);
+        }
       }
 
       // Unique names, one exit.

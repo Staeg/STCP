@@ -21,6 +21,11 @@ export class LootUi {
       if (el.dataset.claim) net.intent({ type: 'claim', index: Number(el.dataset.claim) });
     });
     $('inventory').addEventListener('pointerdown', (e) => {
+      const gear = (e.target as HTMLElement).closest('[data-gear]') as HTMLElement | null;
+      if (gear && (e.target as HTMLElement).closest('.drop')) {
+        net.intent({ type: 'unequip', slot: gear.dataset.gear as 'weapon' | 'armor' });
+        return;
+      }
       const el = (e.target as HTMLElement).closest('[data-slot]') as HTMLElement | null;
       if (!el) return;
       const slot = Number(el.dataset.slot);
@@ -86,7 +91,7 @@ export class LootUi {
       const options = vote.candidates.map((c) => `
         <button class="vote-opt ${mine === c.id ? 'sel' : ''}" data-vote="${c.id}" ${canVote ? '' : 'disabled'}>
           ${esc(c.id === view.you.id ? 'Me' : c.name)}${c.isBot ? ' <span class="muted">(bot)</span>' : ''}
-          <span class="muted small">${c.free} free</span>
+          <span class="muted small">${c.wearing !== undefined ? (c.wearing ? `has ${esc(ITEMS[c.wearing].name)}` : 'nothing worn') : `${c.free} free`}</span>
           <div class="backers">${backers(c.id)}</div>
         </button>`).join('');
       const pending = vote.voters.filter((v) => !vote.votes[v]).map(nameOf);
@@ -122,7 +127,15 @@ export class LootUi {
         <kbd>${i + 4}</kbd><span class="item-glyph">${def.glyph}</span><span class="item-name">${def.name}</span>
         <span class="drop" title="Drop on the floor">✕</span></div>`);
     }
-    const html = `<div class="gold">⛀ ${you.gold} gold</div><div class="slots-row">${slots.join('')}</div>`;
+    const gear = (['weapon', 'armor'] as const).map((slot) => {
+      const item = you[slot];
+      if (!item) return `<div class="slot-item gear empty" title="No ${slot}"><span class="muted small">${slot === 'weapon' ? 'No weapon' : 'No armor'}</span></div>`;
+      const def = ITEMS[item];
+      return `<div class="slot-item gear ${slot}" data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}`)}">
+        <span class="item-glyph">${def.glyph}</span><span class="item-name">${def.name}</span>
+        <span class="drop" title="Take it off and drop it">✕</span></div>`;
+    });
+    const html = `<div class="gold">⛀ ${you.gold} gold</div><div class="slots-row gear-row">${gear.join('')}</div><div class="slots-row">${slots.join('')}</div>`;
     if (html !== this.lastInvHtml) {
       $('inventory').innerHTML = html;
       this.lastInvHtml = html;

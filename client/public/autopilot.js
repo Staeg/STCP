@@ -39,8 +39,10 @@ window.startAutopilot = (opts = {}) => {
     if (you.extracted || you.dead) { L(you.extracted ? 'escaped' : 'dead'); ap.on = false; return; }
     const enc = v.encounter;
     if (enc) {
-      const key = enc.room + ':' + enc.round;
-      if (enc.phase === 'choosing' && !enc.yourChoice && !enc.youJoining && key !== lastRound) {
+      // One decision per turn: the key changes each time our Speed timer restarts.
+      const me = enc.heroes.find((h) => h.id === you.id);
+      const key = enc.room + ':' + (me && me.nextIn !== null ? Math.round(v.time + me.nextIn) : 'down');
+      if (me && !me.downed && !enc.yourChoice && key !== lastRound) {
         lastRound = key;
         const soft = enc.monsters.find((m) => m.st.mark || m.st.stun) ?? enc.monsters.slice().sort((a, b) => a.hp - b.hp)[0];
         const front = enc.monsters.find((m) => m.rank === 'front') ?? soft;
@@ -58,7 +60,7 @@ window.startAutopilot = (opts = {}) => {
         else if (you.cls === 'cutthroat' && enc.monsters.length > 1 && ready(you, 1)) choice = { action: 'a1', target: soft.id };
         else if (you.cls === 'lampbearer' || you.cls === 'warden') choice = { action: 'brace' };
         else choice = { action: 'a0', target: soft.id };
-        L(`fight r${enc.round} vs ${enc.monsters.map((m) => m.name).join('+')}: ${choice.action} (hp ${you.hp})`);
+        L(`fight vs ${enc.monsters.map((m) => m.name).join('+')}: ${choice.action} (hp ${you.hp})`);
         n.intent({ type: 'combat', choice });
       }
       return;

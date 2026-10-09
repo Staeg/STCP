@@ -104,7 +104,7 @@ export class Screens {
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" ${disabled} style="--cls:${c.color}">
         <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <div class="class-name">${c.name}</div>
-        <div class="muted">${c.role} · ${c.maxHp} HP</div>
+        <div class="muted" title="Speed: seconds between turns in a fight, and to walk a tunnel. Lower is faster.">${c.role} · ${c.maxHp} HP · Speed ${c.speed}s</div>
         <div class="blurb">${c.blurb}</div>
         ${owner && !mine ? `<div class="muted">taken by ${esc(owner.name)}</div>` : ''}
       </button>`;

@@ -127,6 +127,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'dig' && Number.isInteger(i.corridor)) return { t: 'intent', intent: { type: 'dig', corridor: i.corridor as number } };
       if (i.type === 'vote' && str(i.choice, 32)) return { t: 'intent', intent: { type: 'vote', choice: i.choice as string } };
       if ((i.type === 'claim' || i.type === 'drop') && slot(i.index)) return { t: 'intent', intent: { type: i.type, index: i.index as number } };
+      if (i.type === 'unequip' && (i.slot === 'weapon' || i.slot === 'armor')) return { t: 'intent', intent: { type: 'unequip', slot: i.slot } };
       if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
         return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };
       }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { BLEED_OUT, monstersIn, REVIVE_CHANNEL, ROUND_TIME, spawnGroup } from './combat';
+import { BLEED_OUT, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
 import { Game } from './game';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
@@ -22,18 +22,17 @@ function arena(classes: ClassId[], enemies: EnemyId[]) {
   return { world, d, ids, room, monsters };
 }
 
-/** Let the current round's timer run out and resolve; returns once the next round is open (or the fight is over). */
-function finishRound(world: World, room: number) {
+/** Step until this unit has taken its next turn (or the fight is over). */
+function untilTurn(world: World, room: number, id: string) {
   const enc = world.encounters[room];
   if (!enc) return;
-  const round = enc.round;
-  while (world.encounters[room] === enc && enc.phase === 'choosing' && enc.round === round) step(world, 0.1);
-  while (world.encounters[room] === enc && enc.phase === 'resolving') step(world, 0.1);
+  const due = enc.next[id];
+  for (let i = 0; i < 200 && world.encounters[room] === enc && enc.next[id] === due; i++) step(world, 0.1);
 }
 
 function walkIn(world: World, ids: string[], room: number) {
   for (const id of ids) applyIntent(world, id, { type: 'goto', room });
-  run(world, 9);
+  for (let i = 0; i < 100 && ids.some((id) => world.heroes[id].encounter === null); i++) step(world, 0.1);
 }
 
 describe('encounters', () => {
@@ -47,28 +46,67 @@ describe('encounters', () => {
     expect(h.path).toEqual([]);
     const view = buildView(world, 'h0');
     expect(view.encounter?.monsters).toHaveLength(1);
-    expect(view.encounter?.phase).toBe('choosing');
+    expect(view.encounter?.heroes[0].speed).toBe(6);
+    expect(view.encounter?.monsters[0].speed).toBe(5);
   });
 
-  it('resolves only when the 6s timer runs out, and braces those who did not choose', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['ghoul']);
+  it('each unit acts when its own Speed timer runs out, falling back on the first ability if the hero has not picked', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
+    const start = enc.startedAt;
+    expect(enc.next.h0).toBeCloseTo(start + 3); // Cutthroat: Speed 3
+    expect(enc.next[monsters[0].id]).toBeCloseTo(start + 8); // Bone Brute: Speed 8
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-    step(world, 0.1);
-    expect(enc.phase).toBe('choosing'); // everyone is in, but the beat isn't over
-    run(world, enc.deadline - world.time + 0.1);
-    expect(enc.phase).toBe('resolving');
+    run(world, 2.5);
+    expect(enc.events).toHaveLength(0); // picked, but it isn't their turn yet
+    untilTurn(world, room, 'h0');
+    expect(world.time - start).toBeCloseTo(3, 0);
     expect(enc.events.some((e) => e.text.includes('Backstab'))).toBe(true);
+    expect(enc.choices.h0).toBeUndefined(); // a pick is used up by the turn
+    expect(enc.next.h0).toBeCloseTo(start + 6);
 
-    // Next round: don't choose. When the timer runs out the hero braces.
-    while (enc.phase === 'resolving') step(world, 0.1);
-    expect(enc.deadline - world.time).toBeCloseTo(ROUND_TIME, 0);
-    run(world, ROUND_TIME + 0.2);
-    expect(enc.events.some((e) => e.text.includes('braces'))).toBe(true);
+    // Don't pick: when the turn comes the hero uses their first ability that's ready.
+    untilTurn(world, room, 'h0');
+    expect(enc.events.some((e) => e.text.includes('hesitates, then uses Backstab'))).toBe(true);
+    // Two Cutthroat turns before the Brute's first.
+    expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
   });
 
-  it("shows allies' locked-in picks to everyone in the fight as soon as they're made", () => {
+  it('ties go to heroes before monsters, and to the leftmost hero (back rank first) before the rightmost', () => {
+    // Cutthroat (front) in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Hexer (back) and the Acolyte.
+    const { world, ids, room, monsters } = arena(['cutthroat', 'hexer'], ['acolyte']);
+    world.heroes.h0.weapon = 'shortsword';
+    world.heroes.h0.armor = 'jerkin';
+    monsters[0].hp = 999;
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    expect(enc.next.h0).toBe(enc.next.h1);
+    expect(enc.next.h0).toBe(enc.next[monsters[0].id]);
+    untilTurn(world, room, monsters[0].id);
+    const order = enc.events.filter((e) => e.kind === 'info' && e.text.includes('hesitates')).map((e) => e.actor);
+    expect(order).toEqual(['h1', 'h0']); // Hexer (shown leftmost) first
+    const firstMonster = enc.events.findIndex((e) => e.actor === monsters[0].id);
+    const lastHero = enc.events.map((e) => e.actor).lastIndexOf('h0');
+    expect(firstMonster).toBeGreaterThan(lastHero);
+    expect(buildView(world, 'h0').encounter!.heroes.map((u) => u.id)).toEqual(['h1', 'h0']);
+  });
+
+  it('an undecided hero falls back on the next ability off cooldown, and braces only if none is ready', () => {
+    const { world, ids, room, monsters } = arena(['lampbearer'], ['brute']);
+    walkIn(world, ids, room);
+    monsters[0].hp = 999;
+    const enc = world.encounters[room];
+    const h = world.heroes.h0;
+    h.cooldowns = { mend: 2 };
+    untilTurn(world, room, 'h0');
+    expect(enc.events.some((e) => e.text.includes('hesitates, then uses Flare'))).toBe(true);
+    h.cooldowns = { mend: 2, flare: 2, vigil: 2 };
+    untilTurn(world, room, 'h0');
+    expect(enc.events.some((e) => e.text.includes('hesitates and braces'))).toBe(true);
+  });
+
+  it("shows allies' picks to everyone in the fight as soon as they're made", () => {
     const { world, ids, room, monsters } = arena(['cutthroat', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
@@ -78,23 +116,24 @@ describe('encounters', () => {
     expect(buildView(world, 'h0').encounter!.heroes.find((u) => u.id === 'h1')!.choice).toBeUndefined();
   });
 
-  it('enforces cooldowns (Poison Blade: cooldown 2 = two rounds unusable)', () => {
+  it("enforces cooldowns in the hero's own turns (Poison Blade: cooldown 2 = unusable for the next two turns)", () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
     walkIn(world, ids, room);
+    world.monsters[monsters[0].id].hp = 999;
     const enc = world.encounters[room];
     const poison = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
-    const nextRound = () => finishRound(world, room);
+    const brace = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
     poison();
     expect(enc.choices.h0?.action).toBe('a1');
-    nextRound(); // round 2
+    untilTurn(world, room, 'h0'); // turn 1: poison
     poison();
     expect(enc.choices.h0).toBeUndefined();
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
-    nextRound(); // round 3
+    brace();
+    untilTurn(world, room, 'h0'); // turn 2
     poison();
     expect(enc.choices.h0).toBeUndefined();
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
-    nextRound(); // round 4
+    brace();
+    untilTurn(world, room, 'h0'); // turn 3
     poison();
     expect(enc.choices.h0?.action).toBe('a1');
   });
@@ -105,14 +144,14 @@ describe('encounters', () => {
     for (let i = 0; i < 10 && monstersIn(world, room).length; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
       applyIntent(world, 'h1', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-      finishRound(world, room);
+      untilTurn(world, room, 'h0');
     }
     expect(monstersIn(world, room)).toHaveLength(0);
+    step(world, 0.1);
     expect(world.encounters[room]).toBeUndefined();
     expect(world.heroes.h0.encounter).toBeNull();
     expect(world.heroes.h0.cooldowns).toEqual({});
     // The kill always drops something, which must be settled before anyone leaves.
-    step(world, 0.1);
     expect(world.piles[room]?.vote).toBeTruthy();
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
     expect(world.heroes.h0.path).toEqual([]);
@@ -131,7 +170,7 @@ describe('encounters', () => {
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     h.hp = 1;
-    run(world, 12); // brace by timeout; ghoul hits; hero goes down
+    run(world, 12); // Hex by default; the ghoul hits; hero goes down
     expect(h.downedAt).not.toBeNull();
     expect(world.encounters[room]).toBeUndefined(); // no conscious heroes left → fight ends
     run(world, BLEED_OUT);
@@ -139,18 +178,22 @@ describe('encounters', () => {
     expect(world.phase).toBe('wiped');
   });
 
-  it('an ally can revive in combat (costs their action) and out of combat (channel)', () => {
+  it('an ally can revive in combat (costs their turn) and out of combat (channel); the revived get a fresh timer', () => {
     const { world, ids, room } = arena(['warden', 'lampbearer'], ['ghoul']);
     walkIn(world, ids, room);
     const lamp = world.heroes.h1;
     const enc = world.encounters[room];
     lamp.hp = 0;
     lamp.downedAt = world.time;
+    step(world, 0.1);
+    expect(enc.next.h1).toBeUndefined(); // the downed don't get turns
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'revive', target: 'h1' } });
-    run(world, enc.deadline - world.time + 0.1);
+    untilTurn(world, room, 'h0');
     expect(lamp.downedAt).toBeNull();
     expect(lamp.hp).toBeGreaterThan(0);
     expect(enc.events.some((e) => e.kind === 'heal' && e.target === 'h1')).toBe(true);
+    step(world, 0.1);
+    expect(enc.next.h1! - world.time).toBeCloseTo(5 - 0.1, 0);
 
     // Kill the ghoul, then down the lampbearer outside combat and channel a revive.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
@@ -165,7 +208,7 @@ describe('encounters', () => {
     expect(lamp.downedAt).toBeNull();
   });
 
-  it('Guard redirects attacks to the Warden', () => {
+  it("Guard redirects attacks to the Warden until the Warden's next turn", () => {
     const { world, ids, room } = arena(['warden', 'lampbearer'], ['acolyte']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
@@ -173,7 +216,7 @@ describe('encounters', () => {
     for (let i = 0; i < 12 && !redirected; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: i % 2 === 0 ? 'a1' : 'brace', target: 'h1' } });
       applyIntent(world, 'h1', { type: 'combat', choice: { action: 'brace' } });
-      finishRound(world, room);
+      untilTurn(world, room, 'h0');
       redirected = enc.events.some((e) => e.text.includes('steps in front'));
     }
     expect(redirected).toBe(true);
@@ -185,27 +228,69 @@ describe('encounters', () => {
     const h = world.heroes.h0;
     for (let i = 0; i < 10 && h.encounter !== null; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'flee' } });
-      finishRound(world, room);
+      untilTurn(world, room, 'h0');
     }
     expect(h.encounter).toBeNull();
     expect(world.encounters[room]).toBeUndefined();
     expect(monstersIn(world, room).length).toBeGreaterThan(0);
-    run(world, 9);
+    run(world, 3.2);
     expect(h.pos).toEqual({ kind: 'room', room: d.entrance });
   });
 
-  it('a hero arriving mid-round joins from the next round', () => {
+  it('a hero arriving mid-fight joins with a full Speed timer', () => {
     const { world, d, room } = arena(['warden'], ['brute']);
     walkIn(world, ['h0'], room);
     run(world, 1.5);
     const late = addHero(world, { id: 'late', name: 'Late', cls: 'hexer' });
     expect(late.pos).toEqual({ kind: 'room', room: d.entrance });
     applyIntent(world, 'late', { type: 'goto', room });
-    run(world, 8.5);
+    for (let i = 0; i < 60 && late.encounter === null; i++) step(world, 0.1);
     const enc = world.encounters[room];
-    expect(enc.heroes.includes('late') || enc.joining.includes('late')).toBe(true);
-    run(world, ROUND_TIME * 2 + 4);
     expect(enc.heroes).toContain('late');
+    expect(enc.next.late - world.time).toBeCloseTo(4, 0);
+  });
+});
+
+describe('Speed', () => {
+  it('comes from class, worn gear and carried trinkets, and sets how long a tunnel takes', () => {
+    const world = createWorld(777, { monsters: false, loot: false, escalation: false });
+    const d = world.dungeon;
+    const h = addHero(world, { id: 'h', name: 'H', cls: 'lampbearer' });
+    h.weapon = 'mace';
+    h.armor = 'cuirass';
+    h.items = ['coin', 'bandage'];
+    expect(buildView(world, 'h').you.maxHp).toBe(45);
+    const next = neighbours(d, d.entrance)[0];
+    applyIntent(world, 'h', { type: 'goto', room: next });
+    step(world, 0.1);
+    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6.1); // 5 + 0.5 + 0.5 + 0.1
+    run(world, 5.8);
+    expect(h.pos.kind).toBe('corridor');
+    run(world, 0.3);
+    expect(h.pos).toEqual({ kind: 'room', room: next });
+  });
+
+  it('heroes who take the same tunnel the same way arrive together, at the slower one\'s pace', () => {
+    const world = createWorld(777, { monsters: false, loot: false, escalation: false });
+    const d = world.dungeon;
+    const fast = addHero(world, { id: 'f', name: 'F', cls: 'cutthroat' });
+    const slow = addHero(world, { id: 's', name: 'S', cls: 'warden' });
+    const next = neighbours(d, d.entrance)[0];
+    applyIntent(world, 'f', { type: 'goto', room: next });
+    applyIntent(world, 's', { type: 'goto', room: next });
+    run(world, 4);
+    expect(fast.pos.kind).toBe('corridor'); // waiting for the Warden
+    run(world, 2.1);
+    expect(fast.pos).toEqual({ kind: 'room', room: next });
+    expect(slow.pos).toEqual({ kind: 'room', room: next });
+
+    // Going separate ways, nobody waits.
+    const [a, b] = neighbours(d, next).filter((r) => r !== d.entrance).concat(d.entrance);
+    applyIntent(world, 'f', { type: 'goto', room: a });
+    applyIntent(world, 's', { type: 'goto', room: b });
+    run(world, 3.2);
+    expect(fast.pos).toEqual({ kind: 'room', room: a });
+    expect(slow.pos.kind).toBe('corridor');
   });
 });
 

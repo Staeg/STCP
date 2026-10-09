@@ -50,6 +50,9 @@ export const LOOP_CHANCE = 0.3;
 /** At least this many corridors beyond a tree's (rooms − 1): paths cross and rejoin. */
 export const MIN_LOOPS = 6;
 
+/** How far a room may sit off its grid cell's centre. Under CELL / 4, so a corridor's compass direction is never in doubt. */
+const JITTER = 18;
+
 const DIRS = [
   [1, 0],
   [-1, 0],
@@ -89,8 +92,8 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
     const id = rooms.length;
     rooms.push({
       id, gx, gy,
-      x: gx * CELL + CELL / 2 + rng.float(-22, 22),
-      y: gy * CELL + CELL / 2 + rng.float(-22, 22),
+      x: gx * CELL + CELL / 2 + rng.float(-JITTER, JITTER),
+      y: gy * CELL + CELL / 2 + rng.float(-JITTER, JITTER),
       name: '', kind: 'normal', corridors: [],
     });
     deg.push(0);
@@ -98,6 +101,8 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
     return id;
   };
   const connect = (a: number, b: number) => {
+    // Hard rule: corridors only join grid neighbours, so every room has at most one exit north, east, south and west.
+    if (Math.abs(rooms[a].gx - rooms[b].gx) + Math.abs(rooms[a].gy - rooms[b].gy) !== 1) throw new Error('corridor between non-neighbours');
     const k = a < b ? `${a}-${b}` : `${b}-${a}`;
     if (edgeSet.has(k)) return;
     edgeSet.add(k);
@@ -185,6 +190,17 @@ export function theRoom(name: string): string {
 }
 
 // ---- Graph helpers used by the sim and the client ----
+
+export type Dir = 'north' | 'east' | 'south' | 'west';
+export const DIR_NAMES: Dir[] = ['north', 'east', 'south', 'west'];
+
+/** Compass direction from one room to a neighbour, from their positions (works on the client's room views too). */
+export function dirBetween(from: { x: number; y: number }, to: { x: number; y: number }): Dir {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'east' : 'west';
+  return dy > 0 ? 'south' : 'north';
+}
 
 export function otherEnd(c: Corridor, room: number): number {
   return c.a === room ? c.b : c.a;

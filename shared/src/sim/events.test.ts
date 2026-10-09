@@ -5,6 +5,7 @@ import { monstersIn, spawnGroup } from './combat';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { RoomEvent } from './events';
+import { speedOf } from './speed';
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -91,6 +92,47 @@ describe('room events', () => {
     expect(h.pos.kind === 'room' && dist[h.pos.room] === dist[far] - 3).toBe(true);
     expect(h.hp).toBe(hp - 4);
     expect(h.light).toBeLessThan(25);
+  });
+
+  it('quicksilver: faster for the rest of the run, but frailer', () => {
+    const { world, h } = withEvent('quicksilver', 'lampbearer');
+    applyIntent(world, 'h', { type: 'event', choice: 'quaff' });
+    run(world, 3.1); // not a multiple of 6: events can take any time now
+    expect(speedOf(h, world.time)).toBe(4);
+    expect(h.maxHp).toBe(39);
+    run(world, 600);
+    expect(speedOf(h, world.time)).toBe(4);
+  });
+
+  it("courier's satchel: gold for the one who hauls it, who is slower from then on", () => {
+    const { world, h } = withEvent('satchel', 'cutthroat');
+    applyIntent(world, 'h', { type: 'event', choice: 'haul' });
+    run(world, 3.1);
+    expect(h.gold).toBe(45);
+    expect(speedOf(h, world.time)).toBe(4);
+  });
+
+  it('hourglass: everyone in the room is faster for a while', () => {
+    const { world, h } = withEvent('hourglass', 'warden');
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'hexer' });
+    applyIntent(world, 'h', { type: 'event', choice: 'turn' });
+    run(world, 3.1);
+    expect(speedOf(h, world.time)).toBe(4.5);
+    expect(speedOf(other, world.time)).toBe(2.5);
+    run(world, 90.5);
+    expect(speedOf(h, world.time)).toBe(6);
+    expect(speedOf(other, world.time)).toBe(4);
+  });
+
+  it('clockwork shrine: a long wind for a lasting edge; Speed never drops below 2s', () => {
+    const { world, h } = withEvent('clockwork', 'cutthroat');
+    applyIntent(world, 'h', { type: 'event', choice: 'wind' });
+    run(world, 14.8);
+    expect(speedOf(h, world.time)).toBe(3);
+    run(world, 0.3);
+    expect(speedOf(h, world.time)).toBe(2.5);
+    h.speedMods.push({ amount: -3, until: null, label: 'test' });
+    expect(speedOf(h, world.time)).toBe(2);
   });
 
   it('vault: a channel (Cutthroat fast) whose progress survives interruption', () => {

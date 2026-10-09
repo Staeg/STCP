@@ -1,4 +1,4 @@
-import type { HeroPos, PlayerView, RoomView } from '@stcp/shared';
+import { dirBetween, EVENTS, type HeroPos, type PlayerView, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
 import { drawSprite } from './sprites';
 
@@ -52,7 +52,7 @@ export class MapRenderer {
     this.canvas.height = innerHeight * this.dpr;
   }
 
-  /** The camera follows your hero at a fixed zoom, easing toward them so walking pans smoothly. */
+  /** The camera follows your hero at a fixed zoom, easing toward them so each move pans smoothly. */
   private layout(view: PlayerView) {
     // Keep clear of the left HUD column (clock + roster), the top-right status panel and the bottom bars.
     const left = 300;
@@ -63,7 +63,7 @@ export class MapRenderer {
     const h = innerHeight - top - bottom;
     // About 7 rooms across and 4–5 down, whatever the window size.
     const s = Math.max(0.8, Math.min(2.2, Math.min(w / 750, h / 450)));
-    const target = this.smoothXY(view.you.id, view.you.pos);
+    const target = posXY(view, view.you.pos);
     const now = performance.now();
     const dt = Math.min(0.5, (now - this.camAt) / 1000);
     this.camAt = now;
@@ -89,23 +89,11 @@ export class MapRenderer {
     return Math.max(22, 34 * this.x.s);
   }
 
-  /** Interpolated world position of a hero (you, or a live ally) between the last two snapshots. */
-  private smoothXY(id: string, curPos: HeroPos): { x: number; y: number } {
-    const { cur, prev, curAt } = this.net;
-    const b = posXY(cur!, curPos);
-    if (!prev) return b;
-    const prevPos = id === prev.you.id ? prev.you.pos : prev.allies.find((a) => a.id === id && a.live)?.pos;
-    if (!prevPos) return b;
-    const a = posXY(prev, prevPos);
-    const alpha = Math.min(1, (performance.now() - curAt) / 100);
-    return Math.hypot(a.x - b.x, a.y - b.y) < 80 ? { x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha } : b;
-  }
-
   /** Screen positions for every hero token, spreading out tokens that would overlap. */
   private tokenPositions(view: PlayerView): Map<string, { x: number; y: number; lx: number; ly: number }> {
     const entries: { id: string; pos: HeroPos }[] = [{ id: view.you.id, pos: view.you.pos }, ...view.allies];
     const raw = entries.map((e) => {
-      const p = this.smoothXY(e.id, e.pos);
+      const p = posXY(view, e.pos);
       return { id: e.id, x: this.sx(p.x), y: this.sy(p.y) };
     });
     // Greedy clustering: tokens within a few px of a cluster's anchor share a ring.
@@ -281,6 +269,22 @@ export class MapRenderer {
       this.drawHero(p.x, p.y, sprite, a.cls, a.color, a.live ? 'live' : 'ghost');
       if (a.downed || a.dead) this.drawCross(p.x, p.y, r, a.dead);
     }
+    // Heroes in a tunnel wait at its midpoint; a ring in their colour counts down their Speed to arrival.
+    for (const h of [...view.allies.filter((a) => a.live), you]) {
+      if (h.pos.kind !== 'corridor') continue;
+      const p = tokens.get(h.id)!;
+      const frac = Math.min(1, h.pos.t / h.pos.dur);
+      ctx.lineWidth = h.id === you.id ? 3 : 2;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, sprite * 0.72, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = h.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, sprite * 0.72, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+      ctx.stroke();
+    }
+    if (curRoom !== null && you.encounter === null && you.downedAt === null) this.drawKeyHints(view, rooms.get(curRoom), size);
     if (view.leading) drawSprite(ctx, 'villager', hp.x + sprite * 0.55, hp.y + sprite * 0.1, Math.round(sprite * 0.75));
     this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
     if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
@@ -322,6 +326,38 @@ export class MapRenderer {
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
     }
+  }
+
+  /** W/A/S/D next to each tunnel out of your room. */
+  private drawKeyHints(view: PlayerView, here: RoomView | undefined, size: number) {
+    if (!here) return;
+    const { ctx } = this;
+    const keys = { north: 'W', west: 'A', south: 'S', east: 'D' } as const;
+    ctx.font = '16px VT323, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const c of view.corridors) {
+      if (c.a !== here.id && c.b !== here.id) continue;
+      const other = view.rooms.find((r) => r.id === (c.a === here.id ? c.b : c.a));
+      if (!other) continue;
+      const dx = this.sx(other.x) - this.sx(here.x);
+      const dy = this.sy(other.y) - this.sy(here.y);
+      const len = Math.hypot(dx, dy);
+      const d = size / 2 + 22;
+      const x = this.sx(here.x) + (dx / len) * d;
+      const y = this.sy(here.y) + (dy / len) * d;
+      // Nudge the badge off the corridor line so it doesn't sit on chalk marks.
+      const ox = Math.abs(dx) > Math.abs(dy) ? 0 : 12;
+      const oy = Math.abs(dx) > Math.abs(dy) ? -12 : 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(x + ox - 8, y + oy - 8, 16, 16);
+      ctx.strokeStyle = COLORS.border;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + ox - 8, y + oy - 8, 16, 16);
+      ctx.fillStyle = c.collapsed ? '#e05a3a' : COLORS.text;
+      ctx.fillText(keys[dirBetween(here, other)], x + ox, y + oy + 1);
+    }
+    ctx.textBaseline = 'alphabetic';
   }
 
   /** A hero on the map: a coloured base (so you can tell who's who at a glance) and their sprite. */
@@ -410,7 +446,7 @@ export class MapRenderer {
     if (r.event === 'villager') {
       drawSprite(ctx, 'villager', cx, cy, Math.max(16, Math.round((size * 0.8) / 8) * 8));
     } else if (r.event) {
-      const glyph = ({ altar: '⛧', idol: '✧', stranger: '¿', well: '◯', vault: '▣', chest: '☐', crawlspace: '↘' } as const)[r.event];
+      const glyph = EVENTS[r.event].glyph;
       ctx.font = `${Math.round(size * 0.55)}px VT323, monospace`;
       ctx.fillStyle = r.event === 'altar' ? '#c08aff' : '#e0c890';
       ctx.fillText(glyph, cx, cy + 1);
@@ -448,12 +484,11 @@ function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number,
   ctx.stroke();
 }
 
+/** Where a hero is drawn: in their room, or at the midpoint of the tunnel they're taking (moves are instant on arrival). */
 export function posXY(view: PlayerView, pos: HeroPos): { x: number; y: number } {
   const room = (id: number) => view.rooms.find((r) => r.id === id) ?? { x: 0, y: 0 };
   if (pos.kind === 'room') return room(pos.room);
   const a = room(pos.from);
   const b = room(pos.to);
-  const len = (view.corridors.find((c) => c.id === pos.corridor) ?? view.ghostCorridors.find((c) => c.id === pos.corridor))?.length;
-  const f = len ? pos.t / len : 0.5;
-  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }

@@ -1,4 +1,4 @@
-import { INVENTORY_SLOTS, ITEMS, LOOT, LOOT_TABLE, type ItemId } from '../content/items';
+import { INVENTORY_SLOTS, isGear, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
@@ -92,12 +92,25 @@ export function hasSpace(h: Hero): boolean {
   return h.items.length < INVENTORY_SLOTS;
 }
 
-export function giveItem(h: Hero, item: ItemId) {
+/** Gear can always be taken (it swaps with what you wear); anything else needs a free pack slot. */
+export function canTake(h: Hero, item: ItemId): boolean {
+  return isGear(item) || hasSpace(h);
+}
+
+/** Returns the gear this displaced, if any (the caller puts it on the floor). */
+export function giveItem(h: Hero, item: ItemId): ItemId | null {
+  const def = ITEMS[item];
+  if (def.kind === 'weapon' || def.kind === 'armor') {
+    const old = h[def.kind];
+    h[def.kind] = item;
+    return old;
+  }
   h.items.push(item);
   if (item === 'locket') {
     h.maxHp += 8;
     if (h.downedAt === null) h.hp += 8;
   }
+  return null;
 }
 
 export function takeItem(h: Hero, index: number): ItemId | null {
@@ -139,7 +152,7 @@ export function tickLoot(world: World) {
     if (vote) {
       // Selfish heroes always claim it, and get outvoted by being ignored after a grace period.
       const graceOver = world.time - vote.startedAt > STRESS.selfishGrace;
-      for (const v of voters) if (v.affliction === 'selfish' && hasSpace(v)) vote.votes[v.id] = v.id;
+      for (const v of voters) if (v.affliction === 'selfish' && canTake(v, vote.item)) vote.votes[v.id] = v.id;
       if (graceOver) {
         const fair = voters.filter((v) => v.affliction !== 'selfish');
         if (fair.length) voters.splice(0, voters.length, ...fair);
@@ -147,7 +160,7 @@ export function tickLoot(world: World) {
       const ids = new Set(voters.map((v) => v.id));
       for (const id of Object.keys(vote.votes)) if (!ids.has(id)) delete vote.votes[id];
       // A vote for someone who can no longer take it is void.
-      for (const [id, choice] of Object.entries(vote.votes)) if (!validChoice(world, room, choice)) delete vote.votes[id];
+      for (const [id, choice] of Object.entries(vote.votes)) if (!validChoice(world, room, choice, vote.item)) delete vote.votes[id];
       const values = voters.map((v) => vote.votes[v.id]);
       if (values.every((v) => v !== undefined && v === values[0])) resolveVote(world, room, pile, values[0]!);
     }
@@ -168,10 +181,10 @@ function splitGold(world: World, room: number, pile: Pile) {
   pile.gold = 0;
 }
 
-function validChoice(world: World, room: number, choice: string): boolean {
+function validChoice(world: World, room: number, choice: string, item: ItemId): boolean {
   if (choice === LEAVE) return true;
   const h = world.heroes[choice];
-  return !!h && !h.dead && h.pos.kind === 'room' && h.pos.room === room && hasSpace(h);
+  return !!h && !h.dead && h.pos.kind === 'room' && h.pos.room === room && canTake(h, item);
 }
 
 function resolveVote(world: World, room: number, pile: Pile, choice: string) {
@@ -185,8 +198,11 @@ function resolveVote(world: World, room: number, pile: Pile, choice: string) {
     return;
   }
   const winner = world.heroes[choice];
-  giveItem(winner, vote.item);
-  for (const h of present) notify(world, h, h === winner ? `You take the ${def.name}.` : `${winner.name} takes the ${def.name}.`);
+  const old = giveItem(winner, vote.item);
+  const verb = isGear(vote.item) ? ['equip', 'equips'] : ['take', 'takes'];
+  for (const h of present) notify(world, h, h === winner ? `You ${verb[0]} the ${def.name}.` : `${winner.name} ${verb[1]} the ${def.name}.`);
+  // The piece it replaced goes on the floor, to be voted on like any other find.
+  if (old) addToPile(world, room, 0, [old]);
 }
 
 /** Returns an error message or null. */
@@ -195,8 +211,8 @@ export function castVote(world: World, h: Hero, choice: string): string | null {
   const pile = world.piles[h.pos.room];
   if (!pile?.vote) return 'Nothing to vote on.';
   if (!votersIn(world, h.pos.room).includes(h)) return 'You cannot vote right now.';
-  if (!validChoice(world, h.pos.room, choice)) return 'They cannot carry it.';
-  if (h.affliction === 'selfish' && hasSpace(h) && choice !== h.id) return 'Mine! (Selfish)';
+  if (!validChoice(world, h.pos.room, choice, pile.vote.item)) return 'They cannot carry it.';
+  if (h.affliction === 'selfish' && canTake(h, pile.vote.item) && choice !== h.id) return 'Mine! (Selfish)';
   pile.vote.votes[h.id] = choice;
   return null;
 }
@@ -227,11 +243,25 @@ export function dropItem(world: World, h: Hero, index: number): string | null {
   return null;
 }
 
+/** Take off a weapon or armor and put it on the floor of your room for a vote. */
+export function unequip(world: World, h: Hero, slot: GearSlot): string | null {
+  if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
+  const item = h[slot];
+  if (!item) return 'Nothing there.';
+  h[slot] = null;
+  addToPile(world, h.pos.room, 0, [item]);
+  return null;
+}
+
 /** A hero died: everything they carried hits the floor. */
 export function dropEverything(world: World, h: Hero) {
   const room = h.pos.kind === 'room' ? h.pos.room : h.pos.from;
   const items: ItemId[] = [];
   while (h.items.length) items.push(takeItem(h, 0)!);
+  for (const slot of ['weapon', 'armor'] as const) {
+    if (h[slot]) items.push(h[slot]!);
+    h[slot] = null;
+  }
   addToPile(world, room, h.gold, items);
   h.gold = 0;
 }

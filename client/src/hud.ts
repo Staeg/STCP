@@ -1,4 +1,4 @@
-import { AFFLICTIONS, BLEED_OUT, CLASSES, ESCALATION, EVENT_SEEDING, REVIVE_CHANNEL, TIER_TEXT, type PlayerView } from '@stcp/shared';
+import { AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, CLASSES, ESCALATION, EVENT_SEEDING, REVIVE_CHANNEL, TIER_TEXT, type PlayerView } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
@@ -36,7 +36,12 @@ export class Hud {
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
       if (e.code === 'KeyE' && !$('btn-escape').hidden) $('btn-escape').click();
-      if (e.code === 'KeyD' && !$('btn-dig').hidden) $('btn-dig').click();
+      if (e.code === 'KeyG' && !$('btn-dig').hidden) $('btn-dig').click();
+      const dir = ({ KeyW: 'north', KeyA: 'west', KeyS: 'south', KeyD: 'east' } as const)[e.code as 'KeyW'];
+      if (dir) {
+        const room = roomInDir(net.cur, dir);
+        if (room !== null) net.intent({ type: 'goto', room });
+      }
       if (e.code === 'KeyM' && !$('btn-mend').hidden) $('btn-mend').click();
       if (e.code === 'Space') {
         e.preventDefault();
@@ -77,7 +82,7 @@ export class Hud {
     if (you.affliction) {
       const def = AFFLICTIONS[you.affliction];
       aff.textContent = `⚠ ${def.name.toUpperCase()}`;
-      aff.title = def.desc;
+      aff.title = `${def.desc} ${AFFLICTION_RULES}`;
     }
     const escort = $('escort');
     escort.hidden = !view.leading;
@@ -89,7 +94,16 @@ export class Hud {
     $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
     $('stress-text').textContent = `${Math.round(you.stress)}`;
     $('stress-fill').style.width = `${you.stress}%`;
-    $('light-text').textContent = view.dim ? '(DIM)' : '';
+    $('light-text').textContent = view.dim ? (you.light <= 0 ? '(DARK)' : '(DIM)') : '';
+    $('light-text').title = you.light <= 0
+      ? 'Darkness: +0.5 stress per second, and monsters hit you 25% harder.'
+      : `Dim (light under ${LIGHT_DIM}): +0.15 stress per second, and you can't see into neighbouring rooms.`;
+    // Speed: seconds per turn in a fight and per tunnel. Hover for what's making it up.
+    const speed = speedOf(you, view.time);
+    $('speed-text').textContent = `${fmtSpeed(speed)} per turn / tunnel`;
+    $('speed-line').title = 'Speed (lower is faster): '
+      + speedParts(you, view.time).map((p, i) => `${i === 0 ? '' : p.amount < 0 ? '− ' : '+ '}${fmtSpeed(Math.abs(p.amount))} ${p.label}`).join(' ')
+      + ` = ${fmtSpeed(speed)}${speedParts(you, view.time).reduce((t, p) => t + p.amount, 0) < MIN_SPEED ? ` (never below ${fmtSpeed(MIN_SPEED)})` : ''}`;
     const fill = $('light-fill');
     fill.style.width = `${you.light}%`;
     fill.classList.toggle('dim', view.dim);
@@ -116,7 +130,7 @@ export class Hud {
     if (rubble) {
       const other = view.rooms.find((r) => r.id === (rubble.a === here ? rubble.b : rubble.a));
       digBtn.dataset.corridor = String(rubble.id);
-      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime}s) <kbd>D</kbd>`;
+      digBtn.innerHTML = `⛏ Dig toward ${escape(other?.name ?? 'the unknown')} (${you.cls === 'warden' ? ESCALATION.digTimeWarden : ESCALATION.digTime}s) <kbd>G</kbd>`;
     }
 
     // Lampbearer: mend the most hurt person here between fights.
@@ -203,7 +217,7 @@ function rosterHtml(view: PlayerView): string {
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
     status += hp;
-    const aff = a.affliction ? ` <span class="aff" title="${escape(AFFLICTIONS[a.affliction].desc)}">${AFFLICTIONS[a.affliction].name}</span>` : '';
+    const aff = a.affliction ? ` <span class="aff" title="${escape(`${AFFLICTIONS[a.affliction].desc} ${AFFLICTION_RULES}`)}">${AFFLICTIONS[a.affliction].name}</span>` : '';
     return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}</div></div>`;
   });
   return rows.join('');
@@ -213,7 +227,31 @@ function locationText(view: PlayerView): string {
   const pos = view.you.pos;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (pos.kind === 'room') return name(pos.room);
-  return `Corridor → ${name(pos.to)}`;
+  const len = view.corridors.find((c) => c.id === pos.corridor)?.length ?? 0;
+  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil(len - pos.t))}s)`;
+}
+
+/**
+ * The room one corridor away in a compass direction (WASD). From a corridor it's measured from the room
+ * you're heading into, except that pressing back toward where you came from turns you around.
+ */
+export function roomInDir(view: PlayerView | null, dir: Dir): number | null {
+  if (!view) return null;
+  const pos = view.you.pos;
+  const at = (id: number) => view.rooms.find((r) => r.id === id);
+  if (pos.kind === 'corridor') {
+    const to = at(pos.to);
+    const from = at(pos.from);
+    if (to && from && dirBetween(to, from) === dir) return pos.from;
+  }
+  const here = at(pos.kind === 'room' ? pos.room : pos.to);
+  if (!here) return null;
+  for (const c of view.corridors) {
+    if (c.a !== here.id && c.b !== here.id) continue;
+    const other = at(c.a === here.id ? c.b : c.a);
+    if (other && dirBetween(here, other) === dir) return other.id;
+  }
+  return null;
 }
 
 function escape(s: string) {

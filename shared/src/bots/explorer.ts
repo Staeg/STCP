@@ -17,7 +17,7 @@ export interface BotMemory {
   returnAt: number;
   /** Bots pause briefly in each room, as a human would. */
   thinkUntil: number;
-  /** Combat: which round we're deciding for, and when we'll commit. */
+  /** Combat: which turn we're deciding for, and when we'll commit. */
   combatKey: string;
   decideAt: number;
   /** At the open exit: when this bot gives up waiting and leaves. */

@@ -42,7 +42,7 @@ const deathsByTier = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
 const causes: Record<string, number> = {};
 let heroes = 0, deaths = 0, escaped = 0, wiped = 0, lateRuns = 0, goldOut = 0, dramaRuns = 0;
-let fights = 0, rounds = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
+let fights = 0, turns = 0, fightTime = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
 let afflictions = 0, heartAttacks = 0, eventsUsed = 0, altars = 0, saved = 0;
 const arrivals: number[] = [];
 const t0 = performance.now();
@@ -80,7 +80,7 @@ for (let g = 0; g < games; g++) {
     }
   }
   if (late) lateRuns++;
-  fights += w.stats.fights; rounds += w.stats.rounds; downs += w.stats.downs; revives += w.stats.revives;
+  fights += w.stats.fights; turns += w.stats.turns; fightTime += w.stats.fightTime; downs += w.stats.downs; revives += w.stats.revives;
   slain += w.stats.slain; collapses += w.stats.collapses; waves += w.stats.waves;
   afflictions += w.stats.afflictions; heartAttacks += w.stats.heartAttacks; eventsUsed += w.stats.eventsUsed;
   altars += w.objectives.altars; saved += w.objectives.villagers;
@@ -88,7 +88,7 @@ for (let g = 0; g < games; g++) {
 
 const json = {
   games, sets, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByTier[0] + deathsByTier[1]) / Math.max(1, deaths),
-  roundsPerFight: rounds / Math.max(1, fights), deathsByTier, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
+  secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByTier, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
   perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, afflictions: afflictions / games, altars: altars / games, saved: saved / games },
 };
 if (args.has('json')) {
@@ -105,7 +105,8 @@ console.log(`${check(escaped / heroes >= 0.4 && escaped / heroes <= 0.65)} escap
 console.log(`${check(dramaRuns / games >= 0.5)} runs where, at 10:00, someone waits at the exit while someone else is still out: ${pct(dramaRuns, games)}  [target ≥50%]`);
 console.log(`${check(lateRuns / games >= 0.3)} runs with someone reaching the exit after 10:30: ${pct(lateRuns, games)}  [target ≥30%]`);
 console.log(`${check(early / Math.max(1, deaths) <= 0.1)} deaths before 4:00: ${pct(early, deaths)} of deaths  [target ≤10%]`);
-console.log(`${check(rounds / fights >= 3 && rounds / fights <= 6)} rounds per fight: ${(rounds / Math.max(1, fights)).toFixed(1)}  [target 3–6 (mean)]`);
+const secs = fightTime / Math.max(1, fights);
+console.log(`${check(secs >= 18 && secs <= 36)} seconds per fight: ${secs.toFixed(1)} (${(turns / Math.max(1, fights)).toFixed(1)} hero turns)  [target 18–36s, the old 3–6 six-second rounds]`);
 console.log(`full wipes: ${pct(wiped, games)}`);
 console.log(`deaths by tier: ${deathsByTier.map((n, i) => `T${i}:${n}`).join(' ')}`);
 console.log(`deaths by class: ${JSON.stringify(deathsByClass)}`);

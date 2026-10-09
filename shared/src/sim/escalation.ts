@@ -1,7 +1,7 @@
 import { EXIT_OPENS_AT, tierAt } from '../content/constants';
-import { ESCALATION, type EnemyId } from '../content/enemies';
+import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { downHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { armored, downHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { notify } from './notify';
 import { chronicle, explore, type World } from './world';
 
@@ -163,7 +163,8 @@ function movePacks(world: World) {
       c = best;
     }
     pack.to = otherEnd(c, pack.room);
-    pack.arriveAt = world.time + c.length * ESCALATION.packSlowness;
+    // A pack moves at its slowest member's Speed.
+    pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
     for (const m of members) m.room = -1;
   }
 }
@@ -194,7 +195,7 @@ export function collapseCorridor(world: World, cid: number, reason = 'A tunnel c
     const pos = h.pos;
     if (pos.kind === 'corridor' && pos.corridor === cid) {
       // Caught inside: thrown out to the nearer end, hurt.
-      const back = pos.t < c.length / 2 ? pos.from : pos.to;
+      const back = pos.t < pos.dur / 2 ? pos.from : pos.to;
       h.pos = { kind: 'room', room: back };
       h.path = [];
       // You may land in the room you were heading for: you now know it (and its exits).
@@ -202,7 +203,7 @@ export function collapseCorridor(world: World, cid: number, reason = 'A tunnel c
       h.knownCollapsed.push(cid);
       notify(world, h, 'The tunnel caves in around you!');
       if (h.downedAt === null) {
-        h.hp -= 4;
+        h.hp -= armored(h, 4);
         if (h.hp <= 0) downHero(world, h, null);
       }
       chronicle(world, `${h.name} was caught in a cave-in.`);

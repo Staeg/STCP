@@ -54,6 +54,16 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return healthy && you.stress < 40 && rng.chance(0.6) ? pick('open') : undefined;
     case 'crawlspace':
       return view.time >= mem.returnAt && you.hp > 20 && you.items.includes('torch') ? pick('crawl') : undefined;
+    case 'quicksilver':
+      return healthy && rng.chance(0.5) ? pick('quaff') : undefined;
+    case 'satchel':
+      // Greedy bots take the money; it's heavy, so mostly early, while there's time to carry it.
+      return mem.greed > 0.45 && timeLeft > 60 ? pick('haul') : undefined;
+    case 'hourglass':
+      // Better with company: wait for nobody, but always turn it when someone else is here.
+      return view.allies.some((a) => a.live && a.pos.kind === 'room' && a.pos.room === room) || rng.chance(0.6) ? pick('turn') : undefined;
+    case 'clockwork':
+      return timeLeft > 120 && rng.chance(0.5) ? pick('wind') : undefined;
   }
   return undefined;
 }

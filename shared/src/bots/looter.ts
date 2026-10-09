@@ -1,4 +1,5 @@
 import { LIGHT_DIM } from '../content/constants';
+import { gearGain, isGear } from '../content/items';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
 import type { PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -40,6 +41,14 @@ function preferredRecipient(view: PlayerView): string {
     const a = view.allies.find((x) => x.id === id);
     return a ? a.hp / a.maxHp : 1;
   };
+  if (isGear(vote.item)) {
+    // Whoever it's the biggest upgrade for (ties: me). Nobody gains → leave it, so swaps can't ping-pong.
+    const best = cands
+      .map((c) => ({ id: c.id, gain: gearGain(vote.item, c.wearing ?? null) }))
+      .filter((c) => c.gain > 0)
+      .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
+    return best ? best.id : LEAVE;
+  }
   switch (vote.item) {
     case 'bandage':
       return [...cands].sort((a, b) => hpFrac(a.id) - hpFrac(b.id))[0].id;

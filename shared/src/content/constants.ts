@@ -12,6 +12,11 @@ export const LIGHT_DRAIN = 0.2;
 /** Below this, you are Dim: neighbouring rooms are not revealed. */
 export const LIGHT_DIM = 25;
 
+/** Speed (seconds per turn / per tunnel) of an ordinary hero or monster. */
+export const DEFAULT_SPEED = 5;
+/** Nothing gets faster than this, whatever it carries or drinks. */
+export const MIN_SPEED = 2;
+
 export function tierAt(time: number): number {
   return Math.min(MAX_TIER, Math.floor(time / TIER_INTERVAL));
 }
