@@ -38,8 +38,10 @@ export interface LobbyView {
   hostId: string;
   state: LobbyState;
   members: LobbyMemberView[];
+  /** The bots filling the empty slots (none until every player has picked a class). */
+  bots: { name: string; cls: ClassId; owner: string; character: LobbyMemberView['character'] }[];
   maxPlayers: number;
-  /** Combined CR so far: the players' Talents, Gear and Rites (bots may add to it; a fraction is rolled at the start). */
+  /** Combined CR so far: the players' Talents, Gear and Rites and the bots' borrowed Talents (a fraction is rolled at the start). */
   cr: number;
   /** Someone is bringing a Relic Rite: the run starts at Escalation 5. */
   relic: boolean;

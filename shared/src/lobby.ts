@@ -20,6 +20,13 @@ interface RosterEntry {
   owner: string;
   charId: string;
 }
+/** A bot in the lobby: the Character it borrows (`charId` null: a plain bot, when there's no Village to borrow from). */
+interface LobbyBot {
+  owner: string;
+  charId: string | null;
+  cls: ClassId;
+  name: string;
+}
 /** Lobbies with nobody connected are removed after this long. */
 const ABANDON_MS = 10 * 60 * 1000;
 
@@ -61,8 +68,10 @@ export class Lobby {
   speed = 1;
   /** Players' Characters in the current run (bots' borrowed ones aren't here: they leave no mark). */
   private roster: RosterEntry[] = [];
+  /** The bots filling the empty slots, chosen once every player has picked a class and kept until they must change. */
+  bots: LobbyBot[] = [];
 
-  constructor(readonly code: string, host: Member, private stash: Stash, private opts: LobbyOptions) {
+  constructor(readonly code: string, host: Member, private stash: Stash, private opts: LobbyOptions, private rng: Rng) {
     this.hostToken = host.token;
     this.members.push(host);
   }
@@ -84,12 +93,18 @@ export class Lobby {
           emergency: this.stash.emergencyOf(m.name),
         };
       }),
-      cr: Math.round(this.members.reduce((s, m) => s + heroCr(m.cls ? this.stash.characterFor(m.name, m.cls).talent : null, this.stash.kitOf(m.name)), 0) * 100) / 100,
+      bots: this.bots.map((b) => {
+        const c = this.botCharacter(b);
+        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, affliction: c.affliction } };
+      }),
+      cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? this.stash.characterFor(m.name, m.cls).talent : null, this.stash.kitOf(m.name)), 0)
+        + this.bots.reduce((s, b) => s + heroCr(this.botCharacter(b)?.talent, undefined), 0)) * 100) / 100,
       relic: this.members.some((m) => this.stash.kitOf(m.name).rites.includes('relic')),
     };
   }
 
   broadcast() {
+    if (this.state === 'lobby') this.syncBots();
     for (const m of this.members) if (m.ws) send(m.ws, { t: 'lobby', lobby: this.view(m.token) });
   }
 
@@ -105,7 +120,11 @@ export class Lobby {
       return { id: m.id, name: `${c.name} (${m.name})`, cls: m.cls!, isBot: false, loadout };
     });
     this.roster = slots.map((s) => ({ heroId: s.id, owner: s.loadout!.owner, charId: s.loadout!.charId }));
-    slots.push(...this.botSlots(rng, slots));
+    this.syncBots();
+    slots.push(...this.bots.map((b, i): PlayerSlot => {
+      const c = this.botCharacter(b);
+      return { id: `bot${i}`, name: b.name, cls: b.cls, isBot: true, loadout: c ? loadoutOf(b.owner, c) : undefined };
+    }));
     const seed = this.opts.seed ?? rng.int(1, 2 ** 30);
     this.game = new Game(seed, slots);
     this.opts.log?.(`[${this.code}] starting game, seed ${seed}, CR ${combinedCr(slots)} → ${this.game.world.cr}`);
@@ -116,37 +135,67 @@ export class Lobby {
     return null;
   }
 
+  private botCharacter(b: LobbyBot): Character | null {
+    return b.charId ? this.stash.characters(b.owner).find((c) => c.id === b.charId) ?? null : null;
+  }
+
+  /** `owner:charId` of every Character a player is bringing. */
+  private playersChars(except?: Member): Set<string> {
+    return new Set(this.members.filter((m) => m.cls && m !== except).map((m) => `${m.name.toLowerCase()}:${this.stash.characterFor(m.name, m.cls!).id}`));
+  }
+
   /**
-   * Bots borrow Characters from the players' Villages: a random healthy one nobody brought, preferring classes
-   * nobody picked, or any one at all if none is healthy. They use its Talent and suffer its injuries, but what
-   * happens to them in the run never goes back to the Village.
+   * A player switched from `from` to `to`. A bot of the class they took swaps with them: it borrows the Character
+   * they put down if that one is healthy, and otherwise makes way for a fresh pick.
    */
-  private botSlots(rng: Rng, slots: PlayerSlot[]): PlayerSlot[] {
+  classChanged(member: Member, from: ClassId | null, to: ClassId | null) {
+    const i = to ? this.bots.findIndex((b) => b.cls === to) : -1;
+    if (i < 0) return;
+    const c = from ? this.stash.characterFor(member.name, from) : null;
+    if (c && isHealthy(c) && !this.playersChars(member).has(`${member.name.toLowerCase()}:${c.id}`)) {
+      this.bots[i] = { owner: member.name, charId: c.id, cls: c.cls, name: c.name };
+    } else {
+      this.bots.splice(i, 1);
+    }
+  }
+
+  /**
+   * Bots fill the empty slots once every player has picked a class, and stay put until they must change: a bot
+   * leaves if its Character's owner left, a player now brings it, or the lobby filled up. New bots borrow
+   * Characters from the players' Villages: a random healthy one nobody brought, preferring classes nobody has, or
+   * any one at all if none is healthy. They use its Talent and suffer its injuries, but what happens to them in the
+   * run never goes back to the Village.
+   */
+  syncBots() {
+    if (this.bots.length === 0 && this.members.some((m) => !m.cls)) return;
     const owners = [...new Map(this.members.map((m) => [m.name.toLowerCase(), m.name])).values()];
-    const inUse = new Set(slots.map((s) => `${s.loadout!.owner.toLowerCase()}:${s.loadout!.charId}`));
+    const inUse = this.playersChars();
+    this.bots = this.bots
+      .filter((b) => b.charId === null || (owners.some((o) => o.toLowerCase() === b.owner.toLowerCase())
+        && !inUse.has(`${b.owner.toLowerCase()}:${b.charId}`) && this.botCharacter(b)))
+      .slice(0, Math.max(0, MAX_PLAYERS - this.members.length));
+    for (const b of this.bots) if (b.charId) inUse.add(`${b.owner.toLowerCase()}:${b.charId}`);
     let pool: { owner: string; c: Character }[] = owners
       .flatMap((owner) => this.stash.characters(owner).map((c) => ({ owner, c })))
       .filter((x) => !inUse.has(`${x.owner.toLowerCase()}:${x.c.id}`));
-    const taken = new Set(slots.map((s) => s.cls));
-    const out: PlayerSlot[] = [];
-    const botNames = rng.shuffle(BOT_NAMES);
-    for (let i = 0; slots.length + out.length < MAX_PLAYERS; i++) {
+    const taken = new Set<ClassId>([...this.members.flatMap((m) => (m.cls ? [m.cls] : [])), ...this.bots.map((b) => b.cls)]);
+    while (this.members.length + this.bots.length < MAX_PLAYERS) {
       const healthy = pool.filter((x) => isHealthy(x.c));
       const fresh = healthy.filter((x) => !taken.has(x.c.cls));
       const from = fresh.length ? fresh : healthy.length ? healthy : pool;
       if (from.length === 0) {
         // No Villages to borrow from (shouldn't happen): a plain bot of a class nobody has.
-        const cls = rng.pick(CLASS_IDS.filter((c) => !taken.has(c)));
+        const cls = this.rng.pick(CLASS_IDS.filter((c) => !taken.has(c)));
+        const used = new Set(this.bots.map((b) => b.name));
         taken.add(cls);
-        out.push({ id: `bot${i}`, name: botNames[i], cls, isBot: true });
+        this.bots.push({ owner: '', charId: null, cls, name: this.rng.pick(BOT_NAMES.filter((n) => !used.has(n))) });
         continue;
       }
-      const pick = rng.pick(from);
+      const pick = this.rng.pick(from);
       pool = pool.filter((x) => x !== pick);
       taken.add(pick.c.cls);
-      out.push({ id: `bot${i}`, name: pick.c.name, cls: pick.c.cls, isBot: true, loadout: loadoutOf(pick.owner, pick.c) });
+      this.bots.push({ owner: pick.owner, charId: pick.c.id, cls: pick.c.cls, name: pick.c.name });
     }
-    return out;
   }
 
   tick() {
@@ -242,7 +291,7 @@ export class LobbyManager {
       }
       case 'create': {
         if (found) this.leave(found.lobby, found.member);
-        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws), this.stash, this.opts);
+        const lobby = new Lobby(this.newCode(), this.newMember(token, name, ws), this.stash, this.opts, this.rng);
         this.lobbies.set(lobby.code, lobby);
         lobby.broadcast();
         return;
@@ -276,6 +325,7 @@ export class LobbyManager {
         break;
       case 'pickClass':
         if (lobby.state !== 'lobby') return;
+        lobby.classChanged(member, member.cls, msg.cls);
         member.cls = msg.cls;
         if (!msg.cls) member.ready = false;
         break;
@@ -296,6 +346,8 @@ export class LobbyManager {
         if (!isHost || !lobby.game || lobby.game.world.phase === 'running') return;
         lobby.state = 'lobby';
         lobby.game = null;
+        // A new run, new bots.
+        lobby.bots = [];
         for (const m of lobby.members) m.ready = false;
         break;
       case 'intent':

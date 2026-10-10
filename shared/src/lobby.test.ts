@@ -155,6 +155,49 @@ describe('LobbyManager', () => {
     expect(last.view.allies.find((x) => x.id === annId)?.isBot).toBe(true);
   });
 
+  it('shows bots once everyone has picked, and a bot whose class a player takes swaps to theirs', () => {
+    const stash = new Stash(null);
+    const mgr = new LobbyManager(stash);
+    const a = client(mgr, 'tokenAAAA', 'Ann');
+    a.say({ t: 'create' });
+    const code = a.ws.lastLobby()!.code;
+    const b = client(mgr, 'tokenBBBB', 'Bob');
+    b.say({ t: 'join', code });
+    a.say({ t: 'pickClass', cls: 'warden' });
+    expect(a.ws.lastLobby()!.bots).toEqual([]);
+    b.say({ t: 'pickClass', cls: 'zealot' });
+    const bots = a.ws.lastLobby()!.bots;
+    expect(bots).toHaveLength(2);
+    expect(bots.some((x) => x.cls === 'warden' || x.cls === 'zealot')).toBe(false);
+
+    // Bob takes the first bot's class: that bot now borrows Bob's (healthy) Zealot; the other stays.
+    b.say({ t: 'pickClass', cls: bots[0].cls });
+    const after = a.ws.lastLobby()!.bots;
+    expect(after[0]).toMatchObject({ cls: 'zealot', owner: 'Bob', name: stash.characterFor('Bob', 'zealot').name });
+    expect(after[1]).toEqual(bots[1]);
+
+    // Ann's Warden is hurt: a bot whose class she takes makes way for a fresh healthy pick instead.
+    const w = stash.characterFor('Ann', 'warden');
+    stash.recordCharacter('Ann', w.id, { escaped: true, lowestHp: 0.4, downedMajor: false, affliction: null });
+    a.say({ t: 'pickClass', cls: after[1].cls });
+    const last = a.ws.lastLobby()!.bots;
+    expect(last).toHaveLength(2);
+    expect(last[0]).toEqual(after[0]);
+    expect(last[1].cls).not.toBe('warden');
+    expect(new Set([a.ws.lastLobby()!.members.map((m) => m.cls), last.map((x) => x.cls)].flat()).size).toBe(4);
+
+    // A third player joins: one bot leaves. The run uses exactly the bots shown.
+    const c = client(mgr, 'tokenCCCC', 'Cat');
+    c.say({ t: 'join', code });
+    expect(a.ws.lastLobby()!.bots).toEqual([last[0]]);
+    c.say({ t: 'pickClass', cls: 'alchemist' });
+    for (const p of [a, b, c]) p.say({ t: 'ready', ready: true });
+    a.say({ t: 'start' });
+    const lobby = (mgr as unknown as { lobbies: Map<string, { game: import('./sim/game').Game }> }).lobbies.values().next().value!;
+    const botHeroes = Object.values(lobby.game.world.heroes).filter((h) => h.isBot);
+    expect(botHeroes.map((h) => [h.cls, h.owner])).toEqual([['zealot', 'Bob']]);
+  });
+
   it('brings Village Characters: bots borrow healthy ones, and only players’ Characters carry the run home', () => {
     const stash = new Stash(null);
     // Ann's Village: everything but the Sorceress and the Zealot is hurt; her Warden has a Talent.

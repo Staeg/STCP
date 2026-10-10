@@ -120,7 +120,19 @@ export class Screens {
     for (let i = 0; i < lobby.maxPlayers; i++) {
       const m = lobby.members[i];
       if (!m) {
-        slots.push(`<li class="slot empty">— a bot will fill this slot —</li>`);
+        const bot = lobby.bots[i - lobby.members.length];
+        if (!bot) {
+          slots.push(`<li class="slot empty">— a bot will fill this slot once everyone picks a class —</li>`);
+          continue;
+        }
+        const bc = CLASSES[bot.cls];
+        const bch = bot.character;
+        slots.push(`<li class="slot bot">
+          <span class="swatch" style="background:${bc.color}"></span>
+          <span class="slot-name">${esc(bot.name)}${bch?.talent ? ` <span class="talent-star" title="${esc(TALENTS[bch.talent].name)}">★</span>` : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
+          ${bch && (bch.injuries.length || bch.affliction) ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
+          <span class="slot-meta"><span class="muted">${bc.name}</span> · <span class="muted">BOT</span></span>
+        </li>`);
         continue;
       }
       const cls = m.cls ? CLASSES[m.cls] : null;
@@ -142,7 +154,7 @@ export class Screens {
       const ch = village?.characters.find((x) => x.cls === id);
       const hp = ch ? injuredMaxHp(id, ch.injuries) : c.maxHp;
       const majors = ch?.injuries.filter((i) => i === 'major').length ?? 0;
-      const others = lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId);
+      const others = [...lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId).map((m) => m.name), ...lobby.bots.filter((b) => b.cls === id).map((b) => `${b.name} (bot)`)];
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
         <div class="class-head">
           <div>
@@ -155,7 +167,7 @@ export class Screens {
         ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
         <div class="blurb">${iconize(c.blurb)}</div>
         <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
-        ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
+        ${others.length ? `<div class="muted">also: ${others.map(esc).join(', ')}</div>` : ''}
       </button>`;
     }).join('');
     // Solo: no one to wait for, so Descend readies you up itself.
@@ -172,7 +184,7 @@ export class Screens {
       <ul class="slots">${slots.join('')}</ul>
       <div class="cr-line">
         <button class="help-btn ${this.crHelp ? 'on' : ''}" data-act="cr-help" title="How Challenge Rating and the monsters work">?</button>
-        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)} <span class="muted">(bots borrowing Talented Characters add to it)</span>
+        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)} <span class="muted">(bots’ borrowed Talents included)</span>
         · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
         ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
       </div>
