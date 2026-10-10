@@ -768,7 +768,7 @@ export function digTime(hero: Hero, now: number): number {
 
 /** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
 function endIdleTurn(world: World, hero: Hero) {
-  fieldTurn(hero);
+  fieldTurn(world, hero);
   const choice = hero.queuedEvent;
   hero.queuedEvent = null;
   if (choice !== null) {
@@ -863,7 +863,7 @@ function arrive(world: World, hero: Hero, at = world.time): boolean {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return false;
   hero.pos = { kind: 'room', room: pos.to };
-  fieldTurn(hero); // the walk was this turn
+  fieldTurn(world, hero); // the walk was this turn
   startTimer(world, hero, at);
   if (hero.path.length === 0) hero.heading = null;
   if (pos.to === world.dungeon.exit) hero.arrivedAt = world.time;

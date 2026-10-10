@@ -51,6 +51,10 @@ export const CLASS_RULES = {
   raiseHp: 1,
   /** Bellwright: Clang pushes the target's next turn back this many seconds; Peal pulls allies' forward. */
   clangDelay: 6,
+  /** Clang also quickens the Bellwright: −this many seconds of Speed per stack. */
+  clangHaste: 1,
+  /** Each stack's timer, in the Bellwright's own turns; running out loses one stack and restarts it for the rest. Clanging refreshes it. */
+  clangTurns: 2,
   pealHaste: 3,
   /** Knell: power minus this per ally in the fight. */
   knellPerAlly: 5,
@@ -98,7 +102,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
     { id: 'raise', name: 'Raise', cooldown: 5, target: 'self', power: 0, desc: 'The last enemy slain in this fight rises on your side at full HP, for 4 of its turns. It stands nearest the enemy, so they attack it.' },
   ],
   bellwright: [
-    { id: 'clang', name: 'Clang', cooldown: 0, target: 'enemyFirst', power: 8, desc: '8 dmg to the nearest enemy, and its next turn comes 6s later.' },
+    { id: 'clang', name: 'Clang', cooldown: 0, target: 'enemyFirst', power: 8, desc: '8 dmg to the nearest enemy, and its next turn comes 6s later. You gain a stack of −1s Speed (lasts 2 turns, then one stack fades; Clanging refreshes it).' },
     { id: 'knell', name: 'Knell', cooldown: 4, target: 'allEnemies', power: 15, desc: '15 dmg to every enemy, −5 for each ally in the fight. Unusable with 3 allies.' },
     { id: 'peal', name: 'Peal', cooldown: 3, target: 'allAllies', power: 0, desc: "Every other ally's next turn comes 3s sooner." },
   ],

@@ -329,6 +329,8 @@ export class CombatUi {
       st.block && iconNum('shield', st.block, `Shield ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
       st.weak && sym('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
       st.vengeance && sym('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
+      st.clang && sym(`🔔${st.clang.stacks > 1 ? `×${st.clang.stacks}` : ''}`,
+        `Clang ×${st.clang.stacks}: −${st.clang.stacks}s Speed. One stack fades in ${rounds(st.clang.turns)}; Clanging adds one and starts it over.`),
       st.vigil && sym('☀', 'Lone Vigil: every enemy action sets off a free Flare, until their next turn.'),
       st.dodge !== undefined && st.dodge > time && sym('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works (${Math.ceil(st.dodge - time)}s).`),
       st.brace && sym('▣', 'Bracing: takes 30% less damage until their next turn.'),

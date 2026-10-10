@@ -35,6 +35,8 @@ export interface Statuses {
   weak?: number;
   /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
   vengeance?: number;
+  /** Bellwright's Clang: −CLASS_RULES.clangHaste Speed per stack. `turns` = own turns until one stack fades (ticks at the start of each). */
+  clang?: { stacks: number; turns: number };
   /** Monster: has taken a turn in this fight (Backstab crits those that haven't). */
   acted?: boolean;
   /** In smoke (50% dodge, sure to flee) until this game time. */
@@ -394,12 +396,15 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
   resetAfterFight(h);
 }
 
-/** Cooldowns carry on outside the fight (see `tickFieldCooldowns`). */
+/**
+ * Cooldowns and timed statuses carry on outside the fight (see `fieldTurn`); what only means something in a
+ * fight (Stun, Shield, Brace, Vigil, having acted) ends with it.
+ */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
   h.cdClock = 0;
-  const poison = h.st.poison;
-  h.st = poison ? { poison } : {};
+  const { poison, acid, hexed, weak, vengeance, dodge, clang } = h.st;
+  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang }).filter(([, v]) => v !== undefined));
 }
 
 function endEncounter(world: World, enc: Encounter) {
@@ -714,23 +719,43 @@ export function tickCooldowns(h: Hero) {
   }
 }
 
-/** A turn passing outside a fight: cooldowns tick, and so does a Vengeance sworn out of combat (Unyielding). */
-export function fieldTurn(h: Hero) {
+/** A turn passing outside a fight: cooldowns and statuses tick as they would in one, Poison included. */
+export function fieldTurn(world: World, h: Hero) {
   tickCooldowns(h);
-  if (h.st.vengeance !== undefined && --h.st.vengeance <= 0) delete h.st.vengeance;
+  startOfTurn(h.st);
+  const events: CombatEvent[] = [];
+  endOfTurn(h.st, h.name, h.id, (n) => armored(h, n), (n) => {
+    if (hurtHero(world, h, n, null)) notify(world, h, `You take ${n} poison damage.`);
+    return isConscious(h);
+  }, events);
+}
+
+/** Statuses of a hero's own that tick at the start of their turn. */
+function startOfTurn(st: Statuses) {
+  if (st.vengeance !== undefined && --st.vengeance <= 0) delete st.vengeance;
+  if (st.clang && --st.clang.turns <= 0) {
+    if (--st.clang.stacks <= 0) delete st.clang;
+    else st.clang.turns = CLASS_RULES.clangTurns;
+  }
+}
+
+/** Anything that ticks per turn outside a fight. */
+function hasFieldTimers(h: Hero): boolean {
+  const st = h.st;
+  return Object.keys(h.cooldowns).length > 0 || !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang);
 }
 
 /** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks cooldowns down as a turn would. */
 export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
-  if (Object.keys(h.cooldowns).length === 0) {
+  if (!hasFieldTimers(h)) {
     h.cdClock = 0;
     return;
   }
   h.cdClock += dt;
   const speed = speedOf(h, world.time);
-  while (h.cdClock >= speed - 1e-6) {
+  while (h.cdClock >= speed - 1e-6 && isConscious(h)) {
     h.cdClock -= speed;
-    fieldTurn(h);
+    fieldTurn(world, h);
   }
 }
 
@@ -764,7 +789,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     if (target) choice = { ...choice, target };
   }
   tickCooldowns(h);
-  if (h.st.vengeance !== undefined && --h.st.vengeance <= 0) delete h.st.vengeance;
+  startOfTurn(h.st);
   if (!lichAura(world, enc, h, events)) return;
   if (h.st.stun) {
     h.st.stun = false;
@@ -1086,6 +1111,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         enc.next[t.id] = at(enc.next[t.id] + CLASS_RULES.clangDelay);
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} reels from the din. (+${CLASS_RULES.clangDelay}s)` });
       }
+      // The ringing quickens the ringer: one more stack, and the timer starts over.
+      h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + 1, turns: CLASS_RULES.clangTurns };
       return;
     }
     case 'peal':

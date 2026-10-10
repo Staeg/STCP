@@ -34,6 +34,7 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   for (const m of h.speedMods ?? []) {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
+  if (h.st?.clang) parts.push({ label: 'Clang', amount: -h.st.clang.stacks * CLASS_RULES.clangHaste });
   if (h.leading) parts.push({ label: 'Escorting a villager', amount: escortSpeed(h) });
   if (h.cls === 'sorceress' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.sorceressAfflictedSpeed });
   // Elite Events.

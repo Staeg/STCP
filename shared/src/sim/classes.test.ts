@@ -4,7 +4,8 @@ import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { combatOrder, damageMult, knellDamage, spawnGroup } from './combat';
+import { combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { speedOf } from './speed';
 import { dropEverything } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, digTime, extractHero, step, type World } from './world';
@@ -149,6 +150,34 @@ describe('Bellwright', () => {
     const four = arena(['bellwright', 'warden', 'sorceress', 'cutthroat'], ['ghoul']);
     walkIn(four.world, four.ids, four.room);
     expect(buildView(four.world, 'h0').encounter!.yourOptions.a1!.blocked).toBeTruthy();
+  });
+
+  it('Clang stacks −1s Speed on the Bellwright; each 2 turns without Clanging one stack fades', () => {
+    const { world, ids, room } = arena(['bellwright'], ['ghoul']);
+    walkIn(world, ids, room);
+    const h = world.heroes.h0;
+    h.st.clang = { stacks: 2, turns: 1 };
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0' } });
+    untilTurn(world, room, 'h0');
+    // Its turn started (one stack faded) and the Clang added one back, with a fresh timer.
+    expect(h.st.clang).toEqual({ stacks: 2, turns: CLASS_RULES.clangTurns });
+    expect(speedOf(h, world.time)).toBeCloseTo(CLASSES.bellwright.speed - 2 * CLASS_RULES.clangHaste);
+  });
+
+  it('timed statuses outlast the fight and tick in the field; Poison keeps hurting', () => {
+    const { world, ids } = arena(['bellwright'], ['ghoul']);
+    const h = world.heroes[ids[0]];
+    h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: 1, stun: true, block: 5 };
+    h.cooldowns = {};
+    const hp = h.hp;
+    fieldTurn(world, h);
+    expect(h.hp).toBe(hp - 3);
+    expect(h.st.weak).toBeUndefined();
+    expect(h.st.clang).toEqual({ stacks: 1, turns: 1 });
+    fieldTurn(world, h);
+    expect(h.hp).toBe(hp - 6);
+    expect(h.st.poison).toBeUndefined();
+    expect(h.st.clang).toBeUndefined();
   });
 
   it('Toll: after the timer, every ally sees the Bellwright live and monsters next door come to the bell', () => {
