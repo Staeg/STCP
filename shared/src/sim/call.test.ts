@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createBotMemory, botThink } from '../bots/explorer';
 import { CALL_RULES, hopsFrom } from './call';
+import { Game } from './game';
 import { buildView } from './views';
 import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
@@ -106,5 +107,22 @@ describe('call for help', () => {
     expect(hopsFrom(world, room).get(bot.pos.room)! * speedOf(bot, world.time)).toBeGreaterThan(30);
     botThink(buildView(world, 'b'), far);
     expect(far.call ?? null).toBeNull();
+  });
+
+  it('a downed bot calls for help when no ally is standing with it, and not when one is', () => {
+    const bots = [
+      { id: 'a', name: 'A', cls: 'warden' as const, isBot: true },
+      { id: 'b', name: 'B', cls: 'witch' as const, isBot: true },
+    ];
+    const game = new Game(5, bots, { monsters: false, loot: false, escalates: false });
+    const [a, b] = [game.world.heroes.a, game.world.heroes.b];
+    // B stands in the same room: A waits for them.
+    a.downedAt = game.world.time;
+    game.tick(0.1);
+    expect(a.called).toBe(false);
+    // Alone: A cries out.
+    b.pos = { kind: 'room', room: roomAt(game.world, (a.pos as { room: number }).room, 3) };
+    game.tick(0.1);
+    expect(a.called).toBe(true);
   });
 });

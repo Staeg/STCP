@@ -3,7 +3,8 @@ import { chooseCombatAction } from '../bots/fighter';
 import type { ClassId } from '../content/classes';
 import type { Loadout } from '../village';
 import { buildView } from './views';
-import { addHero, applyIntent, createWorld, step, type Intent, type World, type WorldOptions } from './world';
+import { isConscious } from './combat';
+import { addHero, applyIntent, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
 
 export interface PlayerSlot {
   id: string;
@@ -72,7 +73,12 @@ export class Game {
     const w = this.world;
     for (const [id, mem] of this.bots) {
       const hero = w.heroes[id];
-      if (hero.dead || hero.extracted || hero.downedAt !== null) continue;
+      if (hero.dead || hero.extracted) continue;
+      if (hero.downedAt !== null) {
+        // Down with nobody standing here to get them up: cry out.
+        if (!hero.called && !allyStandingWith(w, hero)) applyIntent(w, id, { type: 'call' });
+        continue;
+      }
       if (hero.encounter !== null) {
         this.botFight(id, mem);
         continue;
@@ -88,4 +94,10 @@ export class Game {
     }
     step(this.world, dt);
   }
+}
+
+/** Is a conscious ally in the same room as `hero`? */
+function allyStandingWith(w: World, hero: Hero): boolean {
+  const pos = hero.pos;
+  return pos.kind === 'room' && Object.values(w.heroes).some((o) => o !== hero && isConscious(o) && o.pos.kind === 'room' && o.pos.room === pos.room);
 }
