@@ -163,7 +163,7 @@ export class CombatUi {
     else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
     else status = `Pick your next move! (defaults to ${this.fallbackName(view)})`;
     const header = `<div class="cb-head">
-      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}${enc.doom ? ` <span class="danger" title="The Lich's Doom: every hero here takes this much more from every blow, aura and poison, until the fight ends.">☠ Doom +${enc.doom}</span>` : ''}</span>
+      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}${enc.doom ? ` <span class="danger" title="The Lich's Doom on you: you take this much more from every blow, aura and poison. It holds while a Lich stands in your fight; otherwise it drops by 1 at the end of each of your turns, even after the fight.">☠ Doom +${enc.doom}</span>` : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
       <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
     </div>`;
@@ -330,6 +330,8 @@ export class CombatUi {
       st.block && iconNum('shield', st.block, `Shield ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
       st.weak && sym('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
       st.vengeance && sym('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
+      st.doom && sym(`☠${st.doom > 1 ? `×${st.doom}` : ''}`,
+        `Doom ×${st.doom}: takes +${st.doom} from every blow, aura and poison tick. Holds while a Lich stands in this fight; otherwise one stack fades at the end of each of their turns.`),
       st.clang && sym(`🔔${st.clang.stacks > 1 ? `×${st.clang.stacks}` : ''}`,
         `Clang ×${st.clang.stacks}: −${st.clang.stacks}s Speed. One stack fades in ${rounds(st.clang.turns)}; Clanging adds one and starts it over.`),
       st.vigil && sym('☀', 'Lone Vigil: every enemy action sets off a free Flare, until their next turn.'),

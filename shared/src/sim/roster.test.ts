@@ -4,7 +4,7 @@ import type { ClassId } from '../content/classes';
 import { CR_RULES, crUnitChance, ENEMIES, rollRoster, UNITS_BY_TIER, type EnemyId, type Roster } from '../content/enemies';
 import { neighbours } from '../dungeon/gen';
 import { Rng } from '../rng';
-import { armored, crUnits, pickGroup, spawnGroup } from './combat';
+import { armored, crUnits, doomOf, fieldTurn, pickGroup, spawnGroup } from './combat';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
 const baseStress = STRESS.basePerSec;
@@ -152,8 +152,8 @@ describe('Lich', () => {
     const { world: w, ids, room } = arena(['warden'], ['lich']);
     walkIn(w, ids, room);
     const enc = w.encounters[room];
-    enc.doom = 2;
     const h = w.heroes.h0;
+    h.st.doom = 2;
     untilTurn(w, room, 'h0');
     const aura = enc.events.find((e) => e.target === 'h0' && e.text.includes('cold presence'));
     expect(aura?.amount).toBe(armored(h, ENEMIES.lich.dmg) + 2);
@@ -170,9 +170,30 @@ describe('Lich', () => {
     const back = Object.values(w.monsters).find((m) => m.type === 'ghoul');
     expect(back?.hp).toBe(40);
     expect(lich.spent).toBe(true);
-    expect(enc.doom ?? 0).toBe(0);
+    const h = w.heroes.h0;
+    expect(h.st.doom).toBeUndefined();
     untilTurn(w, room, lich.id);
     untilTurn(w, room, lich.id);
-    expect(enc.doom).toBe(2 * CR_RULES.doom);
+    // Two stacks, and none faded on the hero's turns between: the Lich still stands.
+    expect(h.st.doom).toBe(2);
+    expect(doomOf(h)).toBe(2 * CR_RULES.doom);
+  });
+
+  it('Doom fades one stack per turn once no Lich stands, and outlasts the fight', () => {
+    const { world: w, ids, room, monsters } = arena(['warden'], ['ghoul']);
+    walkIn(w, ids, room);
+    const h = w.heroes.h0;
+    h.st.doom = 3;
+    applyIntent(w, 'h0', { type: 'combat', choice: { action: 'a0' } });
+    untilTurn(w, room, 'h0');
+    expect(h.st.doom).toBe(2);
+    delete w.monsters[monsters[0].id];
+    h.encounter = null;
+    h.st = { doom: 2 };
+    h.cooldowns = {};
+    fieldTurn(w, h);
+    expect(h.st.doom).toBe(1);
+    fieldTurn(w, h);
+    expect(h.st.doom).toBeUndefined();
   });
 });

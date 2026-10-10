@@ -35,6 +35,9 @@ export interface Statuses {
   weak?: number;
   /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
   vengeance?: number;
+  /** Lich's Doom (heroes): stacks, each CR_RULES.doom more from every blow, aura and poison tick. Holds while a Lich
+   * stands in their fight; otherwise one stack fades at the end of each of their turns, in a fight or out. */
+  doom?: number;
   /** Bellwright's Clang: −CLASS_RULES.clangHaste Speed per stack. `turns` = own turns until one stack fades (ticks at the start of each). */
   clang?: { stacks: number; turns: number };
   /** Monster: has taken a turn in this fight (Backstab crits those that haven't). */
@@ -143,8 +146,6 @@ export interface Encounter {
   lastSlain?: Slain | null;
   /** Every monster slain in this fight, oldest first (the Lich raises the newest). */
   slain?: Slain[];
-  /** Lich's Doom: heroes here take this much more from every blow, aura and poison tick. */
-  doom?: number;
   risen?: Risen | null;
   /** Unholy Uprising: the Risen that follow an Undertaker everywhere, fighting here (fallen ones stay until it ends). */
   legion?: Risen[];
@@ -403,8 +404,8 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
 function resetAfterFight(h: Hero) {
   h.encounter = null;
   h.cdClock = 0;
-  const { poison, acid, hexed, weak, vengeance, dodge, clang } = h.st;
-  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang }).filter(([, v]) => v !== undefined));
+  const { poison, acid, hexed, weak, vengeance, dodge, clang, doom } = h.st;
+  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom }).filter(([, v]) => v !== undefined));
 }
 
 function endEncounter(world: World, enc: Encounter) {
@@ -737,10 +738,11 @@ export function fieldTurnStart(h: Hero) {
 export function fieldTurnEnd(world: World, h: Hero) {
   if (!isConscious(h)) return;
   const events: CombatEvent[] = [];
-  endOfTurn(h.st, h.name, h.id, (n) => armored(h, n), (n) => {
+  endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + doomOf(h), (n) => {
     if (hurtHero(world, h, n, null)) notify(world, h, `You take ${n} poison damage.`);
     return isConscious(h);
   }, events);
+  fadeDoom(h.st);
 }
 
 /** Statuses of a hero's own that tick at the start of their turn. */
@@ -752,10 +754,20 @@ function startOfTurn(st: Statuses) {
   }
 }
 
+/** The extra damage Doom adds to each hit on this hero. */
+export function doomOf(h: Hero): number {
+  return (h.st.doom ?? 0) * CR_RULES.doom;
+}
+
+/** One Doom stack fades (the end of a turn with no Lich standing in their fight). */
+function fadeDoom(st: Statuses) {
+  if (st.doom !== undefined && --st.doom <= 0) delete st.doom;
+}
+
 /** Anything that ticks per turn outside a fight. */
 function hasFieldTimers(h: Hero): boolean {
   const st = h.st;
-  return Object.keys(h.cooldowns).length > 0 || !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang);
+  return Object.keys(h.cooldowns).length > 0 || !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang || st.doom);
 }
 
 /** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks cooldowns down as a turn would. */
@@ -814,10 +826,12 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     heroAct(world, enc, h, choice, events);
   }
   if (isConscious(h) && h.encounter === enc.room) {
-    endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + (enc.doom ?? 0), (n) => {
+    endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + doomOf(h), (n) => {
       applyHeroDamage(world, enc, h, n, events);
       return isConscious(h);
     }, events);
+    // Doom holds while a Lich still stands here.
+    if (!monstersIn(world, enc.room).some((m) => m.type === 'lich')) fadeDoom(h.st);
   }
 }
 
@@ -831,7 +845,7 @@ function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]):
     let dmg = ENEMIES.lich.dmg * m.dmgMult;
     if (m.st.weak) dmg *= 0.5;
     if (h.light <= 0) dmg *= 1.25;
-    dmg = armored(h, Math.max(1, Math.round(dmg))) + (enc.doom ?? 0);
+    dmg = armored(h, Math.max(1, Math.round(dmg))) + doomOf(h);
     if (h.st.block) {
       const absorbed = Math.min(h.st.block, dmg);
       h.st.block -= absorbed;
@@ -1351,8 +1365,11 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
         events.push({ actor: m.id, kind: 'status', target: back.id, text: `${name} speaks a word, and the ${ENEMIES[back.type].name} rises whole.` });
         return;
       }
-      enc.doom = (enc.doom ?? 0) + CR_RULES.doom;
-      events.push({ actor: m.id, kind: 'status', text: `${name} pronounces Doom. Every wound cuts deeper. (heroes take +${enc.doom} dmg this fight)` });
+      for (const id of enc.heroes) {
+        const h = world.heroes[id];
+        if (h && isConscious(h)) h.st.doom = (h.st.doom ?? 0) + 1;
+      }
+      events.push({ actor: m.id, kind: 'status', text: `${name} pronounces Doom. Every wound cuts deeper. (+${CR_RULES.doom} dmg taken per stack; it lingers after the Lich)` });
       return;
     }
     case 'crawler': {
@@ -1442,7 +1459,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   // Stalwart: the Warden takes less while standing nearest the enemy.
   if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
   if (t.st.brace) dmg *= 0.7;
-  dmg = armored(t, Math.max(1, Math.round(dmg))) + (enc.doom ?? 0);
+  dmg = armored(t, Math.max(1, Math.round(dmg))) + doomOf(t);
   if (t.st.block) {
     const absorbed = Math.min(t.st.block, dmg);
     t.st.block -= absorbed;

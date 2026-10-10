@@ -10,7 +10,7 @@ import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../conte
 import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -179,7 +179,7 @@ export interface EncounterView {
   /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
-  /** Lich's Doom: you all take this much more from everything in this fight. */
+  /** Lich's Doom: you take this much more from everything (your stacks × CR_RULES.doom). */
   doom: number;
 }
 
@@ -468,7 +468,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     yourOptions,
     events: enc.events,
     log: enc.log.slice(-12),
-    doom: enc.doom ?? 0,
+    doom: doomOf(you),
   };
 }
 

@@ -39,7 +39,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
     desc: 'Hymn: every other monster heals 4 and acts 2s sooner. Alone, Dirge: +8 stress to every hero.' },
   // ---- T3 ----
   lich: { id: 'lich', name: 'Lich', tier: 3, maxHp: 30, speed: 6, dmg: 3, undead: true, glyph: '♚', onePerRoom: true,
-    desc: 'Aura: every hero takes 3 dmg before each of their turns. Once a fight it raises a slain monster whole; otherwise Doom: heroes take +1 dmg from everything for the rest of the fight (stacks).' },
+    desc: 'Aura: every hero takes 3 dmg before each of their turns. Once a fight it raises a slain monster whole; otherwise Doom: every hero in the fight gains a stack of +1 dmg taken from everything. Stacks hold while a Lich stands in their fight, then fade one per turn of theirs, even after the fight.' },
 };
 
 export const TIERS: Tier[] = [0, 1, 2, 3];
@@ -111,7 +111,7 @@ export const CR_RULES = {
   dirgeStress: 8,
   /** Zombie: gets back up this many seconds after it dies. */
   zombieRise: 12,
-  /** Lich's Doom: extra damage heroes take from everything, per cast, for the rest of the fight. */
+  /** Lich's Doom: extra damage heroes take from everything, per stack (see `Statuses.doom`). */
   doom: 1,
 };
 
