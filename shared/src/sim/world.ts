@@ -28,7 +28,8 @@ import {
 export type HeroPos =
   | { kind: 'room'; room: number }
   /** `t` = seconds walked from `from` toward `to`; `dur` = seconds this crossing takes (the hero's Speed when they set out). */
-  | { kind: 'corridor'; corridor: number; from: number; to: number; t: number; dur: number };
+  /** `chalked`: setting out left a fresh chalk mark, rubbed out again if the hero turns back. */
+  | { kind: 'corridor'; corridor: number; from: number; to: number; t: number; dur: number; chalked?: boolean };
 
 export interface Hero {
   id: string;
@@ -57,8 +58,8 @@ export interface Hero {
   isBot: boolean;
   /** Where this hero last saw each other hero, and when. */
   lastKnown: Record<string, Sighting>;
-  /** Chalk marks this hero has read, per crossroads room: heroId → corridor id they left by. */
-  knownChalk: Record<number, Record<string, number>>;
+  /** Chalk marks this hero has read, per room: heroId → corridor ids they left by. */
+  knownChalk: Record<number, Record<string, number[]>>;
   /** Monster count per room, as of when this hero last saw it. */
   knownThreat: Record<number, number>;
   /** What this hero last saw in each room (for the map's hover box). */
@@ -206,8 +207,8 @@ export interface World {
   dungeon: Dungeon;
   heroes: Record<string, Hero>;
   phase: WorldPhase;
-  /** Physical chalk marks at crossroads: room → heroId → corridor they last left by. */
-  chalk: Record<number, Record<string, number>>;
+  /** Physical chalk marks: room → heroId → every corridor they've left it by. */
+  chalk: Record<number, Record<string, number[]>>;
   monsters: Record<string, Monster>;
   /** Active fights, keyed by room. */
   encounters: Record<number, Encounter>;
@@ -829,7 +830,14 @@ function advance(world: World, hero: Hero, dt: number) {
       hero.prevRoom = pos.room;
       remaining = 0;
       // Chalk wherever there's a choice of way on: crossroads and two-exit rooms, not dead ends.
-      if (d.rooms[pos.room].corridors.length >= 2) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
+      // Marks pile up: a new way out adds one, it never rubs out the old ones.
+      if (d.rooms[pos.room].corridors.length >= 2) {
+        const marks = ((world.chalk[pos.room] ??= {})[hero.id] ??= []);
+        if (!marks.includes(c.id)) {
+          marks.push(c.id);
+          hero.pos.chalked = true;
+        }
+      }
     } else {
       const need = pos.dur - pos.t;
       if (remaining < need) {
@@ -896,7 +904,7 @@ function updateKnowledge(world: World) {
         if (down && !a.knownCollapsed.includes(cid)) a.knownCollapsed.push(cid);
         if (!down && a.knownCollapsed.includes(cid)) a.knownCollapsed = a.knownCollapsed.filter((x) => x !== cid);
       }
-      if (world.chalk[room]) a.knownChalk[room] = { ...world.chalk[room] };
+      if (world.chalk[room]) a.knownChalk[room] = Object.fromEntries(Object.entries(world.chalk[room]).map(([id, cs]) => [id, [...cs]]));
       a.knownThreat[room] = monstersIn(world, room).length;
       a.knownLoot[room] = lootCount(world, room, a);
       const ev = world.events[room];
@@ -948,6 +956,9 @@ export function cancelTravel(world: World, hero: Hero) {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return;
   hero.pos = { kind: 'room', room: pos.from };
+  // Turning back rubs out the mark this walk just left (an older one for the same tunnel stays).
+  const marks = world.chalk[pos.from]?.[hero.id];
+  if (pos.chalked && marks) marks.splice(marks.indexOf(pos.corridor), 1);
   // Waiting at the far end for slower companions: that turn is already over.
   if (timerDone(world, hero)) startTimer(world, hero);
   onHeroInRoom(world, hero, pos.from);

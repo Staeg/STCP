@@ -278,7 +278,7 @@ export function buildView(world: World, heroId: string): PlayerView {
 
   const chalk: ChalkView[] = Object.entries(you.knownChalk).map(([room, marks]) => ({
     room: Number(room),
-    marks: Object.entries(marks).map(([heroId, corridor]) => ({ heroId, corridor })),
+    marks: Object.entries(marks).flatMap(([heroId, cs]) => cs.map((corridor) => ({ heroId, corridor }))),
   }));
   const rooms: RoomView[] = [...roomIds].map((id) => {
     const r = d.rooms[id];

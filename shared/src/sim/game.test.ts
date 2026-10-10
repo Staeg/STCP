@@ -88,9 +88,9 @@ describe('sightings and chalk', () => {
     applyIntent(world, 'b', { type: 'goto', room: target });
     step(world, 0.1);
     const c = corridorBetween(d, d.entrance, target)!;
-    expect(world.chalk[d.entrance].b).toBe(c.id);
+    expect(world.chalk[d.entrance].b).toEqual([c.id]);
     // a is still at the entrance, so a reads it.
-    expect(world.heroes.a.knownChalk[d.entrance].b).toBe(c.id);
+    expect(world.heroes.a.knownChalk[d.entrance].b).toEqual([c.id]);
     expect(buildView(world, 'a').chalk[0].marks).toContainEqual({ heroId: 'b', corridor: c.id });
   });
 
@@ -106,7 +106,50 @@ describe('sightings and chalk', () => {
     applyIntent(world, 'b', { type: 'goto', room: target, step: true });
     step(world, 0.1);
     const c = corridorBetween(d, room.id, target)!;
-    expect(world.chalk[room.id].b).toBe(c.id);
-    expect(world.heroes.a.knownChalk[room.id].b).toBe(c.id);
+    expect(world.chalk[room.id].b).toEqual([c.id]);
+    expect(world.heroes.a.knownChalk[room.id].b).toEqual([c.id]);
+  });
+
+  it('keeps a mark for every way out, and turning back rubs out only the fresh one', () => {
+    const world = twoHeroes();
+    const d = world.dungeon;
+    const room = d.rooms.find((r) => r.corridors.length === 2 && r.id !== d.entrance)!;
+    for (const h of Object.values(world.heroes)) {
+      h.pos = { kind: 'room', room: room.id };
+      explore(world, h, room.id);
+    }
+    const b = world.heroes.b;
+    const [n0, n1] = neighbours(d, room.id);
+    const c0 = corridorBetween(d, room.id, n0)!.id;
+    const c1 = corridorBetween(d, room.id, n1)!.id;
+    // Walk one step and wait until b is actually in the tunnel (or has arrived).
+    const walk = (to: number) => {
+      applyIntent(world, 'b', { type: 'goto', room: to, step: true });
+      for (let i = 0; i < 400 && b.pos.kind === 'room'; i++) step(world, 0.05);
+    };
+    const arriveAt = (to: number) => {
+      walk(to);
+      for (let i = 0; i < 400 && b.pos.kind === 'corridor'; i++) step(world, 0.05);
+      expect(b.pos).toEqual({ kind: 'room', room: to });
+    };
+
+    walk(n0);
+    expect(world.chalk[room.id].b).toEqual([c0]);
+    applyIntent(world, 'b', { type: 'turnBack' });
+    expect(world.chalk[room.id].b).toEqual([]);
+
+    arriveAt(n1);
+    arriveAt(room.id);
+    arriveAt(n0);
+    expect(world.chalk[room.id].b).toEqual([c1, c0]);
+
+    // Setting out again down an already-chalked tunnel and turning back leaves the old mark.
+    arriveAt(room.id);
+    walk(n0);
+    applyIntent(world, 'b', { type: 'turnBack' });
+    expect(world.chalk[room.id].b).toEqual([c1, c0]);
+    expect(buildView(world, 'a').chalk.find((ch) => ch.room === room.id)?.marks).toEqual([
+      { heroId: 'b', corridor: c1 }, { heroId: 'b', corridor: c0 },
+    ]);
   });
 });
