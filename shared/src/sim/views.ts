@@ -294,8 +294,8 @@ export function buildView(world: World, heroId: string): PlayerView {
       corridors: r.corridors.filter((cid) => over || knowsCorridor(you, d.corridors[cid])),
       threat: reveal ? reveal.monsters.length || undefined : you.knownThreat[id],
       loot: reveal ? reveal.items.length + (reveal.gold > 0 ? 1 : 0) || undefined : you.knownLoot[id],
-      event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : veil(you, you.knownEvents[id]),
-      memory: reveal ? undefined : sighting(you, you.knownContents[id]),
+      event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : you.knownEvents[id],
+      memory: reveal ? undefined : you.knownContents[id],
       reveal,
     };
   });
@@ -341,7 +341,8 @@ function eventView(world: World, you: Hero): EventView | null {
   if (!opts || you.pos.kind !== 'room') return null;
   const def = EVENTS[opts.kind];
   const ev = world.events[you.pos.room];
-  // Another class's Elite Event: just a hint at whose it is.
+  // Another class's Elite Event: its true name, but only a hint at whose it is.
+  const name = opts.forCls && ev ? EVENTS[ev.kind].name : def.name;
   const text = opts.forCls ? veiledText(opts.forCls) : def.text;
   const h = ev?.by ? world.heroes[ev.by] : undefined;
   const ch = h?.channel;
@@ -353,23 +354,13 @@ function eventView(world: World, you: Hero): EventView | null {
       }
     : null;
   return {
-    kind: opts.kind, name: def.name, glyph: def.glyph, text, choices: opts.choices,
+    kind: opts.kind, name, glyph: def.glyph, text, choices: opts.choices,
     progress: ev?.kind === 'liturgy' ? undefined : opts.progress, worker, blocked: opts.choices.length === 0 && !opts.forCls,
   };
 }
 
 function finiteOrNull(n: number): number | null {
   return Number.isFinite(n) ? n : null;
-}
-
-/** Another class's Elite Event shows on your map as something strange, not as what it is. */
-function veil(you: Hero, kind: EventKind | undefined): EventKind | undefined {
-  const elite = kind && EVENTS[kind].elite;
-  return elite && elite !== you.cls ? 'veiled' : kind;
-}
-
-function sighting(you: Hero, s: RoomSighting | undefined): RoomSighting | undefined {
-  return s && { ...s, event: veil(you, s.event) };
 }
 
 function revealRoom(world: World, room: number): RoomReveal {

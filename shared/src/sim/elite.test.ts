@@ -75,13 +75,14 @@ describe('Elite Events: what each class sees', () => {
     expect(mine.choices.map((c) => c.id)).toEqual(['gather']);
     const theirs = buildView(world, 'o').event!;
     expect(theirs.kind).toBe('veiled');
+    expect(theirs.name).toBe('Wayward Wanderers');
     expect(theirs.text).toBe('Maybe Warden knows what to do with this…');
     expect(theirs.choices).toEqual([]);
     expect(theirs.blocked).toBe(false);
     // And on the map.
     const room = world.dungeon.entrance;
     expect(buildView(world, 'h').rooms.find((r) => r.id === room)?.event).toBe('wanderers');
-    expect(buildView(world, 'o').rooms.find((r) => r.id === room)?.event).toBe('veiled');
+    expect(buildView(world, 'o').rooms.find((r) => r.id === room)?.event).toBe('wanderers');
     expect(chooseEvent(world, o, 'gather', true)).toBe('Nothing to do here.');
   });
 });
