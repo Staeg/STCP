@@ -159,7 +159,10 @@ export class Screens {
       </button>`;
     }).join('');
     // Solo: no one to wait for, so Descend readies you up itself.
-    const allReady = SOLO ? !!you.cls : lobby.members.every((m) => m.ready && m.cls);
+    // Ready and Descend stay greyed out until the Village's Emergency is chosen.
+    const canReady = !!you.cls && !!you.emergency;
+    const allReady = SOLO ? canReady : lobby.members.every((m) => m.ready && m.cls && m.emergency);
+    const whyNot = !you.cls ? 'Pick a class first.' : !you.emergency ? 'Choose your Emergency first.' : '';
     const link = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
     return `<div class="card wide lobby">
       ${SOLO ? '<div class="muted">Pick a class. Bots take the other three.</div>' : `<div class="lobby-head">
@@ -178,8 +181,8 @@ export class Screens {
       <div class="classes">${cards}</div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
-        ${SOLO ? '' : `<button data-act="ready" ${you.cls ? '' : 'disabled'}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
-        ${isHost ? `<button data-act="start" ${allReady ? '' : 'disabled'} class="primary">Descend</button>` : `<span class="muted">Waiting for the host to start…</span>`}
+        ${SOLO ? '' : `<button data-act="ready" ${you.ready || canReady ? '' : `disabled title="${whyNot}"`}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
+        ${isHost ? `<button data-act="start" ${allReady ? '' : `disabled title="${SOLO ? whyNot : 'Everyone must pick a class, choose an Emergency and ready up.'}"`} class="primary">Descend</button>` : `<span class="muted">Waiting for the host to start…</span>`}
         <button data-act="village">The Village${villageBadge(village)}</button>
         ${this.net.lastRun ? '<button data-act="review">Last run’s map</button>' : ''}
         <button data-act="leave" class="quiet">Leave</button>
