@@ -287,7 +287,7 @@ describe('items', () => {
     h.light = 20;
     h.stress = 40;
     use(world, 'h0', 0);
-    expect(h.hp).toBe(20); // the turn it took ticked the poison once (2) before the bandage's +12
+    expect(h.hp).toBe(22); // the bandage cures before the turn's poison tick
     expect(h.st.poison).toBeUndefined();
     const light = h.light;
     use(world, 'h0', 0);

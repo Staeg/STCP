@@ -13,7 +13,7 @@ import { EVENT_SEEDING, type AfflictionId, type EliteEventKind, type EventKind }
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, tickDowned, tickFieldCooldowns,
+  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
@@ -768,7 +768,8 @@ export function digTime(hero: Hero, now: number): number {
 
 /** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
 function endIdleTurn(world: World, hero: Hero) {
-  fieldTurn(world, hero);
+  // As in a fight: cooldowns and start-of-turn statuses first, Poison and the rest after what the turn was spent on.
+  fieldTurnStart(hero);
   const choice = hero.queuedEvent;
   hero.queuedEvent = null;
   if (choice !== null) {
@@ -786,6 +787,7 @@ function endIdleTurn(world: World, hero: Hero) {
     const err = index < 0 ? 'You no longer have it.' : useItemInField(world, hero, index, used.target ?? undefined);
     if (err) notify(world, hero, err);
   }
+  fieldTurnEnd(world, hero);
   if (!hero.channel) startTimer(world, hero, hero.turnAt);
 }
 

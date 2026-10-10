@@ -721,8 +721,19 @@ export function tickCooldowns(h: Hero) {
 
 /** A turn passing outside a fight: cooldowns and statuses tick as they would in one, Poison included. */
 export function fieldTurn(world: World, h: Hero) {
+  fieldTurnStart(h);
+  fieldTurnEnd(world, h);
+}
+
+/** Before a field turn's action, as in a fight: cooldowns, Vengeance and Clang tick. */
+export function fieldTurnStart(h: Hero) {
   tickCooldowns(h);
   startOfTurn(h.st);
+}
+
+/** After a field turn's action, as in a fight: Poison bites and Weak/Acid/Hexed count down (so a Bandage cures first). */
+export function fieldTurnEnd(world: World, h: Hero) {
+  if (!isConscious(h)) return;
   const events: CombatEvent[] = [];
   endOfTurn(h.st, h.name, h.id, (n) => armored(h, n), (n) => {
     if (hurtHero(world, h, n, null)) notify(world, h, `You take ${n} poison damage.`);
