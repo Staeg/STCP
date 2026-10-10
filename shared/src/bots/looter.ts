@@ -1,7 +1,7 @@
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { STRESS_MAX } from '../sim/combat';
 import { BOTS } from './tuning';
-import { gearGain, isCursed, isArms, isJewel, type ItemId } from '../content/items';
+import { gearGain, isCursed, isArms, isGear, slotOf, type ItemId } from '../content/items';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
 import type { LootItemView, PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -43,22 +43,13 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
     const a = view.allies.find((x) => x.id === id);
     return a ? a.hp / a.maxHp : 1;
   };
-  if (isArms(f.item)) {
-    // Whoever it's the biggest upgrade for (ties: me). Nobody gains → leave it, so swaps can't ping-pong.
+  if (isGear(f.item)) {
+    // Whoever it's the biggest upgrade for (ties: me). Nobody gains → a player, whose Stash keeps it; else leave it.
     const best = cands
-      .map((c) => ({ id: c.id, gain: gearGain(f.item, c.wearing ?? null) }))
+      .map((c) => ({ id: c.id, gain: wornGain(f.item, c.wearing ?? null) }))
       .filter((c) => c.gain > 0)
       .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
-    return best ? best.id : LEAVE;
-  }
-  if (isJewel(f.item)) {
-    // Blessed beats nothing beats cursed (bots don't trade health for haste). Nobody gains → leave it.
-    const worth = (id: ItemId | null | undefined) => (!id ? 0 : isCursed(id) ? -1 : 1);
-    const best = cands
-      .map((c) => ({ id: c.id, gain: worth(f.item) - worth(c.wearing) }))
-      .filter((c) => c.gain > 0)
-      .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
-    return best ? best.id : LEAVE;
+    return best ? best.id : cands.find((c) => !c.isBot)?.id ?? LEAVE;
   }
   switch (f.item) {
     case 'bandage':
@@ -69,6 +60,16 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
       // Mediocre and a bit selfish: keep it if there's room, else hand it to whoever has the most space.
       return meCand ? me.id : [...cands].sort((a, b) => b.free - a.free)[0].id;
   }
+}
+
+/**
+ * How much better a piece is than what's worn: weapons and armor by their numbers; amulets and rings blessed beats
+ * nothing beats cursed (bots don't trade health for haste).
+ */
+function wornGain(item: ItemId, wearing: ItemId | null): number {
+  if (isArms(item)) return gearGain(item, wearing);
+  const worth = (id: ItemId | null) => (!id ? 0 : isCursed(id) ? -1 : 1);
+  return worth(item) - worth(wearing);
 }
 
 function majority(values: string[]): string {
@@ -83,6 +84,9 @@ export function botUseItem(view: PlayerView): Intent | null {
   const skill = botSkill(view);
   if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
+  // Put on anything in the pack that beats what's worn (it went in the pack for being no rarer).
+  const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!]) > 0);
+  if (better >= 0) return { type: 'useItem', index: better };
   // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).
   const low = (frac: number) => frac <= 1 - BOTS.consumeAt;
   let i = idx((x) => x === 'bandage');

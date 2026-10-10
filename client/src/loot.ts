@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, type GearSlot, type ItemId, type LootItemView, type PlayerView,
+  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemId, type LootItemView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
@@ -71,7 +71,10 @@ export class LootUi {
       const el = (e.target as HTMLElement).closest('[data-slot]') as HTMLElement | null;
       if (!el) return;
       const slot = Number(el.dataset.slot);
+      const item = this.net.cur?.you.items[slot];
       if ((e.target as HTMLElement).closest('.drop')) net.intent({ type: 'drop', index: slot });
+      // Gear in the pack: put it on (what's worn there goes in the pack).
+      else if (item && slotOf(item)) net.intent({ type: 'useItem', index: slot });
       else this.useFromField(slot);
     });
     addEventListener('keydown', (e) => {
@@ -270,7 +273,7 @@ export class LootUi {
   private renderInventory(view: PlayerView) {
     this.spotPickups(view);
     const you = view.you;
-    // Pack: consumables first (the first few have number keys), then stacked resources, then empty slots.
+    // Pack: consumables first (the first few have number keys), then carried Gear, then stacked resources, then empty slots.
     const drawn = packSlots(you.items);
     const slots = [];
     for (let n = 0; n < INVENTORY_SLOTS; n++) {
@@ -284,7 +287,8 @@ export class LootUi {
       const f = this.flashAttr(`p${n}`);
       const key = def.kind === 'consumable' && i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd>` : '';
       const count = s.indices.length > 1 ? `<span class="stack">×${s.indices.length}</span>` : '';
-      slots.push(`<div class="slot-item ${def.kind}${f.cls}"${f.style} data-pslot="${n}" data-slot="${i}" title="${esc(`${def.name}: ${def.desc}`)}">
+      const wear = slotOf(s.item) ? ' Click to put it on.' : '';
+      slots.push(`<div class="slot-item ${def.kind}${isCursed(s.item) ? ' cursed' : ''}${f.cls}"${f.style} data-pslot="${n}" data-slot="${i}" title="${esc(`${def.name}: ${def.desc}${wear}`)}">
         ${key}<span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(s.item)}</span>${count}
         <span class="drop" title="Drop ${s.indices.length > 1 ? 'the stack ' : ''}on the floor">✕</span></div>`);
     }

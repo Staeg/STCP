@@ -133,7 +133,7 @@ export function pluralName(item: ItemId): string {
   return /[^aeiou]y$/.test(n) ? `${n.slice(0, -1)}ies` : `${n}s`;
 }
 
-/** Weapons and armor: tiered, and only ever swapped for something at least as good. */
+/** Weapons and armor. */
 export function isArms(item: ItemId): boolean {
   const k = ITEMS[item].kind;
   return k === 'weapon' || k === 'armor';
@@ -193,9 +193,13 @@ export function packFree(items: readonly ItemId[]): number {
   return INVENTORY_SLOTS - packSlotsUsed(items);
 }
 
-/** Resources sort after consumables, commonest first; consumables keep the order they were picked up in. */
+/**
+ * Consumables first, then carried Gear, then resources (commonest first); within a rank, the order they were
+ * picked up in.
+ */
 export function packRank(item: ItemId): number {
-  return isResource(item) ? 1 + RESOURCE_IDS.indexOf(item) : 0;
+  if (isResource(item)) return 2 + RESOURCE_IDS.indexOf(item);
+  return isGear(item) ? 1 : 0;
 }
 
 /** How much better `item` is than what's in that slot now (0 or less = not an upgrade). */

@@ -210,16 +210,16 @@ describe('picking up alone', () => {
     expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['tonic']);
   });
 
-  it('gear no better than yours is ignored', () => {
+  it('gear no rarer than yours goes in the pack', () => {
     const { world, d } = party(1);
     const h = world.heroes.h0;
     h.weapon = 'emberaxe'; // tier 3
     addToPile(world, d.entrance, 0, ['runeblade', 'hatchet']);
     step(world, 0.1);
-    expect(buildView(world, 'h0').loot?.items).toEqual([]);
-    h.weapon = 'hatchet';
+    for (const f of buildView(world, 'h0').loot!.items) applyIntent(world, 'h0', { type: 'vote', item: f.id, choice: 'h0' });
     step(world, 0.1);
-    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['runeblade']);
+    expect(h.weapon).toBe('emberaxe');
+    expect(h.items).toEqual(['runeblade', 'hatchet']);
   });
 });
 
@@ -436,18 +436,15 @@ describe('bot games with loot', () => {
 });
 
 describe('gear tiers', () => {
-  it('a lower-tier piece is not offered over what you wear, until you take yours off', () => {
-    const { world, d } = party(1);
+  it('a lower-tier piece needs room in the pack; a rarer one can always be taken', () => {
+    const { world } = party(1);
     const h = world.heroes.h0;
-    h.weapon = 'runeblade'; // tier 3
-    expect(canTake(h, 'shortsword')).toBe(false); // tier 1
-    expect(canTake(h, 'emberaxe')).toBe(true); // same tier
-    expect(canTake(h, 'jerkin')).toBe(true); // other slot
-    addToPile(world, d.entrance, 0, ['shortsword']);
-    run(world, 1);
-    expect(buildView(world, 'h0').loot?.items).toEqual([]);
-    h.weapon = null;
-    run(world, 1);
-    expect(buildView(world, 'h0').loot?.items[0].candidates.map((c) => c.id)).toEqual(['h0']);
+    h.weapon = 'shortsword'; // tier 1
+    h.items = Array(14).fill('torch');
+    expect(canTake(h, 'hatchet')).toBe(false); // same tier
+    expect(canTake(h, 'runeblade')).toBe(true); // rarer: goes on
+    expect(canTake(h, 'jerkin')).toBe(true); // empty slot
+    h.items = [];
+    expect(canTake(h, 'hatchet')).toBe(true);
   });
 });

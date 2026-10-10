@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { neighbours } from '../dungeon/gen';
-import { botVote } from '../bots/looter';
+import { botUseItem, botVote } from '../bots/looter';
 import { armored, damageMult, spawnGroup } from './combat';
 import { addToPile, LEAVE } from './loot';
 import { buildView } from './views';
@@ -9,6 +9,13 @@ import type { ClassId } from '../content/classes';
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
+}
+
+/** h0, alone in the entrance, takes everything up for grabs there. */
+function takeAll(world: World) {
+  step(world, 0.1);
+  for (const f of buildView(world, 'h0').loot?.items ?? []) applyIntent(world, 'h0', { type: 'vote', item: f.id, choice: 'h0' });
+  step(world, 0.1);
 }
 
 function party(classes: ClassId[]) {
@@ -31,7 +38,7 @@ describe('equipping gear', () => {
     expect(h.items).toHaveLength(4);
   });
 
-  it('swaps: the old piece goes on the floor for a vote', () => {
+  it('a rarer piece goes on; the old one goes in the pack', () => {
     const { world, d } = party(['warden', 'sorceress']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
@@ -43,22 +50,53 @@ describe('equipping gear', () => {
     applyIntent(world, 'h1', { type: 'vote', item: loot.items[0].id, choice: 'h0' });
     step(world, 0.1);
     expect(h.armor).toBe('cuirass');
-    step(world, 0.1);
-    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['jerkin']); // up for h1, not for h0
+    expect(h.items).toEqual(['jerkin']);
+    expect(world.piles[d.entrance]).toBeUndefined();
   });
 
-  it('alone, your old piece lies ignored after a swap', () => {
+  it('with a full pack, the old piece goes on the floor instead', () => {
     const { world, d } = party(['warden']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
+    h.items = Array(14).fill('torch');
     addToPile(world, d.entrance, 0, ['cuirass']);
-    step(world, 0.1);
-    applyIntent(world, 'h0', { type: 'vote', item: world.piles[d.entrance].items[0].id, choice: 'h0' });
-    run(world, 1);
+    takeAll(world);
     expect(h.armor).toBe('cuirass');
     const loot = buildView(world, 'h0').loot!;
     expect(loot.items).toEqual([]);
     expect(loot.ignored.map((f) => f.item)).toEqual(['jerkin']);
+  });
+
+  it('no rarer than what you wear, it goes in the pack (after consumables, before resources)', () => {
+    const { world, d } = party(['warden']);
+    const h = world.heroes.h0;
+    h.weapon = 'runeblade'; // rare
+    h.items = ['torch', 'gem'];
+    addToPile(world, d.entrance, 0, ['emberaxe', 'shortsword']); // rare, common
+    takeAll(world);
+    expect(h.weapon).toBe('runeblade');
+    expect(h.items).toEqual(['torch', 'emberaxe', 'shortsword', 'gem']);
+  });
+
+  it('a full pack leaves it on the floor', () => {
+    const { world, d } = party(['warden']);
+    const h = world.heroes.h0;
+    h.weapon = 'runeblade';
+    h.items = Array(14).fill('torch');
+    addToPile(world, d.entrance, 0, ['shortsword']);
+    takeAll(world);
+    expect(h.items).not.toContain('shortsword');
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['shortsword']);
+  });
+
+  it('gear in the pack can be put on, swapping with what is worn', () => {
+    const { world } = party(['warden']);
+    const h = world.heroes.h0;
+    h.weapon = 'runeblade';
+    h.items = ['torch', 'shortsword'];
+    applyIntent(world, 'h0', { type: 'useItem', index: 1 });
+    expect(h.weapon).toBe('shortsword');
+    expect(h.items).toEqual(['torch', 'runeblade']);
   });
 
   it('can be taken off and dropped, and falls with the dead', () => {
@@ -79,7 +117,7 @@ describe('equipping gear', () => {
     expect(pile.items.map((f) => f.item)).toContain('chainshirt');
   });
 
-  it('bots back the biggest upgrade, and leave pieces nobody needs', () => {
+  it('bots back the biggest upgrade; pieces nobody needs go to a player, else stay down', () => {
     const { world, d } = party(['warden', 'sorceress']);
     world.heroes.h0.isBot = world.heroes.h1.isBot = true;
     world.heroes.h0.weapon = 'runeblade';
@@ -88,11 +126,21 @@ describe('equipping gear', () => {
     const item = world.piles[d.entrance].items[0].id;
     expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', item, choice: 'h1' });
 
-    // Nobody would bother with it now; claimed back, the bots still vote to leave it.
+    // An upgrade for nobody: no player to carry it home, so leave it.
     world.heroes.h1.weapon = 'emberaxe';
-    expect(botVote(buildView(world, 'h0'))).toBeUndefined();
-    applyIntent(world, 'h1', { type: 'claim', item });
     expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', item, choice: LEAVE });
+    // A player's Stash would keep it.
+    world.heroes.h1.isBot = false;
+    expect(botVote(buildView(world, 'h0'))).toEqual({ type: 'vote', item, choice: 'h1' });
+  });
+
+  it('bots put on better gear from their pack', () => {
+    const { world } = party(['warden']);
+    const h = world.heroes.h0;
+    h.isBot = true;
+    h.weapon = 'hatchet';
+    h.items = ['shortsword', 'spear'];
+    expect(botUseItem(buildView(world, 'h0'))).toEqual({ type: 'useItem', index: 1 });
   });
 });
 

@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, isArms, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
+  GEAR_SLOTS, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -140,19 +140,21 @@ export function hasSpace(h: Hero, item?: ItemId): boolean {
 }
 
 /**
- * Weapons and armor swap with what you wear, unless they're a lower tier than that (take yours off first if you
- * really want it); amulets and rings always swap; anything else needs room in the pack.
+ * Gear picked up goes on if its slot is empty or it's a higher rarity than what's worn there (user 2026-10-11).
+ * Otherwise it goes in the pack, like anything else.
  */
+export function putsOn(h: Hero, item: ItemId): boolean {
+  const slot = slotOf(item);
+  if (!slot) return false;
+  const worn = h[slot];
+  return !worn || itemTier(item) > itemTier(worn);
+}
+
+/** Gear that goes on can always be taken (what it replaces goes in the pack, or on the floor); the rest needs room. */
 export function canTake(h: Hero, item: ItemId): boolean {
   // Gem Rite: no consumables at all.
   if (h.rites.includes('gem') && ITEMS[item].kind === 'consumable') return false;
-  const slot = slotOf(item);
-  if (slot === 'weapon' || slot === 'armor') {
-    const worn = h[slot];
-    return !worn || itemTier(item) >= itemTier(worn);
-  }
-  if (slot) return true;
-  return hasSpace(h, item);
+  return putsOn(h, item) || hasSpace(h, item);
 }
 
 /** What this hero has on: weapon, armor, amulet, ring. */
@@ -187,14 +189,39 @@ export function equip(h: Hero, slot: GearSlot, item: ItemId | null): ItemId | nu
   return old;
 }
 
-/** Returns the gear this displaced, if any (the caller puts it on the floor). */
+/**
+ * Gear goes on (see `putsOn`) or in the pack; what it replaces goes in the pack too. Returns that replaced piece if
+ * the pack had no room for it (the caller puts it on the floor).
+ */
 export function giveItem(h: Hero, item: ItemId): ItemId | null {
   const slot = slotOf(item);
-  if (slot) return equip(h, slot, item);
-  // Consumables always sit at the top of the pack (the first few get number keys); resources stack below.
+  if (slot && putsOn(h, item)) {
+    const old = equip(h, slot, item);
+    if (!old || !hasSpace(h, old)) return old;
+    stow(h, old);
+    return null;
+  }
+  stow(h, item);
+  return null;
+}
+
+/** Into the pack. Consumables always sit at the top (the first few get number keys), then Gear; resources stack below. */
+function stow(h: Hero, item: ItemId) {
   const rank = packRank(item);
   const at = h.items.findIndex((x) => packRank(x) > rank);
   h.items.splice(at < 0 ? h.items.length : at, 0, item);
+}
+
+/** Put on a piece of Gear from the pack; what was worn there takes its place in the pack. */
+export function equipFromPack(world: World, h: Hero, index: number): string | null {
+  const item = h.items[index];
+  const slot = item === undefined ? null : slotOf(item);
+  if (!slot) return "You can't wear that.";
+  if (h.encounter !== null || !isConscious(h)) return 'Not now.';
+  takeItem(h, index);
+  const old = equip(h, slot, item);
+  if (old) stow(h, old);
+  notify(world, h, `You put on the ${ITEMS[item].name}.`);
   return null;
 }
 
@@ -215,20 +242,9 @@ export function votersIn(world: World, room: number): Hero[] {
   return presentIn(world, room).filter((h) => isConscious(h) && h.encounter === null);
 }
 
-/**
- * Would this hero bother with it? Not if they walked past it before, can't carry it, or it's gear no better than
- * what they wear (same tier or lower).
- */
+/** Would this hero bother with it? Not if they walked past it before or can't carry it. */
 export function wants(h: Hero, f: FloorItem): boolean {
-  if (f.passed.includes(h.id) || !canTake(h, f.item)) return false;
-  const slot = slotOf(f.item);
-  if (slot === 'weapon' || slot === 'armor') {
-    const worn = h[slot];
-    return !worn || itemTier(f.item) > itemTier(worn);
-  }
-  // A different amulet or ring is always worth a look.
-  if (slot) return h[slot] !== f.item;
-  return true;
+  return !f.passed.includes(h.id) && canTake(h, f.item);
 }
 
 /** The floor items up for grabs right now: someone here wants it, or asked for it back. The rest lie ignored. */
@@ -324,12 +340,12 @@ function raiseAlly(world: World, u: Hero, dead: Hero, room: number) {
   dead.raised = true;
   const pile = world.piles[room];
   if (pile) {
-    // Whatever of theirs still lies here goes back on them. A second weapon or armor stays down, fair game.
+    // Whatever of theirs still lies here goes back on them (or in their pack). What won't fit stays down, fair game.
     for (const f of pile.items.filter((x) => x.by === dead.id)) {
-      const slot = slotOf(f.item);
-      if (slot ? dead[slot] : !hasSpace(dead, f.item)) continue;
+      if (!canTake(dead, f.item)) continue;
       pile.items.splice(pile.items.indexOf(f), 1);
-      giveItem(dead, f.item);
+      const old = giveItem(dead, f.item);
+      if (old) addToPile(world, room, 0, [old], dead.id);
     }
     dead.gold += pile.corpseGold?.[dead.id] ?? 0;
     if (pile.corpseGold) {
@@ -366,12 +382,12 @@ export function risenAllyEscapes(world: World, u: Hero, dead: Hero) {
   chronicle(world, `${u.name} brought the risen ${dead.name} out, and what they carried home to their Village.`);
 }
 
-/** Give a floor item to a hero; gear they had on goes back on the floor as theirs. */
+/** Give a floor item to a hero; gear it replaced that won't fit in their pack goes back on the floor as theirs. */
 function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
   pile.items.splice(pile.items.indexOf(f), 1);
   const def = ITEMS[f.item];
+  const verb = putsOn(h, f.item) ? ['put on', 'puts on'] : ['take', 'takes'];
   const old = giveItem(h, f.item);
-  const verb = slotOf(f.item) ? ['put on', 'puts on'] : ['take', 'takes'];
   for (const x of presentIn(world, room)) notify(world, x, x === h ? `You ${verb[0]} the ${def.name}.` : `${h.name} ${verb[1]} the ${def.name}.`);
   // The piece it replaced goes on the floor, up for grabs like any other find (but not for them).
   if (old) addToPile(world, room, 0, [old], h.id);
@@ -434,7 +450,7 @@ export function claimItem(world: World, h: Hero, id: number): string | null {
   if (!pile || !f || world.encounters[room] || monstersIn(world, room).length > 0) return 'Nothing there.';
   f.passed = f.passed.filter((x) => x !== h.id);
   if (votersIn(world, room).length === 1) {
-    if (!canTake(h, f.item)) return isArms(f.item) ? 'Take yours off first.' : 'Your pack is full.';
+    if (!canTake(h, f.item)) return 'Your pack is full.';
     take(world, room, pile, h, f);
     return null;
   }

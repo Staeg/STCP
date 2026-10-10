@@ -17,11 +17,12 @@ import {
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
+import { slotOf } from '../content/items';
 import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, giveItem, wants, dropItem, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, equipFromPack, giveItem, wants, dropItem, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -609,6 +610,12 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       unequip(world, hero, intent.slot);
       return;
     case 'useItem': {
+      // Gear from the pack goes on at once, like taking it off.
+      if (hero.items[intent.index] && slotOf(hero.items[intent.index])) {
+        const err = equipFromPack(world, hero, intent.index);
+        if (err) notify(world, hero, err);
+        return;
+      }
       // Checked now so a bad pick is refused at once. It's this turn's action: any walk is called off (back to
       // the room you left), and the item takes effect when the timer runs out.
       // From a tunnel, judged from the room you'd be back in.
