@@ -1,5 +1,5 @@
 import {
-  ABILITIES, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, ITEMS, readyAbilities,
+  abilitiesOf, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, ITEMS, readyAbilities,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -208,8 +208,8 @@ export class CombatUi {
 
   /** What the sim does for you if you don't pick: your first ability that's ready, or Brace if none is. */
   private fallbackName(view: PlayerView): string {
-    const i = readyAbilities(view.you.cls, view.you.cooldowns)[0];
-    return i === undefined ? 'Brace' : ABILITIES[view.you.cls][i].name;
+    const i = readyAbilities(view.you)[0];
+    return i === undefined ? 'Brace' : abilitiesOf(view.you)[i].name;
   }
 
   private setHtml(html: string) {
@@ -239,7 +239,7 @@ export class CombatUi {
    */
   private actionsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
     const you = view.you;
-    const abilities = ABILITIES[you.cls];
+    const abilities = abilitiesOf(you);
     const chosen = enc?.yourChoice ?? null;
     const off = (disabled: boolean) => (!disabled ? '' : enc ? 'disabled' : 'aria-disabled="true"');
     /** `desc` is HTML. Revive, Flee and Brace are just an icon (`body`), their name in the description. */
@@ -389,7 +389,7 @@ export class CombatUi {
       return !!def && (def.target === 'ally' || def.target === 'downed');
     }
     if (!action.startsWith('a')) return false;
-    const ab = ABILITIES[view.you.cls][Number(action.slice(1))];
+    const ab = abilitiesOf(view.you)[Number(action.slice(1))];
     return ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
   }
 
@@ -462,7 +462,7 @@ export class CombatUi {
     const me = enc.heroes.find((h) => h.id === view.you.id);
     if (!me || me.downed) return false;
     if (action.startsWith('a')) {
-      const ab = ABILITIES[view.you.cls][Number(action.slice(1))];
+      const ab = abilitiesOf(view.you)[Number(action.slice(1))];
       if ((view.you.cooldowns[ab.id] ?? 0) > 0) return false;
       const opt = enc.yourOptions[action];
       if (opt?.blocked || (this.needsTarget(view, action) && !opt?.targets.length)) return false;

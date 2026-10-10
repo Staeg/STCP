@@ -48,7 +48,8 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Collapses (changed in M5) | **Any** tunnel can collapse from T3, every 45s, and becomes **rubble** that anyone at either end can dig through (15s, Warden 9s). Nobody is ever permanently trapped, but being walled in costs real time ("Stuck?" from the pitch). The original "never cut the path" rule left almost nothing collapsible, because the dungeon is tree-like. You only learn about rubble when you reach it, and seeing it cleared works the same way. |
 | Dungeon size (changed in M5) | 10×7 grid, **38–50 rooms**, exit 6–9 hops from the entrance, 5–10 crossroads. With 25–35 rooms, bots had explored everything and were sitting at the exit by about 5:40. |
 | Knowing who left | You only learn an ally escaped if you saw them go (same room). Otherwise they're a ghost at their last known spot, which is often the exit. The results screen reveals everything. |
-| Stash / career (M11) | `server/data/stash.json`, keyed by lower-cased player name, stores {gold, runs, escapes, best}. Old gold-only files migrate automatically. Gold is bragging-only (user's choice). Fast-forwarded (`debugSpeed`) games don't count. |
+| Stash / career (M11) | `server/data/stash.json`, keyed by lower-cased player name, stores {gold, runs, escapes, best} plus (M12) the purse and the Village. Old files migrate automatically. Lifetime gold drives titles; the purse is what you spend. Fast-forwarded (`debugSpeed`) games don't count. |
+| The Village (user, 2026-10-10) | Per-player rosters of Characters (1 per class), +1 XP per run survived, a Talent at 2 XP, lasting injuries and afflictions treated with purse gold, death replaces the Character with a recruit, ephemeral bots borrowing healthy Characters, and Challenge Rating (Talents in the run) for more gold and CR-only monsters. Full rules in M12. |
 | Events (v1) | 28% of normal rooms (not the entrance, the exit, or rooms next to the entrance) get an event. Events work once the room is quiet (no monsters). Channels **start over** if interrupted (user, 2026-10-09), except that an Altar whose guardians have come stays at 50%. The Altar summons guardians at 50% (one tier weaker than the dungeon). Each altar cleansed is worth +15 gold to every hero who escapes, plus −20 stress for everyone still inside. **Villagers are saved on reaching the rendezvous room** (they slip out alone), worth +25 gold to every escaper; this was changed so escorts don't camp at the exit for 5 minutes. Escorting slows you to 70% speed, monsters sometimes hit the villager (15%), and if the escort falls the villager waits in that room for anyone to pick up. The Crawlspace moves you up to 3 rooms along the real route to the exit (4 damage, Dim light). The Idol caves in the corridor you arrived by. |
 | Stress (v1) | Dim +0.15/s, total darkness +0.5/s (Cat's-Eye negates Dim). The first 100 gives a random affliction and resets to 60; the next 100 is a heart attack (downed, reset to 80). Selfish: forced to vote for themselves, and dropped from the vote after 10s. Fearful: 25% to panic-flee. Paranoid: refuses others' Mend/Guard/Vigil/Bandage/Pact healing (Salts still work). Hopeless: −30% damage. |
 | Lampbearer field Mend (added in M7) | Outside combat the Lampbearer can heal anyone in the same room for 8 (and cure Bleed), with a 20s cooldown (button/M). Before this, HP never recovered between fights except via Bandages, so almost every down became a death. It also gives the party a reason to stay near the Lampbearer. |
@@ -297,57 +298,59 @@ Run all of the following, then write `PLAYTEST.md` with findings, ranked issues 
 ### M11 (stretch). Out-of-dungeon gold
 - [x] Asked the user: **cosmetic/bragging only.** Built career stats (total gold extracted, runs, escapes, best haul), titles by total gold (Nobody → Scavenger 100 → Delver 300 → Treasure-Seeker 700 → Gilded 1500 → Legend of the Deep 3000), and the **Hall of Fortune** (top 10) on the menu and results screens. Titles show next to names in the lobby. Candidate: a camp screen between runs where you spend stashed gold on starting consumables, trinkets, or a class unlock. Persistence is keyed by player name.
 
-### M12. The Village (the "They" who Prosper) — SCOPED, awaiting the user's picks
-User brief (2026-10-10). Everything below marked **(proposal)** is my reading and still needs a yes; the rest is from the brief.
+### M12. The Village (the "They" who Prosper) ✅
+User brief and decisions (2026-10-10). Code: `shared/src/village.ts` (Characters, injuries, run outcomes), `shared/src/stash.ts` (Villages and the purse live in each player's stash record), `content/talents.ts` (talents and `abilitiesFor`), `CR_RULES` in `content/enemies.ts`. Client: the Village screen in `client/src/screens.ts`.
 
-**Roster.** Each player (keyed by name, like the stash) has a **Village** holding exactly **1 Character per class** (8). Later: more than one per class, so store a list and don't assume `cls` is a unique key. A Character has: id, name **(proposal: a generated name such as "Ilse"; in the dungeon the hero shows as "Ilse (Stag)")**, class, survivedRuns, XP (0–3), talent (null or a TalentId), injuries (list of `minor`/`major`), affliction (null or AfflictionId).
-- Choosing a class in the lobby = bringing your Village's Character of that class.
-- **XP:** every 2 runs a Character **survives** (escapes) gives 1 XP. At 3 XP they gain a **Talent**: a choice between the class's 2 talents, made on the Village screen. That's 6 survived runs. Only one talent for now, so XP stops at 3.
-- **Death** resets the Character to baseline: no XP, no talent, no injuries, no affliction. **(proposal: a new recruit with a new name takes their place, so the death reads as a loss.)**
-- Runs a bot played with your Character count for that Character: they earn XP, take injuries and can die.
+**Roster.** Each player (keyed by name, like the stash) has a **Village** of **1 Character per class** (8), stored as a list so there can be more per class later. A Character has an id, a generated name, class, XP, runs survived, talent, injuries (`minor`/`major`) and affliction. Picking a class in the lobby brings that Character. In the dungeon a player's hero is named "Ilse (Stag)"; a bot's is just the Character's name.
+- **XP:** +1 for every run the Character survives (escapes). At **2 XP** they earn a **Talent**, a choice between their class's two, made on the Village screen. Only one talent for now, so XP stops at 2.
+- **Death** (bled out or buried) replaces the Character with a **new recruit** (new id and name, baseline: no XP, talent, injuries or affliction).
+- Players' Characters are written back even if the player left mid-run and a bot finished it (`Lobby.roster`).
 
-**Lasting damage.** Tracked per run on the hero (lowest HP fraction reached, downed-and-escaped flag) and written to the Character when the run ends:
-- Dropped below 50% max HP → a **Minor Injury**. Below 25% → a **Major Injury**. **(proposal: the Major replaces the Minor from the same run rather than adding to it.)**
-- Downed but escaped → **one more Major Injury**. So the worst survivable run leaves 2 Majors.
-- Died (including buried at the collapse) → full reset (see above).
-- **Stress effects persist:** an affliction gained in the run stays on the Character. Next run they start with it, so the next 100 stress is a heart attack. **(proposal: the stress number itself still resets on escape, as now.)**
-- **(proposal) What injuries do:** Minor = −10% max HP. Major = −20% max HP and +0.5s Speed. They stack additively across runs, with a floor of 40% of base max HP. The user's brief only set the thresholds and the costs.
-- **Treatment (abstract for now):** on the Village screen, pay **50g** per Minor, **100g** per Major and **100g** to lift an affliction. Gold comes from the player's purse. A better system comes later.
-- Injuries **don't lower CR**, so an injured Character is a liability, not a discount.
+**Lasting damage.** The hero tracks `lowestHp` (fraction of max) and `downedMajor`; at run end:
+- Below 50% → a **Minor Injury**; below 25% → a **Major Injury** instead (not both).
+- Downed and then escaped → **one more Major** (worst survivable run: 2 Majors). A **Pallbearer** revive waives this one.
+- An **affliction** gained in the run stays; the Character starts the next run with it, so their first 100 stress is a heart attack. The stress number itself still resets.
+- Effects: Minor −10% max HP, Major −20% max HP and +0.5s Speed (a run-long Speed mod). They stack, floored at 40% of base max HP (`VILLAGE_RULES`).
+- **Treatment** on the Village screen, from the purse: **50g** per Minor, **100g** per Major, **100g** per affliction.
+- Injuries don't lower CR.
 
-**Gold** stops being bragging-only. **(proposal: split it into a spendable *purse* and the existing lifetime total, which keeps driving titles and the Hall of Fortune, so healing never costs you your title.)** For scale, an escaped hero banks ~130–170g per run today, so two Majors (200g) cost more than a good run earns.
+**Gold.** Each stash record now has a spendable **purse** next to the lifetime `gold` total, which still drives titles and the Hall of Fortune, so healing never costs you a title. Old records start with purse = their banked gold.
 
-**Bots** in a run pick a random **uninjured** Character (no injuries, no affliction) from the Villages of the human players in the lobby, with its Talent if it has one. They never pick a Character already in the party. If none is uninjured, they pick a fully random one. **(proposal: a Character a bot played is shown on its owner's results, and the gold the bot escapes with goes to the owner's purse.)** **Open:** should bots still prefer classes no human picked (today's rule) when choosing among eligible Characters?
+**Bots are ephemeral** (user): they borrow a Character from the lobby players' Villages, using its Talent, injuries and affliction, but nothing that happens to them is written back (no injuries, no death, no XP) and their gold goes nowhere. Choice: a random **healthy** Character (no injuries or affliction) not already in the party, preferring classes nobody in the party has; if none is healthy, any one at all.
 
-**Challenge Rating (CR)** = how many of the 4 heroes in the run have a Talent (0–4). Bots' talents count. It's shown in the lobby (the humans' part) and fixed when the run starts, then shown in the HUD and on the results.
-- **(proposal) Gold:** every gold amount (piles, vaults, chests, events, objective bonuses) × (1 + 0.15·CR), so +60% at CR 4.
-- **(proposal) Monsters:** HP and damage × (1 + 0.06·CR) on top of tier scaling (+24% at CR 4, roughly 2½ tiers' worth), plus the CR-only monsters below.
+**Challenge Rating (CR)** = heroes in the run with a Talent (0–4), bots' borrowed Talents included (`Game` counts the slots; `World.cr`). The lobby shows the players' part and the gold multiplier; the HUD and results show the run's.
+- **Gold:** gold *found* (piles, vaults, chests, events, the Satchel, objective bonuses) × (1 + 0.15·CR). Dropped gold and corpses' gold aren't multiplied.
+- **Monsters:** no HP or damage scaling from CR (user). Difficulty comes from two CR-only monsters (`crUnits` in combat.ts, applied to starting rooms, lairs, respawns, wanderers and waves):
+  1. **Lantern Wight** (undead; HP 16, Speed 5, dmg 3), CR ≥ 1. *Snuff:* 3 damage to the nearest hero and −15 of their light. Every Ghoul spawned brings a Wight **alongside** it with a chance of **25% / 50% / 50% / 50%** at CR 1/2/3/4.
+  2. **Forsaken Queen** (elite; HP 32, Speed 6), CR ≥ 3. *Hymn:* every other monster heals 4 and gets its next turn 2s sooner. Last one standing: *Dirge*, +8 stress to every hero in the fight. At most one per room. CR 3: a third of lairs have one. CR 4: every lair, plus a 25% chance in each exit wave from T5. Bots focus her first.
 
-**CR-only monsters (brainstorm, exact rules):**
-1. **Lantern Wight** (undead), CR ≥ 1. HP 16, Speed 5, dmg 3. *Snuff:* 3 damage to the nearest hero and −15 of that hero's light. Every Ghoul rolled for a room, wave or wanderer group is replaced by a Wight with a chance of **15% × CR** (15 / 30 / 45 / 60%). Darkness pressure that rewards the Lampbearer and Torches.
-2. **Choirmother** (cultist elite), CR ≥ 3. HP 32, Speed 6, dmg 4. *Hymn:* every other monster's next turn comes 2s sooner and heals 4. When she's the last one standing: *Dirge*, +8 stress to every hero. At most one per room. **CR 3:** a third of lairs gain a Choirmother. **CR 4:** every lair does, and from T5 each exit wave has a 25% chance of including one. She makes "kill the priestess first" the readable focus-fire call (pillar 4).
+**Talents** (user's picks and rewrites; numbers in `TALENT_RULES`). Each one changes something that already exists, with no new buttons. `abilitiesOf(hero)` returns a hero's abilities as changed by their talent, and every ability lookup (combat, field skills, bots, client) goes through it.
 
-**Talents (brainstorm, 3 per class; the user picks 2 per class).** Every one is a passive or a change to an existing button (memory: no time-costly mechanisms).
+| Class | Talent | Effect |
+|---|---|---|
+| Warden | **Iron Oath** | Once per run, a blow that would drop you leaves you at 1 HP, and nothing can hurt you for 6s (`hurtHero`, used by every damage path except heart attacks). |
+| | **Unyielding** | Vengeance lasts 3 turns, cools down in 5, and works out of combat (a field skill; it ticks per field turn and carries into the next fight). |
+| Cutthroat | **Ghost Step** | Your own Flee always succeeds and costs no stress. |
+| | **Opening Act** | Your first turn in each fight comes after half your Speed. |
+| Lampbearer | **Everflame** | +0.33% damage per point of light carried by every other living hero still inside (three at full light ≈ ×2). |
+| | **Triage** | Mend heals 12, but only the Lampbearer (in and out of combat). |
+| Witch | **Sanguine** | Whenever she damages a Hexed enemy, heal 2 per Hex on it. |
+| | **Evil Eye** | Every enemy is Hexed once when a fight starts with her in it, or when she joins one. |
+| Undertaker | **Restless Dead** | The risen lasts 6 turns and follows the Undertaker out of the fight into their next one (`hero.risen`). |
+| | **Pallbearer** | Allies the Undertaker revives (any way: in combat, the channel, Salts) come back at full HP, and going down costs them no Major Injury. |
+| Bellwright | **Great Bell** | The Toll stuns every monster in the dungeon: those fighting lose their next turn; the rest stop for 7s, and any fight they start in that time, they start Stunned (`dazeAll`). |
+| | **Resonance** | Peal also gives every ally it hastens −5 stress and +3 HP. |
+| Zealot | **Martyr** | Take Their Sins moves up to 40 and heals the ally 5. |
+| | **Penitent** | Absolution deals damage for all your stress above 50, but only spends half of it. |
+| Alchemist | **Volatile** | Using an item in a fight also sets off a free Fumes. |
+| | **Quick Hands** | Items in a fight are used at once and don't take your turn. |
 
-| Class | A | B | C |
-|---|---|---|---|
-| Warden | **Iron Oath:** once per run, a hit that would drop you to 0 leaves you at 1 HP. | **Bodyguard:** Shield Bash also gives the most hurt ally 2 Block. | **Unyielding:** Stalwart 20% → 35%, and Vengeance lasts 3 turns. |
-| Cutthroat | **Fence:** +20% on your gold shares, and vaults give you an extra 15g. | **Ghost Step:** your own Flee always succeeds and costs no stress. | **Opening Act:** your first turn in every fight comes after half your Speed. |
-| Lampbearer | **Everflame:** Flare gives +20 light, and allies in your room don't gain Dim stress. | **Triage:** Mend heals 12 and can target yourself. | **Last Light:** when an ally in your fight goes down, Mend comes off cooldown. |
-| Witch | **Long Curse:** Hexed stacks last 3 turns instead of 2. | **Sanguine:** Blood Pact heals you 2 per enemy hit. | **Evil Eye:** Wither also puts a Hexed stack on every enemy. |
-| Undertaker | **Gravedigger's Due:** Spade +2 per Last Rites kill (instead of +1). | **Restless Dead:** the Risen lasts 6 turns (instead of 4). | **Pallbearer:** allies you revive come back with +10 HP. |
-| Bellwright | **Great Bell:** Toll cooldown 4 → 2. | **Resonance:** Peal also lifts 5 stress from every ally it hastens. | **Iron Tongue:** Clang has a 30% chance to Stun. |
-| Zealot | **Martyr:** Take Their Sins moves up to 40 and heals the ally 5. | **Fervor:** +2% damage per stress point (from 1.5%). | **Penitent:** Absolution spends stress above 30 (instead of 50). |
-| Alchemist | **Deep Satchel:** brew every 30s (instead of 45s). | **Volatile:** Fumes also deals 4 damage at once, and Acid amplifies by +3. | **Quick Hands:** Elixir cooldown 4 → 2. |
-
-**Build steps (once the picks are in):**
-- [ ] `shared/src/village.ts`: Village/Character types and store (JSON next to the stash on the server, localStorage in solo play), XP/talent/injury/death bookkeeping, the purse, and migration of existing stash records. Unit tests.
-- [ ] `content/talents.ts` with the chosen 16 talents, wired into combat, skills, loot and events. Tests per talent.
-- [ ] Per-run injury tracking on `Hero` (lowest HP fraction, downed-and-escaped), applied at run end. Characters' injuries and afflictions applied at spawn (max HP, Speed, starting affliction).
-- [ ] CR: computed in `Lobby.start` → `World.cr`. Gold and monster multipliers, the Lantern Wight and Choirmother (stats, sprites in `tools/sprites.py`, bot fighter targeting the Choirmother), and `--cr N` in the sim and sweep.
-- [ ] Bot Character selection from the lobby's Villages.
-- [ ] Client: a Village screen from the menu (8 Character cards: XP pips, talent or "choose a talent", injuries, affliction, heal buttons, purse), Character info on the lobby class cards, CR in the lobby, HUD and results, and what each Character gained or lost on the results screen.
-- [ ] Sim: escape rate and gold per escaper at CR 0–4 (target: CR 4 is clearly harder but more profitable per escaper).
+- [x] Village, purse and run bookkeeping in the stash, with migration (`village.test.ts`).
+- [x] 16 talents wired into combat, skills, bots and the client (`sim/talents.test.ts`).
+- [x] Injuries tracked in the run and applied at spawn; afflictions carried over.
+- [x] CR, its gold multiplier, Lantern Wight and Forsaken Queen (with sprites), and `npm run sim -- --cr N` (the first N heroes get a random talent).
+- [x] Bots borrow Village Characters (`lobby.test.ts`).
+- [x] Client: the Village screen (menu and lobby; talent choice, treatment, last run's report), Character info on lobby class cards and slots, CR in the lobby, HUD and results, and the run's report on the results screen.
 
 ### Later / parking lot
 Deploying to a public host, more classes and enemies, multiple floors, controller support, a real art pass, music. (In-game pings were removed from this list: they break the no-communication rule.)
@@ -364,6 +367,11 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-10 · **M12 built: the Village (user request).** Rules as in M12: 1 XP per run survived, a Talent at 2 XP (the user's 16 rewritten talents), Minor/Major injuries and lasting afflictions treated with purse gold, recruits replacing the dead, ephemeral bots borrowing healthy Characters (preferring unpicked classes), and CR from Talents giving +15% found gold per point, Lantern Wights from CR 1 (alongside Ghouls, 25/50/50/50%) and the Forsaken Queen from CR 3. No CR scaling of monster stats. Village screen, lobby and HUD changes in the client. 172 tests (new `village.test.ts`, `sim/talents.test.ts`, a lobby test).
+  - Sim (150 games, seeds 5000+, `--cr N` gives the first N heroes a random talent): CR 0 → 2 → 4: escape 56% → 47% → 42%, wipes 9% → 14% → 20%, gold per escaper 179 → 219 → 256. Higher CR is harder but pays more per survivor, as intended.
+  - Checked in the browser (solo, with a seeded Village): picking a talent, treating an injury (purse 220 → 170), lobby class cards with the Character, CR 1 in the lobby and HUD, bots borrowing healthy Characters of unpicked classes, and a fight against a Forsaken Queen and a Lantern Wight (Hymn, Snuff, sprites).
+  - Known/open: bots don't use the Unyielding field Vengeance or think about talents beyond Triage. Characters of players who share a name share a Village (names are identities, as with the stash). The treatment system is the abstract gold version, to be replaced later.
 
 - 2026-10-10 · **M12 scoped (user request, design only).** The Village: per-player rosters of Characters, XP and Talents, lasting injuries and afflictions treated with gold, Challenge Rating, two CR-only monsters, and bots borrowing Villagers. See M12. No code yet. **Next:** the user picks 2 talents per class and answers the (proposal)/Open items, then build M12 in the listed order.
 

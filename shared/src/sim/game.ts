@@ -1,6 +1,7 @@
 import { botThink, createBotMemory, type BotMemory } from '../bots/explorer';
 import { chooseCombatAction } from '../bots/fighter';
 import type { ClassId } from '../content/classes';
+import type { Loadout } from '../village';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type Intent, type World, type WorldOptions } from './world';
 
@@ -9,6 +10,8 @@ export interface PlayerSlot {
   name: string;
   cls: ClassId;
   isBot: boolean;
+  /** The Village Character this hero is, if any (its Talent, injuries and affliction come with it). */
+  loadout?: Loadout;
 }
 
 /** A running expedition: the world plus the bots that inhabit it. Shared by the server and the headless sim. */
@@ -17,7 +20,9 @@ export class Game {
   readonly bots = new Map<string, BotMemory>();
 
   constructor(seed: number, slots: PlayerSlot[], opts: WorldOptions = {}) {
-    this.world = createWorld(seed, opts);
+    // Challenge Rating: one per hero with a Talent, unless the caller fixes it.
+    const cr = opts.cr ?? slots.filter((s) => s.loadout?.talent).length;
+    this.world = createWorld(seed, { ...opts, cr });
     slots.forEach((slot, i) => {
       addHero(this.world, slot);
       if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919));

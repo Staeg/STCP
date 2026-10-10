@@ -5,7 +5,7 @@ import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster
 import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
 import { STRESS } from '../content/events';
-import type { Hero, World } from './world';
+import { crGold, type Hero, type World } from './world';
 
 export const LEAVE = 'leave';
 /** Bots defer to the humans' majority after this many seconds. */
@@ -97,7 +97,8 @@ export function dropBounty(world: World, room: number) {
  */
 export function addToPile(world: World, room: number, gold: number, items: ItemId[], droppedBy: string | null = null) {
   const pile = (world.piles[room] ??= { gold: 0, items: [] });
-  pile.gold += gold;
+  // Found gold is worth more at higher Challenge Rating.
+  pile.gold += droppedBy === null ? crGold(world, gold) : gold;
   if (droppedBy === null) items = items.slice(0, Math.max(0, LOOT.maxDrops - pile.items.length));
   for (const item of items) {
     pile.items.push({

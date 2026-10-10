@@ -1,4 +1,4 @@
-import type { ClientMsg, Intent, LeaderboardEntry, LobbyView, PlayerView, ServerMsg } from '@stcp/shared';
+import type { ClientMsg, Intent, LeaderboardEntry, LobbyView, PlayerView, ServerMsg, VillageView } from '@stcp/shared';
 import { LocalSocket, SOLO } from './local';
 
 /** Per-tab secret: survives refresh (sessionStorage) but differs between tabs, so one browser can host several test players. */
@@ -28,6 +28,10 @@ export class Net {
   onLobby: (lobby: LobbyView | null) => void = () => {};
   /** The Hall of Fortune (top players by total gold extracted). */
   leaderboard: LeaderboardEntry[] = [];
+  /** Your Village (Characters, purse, last run's report), keyed on the server by your name. */
+  village: VillageView | null = null;
+  /** The Village screen is open (over the menu or the lobby). */
+  villageOpen = false;
   /** Called on every snapshot. Used by dev playtest scripts: unlike timers, these aren't throttled in background tabs. */
   viewHooks: ((view: PlayerView) => void)[] = [];
 
@@ -82,6 +86,9 @@ export class Net {
         break;
       case 'leaderboard':
         this.leaderboard = msg.entries;
+        break;
+      case 'village':
+        this.village = msg.village;
         break;
       case 'view':
         this.reviewing = false;

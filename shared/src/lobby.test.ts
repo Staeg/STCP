@@ -152,4 +152,50 @@ describe('LobbyManager', () => {
     if (last?.t !== 'view') throw new Error();
     expect(last.view.allies.find((x) => x.id === annId)?.isBot).toBe(true);
   });
+
+  it('brings Village Characters: bots borrow healthy ones, and only players’ Characters carry the run home', () => {
+    const stash = new Stash(null);
+    // Ann's Village: everything but the Witch and the Zealot is hurt; her Warden has a Talent.
+    for (const c of stash.characters('Ann')) {
+      if (c.cls === 'witch' || c.cls === 'zealot' || c.cls === 'warden') continue;
+      stash.recordCharacter('Ann', c.id, { escaped: true, lowestHp: 0.4, downedMajor: false, affliction: null });
+    }
+    const warden = stash.characterFor('Ann', 'warden');
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, affliction: null });
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, affliction: null });
+    expect(stash.chooseTalent('Ann', warden.id, 'ironOath')).toBeNull();
+
+    const mgr = new LobbyManager(stash);
+    const a = client(mgr, 'tokenAAAA', 'Ann');
+    a.say({ t: 'create' });
+    a.say({ t: 'pickClass', cls: 'warden' });
+    expect(a.ws.lastLobby()!.cr).toBe(1);
+    expect(a.ws.lastLobby()!.members[0].character?.talent).toBe('ironOath');
+    a.say({ t: 'ready', ready: true });
+    a.say({ t: 'start' });
+
+    const lobby = (mgr as unknown as { lobbies: Map<string, { game: import('./sim/game').Game }> }).lobbies.values().next().value!;
+    const heroes = Object.values(lobby.game.world.heroes);
+    const you = heroes.find((h) => !h.isBot)!;
+    expect(you.name).toBe(`${warden.name} (Ann)`);
+    expect(you.talent).toBe('ironOath');
+    const bots = heroes.filter((h) => h.isBot);
+    // The two healthy ones first (Witch, Zealot), then a hurt one, since nobody healthy is left.
+    expect(bots.map((h) => h.cls).slice(0, 2).sort()).toEqual(['witch', 'zealot']);
+    expect(bots[2].injuries).toEqual(['minor']);
+    expect(bots.every((b) => b.owner === 'Ann')).toBe(true);
+    expect(lobby.game.world.cr).toBe(1);
+
+    // Everyone dies: the bots' Characters are untouched, Ann's Warden is replaced by a recruit.
+    for (const h of heroes) {
+      h.dead = true;
+      h.diedAt = 1;
+    }
+    mgr.tick();
+    const v = stash.village('Ann');
+    expect(v.characters.find((c) => c.cls === 'warden')!.id).not.toBe(warden.id);
+    expect(v.characters.find((c) => c.cls === 'witch')!.injuries).toEqual([]);
+    expect(v.characters.find((c) => c.cls === 'zealot')!.xp).toBe(0);
+    expect(a.ws.sent.some((m) => m.t === 'village' && m.village.report.length > 0)).toBe(true);
+  });
 });

@@ -1,4 +1,7 @@
-import { ABILITIES, CLASS_IDS, CLASSES, type LeaderboardEntry, type LobbyView } from '@stcp/shared';
+import {
+  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, CR_RULES, ENEMIES, INJURY_NAMES, injuredMaxHp, talentPending, TALENTS, talentsFor, VILLAGE_RULES,
+  type Character, type LeaderboardEntry, type LobbyView, type TalentId, type Treatment, type VillageView,
+} from '@stcp/shared';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
@@ -50,6 +53,7 @@ export class Screens {
     }
     el.hidden = false;
     const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
+      : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby)
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
     const html = `${body}<div class="build-tag" title="Branch @ commit this build came from">${esc(__BUILD__)}</div>`;
     if (html !== this.rendered && !this.pressing) {
@@ -95,6 +99,7 @@ export class Screens {
       <label>Your name<br><input id="name-input" maxlength="16" value="${esc(this.net.name)}" placeholder="Nameless"></label>
       <div class="row">
         <button data-act="create">${SOLO ? 'Start a run' : 'Start an expedition'}</button>
+        <button data-act="village">The Village${villageBadge(this.net.village)}</button>
       </div>
       ${SOLO ? '' : `<div class="row">
         <input id="code-input" maxlength="4" placeholder="CODE" class="code">
@@ -115,28 +120,35 @@ export class Screens {
         continue;
       }
       const cls = m.cls ? CLASSES[m.cls] : null;
+      const ch = m.character;
+      const who = ch ? `${esc(ch.name)}${ch.talent ? ` <span class="talent-star" title="${esc(TALENTS[ch.talent].name)}">★</span>` : ''} <span class="muted">(${esc(m.name)})</span>` : esc(m.name);
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
-        <span class="slot-name">${esc(m.name)} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
+        <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
         <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span></span>
       </li>`);
     }
     // Classes can be shared; the card just says who else picked it.
+    const village = this.net.village;
     const cards = CLASS_IDS.map((id) => {
       const c = CLASSES[id];
       const mine = you.cls === id;
+      const ch = village?.characters.find((x) => x.cls === id);
+      const hp = ch ? injuredMaxHp(id, ch.injuries) : c.maxHp;
+      const majors = ch?.injuries.filter((i) => i === 'major').length ?? 0;
       const others = lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId);
       return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
         <div class="class-head">
           <div>
             <div class="class-name">${c.name}</div>
             <div class="muted">${c.role}</div>
-            <div class="class-stats">${iconNum('hp', c.maxHp)} ${iconNum('speed', `${c.speed}s`)}</div>
+            <div class="class-stats">${iconNum('hp', hp)} ${iconNum('speed', `${c.speed + majors * VILLAGE_RULES.majorSpeed}s`)}</div>
           </div>
           <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
         </div>
+        ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
         <div class="blurb">${iconize(c.blurb)}</div>
-        <ul class="class-abilities">${ABILITIES[id].map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
+        <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
         ${others.length ? `<div class="muted">also: ${others.map((m) => esc(m.name)).join(', ')}</div>` : ''}
       </button>`;
     }).join('');
@@ -149,11 +161,16 @@ export class Screens {
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
       </div>`}
       <ul class="slots">${slots.join('')}</ul>
+      <div class="cr-line" title="Challenge Rating: one for every hero with a Talent, bots included. Each point: +${Math.round(CR_RULES.goldPerCr * 100)}% gold. Lantern Wights from CR 1, the Forsaken Queen from CR 3.">
+        Challenge Rating <b>${lobby.cr}</b>${lobby.cr < 4 ? ' <span class="muted">(bots borrowing Talented Characters add to it)</span>' : ''}
+        · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
+      </div>
       <div class="classes">${cards}</div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
         ${SOLO ? '' : `<button data-act="ready" ${you.cls ? '' : 'disabled'}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
         ${isHost ? `<button data-act="start" ${allReady ? '' : 'disabled'} class="primary">Descend</button>` : `<span class="muted">Waiting for the host to start…</span>`}
+        <button data-act="village">The Village${villageBadge(village)}</button>
         ${this.net.lastRun ? '<button data-act="review">Last run’s map</button>' : ''}
         <button data-act="leave" class="quiet">Leave</button>
       </div>
@@ -190,6 +207,19 @@ export class Screens {
       case 'review':
         net.review(true);
         break;
+      case 'village':
+        net.villageOpen = true;
+        net.send({ t: 'village' });
+        break;
+      case 'village-close':
+        net.villageOpen = false;
+        break;
+      case 'talent':
+        net.send({ t: 'chooseTalent', charId: btn.dataset.char!, talent: btn.dataset.talent as TalentId });
+        break;
+      case 'treat':
+        net.send({ t: 'treat', charId: btn.dataset.char!, what: btn.dataset.what as Treatment });
+        break;
       case 'leave':
         net.send({ t: 'leave' });
         history.replaceState(null, '', location.pathname);
@@ -212,4 +242,73 @@ export class Screens {
     this.commitName();
     this.net.send({ t: 'join', code });
   }
+}
+
+/** "Ilse · XP 1/2 · ★ Iron Oath · Minor Injury" for a Character on a lobby class card. */
+function characterLine(c: Character): string {
+  const bits = [`<b>${esc(c.name)}</b>`];
+  if (c.talent) bits.push(`<span class="talent-star" title="${esc(TALENTS[c.talent].desc)}">★ ${esc(TALENTS[c.talent].name)}</span>`);
+  else bits.push(talentPending(c) ? '<span class="gold">Talent ready!</span>' : `XP ${c.xp}/${VILLAGE_RULES.xpForTalent}`);
+  for (const i of c.injuries) bits.push(`<span class="injury ${i}">${INJURY_NAMES[i]}</span>`);
+  if (c.affliction) bits.push(`<span class="injury major">${AFFLICTIONS[c.affliction].name}</span>`);
+  return bits.join(' · ');
+}
+
+/** A marker on the Village button when a Talent is waiting to be chosen. */
+function villageBadge(v: VillageView | null): string {
+  const talents = v?.characters.filter(talentPending).length ?? 0;
+  return talents ? ` <span class="gold">(★ ${talents})</span>` : '';
+}
+
+/** The Village: the purse, and every Character with their XP, Talent, wounds and what treating them costs. */
+function villageHtml(v: VillageView, lobby: LobbyView | null): string {
+  const bringing = lobby?.members.find((m) => m.id === lobby.youId)?.cls;
+  const cards = v.characters.map((c) => {
+    const cls = CLASSES[c.cls];
+    const hp = injuredMaxHp(c.cls, c.injuries);
+    const majors = c.injuries.filter((i) => i === 'major').length;
+    const pips = Array.from({ length: VILLAGE_RULES.xpForTalent }, (_, i) => (i < c.xp ? '●' : '○')).join('');
+    let talent: string;
+    if (c.talent) {
+      talent = `<div class="v-talent"><span class="talent-star">★ ${esc(TALENTS[c.talent].name)}</span><br><span class="small">${esc(TALENTS[c.talent].desc)}</span></div>`;
+    } else if (talentPending(c)) {
+      talent = `<div class="v-talent"><div class="gold">Choose a Talent:</div>${talentsFor(c.cls).map((t) =>
+        `<button class="v-pick" data-act="talent" data-char="${c.id}" data-talent="${t}"><b>${esc(TALENTS[t].name)}</b><br><span class="small">${esc(TALENTS[t].desc)}</span></button>`).join('')}</div>`;
+    } else {
+      talent = `<div class="v-talent muted small">At ${VILLAGE_RULES.xpForTalent} XP, a Talent: ${talentsFor(c.cls).map((t) =>
+        `<span class="v-option" title="${esc(TALENTS[t].desc)}">${esc(TALENTS[t].name)}</span>`).join(' or ')}</div>`;
+    }
+    const treat = (what: Treatment, label: string) => {
+      const cost = VILLAGE_RULES.cost[what];
+      return `<button class="v-treat ${what === 'minor' ? 'minor' : 'major'}" data-act="treat" data-char="${c.id}" data-what="${what}" ${v.purse < cost ? 'disabled' : ''}>${label} · treat for ${cost}g</button>`;
+    };
+    const wounds = [
+      ...c.injuries.map((i) => treat(i, INJURY_NAMES[i])),
+      ...(c.affliction ? [treat('affliction', AFFLICTIONS[c.affliction].name)] : []),
+    ];
+    return `<div class="v-card" style="--cls:${cls.color}">
+      <div class="class-head">
+        <div>
+          <div class="class-name">${esc(c.name)}</div>
+          <div class="muted">${cls.name}${bringing === c.cls ? ' · <span class="gold">coming along</span>' : ''}</div>
+          <div class="class-stats">${iconNum('hp', hp)}${hp < cls.maxHp ? `<span class="muted">/${cls.maxHp}</span>` : ''} ${iconNum('speed', `${cls.speed + majors * VILLAGE_RULES.majorSpeed}s`)}</div>
+        </div>
+        <img class="class-sprite" src="${spriteUrl(c.cls, cls.color)}" alt="">
+      </div>
+      <div>XP <span class="gold">${pips}</span> <span class="muted small">· ${c.survived} run${c.survived === 1 ? '' : 's'} survived</span></div>
+      ${talent}
+      <div class="v-wounds">${wounds.length ? wounds.join('') : '<span class="ok small">Fit and well</span>'}</div>
+    </div>`;
+  }).join('');
+  const report = v.report.length ? `<div class="v-report"><div class="muted small">After the last run</div>${v.report.map((l) => `<div>${esc(l)}</div>`).join('')}</div>` : '';
+  return `<div class="card wide village">
+    <div class="lobby-head">
+      <div><h1>The Village</h1><div class="muted small">Each run a Character survives earns 1 XP; ${VILLAGE_RULES.xpForTalent} XP earns a Talent. Wounds and afflictions follow them home. Death sends a raw recruit in their place.</div></div>
+      <div class="v-purse">Purse <span class="gold">${v.purse} gold</span></div>
+    </div>
+    ${report}
+    <div class="v-grid">${cards}</div>
+    <div class="row muted small">Talents raise the Challenge Rating: more gold, but ${ENEMIES.wight.name}s from CR 1 and the ${ENEMIES.queen.name} from CR 3.</div>
+    <div class="row"><button class="primary" data-act="village-close">Back</button></div>
+  </div>`;
 }

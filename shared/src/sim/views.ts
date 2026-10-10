@@ -2,13 +2,14 @@ import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/consta
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId } from '../content/enemies';
-import { ABILITIES, CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/abilities';
+import type { TalentId } from '../content/talents';
 import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
-  abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { speedOf } from './speed';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
@@ -112,6 +113,7 @@ export interface ResultHero {
   cls: ClassId;
   color: string;
   isBot: boolean;
+  talent: TalentId | null;
   outcome: 'escaped' | 'dead';
   fate: string;
   gold: number;
@@ -205,6 +207,8 @@ export interface PlayerView {
   results: ResultsView | null;
   /** Bells heard in the last few seconds: where, who, and how long ago. */
   tolls: { room: number; by: string; ago: number }[];
+  /** Challenge Rating of this run (heroes with a Talent). */
+  cr: number;
 }
 
 /**
@@ -303,6 +307,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     tolls: world.tolls
       .filter((t) => world.time - t.time <= CLASS_RULES.tollReveal)
       .map((t) => ({ room: t.room, by: t.by, ago: world.time - t.time })),
+    cr: world.cr,
   };
 }
 
@@ -341,7 +346,7 @@ function revealRoom(world: World, room: number): RoomReveal {
 function resultsView(world: World): ResultsView {
   return {
     heroes: Object.values(world.heroes).map((h) => ({
-      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot,
+      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talent: h.talent,
       outcome: h.extracted ? 'escaped' : 'dead',
       fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; the Undertaker carried ${h.legacy} of their gold home` : ''),
       gold: h.extracted ? h.gold : h.legacy,
@@ -409,7 +414,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     : null;
   const yourOptions: EncounterView['yourOptions'] = {};
   if (isConscious(you) && enc.heroes.includes(you.id)) {
-    ABILITIES[you.cls].forEach((ab, i) => {
+    abilitiesOf(you).forEach((ab, i) => {
       const action = `a${i}` as CombatAction;
       yourOptions[action] = { targets: validTargets(world, enc, you, action), blocked: unusableReason(world, enc, you, ab) };
     });

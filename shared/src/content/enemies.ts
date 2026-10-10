@@ -1,4 +1,4 @@
-export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'brute';
+export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'brute' | 'wight' | 'queen';
 
 export interface EnemyDef {
   id: EnemyId;
@@ -19,6 +19,34 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed to a random hero.' },
   acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
   brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, speed: 8, dmg: 7, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes.' },
+  // Challenge Rating monsters (M12): only in runs with Talented heroes (see CR_RULES).
+  wight: { id: 'wight', name: 'Lantern Wight', maxHp: 16, speed: 5, dmg: 3, undead: true, glyph: '♰', desc: 'Snuff: 3 dmg and −15 light to the nearest hero. (CR 1+)' },
+  queen: { id: 'queen', name: 'Forsaken Queen', maxHp: 32, speed: 6, dmg: 4, undead: false, glyph: '♛',
+    desc: 'Hymn: every other monster heals 4 and acts 2s sooner. Alone, Dirge: +8 stress to every hero. (CR 3+)' },
+};
+
+/**
+ * Challenge Rating (M12): how many heroes in the run have a Talent (0–4). It raises the gold found and brings in
+ * monsters that never appear otherwise. Monster HP and damage don't change with it.
+ */
+export const CR_RULES = {
+  /** Every bit of gold found is worth (1 + this × CR). */
+  goldPerCr: 0.15,
+  /** Chance, by CR, that each Ghoul spawned comes with a Lantern Wight beside it (index = CR). */
+  wightChance: [0, 0.25, 0.5, 0.5, 0.5],
+  /** Wight's Snuff: light taken from its target. */
+  wightSnuff: 15,
+  /** Chance, by CR, that a lair holds a Forsaken Queen. */
+  queenLairChance: [0, 0, 0, 1 / 3, 1],
+  /** At CR 4, from this tier, each exit wave has this chance of bringing a Queen. */
+  queenWaveCr: 4,
+  queenWaveTier: 5,
+  queenWaveChance: 0.25,
+  /** Hymn: the other monsters heal this much and their next turn comes this many seconds sooner. */
+  hymnHeal: 4,
+  hymnHaste: 2,
+  /** Dirge (when she's alone): stress to every hero in the fight. */
+  dirgeStress: 8,
 };
 
 export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: number }[] = [

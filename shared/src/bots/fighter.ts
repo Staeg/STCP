@@ -1,8 +1,7 @@
-import { ABILITIES } from '../content/abilities';
 import type { ItemId } from '../content/items';
 import type { Rng } from '../rng';
 import { BOTS } from './tuning';
-import type { Choice, CombatAction } from '../sim/combat';
+import { abilitiesOf, type Choice, type CombatAction } from '../sim/combat';
 import type { EncounterView, PlayerView } from '../sim/views';
 
 
@@ -23,12 +22,14 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const allies = enc.heroes.filter((h) => !h.downed);
   const downed = enc.heroes.filter((h) => h.downed);
   const enemies = enc.monsters;
+  const abilities = abilitiesOf(view.you);
   const ready = (i: 0 | 1 | 2) => {
     const opt = enc.yourOptions[`a${i}` as CombatAction];
-    return (view.you.cooldowns[ABILITIES[view.you.cls][i].id] ?? 0) === 0 && !!opt && !opt.blocked && (opt.targets.length > 0 || !needsPick(i));
+    return (view.you.cooldowns[abilities[i].id] ?? 0) === 0 && !!opt && !opt.blocked && (opt.targets.length > 0 || !needsPick(i));
   };
-  const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ABILITIES[view.you.cls][i].target);
-  const weakestEnemy = minBy(enemies, (m) => m.hp);
+  const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(abilities[i].target);
+  // The Forsaken Queen heals and hastens the rest: kill her first, else the weakest.
+  const weakestEnemy = enemies.find((m) => m.enemy === 'queen') ?? minBy(enemies, (m) => m.hp);
   const softTarget = enemies.find((m) => m.st.stun || !m.st.acted);
 
   const slot = (id: ItemId) => view.you.items.indexOf(id);
@@ -57,8 +58,13 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
       if (me.hp / me.maxHp < 0.35 && ready(2)) return { action: 'a2' };
       return { action: 'a0', target: weakestEnemy!.id };
     case 'lampbearer': {
-      const hurtOther = minBy(allies.filter((a) => a.id !== me.id && a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
-      if (hurtOther && ready(2)) return { action: 'a2', target: hurtOther.id };
+      // Triage: Mend only works on yourself.
+      if (abilities[2].target === 'self') {
+        if (me.hp / me.maxHp < 0.6 && ready(2)) return { action: 'a2' };
+      } else {
+        const hurtOther = minBy(allies.filter((a) => a.id !== me.id && a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
+        if (hurtOther && ready(2)) return { action: 'a2', target: hurtOther.id };
+      }
       // Alone, Vigil turns every enemy move into a Flare. Bots only know their own stress, so it's self-care.
       if (ready(1) && (allies.length === 1 || view.you.stress > 30)) return { action: 'a1', target: me.id };
       if (ready(0)) return { action: 'a0' };
@@ -101,7 +107,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
 function legalChoices(view: PlayerView, enc: EncounterView): Choice[] {
   const out: Choice[] = [];
   const me = view.you;
-  ABILITIES[me.cls].forEach((ab, i) => {
+  abilitiesOf(me).forEach((ab, i) => {
     if ((me.cooldowns[ab.id] ?? 0) > 0) return;
     const action = `a${i}` as CombatAction;
     const opt = enc.yourOptions[action];

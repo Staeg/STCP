@@ -1,6 +1,6 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
-  FIELD_SKILLS, fieldSkillsOf, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
+  fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -75,7 +75,7 @@ export class Hud {
     const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
-    setHtml($('tier'), tierHtml(view.tier));
+    setHtml($('tier'), tierHtml(view.tier) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: heroes with a Talent. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
@@ -87,7 +87,8 @@ export class Hud {
 
     const you = view.you;
     const cls = CLASSES[you.cls];
-    $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    const talent = you.talent ? ` <span class="talent-star" title="${escape(TALENTS[you.talent].name)}: ${escape(TALENTS[you.talent].desc)}">★</span>` : '';
+    $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent} <span style="color:var(--muted)">· ${cls.name}</span>`;
     const aff = $('affliction');
     aff.hidden = !you.affliction;
     if (you.affliction) {
@@ -237,8 +238,8 @@ function turnPlan(view: PlayerView): string {
   if (you.queuedEvent) return 'then you start on the event';
   if (you.queuedSkill) {
     const { skill, target: t } = you.queuedSkill;
-    const who = !t || !skillTargeted(skill) ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
-    return `then you use ${FIELD_SKILLS[skill].name}${who}`;
+    const who = !t || !skillTargeted(you, skill) ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
+    return `then you use ${skillInfo(you, skill).name}${who}`;
   }
   const next = you.path[0];
   if (next === undefined) return 'pick a direction, or you wait a turn';
@@ -287,7 +288,7 @@ function renderSkills(view: PlayerView, free: boolean, here: number) {
   const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
   let first = true;
   const html = skills.map((skill) => {
-    const def = FIELD_SKILLS[skill];
+    const def = { ...skillInfo(you, skill), target: skillTarget(you, skill) };
     const wait = you.cooldowns[skill] ?? 0;
     const queued = you.queuedSkill?.skill === skill;
     type Option = { id: string | null; label: string };

@@ -7,6 +7,9 @@ import type { LeaderboardEntry } from './content/titles';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
+import { TALENTS, type TalentId } from './content/talents';
+import type { VillageView, Treatment } from './stash';
+import type { Character } from './village';
 
 export type LobbyState = 'lobby' | 'game';
 
@@ -19,6 +22,8 @@ export interface LobbyMemberView {
   /** Total gold extracted across all runs (bragging rights). */
   stash: number;
   title: string;
+  /** The Village Character they bring (for the class they picked). */
+  character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'affliction'> | null;
 }
 
 export interface LobbyView {
@@ -28,6 +33,8 @@ export interface LobbyView {
   state: LobbyState;
   members: LobbyMemberView[];
   maxPlayers: number;
+  /** Challenge Rating so far: players' Characters with a Talent (bots may add to it when the run starts). */
+  cr: number;
 }
 
 export type ClientMsg =
@@ -43,6 +50,10 @@ export type ClientMsg =
   | { t: 'start' }
   | { t: 'toLobby' }
   | { t: 'intent'; intent: Intent }
+  /** The Village (keyed by your name): ask for it, pick an earned Talent, or pay to treat a Character. */
+  | { t: 'village' }
+  | { t: 'chooseTalent'; charId: string; talent: TalentId }
+  | { t: 'treat'; charId: string; what: Treatment }
   /** Dev-only (server started with --debug): fast-forward the game clock. */
   | { t: 'debugSkip'; seconds: number }
   /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
@@ -60,7 +71,9 @@ export type ServerMsg =
   | { t: 'error'; msg: string }
   | { t: 'view'; view: PlayerView }
   /** The Hall of Fortune: top players by total gold extracted. */
-  | { t: 'leaderboard'; entries: LeaderboardEntry[] };
+  | { t: 'leaderboard'; entries: LeaderboardEntry[] }
+  /** Your Village: purse, Characters, and what the last run did to them. */
+  | { t: 'village'; village: VillageView };
 
 const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item'];
 
@@ -104,7 +117,16 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'leave':
     case 'start':
     case 'toLobby':
+    case 'village':
       return { t: msg.t };
+    case 'chooseTalent':
+      return str(msg.charId, 16) && typeof msg.talent === 'string' && msg.talent in TALENTS
+        ? { t: 'chooseTalent', charId: msg.charId as string, talent: msg.talent as TalentId }
+        : null;
+    case 'treat':
+      return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'affliction')
+        ? { t: 'treat', charId: msg.charId as string, what: msg.what }
+        : null;
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
     case 'debugSpeed':

@@ -1,4 +1,4 @@
-import { CLASSES, nextTitle, type PlayerView } from '@stcp/shared';
+import { CLASSES, nextTitle, TALENTS, type PlayerView } from '@stcp/shared';
 import { hallOfFortune } from './screens';
 import { fmtTime } from './hud';
 import type { Net } from './net';
@@ -50,7 +50,7 @@ export class ResultsUi {
       .slice()
       .sort((a, b) => Number(b.outcome === 'escaped') - Number(a.outcome === 'escaped') || b.gold - a.gold)
       .map((h) => `<tr class="${h.outcome}">
-        <td><span class="swatch" style="background:${h.color}"></span> ${esc(h.name)}${h.isBot ? ' <span class="muted">(bot)</span>' : ''}</td>
+        <td><span class="swatch" style="background:${h.color}"></span> ${esc(h.name)}${h.talent ? ` <span class="talent-star" title="${esc(TALENTS[h.talent].name)}">★</span>` : ''}${h.isBot ? ' <span class="muted">(bot)</span>' : ''}</td>
         <td class="muted">${CLASSES[h.cls].name}</td>
         <td>${h.outcome === 'escaped' ? '⚑' : '✝'} ${esc(h.fate)}</td>
         <td class="muted">${h.time !== null ? fmtTime(h.time) : ''}</td>
@@ -59,9 +59,14 @@ export class ResultsUi {
     const story = res.chronicle
       .map((c) => `<div class="chron"><span class="muted">${fmtTime(c.time)}</span> ${esc(c.text)}</div>`)
       .join('');
+    // What the run did to your Village Character (the server sends it as the run ends).
+    const report = this.net.village?.report.length
+      ? `<div class="results-report">${this.net.village.report.map((l) => `<div>${esc(l)}</div>`).join('')}</div>` : '';
+    const cr = view.cr > 0 ? ` · Challenge Rating ${view.cr}` : '';
     const html = `<div class="card wide results-card">
       <h1 class="${me.outcome}">${esc(title)}</h1>
-      <div class="muted">${sub}${stash !== undefined ? ` · Career: <span class="gold">${stash} gold</span> · <span class="title-tag">${esc(member!.title)}</span>${next ? ` (${next.at - stash} more for ${esc(next.title)})` : ''}` : ''}</div>
+      <div class="muted">${sub}${cr}${stash !== undefined ? ` · Career: <span class="gold">${stash} gold</span> · <span class="title-tag">${esc(member!.title)}</span>${next ? ` (${next.at - stash} more for ${esc(next.title)})` : ''}` : ''}</div>
+      ${report}
       <table class="fates">${rows}</table>
       ${hallOfFortune(this.net.leaderboard, this.net.name)}
       <h3>What really happened</h3>

@@ -3,12 +3,12 @@ import {
   AFFLICTIONS, channelTime, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS, type AfflictionId, type EventKind,
 } from '../content/events';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
-import { addStress, armored, downHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
+import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, takeItem } from './loot';
 import { notify } from './notify';
 import { addSpeedMod, fmtSpeed } from './speed';
-import { chronicle, explore, type Hero, type World } from './world';
+import { chronicle, crGold, explore, type Hero, type World } from './world';
 
 /** A one-off feature of a room (villagers are tracked separately because they move). */
 export interface RoomEvent {
@@ -285,9 +285,8 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       h.light = Math.min(h.light, LIGHT_DIM - 1);
       notify(world, h, `You scrape through the dark and tumble out in ${world.dungeon.rooms[dest].name}.`);
       explore(world, h, dest);
-      h.hp -= armored(h, 4);
-      if (h.hp <= 0) downHero(world, h, null);
-      else onHeroInRoom(world, h, dest);
+      hurtHero(world, h, armored(h, 4), null);
+      if (isConscious(h)) onHeroInRoom(world, h, dest);
       return;
     }
     case 'quaff': {
@@ -300,10 +299,10 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'haul':
-      h.gold += SPEED_EVENTS.satchelGold;
+      h.gold += crGold(world, SPEED_EVENTS.satchelGold);
       addSpeedMod(h, world.time, SPEED_EVENTS.satchelSpeed, null, "Courier's Satchel");
-      notify(world, h, `+${SPEED_EVENTS.satchelGold} gold, all yours. Your shoulders ache already. (Speed ${signed(SPEED_EVENTS.satchelSpeed)})`);
-      chronicle(world, `${h.name} took the dead courier's satchel (+${SPEED_EVENTS.satchelGold} gold).`);
+      notify(world, h, `+${crGold(world, SPEED_EVENTS.satchelGold)} gold, all yours. Your shoulders ache already. (Speed ${signed(SPEED_EVENTS.satchelSpeed)})`);
+      chronicle(world, `${h.name} took the dead courier's satchel (+${crGold(world, SPEED_EVENTS.satchelGold)} gold).`);
       return;
     case 'turn': {
       const party = [h, ...othersHere(world, h).filter(isConscious)];

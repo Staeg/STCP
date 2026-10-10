@@ -1,7 +1,7 @@
 import { EXIT_OPENS_AT, tierAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { armored, downHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { armored, crUnits, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { notify } from './notify';
 import { chronicle, explore, type World } from './world';
 
@@ -72,11 +72,11 @@ function monsterCap(world: World): number {
   return ESCALATION.capBase + ESCALATION.capPerTier * world.tier;
 }
 
-function groupFor(world: World, tier: number): EnemyId[] {
-  const g = pickGroup(world, tier);
+function groupFor(world: World, tier: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
+  let g = pickGroup(world, tier);
   // Bigger groups later on.
-  if (tier >= 4 && world.rng.chance(0.5)) return [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
-  return g;
+  if (tier >= 4 && world.rng.chance(0.5)) g = [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
+  return crUnits(world, g, kind, room);
 }
 
 function respawn(world: World, tier: number) {
@@ -87,7 +87,8 @@ function respawn(world: World, tier: number) {
       (r) => r.kind === 'normal' && monstersIn(world, r.id).length === 0 && !occupied(world, r.id) && !world.encounters[r.id],
     );
     if (candidates.length === 0) return;
-    spawnGroup(world, world.rng.pick(candidates).id, groupFor(world, tier), tier);
+    const room = world.rng.pick(candidates).id;
+    spawnGroup(world, room, groupFor(world, tier, room), tier);
   }
 }
 
@@ -97,7 +98,7 @@ function spawnWanderer(world: World, tier: number) {
   const candidates = d.rooms.filter((r) => r.kind === 'normal' && !occupied(world, r.id) && monstersIn(world, r.id).length === 0);
   if (candidates.length === 0) return;
   const room = world.rng.pick(candidates).id;
-  makePack(world, spawnGroup(world, room, groupFor(world, tier), tier), room, null);
+  makePack(world, spawnGroup(world, room, groupFor(world, tier, room), tier), room, null);
 }
 
 /** Waves spawn next to the exit (so you get a moment's warning) and march on it. */
@@ -106,7 +107,7 @@ function spawnWave(world: World, tier: number) {
   const near = neighbours(d, d.exit).filter((n) => !occupied(world, n) && !corridorCollapsedBetween(world, n, d.exit));
   if (near.length === 0) return;
   const from = world.rng.pick(near);
-  const pack = makePack(world, spawnGroup(world, from, groupFor(world, tier), tier), from, d.exit);
+  const pack = makePack(world, spawnGroup(world, from, groupFor(world, tier, from, 'wave'), tier), from, d.exit);
   pack.restUntil = world.time + 3;
   world.stats.waves++;
   chronicle(world, 'A wave of monsters marches on the exit.');
@@ -227,10 +228,7 @@ export function collapseCorridor(world: World, cid: number, reason = 'A tunnel c
       explore(world, h, back);
       h.knownCollapsed.push(cid);
       notify(world, h, 'The tunnel caves in around you!');
-      if (h.downedAt === null) {
-        h.hp -= armored(h, 4);
-        if (h.hp <= 0) downHero(world, h, null);
-      }
+      hurtHero(world, h, armored(h, 4), null);
       chronicle(world, `${h.name} was caught in a cave-in.`);
       onHeroInRoom(world, h, back);
     }
@@ -279,6 +277,22 @@ function cutsOff(world: World, cid: number): boolean {
     }
   }
   return seen.size < before.size;
+}
+
+/**
+ * Great Bell: every monster in the dungeon reels. Those fighting lose their next turn; the rest stop where they
+ * are for a while, and any fight they start in that time, they start Stunned.
+ */
+export function dazeAll(world: World, seconds: number) {
+  const until = world.time + seconds;
+  for (const m of Object.values(world.monsters)) {
+    if (m.room >= 0 && world.encounters[m.room]) m.st.stun = true;
+    else m.dazedUntil = until;
+  }
+  for (const pack of Object.values(world.packs)) {
+    if (pack.to !== null) pack.arriveAt += seconds;
+    else pack.restUntil = Math.max(pack.restUntil, until);
+  }
 }
 
 /** Rubble is cleared: the corridor is open again. */

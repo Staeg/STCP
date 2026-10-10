@@ -599,3 +599,24 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .tier-1 { color: #f4f0e8; }
 .tier-2 { color: #5aa8ff; }
 .tier-3 { color: #c07cff; }
+
+/* ---- The Village (M12) ---- */
+.card.village { width: 1500px; }
+.v-purse { font-size: 28px; white-space: nowrap; }
+.v-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+@media (max-width: 900px) { .v-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.v-card { border: 1px solid #2a2018; border-top: 4px solid var(--cls); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; line-height: 1.15; }
+.v-card .class-name { color: var(--cls); font-size: 26px; line-height: 1; }
+.v-card .class-sprite { width: 48px; height: 48px; image-rendering: pixelated; }
+.v-pick { display: block; width: 100%; text-align: left; margin-top: 4px; font-size: 17px; line-height: 1.1; }
+.v-option { text-decoration: underline dotted; cursor: help; }
+.v-wounds { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
+.v-treat { text-align: left; font-size: 17px; }
+.v-treat.minor { border-color: #a07a30; }
+.v-treat.major { border-color: var(--danger); }
+.v-report, .results-report { margin-top: 10px; padding: 6px 10px; border-left: 3px solid var(--gold); background: #1a140f; }
+.talent-star { color: var(--gold); }
+.injury.minor { color: #d9a64a; }
+.injury.major { color: var(--danger); }
+.class-char { margin-top: 0.3em; font-size: 0.9em; }
+.cr-line { margin: -2px 0 8px; }

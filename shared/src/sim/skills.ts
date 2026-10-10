@@ -1,8 +1,9 @@
-import { ABILITIES, CLASS_RULES, abilityById } from '../content/abilities';
+import { CLASS_RULES, abilityById } from '../content/abilities';
+import { TALENT_RULES } from '../content/talents';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
-import { lureToward } from './escalation';
+import { abilitiesOf, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
+import { dazeAll, lureToward } from './escalation';
 import { giveItem, hasSpace } from './loot';
 import { notify } from './notify';
 import type { Hero, World } from './world';
@@ -12,7 +13,7 @@ import type { Hero, World } from './world';
  * choice, the skill is picked now and happens when the hero's timer runs out, using up that turn. Each shares its
  * cooldown with the ability in fights (same `cooldowns` entry, counted in the hero's turns).
  */
-export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil';
+export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil' | 'vengeance';
 
 /** none: no target · any: anyone conscious in your room, you included · other: not you */
 type FieldTarget = 'none' | 'any' | 'other';
@@ -25,22 +26,38 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
   mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Bleed.` },
   flare: { name: 'Flare', target: 'none', desc: `+${CLASS_RULES.flareLight} light to everyone here.` },
   vigil: { name: 'Vigil', target: 'any', desc: `−${abilityById('vigil')!.power} stress.` },
+  vengeance: { name: 'Vengeance', target: 'none', desc: 'Swear vengeance before the fight: whoever strikes you in it takes the blow back.' },
 };
+
+/** Who a hero's skill can be aimed at, with their Talent (Triage turns Mend on yourself). */
+export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
+  if (skill === 'mend' && h.talent === 'triage') return 'none';
+  return FIELD_SKILLS[skill].target;
+}
+
+/** Name and text of a skill for this hero (Talents change some numbers). */
+export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
+  if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: every monster is stunned.` } : FIELD_SKILLS.toll;
+  const ab = abilitiesOf(h).find((a) => a.id === skill);
+  if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Bleed.` };
+  if (skill === 'sins' && h.talent === 'martyr') return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
+  return FIELD_SKILLS[skill];
+}
 
 /** This hero's field skills, in ability-slot order (the Toll first). */
 export function fieldSkillsOf(h: Hero): FieldSkill[] {
   const skills: FieldSkill[] = h.cls === 'bellwright' ? ['toll'] : [];
-  for (const ab of ABILITIES[h.cls]) if (ab.field) skills.push(ab.id as FieldSkill);
+  for (const ab of abilitiesOf(h)) if (ab.field) skills.push(ab.id as FieldSkill);
   return skills;
 }
 
-export function skillTargeted(skill: FieldSkill): boolean {
-  return FIELD_SKILLS[skill].target !== 'none';
+export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
+  return skillTarget(h, skill) !== 'none';
 }
 
 /** Cooldown in the hero's own turns after using it. */
-function cooldownOf(skill: FieldSkill): number {
-  return skill === 'toll' ? CLASS_RULES.tollCooldown : abilityById(skill)!.cooldown;
+function cooldownOf(h: Hero, skill: FieldSkill): number {
+  return skill === 'toll' ? CLASS_RULES.tollCooldown : abilitiesOf(h).find((a) => a.id === skill)!.cooldown;
 }
 
 function sameRoom(a: Hero, b: Hero) {
@@ -53,7 +70,9 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
   const cd = h.cooldowns[skill] ?? 0;
   if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
-  const kind = FIELD_SKILLS[skill].target;
+  const kind = skillTarget(h, skill);
+  if (skill === 'mend' && kind === 'none' && h.hp >= h.maxHp && !h.st.bleed) return 'You are not hurt.';
+  if (skill === 'vengeance' && h.st.vengeance) return 'You have already sworn vengeance.';
   if (kind === 'none') return null;
   const t = targetId ? world.heroes[targetId] : undefined;
   if (!t || !isConscious(t) || !sameRoom(h, t)) return 'They must be standing here with you.';
@@ -69,19 +88,27 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
 export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null) {
   const err = checkSkill(world, h, skill, targetId);
   if (err) return notify(world, h, err);
-  const cd = cooldownOf(skill);
+  const cd = cooldownOf(h, skill);
   if (cd > 0) h.cooldowns[skill] = cd;
   h.cdClock = 0;
-  const t = targetId ? world.heroes[targetId] : h;
+  const t = targetId && skillTarget(h, skill) !== 'none' ? world.heroes[targetId] : h;
   switch (skill) {
     case 'toll':
       return toll(world, h);
     case 'sins': {
-      const moved = takeSins(h, t, abilityById('sins')!.power);
+      const moved = takeSins(h, t, abilitiesOf(h)[2].power);
+      // Martyr: and eases their wounds.
+      const before = t.hp;
+      if (h.talent === 'martyr') t.hp = Math.min(t.maxHp, t.hp + TALENT_RULES.martyrHeal);
+      const healed = t.hp > before ? `, +${t.hp - before} HP` : '';
       notify(world, h, `You take ${t.name}'s sins upon yourself. (+${moved} stress)`);
-      notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress)`);
+      notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress${healed})`);
       return;
     }
+    case 'vengeance':
+      h.st.vengeance = CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns;
+      notify(world, h, `You swear vengeance. Whoever strikes you in your next ${h.st.vengeance} turns will feel it.`);
+      return;
     case 'elixir':
       t.elixir = true;
       notify(world, h, t === h ? 'You drink an elixir: your next item has double effect.' : `You give ${t.name} an elixir.`);
@@ -89,8 +116,9 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
       return;
     case 'mend': {
       const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + abilityById('mend')!.power);
+      t.hp = Math.min(t.maxHp, t.hp + abilitiesOf(h)[2].power);
       delete t.st.bleed;
+      if (t === h) return notify(world, h, `You tend your own wounds (+${t.hp - before}).`);
       notify(world, h, `You mend ${t.name} (+${t.hp - before}).`);
       notify(world, t, `${h.name} mends your wounds (+${t.hp - before}).`);
       return;
@@ -123,6 +151,11 @@ function toll(world: World, h: Hero) {
     notify(world, o, o === h ? 'You ring the bell. Everyone heard that, and so did the dark.' : `A bell tolls from ${where}: ${h.name}.`);
   }
   lureToward(world, room);
+  // Great Bell: the whole dungeon reels from it.
+  if (h.talent === 'greatBell') {
+    dazeAll(world, TALENT_RULES.greatBellDaze);
+    for (const o of Object.values(world.heroes)) if (inDungeon(o)) notify(world, o, 'The great bell shakes the dungeon. Every monster reels.');
+  }
 }
 
 /** Is `h` being heard right now (a toll in the last few seconds)? Allies then see them as if in sight. */

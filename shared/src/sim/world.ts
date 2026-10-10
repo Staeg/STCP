@@ -1,6 +1,8 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
-import { ESCALATION } from '../content/enemies';
+import { CR_RULES, ESCALATION } from '../content/enemies';
+import type { TalentId } from '../content/talents';
+import { injuredMaxHp, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
@@ -8,8 +10,8 @@ import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/eve
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickCooldowns, tickDowned, tickFieldCooldowns,
-  type Choice, type Encounter, type Monster, type Statuses,
+  bleedOut, inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
+  type Choice, type Encounter, type Monster, type Risen, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
 import { notify } from './notify';
@@ -118,6 +120,25 @@ export interface Hero {
   fate: string | null;
   /** Most recent time this hero walked into the rendezvous (everyone starts there, so only returns count). */
   arrivedAt: number | null;
+
+  // ---- The Village (M12) ----
+  /** The Village Character this hero is (null in the sim and tests). */
+  charId: string | null;
+  /** The player whose Village it came from. */
+  owner: string | null;
+  talent: TalentId | null;
+  /** Injuries brought in from the Village (already applied to max HP and Speed). */
+  injuries: Injury[];
+  /** Lowest HP this run, as a fraction of max: what decides injuries afterwards. */
+  lowestHp: number;
+  /** Went down this run (and wasn't brought back by a Pallbearer since): a Major Injury if they escape. */
+  downedMajor: boolean;
+  /** Iron Oath: spent this run. */
+  oathUsed: boolean;
+  /** Iron Oath: no damage until this game time. */
+  immuneUntil: number;
+  /** Restless Dead: a risen that follows this Undertaker into their next fight. */
+  risen: Omit<Risen, 'id' | 'by'> | null;
 }
 
 export interface Toll {
@@ -180,6 +201,8 @@ export interface World {
   tolls: Toll[];
   /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
   objectives: { altars: number; villagers: number };
+  /** Challenge Rating: heroes with a Talent (0–4). More gold, and monsters that only come at higher CR. */
+  cr: number;
   /** Counters for the results screen and the balance simulator. */
   stats: {
     /** turns: hero turns taken in fights · fightTime: total seconds spent fighting. */
@@ -220,6 +243,8 @@ export interface WorldOptions {
   escalation?: boolean;
   /** Default: same as `monsters`. */
   events?: boolean;
+  /** Challenge Rating (default 0). */
+  cr?: number;
 }
 
 /** Auto-paths treat each known monster in a room as this many seconds of extra walking. */
@@ -231,7 +256,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
-    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [],
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], cr: Math.max(0, Math.min(4, opts.cr ?? 0)),
     nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
@@ -248,16 +273,23 @@ function freeColor(world: World, cls: ClassId): string {
   return SPARE_COLORS.find((c) => !used.has(c)) ?? CLASSES[cls].color;
 }
 
-export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean }): Hero {
+/** Gold found is worth more at higher CR. */
+export function crGold(world: World, gold: number): number {
+  return Math.round(gold * (1 + CR_RULES.goldPerCr * world.cr));
+}
+
+export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean; loadout?: Loadout }): Hero {
   const d = world.dungeon;
+  const { loadout, ...rest } = opts;
+  const maxHp = injuredMaxHp(opts.cls, loadout?.injuries ?? []);
   const hero: Hero = {
-    ...opts,
+    ...rest,
     isBot: opts.isBot ?? false,
     lastKnown: {},
     knownChalk: {},
     knownThreat: {},
-    hp: CLASSES[opts.cls].maxHp,
-    maxHp: CLASSES[opts.cls].maxHp,
+    hp: maxHp,
+    maxHp,
     stress: 0,
     st: {},
     cooldowns: {},
@@ -280,7 +312,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     extractedAt: null,
     fate: null,
     arrivedAt: null,
-    affliction: null,
+    affliction: loadout?.affliction ?? null,
     leading: null,
     knownEvents: {},
     queuedSkill: null,
@@ -299,7 +331,18 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     light: LIGHT_MAX,
     explored: [],
     seen: [d.exit],
+    charId: loadout?.charId ?? null,
+    owner: loadout?.owner ?? null,
+    talent: loadout?.talent ?? null,
+    injuries: [...(loadout?.injuries ?? [])],
+    lowestHp: 1,
+    downedMajor: false,
+    oathUsed: false,
+    immuneUntil: 0,
+    risen: null,
   };
+  const majors = hero.injuries.filter((i) => i === 'major').length;
+  if (majors) hero.speedMods.push({ amount: majors * VILLAGE_RULES.majorSpeed, until: null, label: majors > 1 ? `Major Injuries ×${majors}` : 'Major Injury' });
   world.heroes[hero.id] = hero;
   startTimer(world, hero);
   explore(world, hero, d.entrance);
@@ -313,6 +356,7 @@ export function step(world: World, dt: number): void {
   const drain = LIGHT_DRAIN * (world.tier >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
+    hero.lowestHp = Math.min(hero.lowestHp, hero.hp / hero.maxHp);
     hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * dt);
     // Cooldowns tick when the Speed timer runs out (see endIdleTurn and arrive); a channel holds the timer, so time it instead.
     if (isConscious(hero) && hero.encounter === null && hero.channel) tickFieldCooldowns(world, hero, dt);
@@ -357,7 +401,7 @@ function checkEnd(world: World) {
   }
   if (world.phase !== 'running') {
     const { altars, villagers } = world.objectives;
-    const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
+    const bonus = crGold(world, altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus);
     if (bonus > 0) {
       chronicle(world, `Objectives: ${altars} altar(s) cleansed, ${villagers} villager(s) saved. +${bonus} gold to each survivor.`);
       for (const h of heroes) {
@@ -540,7 +584,7 @@ export function digTime(hero: Hero, now: number): number {
 
 /** The timer ran out with nowhere to walk: start the queued event, or skip the turn. */
 function endIdleTurn(world: World, hero: Hero) {
-  tickCooldowns(hero);
+  fieldTurn(hero);
   const choice = hero.queuedEvent;
   hero.queuedEvent = null;
   if (choice !== null) {
@@ -624,7 +668,7 @@ function arrive(world: World, hero: Hero, at = world.time): boolean {
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return false;
   hero.pos = { kind: 'room', room: pos.to };
-  tickCooldowns(hero); // the walk was this turn
+  fieldTurn(hero); // the walk was this turn
   startTimer(world, hero, at);
   if (hero.path.length === 0) hero.heading = null;
   if (pos.to === world.dungeon.exit) hero.arrivedAt = world.time;

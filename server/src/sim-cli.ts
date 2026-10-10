@@ -3,11 +3,12 @@
  *   npm run sim -- --games 100 --seed 1
  *   npm run sim -- --games 60 --set ESCALATION.capPerTier=2 --set ENEMIES.ghoul.dmg=3 --json
  *   npm run sim -- --classes warden,cutthroat,lampbearer,witch
+ *   npm run sim -- --cr 2        (the first N heroes get a random Talent of their class: Challenge Rating N)
  * --set may repeat; it overrides any number in the tunable content tables below.
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
 import * as shared from '@stcp/shared';
-import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, TIER_INTERVAL, type ClassId } from '@stcp/shared';
+import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, talentsFor, TIER_INTERVAL, type ClassId } from '@stcp/shared';
 
 const args = new Map<string, string>();
 const sets: string[] = [];
@@ -42,6 +43,7 @@ const seed0 = Number(args.get('seed') ?? 1);
 const worldOpts = { events: args.get('events') !== '0' };
 const fixedParty = args.get('classes')?.split(',') as ClassId[] | undefined;
 if (fixedParty?.some((c) => !CLASS_IDS.includes(c))) throw new Error(`--classes: pick from ${CLASS_IDS.join(', ')}`);
+const cr = Math.max(0, Math.min(4, Number(args.get('cr') ?? 0)));
 
 const deathsByTier = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
@@ -56,7 +58,11 @@ const t0 = performance.now();
 
 for (let g = 0; g < games; g++) {
   const party = fixedParty ?? new Rng(seed0 + g).shuffle([...CLASS_IDS]).slice(0, 4);
-  const game = new Game(seed0 + g, party.map((cls, i) => ({ id: `b${i}`, name: cls, cls, isBot: true })), worldOpts);
+  const talentRng = new Rng((seed0 + g) * 31 + 7);
+  const game = new Game(seed0 + g, party.map((cls, i) => ({
+    id: `b${i}`, name: cls, cls, isBot: true,
+    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talent: talentRng.pick(talentsFor(cls)), injuries: [], affliction: null } : undefined,
+  })), worldOpts);
   const w = game.world;
   // The climax check: when the exit opens, is someone waiting there while someone else is still alive out there?
   let drama = false;
@@ -97,7 +103,7 @@ for (let g = 0; g < games; g++) {
 }
 
 const json = {
-  games, sets, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByTier[0] + deathsByTier[1]) / Math.max(1, deaths),
+  games, sets, cr, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByTier[0] + deathsByTier[1]) / Math.max(1, deaths),
   secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByTier, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
   runsByClass, escapesByClass,
   perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, afflictions: afflictions / games, altars: altars / games, saved: saved / games },
@@ -111,7 +117,7 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 const early = deathsByTier[0] + deathsByTier[1];
 arrivals.sort((a, b) => a - b);
 const check = (ok: boolean) => (ok ? '✓' : '✗');
-console.log(`${games} games in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+console.log(`${games} games at CR ${cr} in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 console.log(`${check(escaped / heroes >= 0.4 && escaped / heroes <= 0.65)} escaped: ${escaped}/${heroes} (${pct(escaped, heroes)})  [target 40–65%]`);
 console.log(`${check(dramaRuns / games >= 0.5)} runs where, at 10:00, someone waits at the exit while someone else is still out: ${pct(dramaRuns, games)}  [target ≥50%]`);
 console.log(`${check(lateRuns / games >= 0.3)} runs with someone reaching the exit after 10:30: ${pct(lateRuns, games)}  [target ≥30%]`);

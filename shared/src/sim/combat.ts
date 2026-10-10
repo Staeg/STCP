@@ -1,6 +1,7 @@
-import { ABILITIES, CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
+import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
 import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
-import { ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type EnemyId } from '../content/enemies';
+import { CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type EnemyId } from '../content/enemies';
+import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
 import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints } from './loot';
@@ -53,6 +54,8 @@ export interface Monster {
   maxHp: number;
   dmgMult: number;
   st: Statuses;
+  /** Great Bell: stopped in its tracks until this game time; a fight it starts before then, it starts Stunned. */
+  dazedUntil?: number;
 }
 
 /** A slain monster the Undertaker raised: it fights on the heroes' side, nearest the enemy, for a few turns. */
@@ -109,6 +112,8 @@ export interface Encounter {
   /** The last monster slain here (what Raise brings back), and the risen one, if any. */
   lastSlain?: { type: EnemyId; maxHp: number; dmgMult: number } | null;
   risen?: Risen | null;
+  /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
+  opened?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +125,29 @@ export function spawnInitialMonsters(world: World) {
   for (const room of d.rooms) {
     if (safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
     if (world.rng.chance(ESCALATION.lairChance)) {
-      spawnGroup(world, room.id, pickLair(world), 0);
+      spawnGroup(world, room.id, crUnits(world, pickLair(world), 'lair', room.id), 0);
       // Pre-seeded bounty marks the lair (spawnInitialLoot) and sweetens its drop.
       world.bounty[room.id] = LOOT.lairBounty;
-    } else spawnGroup(world, room.id, pickGroup(world), 0);
+    } else spawnGroup(world, room.id, crUnits(world, pickGroup(world), 'room', room.id), 0);
   }
+}
+
+/**
+ * Challenge Rating additions to a group about to spawn in `room`: a Lantern Wight may come with each Ghoul, and
+ * lairs (or late exit waves at CR 4) may hold a Forsaken Queen, never more than one to a room.
+ */
+export function crUnits(world: World, units: EnemyId[], kind: 'room' | 'lair' | 'wave', room: number): EnemyId[] {
+  const cr = world.cr;
+  if (cr <= 0) return units;
+  const out = [...units];
+  const wight = CR_RULES.wightChance[cr] ?? 0;
+  for (const u of units) if (u === 'ghoul' && world.rng.chance(wight)) out.push('wight');
+  const queen =
+    kind === 'lair' ? CR_RULES.queenLairChance[cr] ?? 0
+    : kind === 'wave' && cr >= CR_RULES.queenWaveCr && world.tier >= CR_RULES.queenWaveTier ? CR_RULES.queenWaveChance
+    : 0;
+  if (queen > 0 && !monstersIn(world, room).some((m) => m.type === 'queen') && world.rng.chance(queen)) out.push('queen');
+  return out;
 }
 
 function pickLair(world: World): EnemyId[] {
@@ -189,11 +212,23 @@ export function addStress(h: Hero, amount: number) {
   return h.stress - before;
 }
 
-/** Weapon bonus (and the Zealot's stress): multiplies every bit of damage this hero deals. */
-export function damageMult(h: Hero): number {
+/** Weapon bonus (and the Zealot's stress, and Everflame): multiplies every bit of damage this hero deals. */
+export function damageMult(h: Hero, world?: World): number {
   const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
   const zeal = h.cls === 'zealot' ? 1 + h.stress * CLASS_RULES.zealotDmgPerStress : 1;
-  return weapon * zeal;
+  return weapon * zeal * everflame(h, world);
+}
+
+/** Everflame: the Lampbearer burns brighter the more light their allies still carry. */
+export function everflame(h: Hero, world?: World): number {
+  if (h.talent !== 'everflame' || !world) return 1;
+  const light = Object.values(world.heroes).filter((o) => o !== h && inDungeon(o)).reduce((s, o) => s + o.light, 0);
+  return 1 + TALENT_RULES.everflamePerLight * light;
+}
+
+/** A hero's three abilities, as their Talent has changed them. */
+export function abilitiesOf(h: { cls: Hero['cls']; talent?: TalentId | null }): [AbilityDef, AbilityDef, AbilityDef] {
+  return abilitiesFor(h.cls, h.talent);
 }
 
 /** Zealot: move up to `max` stress from an ally onto yourself (ignores Calm and Ward Charm). Returns how much moved. */
@@ -214,6 +249,11 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
   h.downedAt = null;
   if (world) world.stats.revives++;
   if (world) chronicle(world, by ? `${by.name} got ${h.name} back on their feet.` : `${h.name} got back up.`);
+  // Pallbearer: the Undertaker brings them back whole, and spares them the lasting wound of going down.
+  if (by?.talent === 'pallbearer' && by !== h) {
+    fraction = 1;
+    h.downedMajor = false;
+  }
   h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
 }
 
@@ -235,11 +275,37 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     }
     const names = monstersIn(world, room).map((m) => ENEMIES[m.type].name).join(', ');
     enc.log.push(`Ambush! ${names}.`);
+    for (const id of enc.heroes) onEnlist(world, enc, world.heroes[id]);
   } else {
     enlist(enc, hero);
     enc.log.push(`${hero.name} joins the fight.`);
+    onEnlist(world, enc, hero);
   }
   startTimers(world, enc);
+}
+
+/** Talents that act when a hero walks into a fight. */
+function onEnlist(world: World, enc: Encounter, h: Hero) {
+  if (!isConscious(h)) return;
+  // Evil Eye: every enemy here starts the fight Hexed.
+  if (h.talent === 'evilEye') {
+    for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
+    enc.log.push(`${h.name}'s evil eye falls on every foe. (Hexed)`);
+  }
+  // Restless Dead: the risen that followed the Undertaker here fights on.
+  if (h.risen && !risenOf(enc)) {
+    enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
+    h.risen = null;
+    enc.log.push(`The risen ${ENEMIES[enc.risen.type].name} shambles in behind ${h.name}.`);
+  }
+}
+
+/** Restless Dead: when the Undertaker leaves a fight (or it ends), their risen goes with them. */
+function keepRisen(enc: Encounter, h: Hero) {
+  const r = risenOf(enc);
+  if (!r || r.by !== h.id || h.talent !== 'restlessDead' || !isConscious(h)) return;
+  h.risen = { type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns };
+  enc.risen = null;
 }
 
 function enlist(enc: Encounter, h: Hero) {
@@ -252,6 +318,7 @@ function enlist(enc: Encounter, h: Hero) {
 }
 
 function leaveEncounter(world: World, enc: Encounter, h: Hero) {
+  keepRisen(enc, h);
   enc.heroes = enc.heroes.filter((id) => id !== h.id);
   delete enc.choices[h.id];
   delete enc.next[h.id];
@@ -269,6 +336,7 @@ function resetAfterFight(h: Hero) {
 function endEncounter(world: World, enc: Encounter) {
   for (const id of enc.heroes) {
     const h = world.heroes[id];
+    if (h) keepRisen(enc, h);
     if (h) resetAfterFight(h);
   }
   for (const m of monstersIn(world, enc.room)) m.st = {};
@@ -287,9 +355,20 @@ function startTimers(world: World, enc: Encounter) {
   for (const id of enc.heroes) {
     const h = world.heroes[id];
     if (!isConscious(h)) delete enc.next[id];
-    else enc.next[id] ??= at(world.time + speedOf(h, world.time));
+    else if (enc.next[id] === undefined) {
+      // Opening Act: the Cutthroat's first turn of the fight comes at half their Speed.
+      const first = !(enc.opened ??= []).includes(id);
+      if (first) enc.opened.push(id);
+      const wait = speedOf(h, world.time) * (first && h.talent === 'openingAct' ? TALENT_RULES.openingFraction : 1);
+      enc.next[id] = at(world.time + wait);
+    }
   }
-  for (const m of monstersIn(world, enc.room)) enc.next[m.id] ??= at(world.time + ENEMIES[m.type].speed);
+  for (const m of monstersIn(world, enc.room)) {
+    if (enc.next[m.id] !== undefined) continue;
+    enc.next[m.id] = at(world.time + ENEMIES[m.type].speed);
+    // Great Bell: still reeling from the Toll.
+    if ((m.dazedUntil ?? 0) > world.time) m.st.stun = true;
+  }
   if (enc.risen) enc.next[enc.risen.id] ??= at(world.time + ENEMIES[enc.risen.type].speed);
 }
 
@@ -352,7 +431,7 @@ function nextUp(world: World, enc: Encounter): Unit | null {
 // Choices
 
 export function abilityOf(h: Hero, action: CombatAction): AbilityDef | null {
-  const abilities: readonly AbilityDef[] = ABILITIES[h.cls];
+  const abilities: readonly AbilityDef[] = abilitiesOf(h);
   const idx = action === 'a0' ? 0 : action === 'a1' ? 1 : action === 'a2' ? 2 : -1;
   return abilities[idx] ?? null;
 }
@@ -413,8 +492,9 @@ export function unusableReason(world: World, enc: Encounter, h: Hero, ab: Abilit
 }
 
 /** Ability slots (0–2) not cooling down, in order. The first of them is what an undecided hero falls back on. */
-export function readyAbilities(cls: Hero['cls'], cooldowns: Record<string, number>): (0 | 1 | 2)[] {
-  return ([0, 1, 2] as const).filter((i) => (cooldowns[ABILITIES[cls][i].id] ?? 0) <= 0);
+export function readyAbilities(h: { cls: Hero['cls']; talent?: TalentId | null; cooldowns: Record<string, number> }): (0 | 1 | 2)[] {
+  const abilities = abilitiesOf(h);
+  return ([0, 1, 2] as const).filter((i) => (h.cooldowns[abilities[i].id] ?? 0) <= 0);
 }
 
 /**
@@ -423,7 +503,7 @@ export function readyAbilities(cls: Hero['cls'], cooldowns: Record<string, numbe
  * (then they brace).
  */
 export function defaultChoice(world: World, enc: Encounter, h: Hero): Choice | null {
-  for (const i of readyAbilities(h.cls, h.cooldowns)) {
+  for (const i of readyAbilities(h)) {
     const action = `a${i}` as CombatAction;
     const ab = abilityOf(h, action)!;
     if (unusableReason(world, enc, h, ab)) continue;
@@ -455,7 +535,16 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
       // No target yet is fine: if the turn comes first, it goes to the leftmost one.
       if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
     }
-    enc.choices[h.id] = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
+    const pick: Choice = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
+    // Quick Hands: the Alchemist uses it there and then, and keeps their turn.
+    if (h.talent === 'quickHands') {
+      const target = pick.target ?? leftmostTarget(world, enc, h, pick);
+      const events: CombatEvent[] = [];
+      heroAct(world, enc, h, { ...pick, target }, events);
+      record(enc, events);
+      return null;
+    }
+    enc.choices[h.id] = pick;
     return null;
   }
   const ab = abilityOf(h, choice.action);
@@ -484,6 +573,11 @@ function takeTurn(world: World, enc: Encounter, unit: Unit) {
   if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
   else if (unit.kind === 'monster') monsterTurn(world, enc, unit.m, events);
   else risenTurn(world, enc, unit.r, events);
+  record(enc, events);
+}
+
+/** Add what just happened to the fight's event list and log. */
+function record(enc: Encounter, events: CombatEvent[]) {
   for (const e of events) e.seq = ++enc.seq;
   enc.events.push(...events);
   if (enc.events.length > 30) enc.events.splice(0, enc.events.length - 30);
@@ -534,6 +628,12 @@ export function tickCooldowns(h: Hero) {
   }
 }
 
+/** A turn passing outside a fight: cooldowns tick, and so does a Vengeance sworn out of combat (Unyielding). */
+export function fieldTurn(h: Hero) {
+  tickCooldowns(h);
+  if (h.st.vengeance !== undefined && --h.st.vengeance <= 0) delete h.st.vengeance;
+}
+
 /** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks cooldowns down as a turn would. */
 export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
   if (Object.keys(h.cooldowns).length === 0) {
@@ -544,7 +644,7 @@ export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
   const speed = speedOf(h, world.time);
   while (h.cdClock >= speed - 1e-6) {
     h.cdClock -= speed;
-    tickCooldowns(h);
+    fieldTurn(h);
   }
 }
 
@@ -692,7 +792,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     return;
   }
   if (c.action === 'flee') {
-    if (inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
+    const ghost = h.talent === 'ghostStep';
+    if (ghost || inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
       if (enc.room === world.dungeon.exit && world.time >= EXIT_OPENS_AT) {
         leaveEncounter(world, enc, h);
         extractHero(world, h);
@@ -700,8 +801,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         return;
       }
       flee(world, enc, h);
-      addStress(h, 5);
-      events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
+      if (!ghost) addStress(h, 5);
+      events.push({ actor: h.id, kind: 'flee', text: ghost ? `${h.name} slips away like a ghost.` : `${h.name} flees!` });
     } else {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
     }
@@ -723,6 +824,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = c.target ?? h.id;
       events.push({ actor: h.id, kind: item === 'bandage' || item === 'salts' ? 'heal' : 'status', target: t, text: result });
     }
+    // Volatile: every flask the Alchemist opens in a fight leaks fumes.
+    if (h.talent === 'volatile') fumes(world, enc, h, events, true);
     return;
   }
   if (c.action === 'revive') {
@@ -747,7 +850,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     }
     case 'vengeance':
-      h.st.vengeance = CLASS_RULES.vengeanceTurns;
+      h.st.vengeance = CLASS_RULES.vengeanceTurns + (h.talent === 'unyielding' ? TALENT_RULES.unyieldingTurns : 0);
       events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
       return;
     case 'rally':
@@ -779,8 +882,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${CLASS_RULES.smokeSecs}s)` });
       return;
     case 'mend': {
-      const t = pickAlly();
-      if (!t || t === h) return;
+      // Triage: only ever the Lampbearer.
+      const t = ab.target === 'self' ? h : pickAlly();
+      if (!t || (t === h && ab.target !== 'self')) return;
       const healed = heal(t, ab.power);
       delete t.st.bleed;
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
@@ -849,7 +953,10 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'raise': {
       const dead = enc.lastSlain!;
       const hp = Math.max(1, Math.round(dead.maxHp * CLASS_RULES.raiseHp));
-      enc.risen = { id: `r${world.nextId++}`, type: dead.type, hp, maxHp: hp, dmgMult: dead.dmgMult, turns: CLASS_RULES.raiseTurns, by: h.id };
+      enc.risen = {
+        id: `r${world.nextId++}`, type: dead.type, hp, maxHp: hp, dmgMult: dead.dmgMult, by: h.id,
+        turns: h.talent === 'restlessDead' ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns,
+      };
       enc.lastSlain = null;
       events.push({ actor: h.id, kind: 'status', target: enc.risen.id, text: `${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.` });
       return;
@@ -868,8 +975,14 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'peal':
       for (const a of othersIn(world, enc, h)) {
         if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - CLASS_RULES.pealHaste));
+        // Resonance: the note settles nerves and knits wounds.
+        if (h.talent === 'resonance') {
+          addStress(a, -TALENT_RULES.resonanceStress);
+          const healed = heal(a, TALENT_RULES.resonanceHeal);
+          if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
+        }
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${h.talent === 'resonance' ? `, −${TALENT_RULES.resonanceStress} stress` : ''})` });
       return;
     case 'knell': {
       const dmg = knellDamage(ab.power, othersIn(world, enc, h).length);
@@ -888,16 +1001,23 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       if (!t) return;
       const moved = takeSins(h, t, ab.power);
       events.push({ actor: h.id, kind: 'stress', target: h.id, amount: moved, text: `${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)` });
+      // Martyr: and eases their wounds.
+      if (h.talent === 'martyr') {
+        const healed = heal(t, TALENT_RULES.martyrHeal);
+        if (healed) events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${t.name} is soothed. (+${healed})` });
+      }
       return;
     }
     case 'absolution': {
       const spend = h.stress - CLASS_RULES.absolutionFloor;
+      // Penitent: all of it becomes damage, but only half of it leaves.
+      const paid = h.talent === 'penitent' ? Math.floor(spend / 2) : spend;
       const targets = enemies();
       const each = Math.ceil(spend / Math.max(1, targets.length));
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} pours out their torment! (−${spend} stress)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} pours out their torment! (−${paid} stress)` });
       // The damage is dealt at the stress it came from; then it's spent.
       for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
-      h.stress = CLASS_RULES.absolutionFloor;
+      h.stress -= paid;
       return;
     }
     // ---- Alchemist ----
@@ -911,8 +1031,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     }
     case 'fumes':
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} smashes a flask of fumes!` });
-      for (const m of enemies()) addBleed(m.st, Math.round(CLASS_RULES.fumesBleed * damageMult(h)), CLASS_RULES.fumesTurns);
+      fumes(world, enc, h, events);
       return;
     case 'elixir': {
       const t = pickAlly();
@@ -922,6 +1041,14 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     }
   }
+}
+
+/** Fumes: Bleed on every enemy (`free`: Volatile's, set off by an item). */
+function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false) {
+  const foes = monstersIn(world, enc.room);
+  if (!foes.length) return;
+  events.push({ actor: h.id, kind: 'status', text: free ? `Fumes spill from ${h.name}'s satchel!` : `${h.name} smashes a flask of fumes!` });
+  for (const m of foes) addBleed(m.st, Math.round(CLASS_RULES.fumesBleed * damageMult(h, world)), CLASS_RULES.fumesTurns);
 }
 
 /** Light for everyone in the room (Flare, in or out of a fight). */
@@ -954,7 +1081,7 @@ function heal(h: Hero, n: number): number {
 
 /** Hero damages a monster. Returns true if it connected. */
 function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
-  let dmg = base * damageMult(h);
+  let dmg = base * damageMult(h, world);
   if (h.st.weak) dmg *= 0.5;
   if (h.affliction === 'hopeless') dmg *= 0.7;
   dmg = acidic(m, Math.max(1, Math.round(dmg)));
@@ -967,6 +1094,12 @@ function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: numb
     actor: h.id, kind: 'damage', target: m.id, amount: dmg, crit,
     text: `${h.name}'s ${what} ${crit ? 'CRITS' : 'hits'} ${ENEMIES[m.type].name} for ${dmg}.`,
   });
+  // Sanguine: the Witch drinks from every Hex on what she hurts.
+  const hexes = m.st.hexed?.length ?? 0;
+  if (h.talent === 'sanguine' && hexes > 0 && dmg > 0 && isConscious(h)) {
+    const healed = heal(h, TALENT_RULES.sanguineHeal * hexes);
+    if (healed) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} drinks from the hex. (+${healed})` });
+  }
   applyMonsterDamage(world, m, dmg, events);
   return true;
 }
@@ -1032,6 +1165,30 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'brute':
       for (const t of side.slice(-2)) monsterHits(world, enc, m, t, ENEMIES.brute.dmg, 'slams', events);
       return;
+    case 'wight': {
+      const t = monsterHits(world, enc, m, nearest, ENEMIES.wight.dmg, 'snuffs at', events);
+      if (t && inDungeon(t)) {
+        const before = t.light;
+        t.light = Math.max(0, t.light - CR_RULES.wightSnuff);
+        if (before > t.light) events.push({ actor: m.id, kind: 'status', target: t.id, text: `${t.name}'s light gutters. (−${Math.round(before - t.light)} light)` });
+      }
+      return;
+    }
+    case 'queen': {
+      const court = monstersIn(world, enc.room).filter((o) => o !== m);
+      if (court.length === 0) {
+        // Dirge: the last of her court is gone, and she mourns loudly.
+        for (const t of heroes) addStress(t, CR_RULES.dirgeStress);
+        events.push({ actor: m.id, kind: 'stress', text: `${name} keens a dirge for her fallen court. (+${CR_RULES.dirgeStress} stress to all)` });
+        return;
+      }
+      for (const o of court) {
+        o.hp = Math.min(o.maxHp, o.hp + CR_RULES.hymnHeal);
+        if (enc.next[o.id] !== undefined) enc.next[o.id] = at(Math.max(world.time, enc.next[o.id] - CR_RULES.hymnHaste));
+      }
+      events.push({ actor: m.id, kind: 'status', text: `${name} sings a hymn. Her court is healed and quickened. (+${CR_RULES.hymnHeal} HP, ${CR_RULES.hymnHaste}s sooner)` });
+      return;
+    }
   }
 }
 
@@ -1059,6 +1216,10 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     return null;
   }
   const t = victim.h;
+  if (t.immuneUntil > world.time) {
+    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} ${t.name}, who does not even flinch. (Iron Oath)` });
+    return null;
+  }
   if (inSmoke(world, t.st) && world.rng.chance(0.5)) {
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });
     return null;
@@ -1092,14 +1253,34 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
 }
 
 function applyHeroDamage(world: World, enc: Encounter, h: Hero, dmg: number, events: CombatEvent[]) {
-  if (!isConscious(h)) return;
+  hurtHero(world, h, dmg, events, enc);
+}
+
+/**
+ * Damage to a hero from anything (blows, bleeding, cave-ins…), which can take them down. Iron Oath catches the
+ * first blow that would, once a run. Returns false if nothing landed.
+ */
+export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent[] | null, enc?: Encounter): boolean {
+  if (!isConscious(h) || dmg <= 0) return false;
+  if (h.immuneUntil > world.time) return false;
   h.hp -= dmg;
+  if (h.hp <= 0 && h.talent === 'ironOath' && !h.oathUsed) {
+    h.oathUsed = true;
+    h.hp = 1;
+    h.immuneUntil = world.time + TALENT_RULES.oathImmune;
+    events?.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} refuses to fall! (Iron Oath: untouchable for ${TALENT_RULES.oathImmune}s)` });
+    chronicle(world, `${h.name} kept their Iron Oath and stayed standing in ${roomName(world, h)}.`);
+  }
+  h.lowestHp = Math.min(h.lowestHp, Math.max(0, h.hp) / h.maxHp);
   if (h.hp <= 0) downHero(world, h, events, enc);
+  return true;
 }
 
 export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter) {
   h.hp = 0;
   h.downedAt = world.time;
+  h.lowestHp = 0;
+  h.downedMajor = true;
   world.stats.downs++;
   h.st = {};
   h.channel = null;

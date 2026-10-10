@@ -28,6 +28,7 @@ Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed. I
 - **Between fights:** **R** revive a downed ally (6s), walk into rubble to dig through it (18s, Warden 12s), **M** mend (Lampbearer), **4–7** use items.
 - **Events:** altars, captives, idols, wells, vaults, and a few that change your Speed (a quicksilver pool, a courier's heavy satchel, an hourglass, a clockwork shrine)… Each takes some time (altar 18s, vault 24s, most others 3–6s). Whoever chooses first does it, and everyone in the room sees who's doing what; walking away stops it, and it starts over next time. Pick a choice with **1, 2, 3…**.
 - **Get out:** return to the ⚑ exit where you started and press **E** once it opens. Escaped gold counts toward your career title and the **Hall of Fortune**.
+- **The Village:** you bring the Character of the class you pick from your own roster. Each run they survive earns XP, and 2 XP earns a **Talent**. Injuries (from dropping below 50% / 25% HP, or going down) and afflictions follow them home, until you pay to treat them from your purse. A Character who dies is replaced by a new recruit. Talents raise the **Challenge Rating**: more gold, and worse things in the dark.
 
 ## Developer notes
 
