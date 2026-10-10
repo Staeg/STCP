@@ -7,6 +7,7 @@ import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
 import { cooldownIcon, icon, ICON_TIPS, type IconId } from './icons';
+import { statusIcons } from './statuses';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -97,7 +98,9 @@ export class Hud {
     const talent = you.talent ? ` <span class="talent-star" title="${escape(TALENTS[you.talent].name)}: ${escape(TALENTS[you.talent].desc)}">★</span>` : '';
     // Village Rites for this run: the Resource's glyph, hover for what it does.
     const rites = (you.rites ?? []).map((r) => ` <span class="rite-tag" title="${escape(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`).join('');
-    $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does).
+    const status = statusIcons(you.st, time).join('');
+    setHtml($('hero-name'), `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>${status ? ` <span class="hero-status">${status}</span>` : ''}`);
     // A screaming face beside your stress when something has broken; hover for which affliction and what it does.
     const aff = $('affliction');
     aff.hidden = !you.affliction;

@@ -415,7 +415,9 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
-- 2026-10-10 · **Doom lingers (user request).** Doom is now a per-hero stacking status instead of a per-fight number: no decay while a Lich stands in your fight, then −1 per turn of yours (field turns included; field Poison ticks get it too). Late joiners no longer inherit earlier casts. 256 tests. Known gap: the out-of-combat HUD shows no statuses (Poison, Doom, Clang) beyond the Speed breakdown.
+- 2026-10-10 · **Your statuses on the HUD (user request).** Every buff and debuff on you shows as icons right of your class name in the top-right panel, in a fight and out (same icons and tips as the fight screen; shared `client/src/statuses.ts`). Checked in the browser with injected statuses; they wrap under the name in narrow windows.
+
+- 2026-10-10 · **Doom lingers (user request).** Doom is now a per-hero stacking status instead of a per-fight number: no decay while a Lich stands in your fight, then −1 per turn of yours (field turns included; field Poison ticks get it too). Late joiners no longer inherit earlier casts. 256 tests. 
 
 - 2026-10-10 · **Acid stacks (user request).** Every Acid Flask adds a stack (+2 per stack to every hit) and refreshes the 2-turn timer; a timeout drops one stack, not all (same rule as Clang). ☣×N icon. 255 tests.
 

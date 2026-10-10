@@ -57,6 +57,8 @@ html, body {
 
 #status-panel { min-width: 220px; }
 #hero-name { font-size: 24px; }
+#hero-name .hero-status { font-size: 16px; margin-left: 4px; vertical-align: middle; cursor: help; }
+#hero-name .hero-status > span { margin-right: 3px; }
 .bar-label { color: var(--muted); }
 .bar {
   height: 10px;
