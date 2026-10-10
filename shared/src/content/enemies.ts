@@ -16,7 +16,7 @@ export interface EnemyDef {
 
 export const ENEMIES: Record<EnemyId, EnemyDef> = {
   ghoul: { id: 'ghoul', name: 'Ghoul', maxHp: 14, speed: 5, dmg: 4, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to the nearest hero.' },
-  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Bleed to a random hero.' },
+  crawler: { id: 'crawler', name: 'Crawler', maxHp: 8, speed: 3, dmg: 2, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Poison to a random hero.' },
   acolyte: { id: 'acolyte', name: 'Acolyte', maxHp: 11, speed: 4, dmg: 3, undead: false, glyph: '♆', desc: 'Whisper: +6 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
   brute: { id: 'brute', name: 'Bone Brute', maxHp: 34, speed: 8, dmg: 7, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes.' },
   // Challenge Rating monsters (M12): only in runs with Talented heroes (see CR_RULES).
@@ -66,6 +66,14 @@ export const LAIR_GROUPS: { weight: number; units: EnemyId[] }[] = [
   { weight: 2, units: ['crawler', 'crawler', 'crawler', 'acolyte'] },
   { weight: 2, units: ['brute', 'ghoul'] },
   { weight: 1, units: ['ghoul', 'ghoul', 'acolyte', 'acolyte'] },
+];
+
+/** The small guard a secret room gets when it opens (scaled to the tier then). */
+export const SECRET_GUARDS: { weight: number; units: EnemyId[] }[] = [
+  { weight: 3, units: ['ghoul', 'crawler'] },
+  { weight: 2, units: ['crawler', 'crawler'] },
+  { weight: 2, units: ['ghoul', 'acolyte'] },
+  { weight: 1, units: ['brute'] },
 ];
 
 /** How the dungeon gets worse (see sim/escalation.ts). Seconds unless noted. */

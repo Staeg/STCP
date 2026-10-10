@@ -213,7 +213,7 @@ describe('encounters', () => {
     expect(lamp.hp).toBeGreaterThan(0);
     expect(enc.events.some((e) => e.kind === 'heal' && e.target === 'h1')).toBe(true);
     step(world, 0.1);
-    expect(enc.next.h1! - world.time).toBeCloseTo(5 - 0.1, 0);
+    expect(enc.next.h1! - world.time).toBeCloseTo(speedOf(lamp, world.time) - 0.1, 0); // slower now: going that low is a Major Injury
 
     // Kill the ghoul, then down the lampbearer outside combat and channel a revive.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];

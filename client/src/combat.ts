@@ -203,7 +203,7 @@ export class CombatUi {
         <div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight · defaults to your first ability that's ready</span></div>
         ${this.actionsHtml(view, null, false)}
       </div>`
-      + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now, or in a fight</span></div>${items}</div>` : ''));
+      + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now (as your turn), or in a fight</span></div>${items}</div>` : ''));
   }
 
   /** What the sim does for you if you don't pick: your first ability that's ready, or Brace if none is. */
@@ -286,8 +286,10 @@ export class CombatUi {
       if (!def.combat && !def.field) return '';
       if (!enc) {
         const usable = def.field;
-        return `<button class="cb-act item ${usable ? 'usable' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
-          <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+        // Out of a fight an item is your turn: it happens when your timer runs out.
+        const queued = view.you.queuedItem?.index === i && view.you.queuedItem.item === it;
+        return `<button class="cb-act item ${usable ? 'usable' : ''} ${queued ? 'sel' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
+          <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
       }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
@@ -311,11 +313,11 @@ export class CombatUi {
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
     const aff = u.affliction ? AFFLICTIONS[u.affliction] : null;
     const icons = [
-      aff && sym('⚠', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
+      aff && sym('😱', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
       st.stun && icon('stun', 'Stunned: skips their next action.'),
-      st.bleed && sym(`🩸${st.bleed.length > 1 ? `×${st.bleed.length}` : st.bleed[0].rounds}`,
-        `Bleeding: ${st.bleed.map((b) => `${b.dmg} damage for ${rounds(b.rounds)}`).join('; ')}, each at the end of their turns. Mend or a Bandage cures it.`),
-      st.acid && sym('☣', `Acid: takes +2 from every hit, Bleed included (${rounds(st.acid)}).`),
+      st.poison && iconNum('poison', st.poison.length > 1 ? `×${st.poison.length}` : st.poison[0].rounds,
+        `Poisoned: ${st.poison.map((b) => `${b.dmg} damage for ${rounds(b.rounds)}`).join('; ')}, each at the end of their turns. Mend or a Bandage cures it.`),
+      st.acid && sym('☣', `Acid: takes +2 from every hit, Poison included (${rounds(st.acid)}).`),
       u.kind === 'hero' && (u.stress ?? 0) > 0 && iconNum('stress', u.stress!, `Stress ${u.stress}/100.`),
       st.hexed && sym(`⛧${st.hexed.length > 1 ? `×${st.hexed.length}` : ''}`,
         `Hexed ×${st.hexed.length}: Hex deals +${st.hexed.length * 100}% to it (${st.hexed.map((n) => rounds(n)).join('; ')}).`),

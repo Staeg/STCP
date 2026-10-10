@@ -3,16 +3,16 @@
  * words in a rules text (ability and item descriptions, event choices) for them.
  */
 
-export type IconId = 'hp' | 'stress' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'bleed' | 'shield'
+export type IconId = 'hp' | 'stress' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
   | 'revive' | 'flee' | 'brace';
 
 const PAL: Record<string, string> = {
   r: '#d94a4a', R: '#8a2a2a', w: '#f0e8d8', W: '#9a9488', k: '#2a2420', g: '#7a7a7a', b: '#7a4a22', B: '#4a2c14',
-  y: '#f2c84b', o: '#e8742a', s: '#c4ccd4', S: '#7f8a94', p: '#b07ae0',
+  y: '#f2c84b', o: '#e8742a', s: '#c4ccd4', S: '#7f8a94', p: '#b07ae0', v: '#6fd36a', V: '#2f7a2c',
 };
 
 /** Pixel grids (8×8; the bodies 10×9), one letter per palette colour, '.' for nothing. */
-const ART: Record<Exclude<IconId, 'bleed'>, string[]> = {
+const ART: Record<IconId, string[]> = {
   hp: ['.rr..rr.', 'rwrrrrrR', 'rrrrrrrR', 'rrrrrrrR', '.rrrrrR.', '..rrrR..', '...rR...', '........'],
   stress: ['.ww..ww.', 'wwwwwwwW', 'wwwwwwwW', 'wwwwwwwW', '.wwwwwW.', '..wwwW..', '...wW...', '........'],
   speed: ['..gggg..', '.gwwwwg.', 'gwwkwwwg', 'gwwkwwwg', 'gwwkkkwg', 'gwwwwwwg', '.gwwwwg.', '..gggg..'],
@@ -22,6 +22,8 @@ const ART: Record<Exclude<IconId, 'bleed'>, string[]> = {
   dmg: ['.......s', '......sS', '.....sS.', '....sS..', 'y..sS...', '.ysS....', '.by.....', 'b..y....'],
   stun: ['.pppppp.', 'p......p', 'p.pppp.p', 'p.p..p.p', 'p.p.pp.p', 'p.p....p', 'p.pppppp', '........'],
   light: ['...o....', '..oyo...', '..oyyo..', '...yo...', '..BbbB..', '...bb...', '...bb...', '...bb...'],
+  // A green drop: poison.
+  poison: ['...v....', '...v....', '..vvv...', '..vvvV..', '.vwvvvV.', '.vvvvvV.', '..vvvV..', '...VV...'],
   shield: ['SSSSSSSS', 'SssssssS', 'SsswwssS', 'SsswwssS', 'SssssssS', '.SssssS.', '..SssS..', '...SS...'],
   // Combat actions: a body getting up, one running away, one cowering behind its arms.
   revive: ['..ww....y.', '..ww...yyy', '.wwww...y.', '..ww....y.', '..ww....y.', '..wwww..y.', '.ww..w....', '.w...w....', 'gggggggggg'],
@@ -37,11 +39,7 @@ function svg(rows: string[]): string {
   return `<svg viewBox="0 0 ${rows[0].length} ${rows.length}" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
 }
 
-const GLYPH: Record<IconId, string> = {
-  ...(Object.fromEntries(Object.entries(ART).map(([id, rows]) => [id, svg(rows)])) as Record<Exclude<IconId, 'bleed'>, string>),
-  // The same drop the combat screen shows on a bleeding unit.
-  bleed: '<span class="ic-emoji">🩸</span>',
-};
+const GLYPH = Object.fromEntries(Object.entries(ART).map(([id, rows]) => [id, svg(rows)])) as Record<IconId, string>;
 
 export const ICON_TIPS: Record<IconId, string> = {
   hp: 'HP: health. At 0 you go down, and bleed out unless an ally gets you back up.',
@@ -52,7 +50,7 @@ export const ICON_TIPS: Record<IconId, string> = {
   dmg: 'Damage: HP taken off whoever is hit.',
   stun: 'Stun: the target skips its next action.',
   light: 'Light: fades as you explore. Dim and you can’t see next door; in the dark, stress climbs and monsters hit harder.',
-  bleed: 'Bleed: takes damage at the end of each of its turns, for a few turns. Mend or a Bandage cures it.',
+  poison: 'Poison: takes damage at the end of each of its turns, for a few turns. Mend or a Bandage cures it.',
   shield: 'Shield: soaks up that much damage taken, then is gone.',
   revive: 'Revive',
   flee: 'Flee',
@@ -85,7 +83,7 @@ const WORDS: [RegExp, IconId][] = [
   [/\b(?:dmg|damage)\b/gi, 'dmg'],
   [/\bHP\b/g, 'hp'],
   [/\b[Ss]tun(?:ned|s)?\b/g, 'stun'],
-  [/\b[Bb]leed(?:s|ing)?\b/g, 'bleed'],
+  [/\b[Pp]oison(?:s|ed)?\b/g, 'poison'],
   [/\bShield\b(?! Bash)/g, 'shield'],
   [/\b[Ss]tress\b/g, 'stress'],
   [/\blight\b/g, 'light'],

@@ -20,32 +20,35 @@
       </div>
       <div class="panel" id="status-panel">
         <div id="hero-name"></div>
-        <div id="affliction" hidden></div>
         <div id="escort" hidden></div>
-        <div class="bar-line"><span data-icon="hp"></span><div class="bar"><div class="bar-fill hp" id="hp-fill"></div></div><span class="bar-label" id="hp-text"></span></div>
-        <div class="bar-line"><span data-icon="stress"></span><div class="bar"><div class="bar-fill stress" id="stress-fill"></div></div><span class="bar-label" id="stress-text"></span></div>
+        <div class="bar-line"><span data-icon="hp"></span><div class="bar"><div class="bar-fill hp" id="hp-fill"></div></div><span class="bar-label"><span id="hp-text"></span><span id="injuries"></span></span></div>
+        <div class="bar-line"><span data-icon="stress"></span><div class="bar"><div class="bar-fill stress" id="stress-fill"></div></div><span class="bar-label"><span id="stress-text"></span><span id="affliction" hidden>😱</span></span></div>
         <div class="bar-line"><span data-icon="light"></span><div class="bar"><div class="bar-fill" id="light-fill"></div></div><span class="bar-label" id="light-text"></span></div>
         <div class="bar-label" id="speed-line"><span data-icon="speed"></span> <span id="speed-text"></span></div>
         <div id="inventory"></div>
       </div>
     </div>
     <div id="actions">
-      <button id="btn-turn" hidden>⟲ Turn back <kbd>Space</kbd></button>
+      <div id="autopilot" hidden>AUTOPILOT · a bot is walking for you <kbd>O</kbd> to take back</div>
+      <button id="btn-turn" hidden>⟲ Go back <kbd>Space</kbd></button>
       <button id="btn-revive" hidden></button>
       <div id="skills" hidden></div>
+      <button id="btn-ready"></button>
       <button id="btn-escape" hidden class="primary"></button>
       <div id="channel" hidden></div>
     </div>
     <div id="help" class="has-tip">?<div class="hover-tip">
       <div><b>Click a room</b>: walk there</div>
       <div><b>WASD</b>: move one room</div>
-      <div><b>Space</b>: turn back in a tunnel</div>
+      <div><b>Space</b>: call off a walk (straight back where you set out)</div>
       <div><b>Esc</b>: stop walking</div>
       <div><b>1, 2, 3…</b>: abilities in a fight · event and vote choices</div>
-      <div><b>4–7</b>: use one of your first four consumables</div>
+      <div><b>4–7</b>: use one of your first four consumables (out of a fight: as your turn)</div>
       <div><b>R</b>: revive · <b>B</b>: brace</div>
-      <div><b>F</b>: flee a fight · escape at the open exit</div>
+      <div><b>F</b>: flee a fight · escape alone at the open exit</div>
+      <div><b>E</b>: ready to leave: when everyone at the open exit is ready, you all escape together</div>
       <div><b>M</b>: class skill</div>
+      <div><b>O</b>: autopilot: a bot plays for you until you press it again</div>
     </div></div>
     <div id="net">connecting…</div>
     <div id="banner" hidden></div>

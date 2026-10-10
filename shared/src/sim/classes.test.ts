@@ -69,18 +69,18 @@ describe('line-ups and targeting', () => {
   });
 });
 
-describe('bleed and acid', () => {
-  it('runs each Bleed on its own, and Acid adds to every tick', () => {
+describe('poison and acid', () => {
+  it('runs each Poison on its own, and Acid adds to every tick', () => {
     const { world, ids, room, monsters } = arena(['warden'], ['ghoul']);
     walkIn(world, ids, room);
     const m = monsters[0];
-    m.st.bleed = [{ dmg: 2, rounds: 2 }, { dmg: 3, rounds: 1 }];
+    m.st.poison = [{ dmg: 2, rounds: 2 }, { dmg: 3, rounds: 1 }];
     m.st.acid = 2;
     const enc = world.encounters[room];
     untilTurn(world, room, m.id);
-    const ticks = enc.events.filter((e) => e.actor === m.id && e.text.includes('bleeds')).map((e) => e.amount);
+    const ticks = enc.events.filter((e) => e.actor === m.id && e.text.includes('poison damage')).map((e) => e.amount);
     expect(ticks).toEqual([2 + CLASS_RULES.acidBonus, 3 + CLASS_RULES.acidBonus]);
-    expect(m.st.bleed).toEqual([{ dmg: 2, rounds: 1 }]);
+    expect(m.st.poison).toEqual([{ dmg: 2, rounds: 1 }]);
     expect(m.st.acid).toBe(1);
   });
 });
@@ -206,6 +206,7 @@ describe('Alchemist', () => {
     expect(a.elixir).toBe(true);
     a.items = ['bandage'];
     applyIntent(world, 'h0', { type: 'useItem', index: 0 });
+    while (a.queuedItem) run(world, 0.1);
     expect(a.hp).toBe(34);
     expect(a.elixir).toBe(false);
   });

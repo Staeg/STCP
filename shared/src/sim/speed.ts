@@ -1,5 +1,6 @@
 import { CLASSES } from '../content/classes';
 import { MIN_SPEED } from '../content/constants';
+import { EVENT_SEEDING } from '../content/events';
 import { ITEMS } from '../content/items';
 import type { Hero } from './world';
 
@@ -32,6 +33,7 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   for (const m of h.speedMods ?? []) {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
+  if (h.leading) parts.push({ label: 'Escorting a villager', amount: EVENT_SEEDING.villagerSlow });
   return parts;
 }
 

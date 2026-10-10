@@ -43,6 +43,13 @@ describe('gold', () => {
 });
 
 /** The floor item id of the first `item` lying in `room`. */
+/** Use a pack item out of a fight and wait for the timer that carries it out. */
+function use(world: World, id: string, index: number) {
+  applyIntent(world, id, { type: 'useItem', index });
+  expect(world.heroes[id].queuedItem).not.toBeNull();
+  while (world.heroes[id].queuedItem) run(world, 0.1);
+}
+
 function fid(world: World, room: number, item: string): number {
   return world.piles[room].items.find((f) => f.item === item)!.id;
 }
@@ -271,22 +278,63 @@ describe('items', () => {
     }
   });
 
-  it('bandage heals and cures bleed; torch restores light; tonic lowers stress', () => {
+  it('bandage heals and cures poison; torch restores light; tonic lowers stress', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
     h.items = ['bandage', 'torch', 'tonic'];
     h.hp = 10;
-    h.st.bleed = [{ dmg: 2, rounds: 3 }];
+    h.st.poison = [{ dmg: 2, rounds: 3 }];
     h.light = 20;
     h.stress = 40;
-    applyIntent(world, 'h0', { type: 'useItem', index: 0 });
+    use(world, 'h0', 0);
     expect(h.hp).toBe(22);
-    expect(h.st.bleed).toBeUndefined();
-    applyIntent(world, 'h0', { type: 'useItem', index: 0 });
-    expect(h.light).toBe(70);
-    applyIntent(world, 'h0', { type: 'useItem', index: 0 });
-    expect(h.stress).toBe(15);
+    expect(h.st.poison).toBeUndefined();
+    const light = h.light;
+    use(world, 'h0', 0);
+    expect(h.light).toBeGreaterThan(light + 47);
+    const stress = h.stress;
+    use(world, 'h0', 0);
+    expect(h.stress).toBeLessThan(stress - 23);
     expect(h.items).toEqual([]);
+  });
+
+  it('out of a fight an item is your turn: it waits for your timer and calls off a walk', () => {
+    const { world, room } = party(1);
+    const h = world.heroes.h0;
+    const start = h.pos.kind === 'room' ? h.pos.room : -1;
+    h.items = ['bandage'];
+    h.hp = 10;
+    run(world, 0.3);
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 0.5);
+    expect(h.pos.kind).toBe('corridor');
+    applyIntent(world, 'h0', { type: 'useItem', index: 0 });
+    // Back where you set out from at once; the bandage goes on when the timer runs out.
+    expect(h.pos).toEqual({ kind: 'room', room: start });
+    expect(h.hp).toBe(10);
+    expect(h.queuedItem?.item).toBe('bandage');
+    while (h.queuedItem) run(world, 0.1);
+    expect(h.hp).toBe(22);
+    expect(h.items).toEqual([]);
+  });
+
+  it('cancelling a walk puts you straight back, with time left on the timer to go another way', () => {
+    const { world, room } = party(1);
+    const h = world.heroes.h0;
+    const start = h.pos.kind === 'room' ? h.pos.room : -1;
+    run(world, 0.3);
+    const turnAt = h.turnAt;
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 0.5);
+    applyIntent(world, 'h0', { type: 'turnBack' });
+    expect(h.pos).toEqual({ kind: 'room', room: start });
+    expect(h.turnAt).toBe(turnAt);
+    // Off again: you're already as far down the tunnel as the timer has run, and arrive when it ends.
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 0.1);
+    expect(h.pos.kind === 'corridor' && h.pos.t).toBeGreaterThan(0.8);
+    while (h.pos.kind === 'corridor') run(world, 0.1);
+    expect(world.time).toBeCloseTo(turnAt, 0);
   });
 
   it('smelling salts revive a downed ally in an adjacent room', () => {
@@ -298,6 +346,7 @@ describe('items', () => {
     h1.downedAt = world.time;
     world.heroes.h0.items = ['salts'];
     applyIntent(world, 'h0', { type: 'useItem', index: 0, target: 'h1' });
+    while (world.heroes.h0.queuedItem) run(world, 0.1);
     expect(h1.downedAt).toBeNull();
     expect(h1.hp).toBe(Math.ceil(h1.maxHp / 2));
   });

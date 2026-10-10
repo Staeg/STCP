@@ -50,7 +50,7 @@ export function spawnEvents(world: World) {
   const kinds = Object.values(EVENTS);
   const total = kinds.reduce((s, k) => s + k.weight, 0);
   for (const room of d.rooms) {
-    if (safe.has(room.id) || !rng.chance(EVENT_SEEDING.chance)) continue;
+    if (room.kind === 'secret' || safe.has(room.id) || !rng.chance(EVENT_SEEDING.chance)) continue;
     let roll = rng.float(0, total);
     let kind: EventKind = kinds[0].kind;
     for (const k of kinds) {

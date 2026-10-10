@@ -100,11 +100,11 @@ export const EVENTS: Record<EventKind, EventDef> = {
 
 /** What the Speed events do. Speed is in seconds (lower is faster). */
 export const SPEED_EVENTS = {
-  /** Quicksilver: faster for the rest of the run, but frailer. */
-  quicksilverSpeed: -1,
+  /** Quicksilver: faster for the rest of the run, but frailer. (−1 until 2026-10-10: lasting costs now pay more.) */
+  quicksilverSpeed: -1.5,
   quicksilverMaxHp: -6,
   /** Courier's Satchel: gold for the hero who hauls it, who is slower for the rest of the run. */
-  satchelGold: 45,
+  satchelGold: 100, // 45 until 2026-10-10
   satchelSpeed: 1,
   /** Hourglass: everyone in the room is faster for a while. */
   hourglassSpeed: -1.5,
@@ -133,6 +133,6 @@ export const EVENT_SEEDING = {
   altarBonus: 15,
   villagerBonus: 25,
   villagerHp: 10,
-  /** Leading a villager slows you to this fraction of normal speed. */
-  villagerSpeed: 0.7,
+  /** Leading a villager adds this to your Speed (seconds) until they're saved. */
+  villagerSlow: 1.5,
 };

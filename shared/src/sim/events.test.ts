@@ -94,7 +94,7 @@ describe('room events', () => {
     const { world, h, d } = withEvent('crawlspace');
     // Move the crawlspace (and the hero) somewhere deep: the exit is where everyone starts.
     const dist = hopDistances(d, d.exit);
-    const far = dist.indexOf(Math.max(...dist));
+    const far = dist.indexOf(Math.max(...dist.filter(Number.isFinite))); // (sealed secret rooms are at Infinity)
     world.events[far] = { ...world.events[d.entrance], room: far };
     delete world.events[d.entrance];
     h.pos = { kind: 'room', room: far };
@@ -110,17 +110,17 @@ describe('room events', () => {
     const { world, h } = withEvent('quicksilver', 'lampbearer');
     choose(world, 'h', 'quaff');
     run(world, 3.1); // not a multiple of 6: events can take any time now
-    expect(speedOf(h, world.time)).toBe(4);
+    expect(speedOf(h, world.time)).toBe(3.5);
     expect(h.maxHp).toBe(39);
     run(world, 600);
-    expect(speedOf(h, world.time)).toBe(4);
+    expect(speedOf(h, world.time)).toBe(3.5);
   });
 
   it("courier's satchel: gold for the one who hauls it, who is slower from then on", () => {
     const { world, h } = withEvent('satchel', 'cutthroat');
     choose(world, 'h', 'haul');
     run(world, 3.1);
-    expect(h.gold).toBe(45);
+    expect(h.gold).toBe(100);
     expect(speedOf(h, world.time)).toBe(4);
   });
 

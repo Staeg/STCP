@@ -3,6 +3,7 @@ import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { armored, crUnits, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { notify } from './notify';
+import { openDueSecrets } from './secrets';
 import { chronicle, explore, type World } from './world';
 
 /** A group of monsters that walks the halls. While travelling, its monsters have room = -1. */
@@ -56,6 +57,7 @@ export const TIER_TEXT: Record<number, string> = {
 
 function onTierUp(world: World, tier: number) {
   chronicle(world, `Tier ${tier}: ${TIER_TEXT[tier] ?? ''}`);
+  openDueSecrets(world);
 }
 
 // ---------------------------------------------------------------------------

@@ -86,7 +86,7 @@ export function botUseItem(view: PlayerView): Intent | null {
   // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).
   const low = (frac: number) => frac <= 1 - BOTS.consumeAt;
   let i = idx((x) => x === 'bandage');
-  if (i >= 0 && (low(me.hp / me.maxHp) || me.st.bleed)) return { type: 'useItem', index: i };
+  if (i >= 0 && (low(me.hp / me.maxHp) || me.st.poison)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'torch');
   if (i >= 0 && low(me.light / LIGHT_MAX)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'tonic');

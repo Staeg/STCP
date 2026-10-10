@@ -1,7 +1,7 @@
 import { Rng } from '../rng';
 
-/** The start room is also the exit (the rendezvous). */
-export type RoomKind = 'exit' | 'normal';
+/** The start room is also the exit (the rendezvous). Secret rooms stay sealed until their tier (see `secrets`). */
+export type RoomKind = 'exit' | 'normal' | 'secret';
 
 export interface Room {
   id: number;
@@ -23,6 +23,21 @@ export interface Corridor {
   b: number;
   /** Seconds to walk end to end. */
   length: number;
+  /** The way into a secret room (drawn golden). */
+  secret?: boolean;
+}
+
+/**
+ * A sealed way into a secret room. The room is in `rooms` from the start, with no corridors; at `tier` the corridor
+ * is added to `corridors` (its id is fixed in advance, so passages must open in order) and to both rooms.
+ */
+export interface SecretPassage {
+  room: number;
+  /** The one ordinary room it opens off (never the exit). */
+  host: number;
+  corridor: Corridor;
+  tier: number;
+  open: boolean;
 }
 
 export interface Dungeon {
@@ -34,6 +49,8 @@ export interface Dungeon {
   exit: number;
   width: number;
   height: number;
+  /** Secret rooms, in the order their passages open. */
+  secrets: SecretPassage[];
 }
 
 export const GRID_W = 10;
@@ -49,6 +66,13 @@ export const CORRIDOR_TIME = 6;
 export const LOOP_CHANCE = 0.3;
 /** At least this many corridors beyond a tree's (rooms − 1): paths cross and rejoin. */
 export const MIN_LOOPS = 6;
+
+/** Secret rooms (user, 2026-10-10): the tier each one opens at, in opening order. */
+export const SECRET_TIERS = [4, 4, 5, 5, 5, 5];
+const SECRET_NAMES = [
+  'The Sealed Hoard', 'The Hidden Treasury', 'The Gilded Sanctum', 'The Lost Sacristy', 'The Veiled Reliquary',
+  'The Buried Coffers', 'The Forgotten Strongroom', 'The Walled-Up Chapel',
+];
 
 /** How far a room may sit off its grid cell's centre. Under CELL / 4, so a corridor's compass direction is never in doubt. */
 const JITTER = 18;
@@ -165,7 +189,60 @@ function tryGenerate(rng: Rng, seed: number): Dungeon | null {
     return { id, a, b, length: CORRIDOR_TIME };
   });
 
-  return { seed, rooms, corridors, entrance, exit, width: GRID_W * CELL, height: GRID_H * CELL };
+  const secrets = placeSecrets(seed, rooms, cellRoom, corridors.length, exit);
+  if (!secrets) return null;
+  return { seed, rooms, corridors, entrance, exit, width: GRID_W * CELL, height: GRID_H * CELL, secrets };
+}
+
+/**
+ * Secret rooms take empty grid cells beside the dungeon, each sealed off from exactly one ordinary room (never the
+ * exit). Every empty cell next to such a room is equally likely. Their own RNG leaves the rest of the layout as it was.
+ */
+function placeSecrets(seed: number, rooms: Room[], cellRoom: Map<number, number>, firstCorridor: number, exit: number): SecretPassage[] | null {
+  const rng = new Rng(seed ^ 0x6a09e667);
+  const key = (gx: number, gy: number) => gy * GRID_W + gx;
+  const hostsOf = (gx: number, gy: number) => DIRS
+    .map(([dx, dy]) => cellRoom.get(key(gx + dx, gy + dy)))
+    .filter((id, i): id is number => {
+      const [dx, dy] = DIRS[i];
+      const x = gx + dx;
+      const y = gy + dy;
+      return id !== undefined && x >= 0 && y >= 0 && x < GRID_W && y < GRID_H && id !== exit;
+    });
+  const cells: [number, number][] = [];
+  for (let gy = 0; gy < GRID_H; gy++) {
+    for (let gx = 0; gx < GRID_W; gx++) if (!cellRoom.has(key(gx, gy)) && hostsOf(gx, gy).length) cells.push([gx, gy]);
+  }
+  if (cells.length < SECRET_TIERS.length) return null;
+  const picked = rng.shuffle(cells).slice(0, SECRET_TIERS.length);
+  const names = rng.shuffle([...SECRET_NAMES]);
+  return picked.map(([gx, gy], i) => {
+    const id = rooms.length;
+    rooms.push({
+      id, gx, gy,
+      x: gx * CELL + CELL / 2 + rng.float(-JITTER, JITTER),
+      y: gy * CELL + CELL / 2 + rng.float(-JITTER, JITTER),
+      name: names[i], kind: 'secret', corridors: [],
+    });
+    const host = rng.pick(hostsOf(gx, gy));
+    return { room: id, host, corridor: { id: firstCorridor + i, a: host, b: id, length: CORRIDOR_TIME, secret: true }, tier: SECRET_TIERS[i], open: false };
+  });
+}
+
+/** Open every sealed passage due by `tier`. Returns the ones that just opened. */
+export function openSecrets(d: Dungeon, tier: number): SecretPassage[] {
+  const opened: SecretPassage[] = [];
+  for (const s of d.secrets) {
+    if (s.open || s.tier > tier) continue;
+    // Ids were handed out in opening order, so each lands at its own index.
+    if (s.corridor.id !== d.corridors.length) throw new Error('secret passages opened out of order');
+    s.open = true;
+    d.corridors.push(s.corridor);
+    d.rooms[s.host].corridors.push(s.corridor.id);
+    d.rooms[s.room].corridors.push(s.corridor.id);
+    opened.push(s);
+  }
+  return opened;
 }
 
 function bfs(adj: number[][], start: number): number[] {

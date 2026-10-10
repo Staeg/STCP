@@ -163,7 +163,7 @@ describe('extraction and the end', () => {
     const far = addHero(world, { id: 'far', name: 'Far', cls: 'witch' });
     // Somewhere deep (everyone starts at the exit).
     const dist = hopDistances(world.dungeon, world.dungeon.exit);
-    far.pos = { kind: 'room', room: dist.indexOf(Math.max(...dist)) };
+    far.pos = { kind: 'room', room: dist.indexOf(Math.max(...dist.filter(Number.isFinite))) };
     world.time = EXIT_OPENS_AT;
     applyIntent(world, 'h0', { type: 'extract' });
     step(world, 0.1);

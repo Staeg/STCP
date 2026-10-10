@@ -473,6 +473,33 @@ export function itemTargets(world: World, h: Hero, index: number): string[] {
   }
 }
 
+/** Who an item would go to: the one named, else yourself (or the first downed hero in reach, for Salts). */
+function itemTarget(world: World, h: Hero, index: number, targetId?: string): string | undefined {
+  const def = ITEMS[h.items[index]];
+  return targetId ?? (def.target === 'self' || def.target === 'ally' ? h.id : itemTargets(world, h, index)[0]);
+}
+
+/** Why a (non-Firebomb) item can't go to that target, or null if it can. */
+function itemTargetError(world: World, h: Hero, index: number, targetId?: string): string | null {
+  const item = h.items[index];
+  const tid = itemTarget(world, h, index, targetId);
+  if (!tid || !itemTargets(world, h, index).includes(tid)) return 'No valid target.';
+  const t = world.heroes[tid];
+  if (t !== h && t.affliction === 'paranoid' && item !== 'salts') return `${t.name} refuses your help. (Paranoid)`;
+  if (item === 'bandage' && t.hp >= t.maxHp && !t.st.poison) return `${t === h ? "You're" : `${t.name} is`} not hurt.`;
+  if (item === 'tonic' && t.stress <= 0) return 'You feel steady already.';
+  return null;
+}
+
+/** Why this hero can't use pack item `index` out of a fight (null = they can). Checks only; nothing is used up. */
+export function fieldItemError(world: World, h: Hero, index: number, targetId?: string): string | null {
+  const def = ITEMS[h.items[index]];
+  if (!def) return 'Nothing there.';
+  if (!def.field) return def.kind === 'consumable' ? 'Only in a fight.' : "You can't use that.";
+  if (h.encounter !== null) return 'Use it as your combat action.';
+  return itemTargetError(world, h, index, targetId);
+}
+
 /**
  * Apply an item's effect (consumes it). Shared by field use and combat.
  * Returns a description of what happened, or an error prefixed with '!'.
@@ -490,13 +517,9 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
     h.elixir = false;
     return `${h.name} hurls a Firebomb!${doubled ? ' (Elixir: double!)' : ''}`; // damage applied by combat
   }
-  const targets = itemTargets(world, h, index);
-  const tid = targetId ?? (def.target === 'self' || def.target === 'ally' ? h.id : targets[0]);
-  if (!tid || !targets.includes(tid)) return '!No valid target.';
-  const t = world.heroes[tid];
-  if (t !== h && t.affliction === 'paranoid' && item !== 'salts') return `!${t.name} refuses your help. (Paranoid)`;
-  if (item === 'bandage' && t.hp >= t.maxHp && !t.st.bleed) return `!${t === h ? "You're" : `${t.name} is`} not hurt.`;
-  if (item === 'tonic' && t.stress <= 0) return '!You feel steady already.';
+  const err = itemTargetError(world, h, index, targetId);
+  if (err) return `!${err}`;
+  const t = world.heroes[itemTarget(world, h, index, targetId)!];
   takeItem(h, index);
   // Elixir: this one counts double.
   const x = h.elixir ? 2 : 1;
@@ -506,7 +529,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
     case 'bandage': {
       const before = t.hp;
       t.hp = Math.min(t.maxHp, t.hp + 12 * x);
-      delete t.st.bleed;
+      delete t.st.poison;
       return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).${boost}`;
     }
     case 'torch':
@@ -523,10 +546,8 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
 }
 
 export function useItemInField(world: World, h: Hero, index: number, targetId?: string): string | null {
-  const def = ITEMS[h.items[index]];
-  if (!def) return 'Nothing there.';
-  if (!def.field) return def.kind === 'consumable' ? 'Only in a fight.' : "You can't use that.";
-  if (h.encounter !== null) return 'Use it as your combat action.';
+  const err = fieldItemError(world, h, index, targetId);
+  if (err) return err;
   const result = applyItem(world, h, index, targetId);
   if (result.startsWith('!')) return result.slice(1);
   notify(world, h, result);

@@ -32,9 +32,19 @@ export class Game {
   /** Hand a hero over to a bot (e.g. a player left mid-run). */
   makeBot(heroId: string) {
     const hero = this.world.heroes[heroId];
-    if (!hero || this.bots.has(heroId)) return;
+    if (!hero) return;
     hero.isBot = true;
-    this.bots.set(heroId, createBotMemory(this.world.seed + this.bots.size * 104729));
+    hero.autopilot = false;
+    if (!this.bots.has(heroId)) this.bots.set(heroId, createBotMemory(this.world.seed + this.bots.size * 104729));
+  }
+
+  /** O: a bot takes the wheel for this player, or hands it back. Others can't tell (the hero isn't marked a bot). */
+  toggleAutopilot(heroId: string) {
+    const hero = this.world.heroes[heroId];
+    if (!hero || hero.isBot) return;
+    hero.autopilot = !hero.autopilot;
+    if (hero.autopilot) this.bots.set(heroId, createBotMemory(this.world.seed ^ (Math.floor(this.world.time * 10) + 7919)));
+    else this.bots.delete(heroId);
   }
 
   /** Bots take 1–3s after each turn to pick the next one (less if their turn comes sooner), like a human reading the situation. */
@@ -54,6 +64,7 @@ export class Game {
   }
 
   intent(heroId: string, intent: Intent) {
+    if (intent.type === 'autopilot') return this.toggleAutopilot(heroId);
     applyIntent(this.world, heroId, intent);
   }
 
@@ -67,7 +78,7 @@ export class Game {
         continue;
       }
       // Cheap pre-check: building a view is the expensive part, and bots only decide when idle in a room.
-      if (hero.pos.kind !== 'room' || hero.path.length > 0 || hero.channel || hero.queuedEvent || w.time < mem.thinkUntil) continue;
+      if (hero.pos.kind !== 'room' || hero.path.length > 0 || hero.channel || hero.queuedEvent || hero.queuedItem || w.time < mem.thinkUntil) continue;
       const intent = botThink(buildView(w, id), mem);
       if (intent) applyIntent(w, id, intent);
       // Bots walk their plan a hop at a time; show allies where the whole plan leads.

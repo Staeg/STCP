@@ -8,6 +8,7 @@ import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints, worn
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { speedOf } from './speed';
+import { injuredMaxHp, VILLAGE_RULES, type Injury } from '../village';
 
 export const BLEED_OUT = 36;
 export const REVIVE_CHANNEL = 6;
@@ -19,8 +20,8 @@ export const STRESS_MAX = 100;
 export interface Statuses {
   /** Skips its next turn. */
   stun?: boolean;
-  /** Each Bleed runs on its own: `rounds` = turns of bleeding left for that one. */
-  bleed?: Bleed[];
+  /** Each Poison runs on its own: `rounds` = turns of poison left for that one. */
+  poison?: Poison[];
   /** Acid: takes CLASS_RULES.acidBonus more from every hit; turns remaining. */
   acid?: number;
   /** Hexed: one entry per stack, each the turns it has left. Every stack adds CLASS_RULES.hexedBonus to Hex's damage. */
@@ -41,7 +42,7 @@ export interface Statuses {
   brace?: boolean;
 }
 
-export interface Bleed {
+export interface Poison {
   dmg: number;
   rounds: number;
 }
@@ -123,7 +124,7 @@ export function spawnInitialMonsters(world: World) {
   const d = world.dungeon;
   const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
   for (const room of d.rooms) {
-    if (safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
+    if (room.kind === 'secret' || safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
     if (world.rng.chance(ESCALATION.lairChance)) {
       spawnGroup(world, room.id, crUnits(world, pickLair(world), 'lair', room.id), 0);
       // Pre-seeded bounty marks the lair (spawnInitialLoot) and sweetens its drop.
@@ -257,6 +258,7 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
   if (by?.talent === 'pallbearer' && by !== h) {
     fraction = 1;
     h.downedMajor = false;
+    syncInjuries(h);
   }
   h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
 }
@@ -333,8 +335,8 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
 function resetAfterFight(h: Hero) {
   h.encounter = null;
   h.cdClock = 0;
-  const bleed = h.st.bleed;
-  h.st = bleed ? { bleed } : {};
+  const poison = h.st.poison;
+  h.st = poison ? { poison } : {};
 }
 
 function endEncounter(world: World, enc: Encounter) {
@@ -598,16 +600,16 @@ function endLingering(world: World, enc: Encounter, id: string) {
 }
 
 /**
- * Bleeding and status timers, at the end of a unit's own turn. Every Bleed ticks on its own (its own damage,
+ * Poison and status timers, at the end of a unit's own turn. Every Poison ticks on its own (its own damage,
  * its own countdown); `adjust` turns each tick into the damage actually taken (armor, acid). Stops if the unit dies.
  */
 function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) => number, hurt: (n: number) => boolean, events: CombatEvent[]) {
-  for (const b of [...(st.bleed ?? [])]) {
+  for (const b of [...(st.poison ?? [])]) {
     const dmg = adjust(b.dmg);
-    events.push({ actor: id, kind: 'damage', target: id, amount: dmg, text: `${name} bleeds for ${dmg}.` });
+    events.push({ actor: id, kind: 'damage', target: id, amount: dmg, text: `${name} takes ${dmg} poison damage.` });
     b.rounds--;
-    if (st.bleed) st.bleed = st.bleed.filter((x) => x.rounds > 0);
-    if (st.bleed?.length === 0) delete st.bleed;
+    if (st.poison) st.poison = st.poison.filter((x) => x.rounds > 0);
+    if (st.poison?.length === 0) delete st.poison;
     if (!hurt(dmg)) return;
   }
   for (const k of ['weak', 'acid'] as const) {
@@ -652,9 +654,9 @@ export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
   }
 }
 
-/** Add a Bleed alongside any already running. */
-export function addBleed(st: Statuses, dmg: number, rounds: number) {
-  (st.bleed ??= []).push({ dmg, rounds });
+/** Add a Poison alongside any already running. */
+export function addPoison(st: Statuses, dmg: number, rounds: number) {
+  (st.poison ??= []).push({ dmg, rounds });
 }
 
 /** What a monster actually takes from a hit of `dmg` (Acid adds to every one). */
@@ -749,7 +751,7 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
       case 'crawler': {
         const m = world.rng.pick(foes);
         hit(m, 'bites');
-        if (world.monsters[m.id]) addBleed(m.st, 1, 3);
+        if (world.monsters[m.id]) addPoison(m.st, 1, 3);
         break;
       }
       case 'brute':
@@ -890,7 +892,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = ab.target === 'self' ? h : pickAlly();
       if (!t || (t === h && ab.target !== 'self')) return;
       const healed = heal(t, ab.power);
-      delete t.st.bleed;
+      delete t.st.poison;
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
       return;
     }
@@ -1047,12 +1049,12 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
   }
 }
 
-/** Fumes: Bleed on every enemy (`free`: Volatile's, set off by an item). */
+/** Fumes: Poison on every enemy (`free`: Volatile's, set off by an item). */
 function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false) {
   const foes = monstersIn(world, enc.room);
   if (!foes.length) return;
   events.push({ actor: h.id, kind: 'status', text: free ? `Fumes spill from ${h.name}'s satchel!` : `${h.name} smashes a flask of fumes!` });
-  for (const m of foes) addBleed(m.st, Math.round(CLASS_RULES.fumesBleed * damageMult(h, world)), CLASS_RULES.fumesTurns);
+  for (const m of foes) addPoison(m.st, Math.round(CLASS_RULES.fumesPoison * damageMult(h, world)), CLASS_RULES.fumesTurns);
 }
 
 /** Light for everyone in the room (Flare, in or out of a fight). */
@@ -1151,7 +1153,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
       return;
     case 'crawler': {
       const t = monsterHits(world, enc, m, rng.pick(side), ENEMIES.crawler.dmg, 'bites', events);
-      if (t && isConscious(t)) addBleed(t.st, 1, 3);
+      if (t && isConscious(t)) addPoison(t.st, 1, 3);
       return;
     }
     case 'acolyte':
@@ -1268,7 +1270,7 @@ function applyHeroDamage(world: World, enc: Encounter, h: Hero, dmg: number, eve
 }
 
 /**
- * Damage to a hero from anything (blows, bleeding, cave-ins…), which can take them down. Iron Oath catches the
+ * Damage to a hero from anything (blows, poison, cave-ins…), which can take them down. Iron Oath catches the
  * first blow that would, once a run. Returns false if nothing landed.
  */
 export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent[] | null, enc?: Encounter): boolean {
@@ -1283,15 +1285,45 @@ export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent
     chronicle(world, `${h.name} kept their Iron Oath and stayed standing in ${roomName(world, h)}.`);
   }
   h.lowestHp = Math.min(h.lowestHp, Math.max(0, h.hp) / h.maxHp);
+  syncInjuries(h);
   if (h.hp <= 0) downHero(world, h, events, enc);
   return true;
 }
+
+/** The injuries this run has dealt so far: below half HP a Minor, below a quarter a Major instead, and going down one more Major. */
+function runInjuriesOf(h: Hero): Injury[] {
+  const out: Injury[] = [];
+  if (h.lowestHp < VILLAGE_RULES.majorBelow) out.push('major');
+  else if (h.lowestHp < VILLAGE_RULES.minorBelow) out.push('minor');
+  if (h.downedMajor) out.push('major');
+  return out;
+}
+
+/**
+ * Injuries take effect the moment they happen (user, 2026-10-10), not just in the next run: max HP drops (HP over
+ * it is lost) and each Major adds Speed. Call after anything that changes `lowestHp` or `downedMajor`.
+ */
+export function syncInjuries(h: Hero) {
+  const now = runInjuriesOf(h);
+  const was = h.runInjuries ?? [];
+  if (now.length === was.length && now.every((x, i) => x === was[i])) return;
+  const delta = injuredMaxHp(h.cls, [...h.injuries, ...now]) - injuredMaxHp(h.cls, [...h.injuries, ...was]);
+  h.runInjuries = now;
+  h.maxHp = Math.max(1, h.maxHp + delta);
+  h.hp = Math.min(h.hp, h.maxHp);
+  const majors = [...h.injuries, ...now].filter((i) => i === 'major').length;
+  h.speedMods = h.speedMods.filter((m) => m.label !== MAJOR_INJURY_LABEL);
+  for (let i = 0; i < majors; i++) h.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
+}
+
+export const MAJOR_INJURY_LABEL = 'Major Injury';
 
 export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter) {
   h.hp = 0;
   h.downedAt = world.time;
   h.lowestHp = 0;
   h.downedMajor = true;
+  syncInjuries(h);
   world.stats.downs++;
   h.st = {};
   h.channel = null;

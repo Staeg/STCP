@@ -102,7 +102,7 @@ export function abilitiesFor(cls: ClassId, talent: TalentId | null | undefined):
           desc: ab.desc.replace(`next ${CLASS_RULES.vengeanceTurns} turns`, `next ${turns} turns`) + ' Works out of combat too.' };
       }
       case 'triage:mend':
-        return { ...ab, target: 'self', power: TALENT_RULES.triageHeal, desc: `Heal yourself ${TALENT_RULES.triageHeal} and cure Bleed.` };
+        return { ...ab, target: 'self', power: TALENT_RULES.triageHeal, desc: `Heal yourself ${TALENT_RULES.triageHeal} and cure Poison.` };
       case 'restlessDead:raise':
         return { ...ab, desc: `The last enemy slain in this fight rises on your side at full HP, for ${TALENT_RULES.restlessTurns} of its turns, and follows you into your next fight.` };
       case 'resonance:peal':

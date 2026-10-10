@@ -10,6 +10,9 @@ const COLORS = {
   bg: '#0d0b0a',
   corridor: '#4f3f2e',
   corridorUnknown: 'rgba(79,63,46,0.45)',
+  /** The ways into secret rooms. */
+  secret: '#d9a92e',
+  secretUnknown: 'rgba(217,169,46,0.55)',
   roomExplored: '#2b231c',
   roomSeen: '#15110e',
   border: '#7a6448',
@@ -191,7 +194,7 @@ export class MapRenderer {
       ctx.lineWidth = Math.max(3, 6 * this.x.s);
       if (unknownEnd) {
         const known = unknownEnd === a ? b : a;
-        ctx.strokeStyle = COLORS.corridorUnknown;
+        ctx.strokeStyle = c.secret ? COLORS.secretUnknown : COLORS.corridorUnknown;
         ctx.setLineDash([6, 6]);
         line(ctx, this.sx(known.x), this.sy(known.y), this.sx(unknownEnd.x), this.sy(unknownEnd.y));
         ctx.setLineDash([]);
@@ -211,6 +214,13 @@ export class MapRenderer {
         ctx.moveTo(mx + 6, my - 6);
         ctx.lineTo(mx - 6, my + 6);
         ctx.stroke();
+      } else if (c.secret) {
+        // A golden way into a secret room, glinting.
+        ctx.strokeStyle = COLORS.secret;
+        ctx.shadowColor = COLORS.secret;
+        ctx.shadowBlur = 8;
+        line(ctx, this.sx(a.x), this.sy(a.y), this.sx(b.x), this.sy(b.y));
+        ctx.shadowBlur = 0;
       } else {
         ctx.strokeStyle = COLORS.corridor;
         line(ctx, this.sx(a.x), this.sy(a.y), this.sx(b.x), this.sy(b.y));
@@ -568,6 +578,7 @@ export class MapRenderer {
     ctx.lineWidth = current ? 3 : 2;
     let border = r.knowledge === 'explored' ? COLORS.border : COLORS.borderSeen;
     if (r.kind === 'exit') border = COLORS.exit;
+    if (r.kind === 'secret') border = COLORS.secret;
     if (hover) border = COLORS.hover;
     ctx.strokeStyle = border;
     if (r.knowledge !== 'explored' && r.kind !== 'exit') ctx.setLineDash([4, 3]);

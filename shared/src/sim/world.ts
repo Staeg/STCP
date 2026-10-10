@@ -10,7 +10,7 @@ import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/eve
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
+  bleedOut, inDungeon, MAJOR_INJURY_LABEL, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId } from '../content/items';
@@ -18,7 +18,7 @@ import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, wants, dropItem, unequip, seesInDark, sellValuables, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, wants, dropItem, fieldItemError, unequip, seesInDark, sellValuables, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -89,6 +89,8 @@ export interface Hero {
   knownEvents: Record<number, EventKind>;
   /** An out-of-combat skill, picked and waiting for the timer to run out (like an event choice). */
   queuedSkill: { skill: FieldSkill; target: string | null } | null;
+  /** A consumable used out of a fight: it takes effect when the timer runs out, and is that turn's action. */
+  queuedItem: { item: ItemId; index: number; target: string | null } | null;
   /** Undertaker: extra Spade damage, earned by Last Rites kills this run. */
   spadeBonus: number;
   /** Elixir: this hero's next item has double effect. */
@@ -115,6 +117,10 @@ export interface Hero {
   knownLoot: Record<number, number>;
   /** Collapsed corridors this hero has found out about. */
   knownCollapsed: number[];
+  /** Ready to leave (E): everyone conscious at the open exit ready, and nobody fighting or down there → out together. */
+  ready: boolean;
+  /** A bot has the wheel for this player (O); unlike `isBot`, nobody else can tell. */
+  autopilot: boolean;
   /** Escaped through the exit. */
   extracted: boolean;
   extractedAt: number | null;
@@ -131,7 +137,9 @@ export interface Hero {
   talent: TalentId | null;
   /** Injuries brought in from the Village (already applied to max HP and Speed). */
   injuries: Injury[];
-  /** Lowest HP this run, as a fraction of max: what decides injuries afterwards. */
+  /** Injuries taken in this run so far (they take effect at once; see syncInjuries). */
+  runInjuries: Injury[];
+  /** Lowest HP this run, as a fraction of max: what decides injuries. */
   lowestHp: number;
   /** Went down this run (and wasn't brought back by a Pallbearer since): a Major Injury if they escape. */
   downedMajor: boolean;
@@ -229,8 +237,12 @@ export type Intent =
   /** Take off a weapon, armor, amulet or ring and put it on the floor. */
   | { type: 'unequip'; slot: GearSlot }
   | { type: 'useItem'; index: number; target?: string }
-  /** Leave the dungeon through the open exit. */
+  /** Leave the dungeon through the open exit, on your own, now. */
   | { type: 'extract' }
+  /** Ready to leave together (E): toggles, or sets `on`. Works anywhere; it only matters at the open exit. */
+  | { type: 'ready'; on?: boolean }
+  /** Hand your hero to a bot, or take them back (O). Handled by Game; the world ignores it. */
+  | { type: 'autopilot' }
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
   /** A class skill out of a fight (Toll, or an ability that works in the field): happens when your timer runs out. Default: your first one. */
@@ -312,6 +324,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     messages: [],
     knownLoot: {},
     knownCollapsed: [],
+    ready: false,
+    autopilot: false,
     extracted: false,
     extractedAt: null,
     fate: null,
@@ -320,6 +334,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     leading: null,
     knownEvents: {},
     queuedSkill: null,
+    queuedItem: null,
     spadeBonus: 0,
     elixir: false,
     brewAt: world.time + CLASS_RULES.brewEvery,
@@ -339,14 +354,14 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     owner: loadout?.owner ?? null,
     talent: loadout?.talent ?? null,
     injuries: [...(loadout?.injuries ?? [])],
+    runInjuries: [],
     lowestHp: 1,
     downedMajor: false,
     oathUsed: false,
     immuneUntil: 0,
     risen: null,
   };
-  const majors = hero.injuries.filter((i) => i === 'major').length;
-  if (majors) hero.speedMods.push({ amount: majors * VILLAGE_RULES.majorSpeed, until: null, label: majors > 1 ? `Major Injuries ×${majors}` : 'Major Injury' });
+  for (const i of hero.injuries) if (i === 'major') hero.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
   world.heroes[hero.id] = hero;
   startTimer(world, hero);
   explore(world, hero, d.entrance);
@@ -361,6 +376,7 @@ export function step(world: World, dt: number): void {
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
     hero.lowestHp = Math.min(hero.lowestHp, hero.hp / hero.maxHp);
+    syncInjuries(hero);
     hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * wornMult(hero, 'lightDrainMult') * dt);
     // Bloodstone Ring: slowly mends while exploring.
     const regen = wornStat(hero, 'regen');
@@ -375,6 +391,7 @@ export function step(world: World, dt: number): void {
       startTimer(world, hero);
       hero.queuedEvent = null;
       hero.queuedSkill = null;
+      hero.queuedItem = null;
     }
     if (hero.cls === 'alchemist') tickBrew(world, hero);
   }
@@ -382,6 +399,7 @@ export function step(world: World, dt: number): void {
   tickCombat(world);
   tickLoot(world);
   tickEvents(world, dt);
+  leaveTogether(world);
   tickStress(world, dt);
   if (world.escalation) tickEscalation(world);
   updateKnowledge(world);
@@ -419,6 +437,20 @@ function checkEnd(world: World) {
     }
     chronicle(world, 'The expedition is over.');
   }
+}
+
+/**
+ * Ready heroes leave together (user, 2026-10-10): once the exit is open, with no fight or monsters there and
+ * nobody lying downed there, if every conscious hero in the exit room is ready, they all escape at once. Alone and
+ * ready, you're out the moment you arrive. Someone who fled out through the exit has simply left the room.
+ */
+function leaveTogether(world: World) {
+  const exit = world.dungeon.exit;
+  if (world.time < EXIT_OPENS_AT || world.encounters[exit] || monstersIn(world, exit).length) return;
+  const here = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === exit);
+  if (!here.length || here.some((h) => h.downedAt !== null || !h.ready)) return;
+  if (here.length > 1) chronicle(world, `${here.map((h) => h.name).join(', ').replace(/, ([^,]*)$/, ' and $1')} left together.`);
+  for (const h of here) extractHero(world, h);
 }
 
 export function chronicle(world: World, text: string) {
@@ -461,6 +493,11 @@ export function extractHero(world: World, h: Hero) {
 export function applyIntent(world: World, heroId: string, intent: Intent): void {
   const hero = world.heroes[heroId];
   if (!hero || world.phase !== 'running' || !isConscious(hero)) return;
+  if (intent.type === 'ready') {
+    // Allowed mid-fight and away from the exit: it's a standing intention.
+    hero.ready = intent.on ?? !hero.ready;
+    return;
+  }
   if (intent.type === 'combat') {
     submitChoice(world, hero, intent.choice);
     return;
@@ -482,8 +519,19 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       unequip(world, hero, intent.slot);
       return;
     case 'useItem': {
-      const err = useItemInField(world, hero, intent.index, intent.target);
-      if (err) notify(world, hero, err);
+      // Checked now so a bad pick is refused at once. It's this turn's action: any walk is called off (back to
+      // the room you left), and the item takes effect when the timer runs out.
+      // From a tunnel, judged from the room you'd be back in.
+      const pos = hero.pos;
+      if (pos.kind === 'corridor') hero.pos = { kind: 'room', room: pos.from };
+      const err = fieldItemError(world, hero, intent.index, intent.target);
+      hero.pos = pos;
+      if (err) return notify(world, hero, err);
+      cancelTravel(world, hero);
+      hero.channel = null;
+      hero.queuedEvent = null;
+      hero.queuedSkill = null;
+      hero.queuedItem = { item: hero.items[intent.index], index: intent.index, target: intent.target ?? null };
       return;
     }
     case 'event': {
@@ -492,6 +540,8 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (err) return notify(world, hero, err);
       if (hero.channel?.kind === 'event') return;
       hero.channel = null; // stop digging or reviving
+      hero.queuedSkill = null;
+      hero.queuedItem = null;
       hero.queuedEvent = intent.choice;
       hero.path = [];
       hero.heading = null;
@@ -503,11 +553,14 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       if (err) return notify(world, hero, err);
       hero.channel = null;
       hero.queuedEvent = null;
+      hero.queuedItem = null;
       hero.queuedSkill = { skill: skill!, target: intent.target ?? null };
       hero.path = [];
       hero.heading = null;
       return;
     }
+    case 'autopilot':
+      return;
     case 'extract':
       if (hero.pos.kind !== 'room' || hero.pos.room !== world.dungeon.exit) return notify(world, hero, 'You must be at the rendezvous.');
       if (world.time < EXIT_OPENS_AT) return notify(world, hero, 'The exit is not open yet.');
@@ -527,12 +580,11 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       hero.channel = null;
       hero.queuedEvent = null;
       hero.queuedSkill = null;
+      hero.queuedItem = null;
       return;
     case 'turnBack':
       hero.channel = null;
-      if (hero.pos.kind === 'corridor') turnAround(world, hero);
-      hero.path = [];
-      hero.heading = null;
+      cancelTravel(world, hero);
       return;
     case 'goto':
       // Only an actual move interrupts digging/reviving; an unreachable click shouldn't.
@@ -540,6 +592,7 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
         hero.channel = null;
         hero.queuedEvent = null;
         hero.queuedSkill = null;
+        hero.queuedItem = null;
         hero.heading = intent.room;
       }
       else if (!intent.step && hero.pos.kind === 'room' && intent.room !== hero.pos.room) notify(world, hero, "You don't know a way there.");
@@ -602,14 +655,20 @@ function endIdleTurn(world: World, hero: Hero) {
   const skill = hero.queuedSkill;
   hero.queuedSkill = null;
   if (skill) useSkill(world, hero, skill.skill, skill.target);
+  const used = hero.queuedItem;
+  hero.queuedItem = null;
+  if (used) {
+    // The pack may have shifted since it was picked.
+    const index = hero.items[used.index] === used.item ? used.index : hero.items.indexOf(used.item);
+    const err = index < 0 ? 'You no longer have it.' : useItemInField(world, hero, index, used.target ?? undefined);
+    if (err) notify(world, hero, err);
+  }
   if (!hero.channel) startTimer(world, hero, hero.turnAt);
 }
 
 function advance(world: World, hero: Hero, dt: number) {
   const d = world.dungeon;
-  // Escorting a villager slows you down.
-  const rate = hero.leading ? EVENT_SEEDING.villagerSpeed : 1;
-  let remaining = dt * rate;
+  let remaining = dt;
   // Bounded loop: each iteration either consumes time, enters a corridor or arrives.
   for (let guard = 0; guard < 16; guard++) {
     const pos = hero.pos;
@@ -639,7 +698,7 @@ function advance(world: World, hero: Hero, dt: number) {
       hero.path.shift();
       // The walk fills this turn's timer: setting out late in it puts you part-way down the tunnel already.
       const dur = hero.turnAt - hero.turnStart;
-      const t = Math.min(dur, Math.max(0, world.time - hero.turnStart) * rate);
+      const t = Math.min(dur, Math.max(0, world.time - hero.turnStart));
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t, dur };
       hero.prevRoom = pos.room;
       remaining = 0;
@@ -656,7 +715,7 @@ function advance(world: World, hero: Hero, dt: number) {
       const party = companions(world, hero);
       if (party.some((o) => o.pos.kind === 'corridor' && o.pos.t < o.pos.dur)) return;
       // The moment of arrival (possibly part-way through this tick); the next timer starts then.
-      const at = world.time - remaining / rate;
+      const at = world.time - remaining;
       for (const o of party) arrive(world, o, at);
       if (!arrive(world, hero, at)) return;
     }
@@ -741,10 +800,19 @@ export function canSee(world: World, a: Hero, b: Hero): boolean {
   return c.a === room || c.b === room;
 }
 
-function turnAround(world: World, hero: Hero) {
+/**
+ * Call off the walk: you're back in the room you set out from at once, and your Speed timer keeps running, so
+ * there may be time left to do something else this turn (another tunnel set out on now still lands when it ends).
+ */
+export function cancelTravel(world: World, hero: Hero) {
+  hero.path = [];
+  hero.heading = null;
   const pos = hero.pos;
   if (pos.kind !== 'corridor') return;
-  hero.pos = { kind: 'corridor', corridor: pos.corridor, from: pos.to, to: pos.from, t: Math.max(0, pos.dur - pos.t), dur: pos.dur };
+  hero.pos = { kind: 'room', room: pos.from };
+  // Waiting at the far end for slower companions: that turn is already over.
+  if (timerDone(world, hero)) startTimer(world, hero);
+  onHeroInRoom(world, hero, pos.from);
 }
 
 export function explore(world: World, hero: Hero, room: number) {
@@ -768,8 +836,7 @@ export function knowsCorridor(hero: Hero, c: { a: number; b: number }): boolean 
 function stepTo(world: World, hero: Hero, target: number): boolean {
   const pos = hero.pos;
   if (pos.kind === 'corridor' && target === pos.from) {
-    turnAround(world, hero);
-    hero.path = [];
+    cancelTravel(world, hero);
     return true;
   }
   const from = pos.kind === 'room' ? pos.room : pos.to;
@@ -790,16 +857,16 @@ function goto(world: World, hero: Hero, target: number): boolean {
     hero.path = path;
     return true;
   }
-  // In a corridor: compare continuing forward vs turning back.
+  // In a corridor: carry on, or call the walk off (back where you started at once, with this turn still running).
+  // Either way the next room is reached when the timer runs out, so it's hops after that which count.
   const fwd = shortestPath(world, hero, pos.to, target);
   const back = shortestPath(world, hero, pos.from, target);
-  const step = speedOf(hero, world.time);
-  const fwdCost = fwd ? pos.dur - pos.t + step * fwd.length : Infinity;
-  const backCost = back ? pos.t + step * back.length : Infinity;
-  if (fwdCost === Infinity && backCost === Infinity) return false;
-  if (backCost < fwdCost) {
-    turnAround(world, hero);
-    hero.path = back!;
+  const fwdHops = fwd ? fwd.length : Infinity;
+  const backHops = back ? Math.max(0, back.length - 1) : Infinity;
+  if (fwdHops === Infinity && backHops === Infinity) return false;
+  if (back && (back.length === 0 || backHops < fwdHops)) {
+    cancelTravel(world, hero);
+    hero.path = back;
   } else {
     hero.path = fwd!;
   }

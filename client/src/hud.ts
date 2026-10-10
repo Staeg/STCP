@@ -1,6 +1,7 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
+  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -31,6 +32,7 @@ export class Hud {
     for (const el of document.querySelectorAll<HTMLElement>('[data-icon]')) el.outerHTML = icon(el.dataset.icon as IconId);
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
+    $('btn-ready').addEventListener('click', () => net.intent({ type: 'ready' }));
     // Out-of-combat class skills (Toll, and abilities that work in the field): one button per possible target.
     $('skills').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button[data-skill]') as HTMLButtonElement | null;
@@ -44,6 +46,9 @@ export class Hud {
     });
     addEventListener('keydown', (e) => {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
+      // E (ready to leave) and O (autopilot) work in a fight too.
+      if (e.code === 'KeyE' && !e.repeat) net.intent({ type: 'ready' });
+      if (e.code === 'KeyO' && !e.repeat) net.intent({ type: 'autopilot' });
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
       // F: flee in a fight (combat.ts), get out through the exit here.
@@ -89,16 +94,19 @@ export class Hud {
     const cls = CLASSES[you.cls];
     const talent = you.talent ? ` <span class="talent-star" title="${escape(TALENTS[you.talent].name)}: ${escape(TALENTS[you.talent].desc)}">★</span>` : '';
     $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    // A screaming face beside your stress when something has broken; hover for which affliction and what it does.
     const aff = $('affliction');
     aff.hidden = !you.affliction;
     if (you.affliction) {
       const def = AFFLICTIONS[you.affliction];
-      aff.textContent = `⚠ ${def.name.toUpperCase()}`;
-      aff.title = `${def.desc} ${AFFLICTION_RULES}`;
+      aff.title = `${def.name}: ${def.desc} ${AFFLICTION_RULES}`;
     }
+    // Injuries beside your HP: a small drop for each Minor, a small and a big one for each Major.
+    setHtml($('injuries'), injuriesHtml([...you.injuries, ...(you.runInjuries ?? [])]));
     const escort = $('escort');
     escort.hidden = !view.leading;
-    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous`;
+    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous · Speed +${fmtSpeed(EVENT_SEEDING.villagerSlow)}`;
+    $('autopilot').hidden = !you.autopilot;
     const { altars, villagers } = view.objectives;
     const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
     $('objectives').textContent = altars || villagers ? `⛧ ${altars} cleansed · ☺ ${villagers} saved · +${bonus} gold on escape` : '';
@@ -123,6 +131,19 @@ export class Hud {
     fill.classList.toggle('dim', view.dim);
 
     $('btn-turn').hidden = you.pos.kind !== 'corridor' || you.downedAt !== null || you.dead;
+
+    // E: ready to leave. It can be set anywhere; at the open exit it shows who you're waiting on.
+    const ready = $('btn-ready');
+    ready.hidden = you.dead || you.extracted || view.phase !== 'running';
+    ready.classList.toggle('on', you.ready);
+    let readyText = you.ready ? '✔ Ready to leave' : '⚑ Ready to leave';
+    if (you.ready && here === view.exitRoom) {
+      const others = view.allies.filter((a) => a.live && !a.dead && !a.extracted && a.pos.kind === 'room' && a.pos.room === here);
+      const waiting = others.filter((a) => a.downed || !a.ready).map((a) => (a.downed ? `${a.name} (down)` : a.name));
+      readyText += !view.exitOpen ? ' · exit opens soon' : view.encounter ? ' · after the fight' : waiting.length ? ` · waiting for ${waiting.join(', ')}` : '';
+    } else if (you.ready) readyText += ' · at the exit';
+    setHtml(ready, `${readyText} <kbd>E</kbd>`);
+    ready.title = 'Ready to leave: once the exit is open, if everyone standing in the exit room is ready (and nobody is fighting or down there), you all escape together. Alone and ready, you escape as soon as you get there. F still leaves on your own.';
 
     // Out-of-combat revive: a downed ally in your room.
     const reviveBtn = $('btn-revive');
@@ -155,7 +176,7 @@ export class Hud {
     const esc = $('btn-escape');
     const atExit = free && here === view.exitRoom;
     esc.hidden = !atExit || !view.exitOpen;
-    if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE with ${you.gold} gold <kbd>F</kbd>`;
+    if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE ALONE with ${you.gold} gold <kbd>F</kbd>`;
     setHtml($('roster'), rosterHtml(view));
 
     // Tier-change banner
@@ -215,8 +236,9 @@ function rosterHtml(view: PlayerView): string {
       const where = a.heading !== null ? `heading to ${name(a.heading)}` : a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
-    const aff = a.affliction ? ` <span class="aff" title="${escape(`${AFFLICTIONS[a.affliction].desc} ${AFFLICTION_RULES}`)}">${AFFLICTIONS[a.affliction].name}</span>` : '';
-    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}${hp}</div></div>`;
+    const aff = a.affliction ? ` <span class="aff" title="${escape(`${AFFLICTIONS[a.affliction].name}: ${AFFLICTIONS[a.affliction].desc} ${AFFLICTION_RULES}`)}">😱</span>` : '';
+    const ready = a.live && a.ready ? ' <span class="ready-tag" title="Ready to leave (E)">⚑ ready</span>' : '';
+    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}${ready}<div class="ally-status">${escape(status)}${hp}</div></div>`;
   });
   return rows.join('');
 }
@@ -226,6 +248,7 @@ function turnPlan(view: PlayerView): string {
   const you = view.you;
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
   if (you.queuedEvent) return 'then you start on the event';
+  if (you.queuedItem) return `then you use the ${ITEMS[you.queuedItem.item].name}`;
   if (you.queuedSkill) {
     const { skill, target: t } = you.queuedSkill;
     const who = !t || !skillTargeted(you, skill) ? '' : t === you.id ? ' on yourself' : ` on ${view.allies.find((a) => a.id === t)?.name ?? 'them'}`;
@@ -260,6 +283,25 @@ export function roomInDir(view: PlayerView | null, dir: Dir): number | null {
     if (other && dirBetween(here, other) === dir) return other.id;
   }
   return null;
+}
+
+const DROP_ROWS = ['..r..', '..r..', '.rrr.', 'rrrrr', 'rwrrr', 'rwrrR', '.rRR.'];
+const DROP_SVG = `<svg viewBox="0 0 5 7" shape-rendering="crispEdges" aria-hidden="true">${DROP_ROWS.map((row, y) => [...row].map((c, x) =>
+  c === '.' ? '' : `<rect x="${x}" y="${y}" width="1" height="1" fill="${c === 'w' ? '#f0a0a0' : c === 'R' ? '#8a2a2a' : '#d94a4a'}"/>`).join('')).join('')}</svg>`;
+const DROP = (big: boolean) => `<span class="drop ${big ? 'big' : ''}">${DROP_SVG}</span>`;
+
+/** Small drop per Minor Injury, small + big per Major; hover lists them and what they cost. */
+function injuriesHtml(injuries: Injury[]): string {
+  if (!injuries.length) return '';
+  const minor = injuries.filter((i) => i === 'minor').length;
+  const major = injuries.length - minor;
+  const lines = [
+    minor && `${minor > 1 ? `${minor}× ` : ''}${INJURY_NAMES.minor}: −${VILLAGE_RULES.minorHpLoss * 100}% max HP${minor > 1 ? ' each' : ''}.`,
+    major && `${major > 1 ? `${major}× ` : ''}${INJURY_NAMES.major}: −${VILLAGE_RULES.majorHpLoss * 100}% max HP and Speed +${fmtSpeed(VILLAGE_RULES.majorSpeed)}${major > 1 ? ' each' : ''}.`,
+  ].filter(Boolean).join(' ');
+  const tip = `${lines} They last until treated in the Village.`;
+  const drops = injuries.map((i) => (i === 'major' ? DROP(false) + DROP(true) : DROP(false))).join('');
+  return `<span class="injury-drops" title="${escape(tip)}">${drops}</span>`;
 }
 
 function escape(s: string) {

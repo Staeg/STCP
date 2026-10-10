@@ -63,8 +63,8 @@ export const CLASS_RULES = {
   /** Acid: extra damage on every hit the target takes, for this many of its turns. */
   acidBonus: 2,
   acidTurns: 2,
-  /** Fumes: Bleed on every enemy. */
-  fumesBleed: 4,
+  /** Fumes: Poison on every enemy. */
+  fumesPoison: 4,
   fumesTurns: 3,
 };
 
@@ -83,7 +83,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   lampbearer: [
     { id: 'flare', name: 'Flare', cooldown: 1, target: 'allEnemies', power: 3, desc: '3 dmg to all enemies, +10 light to everyone in the room.', field: true },
     { id: 'vigil', name: 'Vigil', cooldown: 3, target: 'ally', power: 8, desc: "−8 stress. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.", field: true },
-    { id: 'mend', name: 'Mend', cooldown: 1, target: 'otherAlly', power: 8, desc: 'Heal an ally (not yourself) 8 and cure Bleed.', field: true },
+    { id: 'mend', name: 'Mend', cooldown: 1, target: 'otherAlly', power: 8, desc: 'Heal an ally (not yourself) 8 and cure Poison.', field: true },
   ],
   witch: [
     { id: 'hex', name: 'Hex', cooldown: 0, target: 'enemy', power: 5, desc: '5 dmg and Hexed: Hex deals +100% to it for its next 2 turns. Stacks.' },
@@ -106,8 +106,8 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
     { id: 'sins', name: 'Take Their Sins', cooldown: 2, target: 'otherAlly', power: 25, desc: 'Take up to 25 stress off an ally onto yourself.', field: true },
   ],
   alchemist: [
-    { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg. For its next 2 turns it takes +2 from every hit, Bleed included.' },
-    { id: 'fumes', name: 'Fumes', cooldown: 3, target: 'allEnemies', power: 3, desc: 'Every enemy Bleeds 4 at the end of each of its next 3 turns (stacks with other Bleeds).' },
+    { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg. For its next 2 turns it takes +2 from every hit, Poison included.' },
+    { id: 'fumes', name: 'Fumes', cooldown: 3, target: 'allEnemies', power: 3, desc: 'Every enemy is Poisoned for 4 at the end of each of its next 3 turns (stacks with other Poisons).' },
     { id: 'elixir', name: 'Elixir', cooldown: 4, target: 'ally', power: 2, desc: "An ally's next item (or yours) has double effect.", field: true },
   ],
 };

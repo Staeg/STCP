@@ -70,10 +70,29 @@ describe('Village loadouts', () => {
     const { world, heroes: [h] } = quiet(['warden']);
     h.hp = 10;
     step(world, 0.1);
-    expect(h.lowestHp).toBeCloseTo(10 / h.maxHp);
+    expect(h.lowestHp).toBeCloseTo(10 / CLASSES.warden.maxHp);
     downHero(world, h, null);
     expect(h.lowestHp).toBe(0);
     expect(h.downedMajor).toBe(true);
+  });
+
+  it('injuries take effect at once: a Minor under half HP, a Major instead under a quarter, one more for going down', () => {
+    const { world, heroes: [h] } = quiet(['warden']);
+    const base = CLASSES.warden.maxHp;
+    h.hp = 25;
+    step(world, 0.1);
+    expect(h.runInjuries).toEqual(['minor']);
+    expect(h.maxHp).toBe(Math.round(base * 0.9));
+    expect(speedOf(h, world.time)).toBe(CLASSES.warden.speed);
+    h.hp = 10;
+    step(world, 0.1);
+    expect(h.runInjuries).toEqual(['major']);
+    expect(h.maxHp).toBe(Math.round(base * 0.8));
+    expect(speedOf(h, world.time)).toBe(CLASSES.warden.speed + 0.5);
+    downHero(world, h, null);
+    expect(h.runInjuries).toEqual(['major', 'major']);
+    expect(h.maxHp).toBe(Math.round(base * 0.6));
+    expect(speedOf(h, world.time)).toBe(CLASSES.warden.speed + 1);
   });
 });
 
@@ -251,7 +270,7 @@ describe('Alchemist talents', () => {
     submitChoice(world, h, { action: 'item', item: 0 });
     untilTurn(world, room, 'h0');
     expect(h.items).toEqual([]);
-    expect(monsters[0].st.bleed?.length).toBe(1);
+    expect(monsters[0].st.poison?.length).toBe(1);
   });
 
   it('Quick Hands: items are used at once and keep the turn', () => {

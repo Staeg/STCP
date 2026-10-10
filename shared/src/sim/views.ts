@@ -105,6 +105,8 @@ export interface AllyView {
   stress?: number;
   /** Their Speed timer (start, end), while you can see them standing free in a room. */
   turn?: { start: number; at: number };
+  /** Ready to leave (E), while you can see them. */
+  ready?: boolean;
 }
 
 export interface ResultHero {
@@ -223,7 +225,8 @@ export function buildView(world: World, heroId: string): PlayerView {
   const corridors: CorridorView[] = d.corridors
     .filter((c) => over || knowsCorridor(you, c))
     .map((c) => ((over ? world.collapsed : you.knownCollapsed).includes(c.id) ? { ...c, collapsed: true } : c));
-  const roomIds = new Set<number>(over ? d.rooms.map((r) => r.id) : you.seen);
+  // (Secret rooms that never opened stay out of the reveal: there was no way in.)
+  const roomIds = new Set<number>(over ? d.rooms.filter((r) => r.corridors.length).map((r) => r.id) : you.seen);
   for (const c of corridors) {
     roomIds.add(c.a);
     roomIds.add(c.b);
@@ -239,6 +242,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
       affliction: sighting.affliction ?? null,
       stress: live && inDungeon(h) ? Math.round(h.stress) : undefined,
+      ready: live && inDungeon(h) ? h.ready : undefined,
       turn: live && inDungeon(h) && isConscious(h) && h.encounter === null && !h.channel && h.pos.kind === 'room'
         ? { start: h.turnStart, at: h.turnAt } : undefined,
     });

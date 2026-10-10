@@ -78,7 +78,7 @@ const valuable = (id: ItemId, name: string, glyph: string, value: number): ItemD
 });
 
 export const ITEMS: Record<ItemId, ItemDef> = {
-  bandage: { id: 'bandage', name: 'Bandage', kind: 'consumable', glyph: '✚', desc: 'Heal 12 and stop bleeding.', target: 'ally', combat: true, field: true },
+  bandage: { id: 'bandage', name: 'Bandage', kind: 'consumable', glyph: '✚', desc: 'Heal 12 and cure Poison.', target: 'ally', combat: true, field: true },
   torch: { id: 'torch', name: 'Torch', kind: 'consumable', glyph: '🔥', desc: '+50 light.', target: 'self', combat: true, field: true },
   tonic: { id: 'tonic', name: 'Tonic', kind: 'consumable', glyph: '⚗', desc: '−25 stress.', target: 'self', combat: true, field: true },
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },

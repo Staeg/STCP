@@ -6,6 +6,8 @@ export const BOTS = {
   returnSpan: 300,
   /** Max seconds a bot waits for others at the open exit. */
   exitWaitMax: 75,
+  /** Once a bot at the exit is ready to leave (E), it waits this long for the others there to be ready too, then goes alone. */
+  readyWait: 6,
   /** Chance per combat decision of a random-but-legal action. */
   blunder: 0.25,
   /** Bots answer a bell tolled at most this far away (route cost, ~6 per tunnel), and keep heading there this long. */

@@ -32,6 +32,8 @@ export interface BotMemory {
   route: number[];
   /** A bell this bot is answering: the room, and when it gives up. */
   answering: { room: number; until: number } | null;
+  /** When this bot said it was ready to leave (E). */
+  readySince?: number;
 }
 
 export function createBotMemory(seed: number): BotMemory {
@@ -87,7 +89,15 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     const hurt = you.hp / you.maxHp < 0.4;
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
-    if (hurt || late || everyoneHere || view.time >= mem.leaveAt) return { type: 'extract' };
+    if (hurt || late || everyoneHere || view.time >= mem.leaveAt) {
+      // Say so first (E): whoever is here and ready leaves with us. Nobody follows within a few seconds: go alone.
+      if (!you.ready) {
+        mem.readySince = view.time;
+        return { type: 'ready', on: true };
+      }
+      if (view.time >= (mem.readySince ?? view.time) + BOTS.readyWait) return { type: 'extract' };
+      return null;
+    }
     // A Bellwright waiting at the open exit rings to call the stragglers home.
     if (you.cls === 'bellwright' && !(you.cooldowns.toll > 0)) return { type: 'skill', skill: 'toll' };
     return null;

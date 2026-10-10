@@ -23,7 +23,7 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
   toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Monsters next door come to the bell.` },
   sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
   elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
-  mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Bleed.` },
+  mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Poison.` },
   flare: { name: 'Flare', target: 'none', desc: `+${CLASS_RULES.flareLight} light to everyone here.` },
   vigil: { name: 'Vigil', target: 'any', desc: `−${abilityById('vigil')!.power} stress.` },
   vengeance: { name: 'Vengeance', target: 'none', desc: 'Swear vengeance before the fight: whoever strikes you in it takes the blow back.' },
@@ -39,7 +39,7 @@ export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
 export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
   if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: every monster is stunned.` } : FIELD_SKILLS.toll;
   const ab = abilitiesOf(h).find((a) => a.id === skill);
-  if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Bleed.` };
+  if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
   if (skill === 'sins' && h.talent === 'martyr') return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
   return FIELD_SKILLS[skill];
 }
@@ -71,14 +71,14 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
   const cd = h.cooldowns[skill] ?? 0;
   if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
   const kind = skillTarget(h, skill);
-  if (skill === 'mend' && kind === 'none' && h.hp >= h.maxHp && !h.st.bleed) return 'You are not hurt.';
+  if (skill === 'mend' && kind === 'none' && h.hp >= h.maxHp && !h.st.poison) return 'You are not hurt.';
   if (skill === 'vengeance' && h.st.vengeance) return 'You have already sworn vengeance.';
   if (kind === 'none') return null;
   const t = targetId ? world.heroes[targetId] : undefined;
   if (!t || !isConscious(t) || !sameRoom(h, t)) return 'They must be standing here with you.';
   if (kind === 'other' && t === h) return skill === 'sins' ? 'You can only take the sins of others.' : 'Only on someone else.';
   if (skill === 'sins' && t.stress <= 0) return `${t.name} has nothing weighing on them.`;
-  if (skill === 'mend' && t.hp >= t.maxHp && !t.st.bleed) return `${t.name} is not hurt.`;
+  if (skill === 'mend' && t.hp >= t.maxHp && !t.st.poison) return `${t.name} is not hurt.`;
   if (skill === 'vigil' && t.stress <= 0) return `${t === h ? 'You are' : `${t.name} is`} already calm.`;
   if (t !== h && t.affliction === 'paranoid') return `${t.name} refuses your help. (Paranoid)`;
   return null;
@@ -117,7 +117,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
     case 'mend': {
       const before = t.hp;
       t.hp = Math.min(t.maxHp, t.hp + abilitiesOf(h)[2].power);
-      delete t.st.bleed;
+      delete t.st.poison;
       if (t === h) return notify(world, h, `You tend your own wounds (+${t.hp - before}).`);
       notify(world, h, `You mend ${t.name} (+${t.hp - before}).`);
       notify(world, t, `${h.name} mends your wounds (+${t.hp - before}).`);
