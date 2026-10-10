@@ -177,14 +177,14 @@ export class Screens {
     const whyNot = !you.cls ? 'Pick a class first.' : !you.emergency ? 'Choose your Emergency first.' : '';
     const link = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
     return `<div class="card wide lobby">
-      ${SOLO ? '<div class="muted">Pick a class. Bots take the other three.</div>' : `<div class="lobby-head">
+      ${SOLO ? '' : `<div class="lobby-head">
         <div><div class="muted">Lobby code</div><div class="code-big">${lobby.code}</div></div>
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
       </div>`}
       <ul class="slots">${slots.join('')}</ul>
       <div class="cr-line">
         <button class="help-btn ${this.crHelp ? 'on' : ''}" data-act="cr-help" title="How Challenge Rating and the monsters work">?</button>
-        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)} <span class="muted">(bots’ borrowed Talents included)</span>
+        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)}
         · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
         ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
       </div>
