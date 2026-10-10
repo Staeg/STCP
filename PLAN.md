@@ -1,11 +1,6 @@
 # So They Can Prosper — Build Plan
 
-> **For future Claude sessions:** This file is the source of truth. At the start of every session:
-> 1. Read this whole file, especially **Decisions** and the **Progress Log** at the bottom.
-> 2. Pick the first unchecked milestone. Don't skip ahead unless a milestone is explicitly blocked.
-> 3. Before ending the session, tick off what's done, add a Progress Log entry (date, what changed, what's next, known bugs), and commit.
-> 4. **Whenever a new feature is done, commit it at once** (user rule, 2026-10-10), with a message explaining what changed and why. Stage only the files you changed: other sessions often have uncommitted work in the same checkout.
-> 5. If you hit a real design ambiguity, ask the user (they like being asked). Otherwise use your judgment and record the decision in **Decisions**.
+> Session workflow rules live in [CLAUDE.md](CLAUDE.md).
 
 ---
 
