@@ -3,7 +3,7 @@ import { COLLAPSE_AT } from '../content/constants';
 import { corridorBetween, isCrossroads, neighbours } from '../dungeon/gen';
 import { Game } from './game';
 import { buildView } from './views';
-import { addHero, applyIntent, canSee, createWorld, step } from './world';
+import { addHero, applyIntent, canSee, createWorld, explore, step } from './world';
 
 const fourBots = () => [
   { id: 'a', name: 'A', cls: 'warden' as const, isBot: true },
@@ -92,5 +92,21 @@ describe('sightings and chalk', () => {
     // a is still at the entrance, so a reads it.
     expect(world.heroes.a.knownChalk[d.entrance].b).toBe(c.id);
     expect(buildView(world, 'a').chalk[0].marks).toContainEqual({ heroId: 'b', corridor: c.id });
+  });
+
+  it('records chalk in two-exit rooms too', () => {
+    const world = twoHeroes();
+    const d = world.dungeon;
+    const room = d.rooms.find((r) => r.corridors.length === 2 && r.id !== d.entrance)!;
+    for (const h of Object.values(world.heroes)) {
+      h.pos = { kind: 'room', room: room.id };
+      explore(world, h, room.id);
+    }
+    const target = neighbours(d, room.id)[0];
+    applyIntent(world, 'b', { type: 'goto', room: target, step: true });
+    step(world, 0.1);
+    const c = corridorBetween(d, room.id, target)!;
+    expect(world.chalk[room.id].b).toBe(c.id);
+    expect(world.heroes.a.knownChalk[room.id].b).toBe(c.id);
   });
 });

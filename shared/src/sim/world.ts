@@ -10,7 +10,7 @@ import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EliteEventKind, type EventKind } from '../content/events';
-import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
+import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
   bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
@@ -817,7 +817,8 @@ function advance(world: World, hero: Hero, dt: number) {
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t, dur };
       hero.prevRoom = pos.room;
       remaining = 0;
-      if (isCrossroads(d, pos.room)) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
+      // Chalk wherever there's a choice of way on: crossroads and two-exit rooms, not dead ends.
+      if (d.rooms[pos.room].corridors.length >= 2) (world.chalk[pos.room] ??= {})[hero.id] = c.id;
     } else {
       const need = pos.dur - pos.t;
       if (remaining < need) {
