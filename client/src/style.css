@@ -647,14 +647,17 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .v-stash { display: grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap: 12px; margin-top: 12px; }
 @media (max-width: 900px) { .v-stash { grid-template-columns: 1fr; } }
 .v-stash > div { border: 1px solid #2a2018; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; line-height: 1.15; }
-.kit-slots, .rite-list { display: flex; flex-direction: column; gap: 4px; }
+.kit-slots { display: flex; flex-direction: column; gap: 4px; }
+.rite-list { display: flex; flex-wrap: nowrap; gap: 6px; }
 .stash-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .kit-slot { text-align: left; font-size: 17px; padding: 2px 6px; border: 1px dashed #3a2e24; }
 .kit-slot.full { border: 1px solid var(--gold); }
 .stash-item { font-size: 17px; padding: 2px 6px; }
-.rite { text-align: left; font-size: 17px; line-height: 1.15; }
+.rite { display: flex; align-items: center; gap: 3px; padding: 3px 8px; font-size: 17px; line-height: 1; cursor: help; }
 .rite.on { border-color: var(--gold); background: #2a1f10; }
-.rite-glyph { font-size: 20px; }
+.rite-glyph { font-size: 22px; }
+.rite-count { font-size: 15px; color: var(--muted); }
+.rite.on .rite-count { color: var(--gold); }
 .rite-tag { color: var(--gold); cursor: help; }
 .kit-badge { margin-left: 6px; letter-spacing: 2px; }
 .cr-line .danger { color: var(--danger); cursor: help; }

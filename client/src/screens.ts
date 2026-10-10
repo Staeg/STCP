@@ -452,9 +452,11 @@ function stashHtml(v: VillageView, lobby: LobbyView | null): string {
     const have = v.resources[r] ?? 0;
     const on = kit.rites.includes(r);
     const can = on || have >= KIT_RULES.riteCost;
-    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${locked || !can ? 'disabled' : ''}>
-      <div><span class="rite-glyph">${ITEMS[r].glyph}</span> <b>${pluralName(r)}: ${have}</b>${on ? ' <span class="gold">· active next run</span>' : ''}</div>
-      <div class="small"><b>${esc(RITES[r].name)}</b> (${KIT_RULES.riteCost}): ${esc(RITES[r].desc)}</div>
+    // A small tile per Rite (glyph and count); the full effect is on hover.
+    const status = on ? 'Active next run. Click to cancel.' : can ? 'Click to perform it next run.' : `Needs ${KIT_RULES.riteCost}.`;
+    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${status}`;
+    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${locked || !can ? 'disabled' : ''} title="${esc(tip)}">
+      <span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}</span>
     </button>`;
   }).join('');
   return `<div class="v-stash">
