@@ -391,7 +391,7 @@ User brief and decisions (2026-10-10). Every open item was settled by the user o
 | 3 | **The Missing Patrol** | Party | Save 3 villagers (Wayward Wanderers count). | At least 3 captive villagers. |
 | 3 | **Tainted Wells** | Party | Cleanse 2 Altars. | At least 2 Altars. |
 | 4 | **The Queen's Envoy** | Party | Kill a Forsaken Queen. | Quarry: 1 Queen; the Queen is the run's T2 default unit. |
-| 4 | **Tithe to the Shrine** | Personal | Bring home 1 Relic and 2 Gems. | For each Tithe player, 1 Relic (in a lair) and 2 Gems are guaranteed to be in the dungeon (user); finding them is up to the player. No Relics or Gems in the kit (carried-out rule). |
+| 4 | **Tithe to the Shrine** | Personal | Bring home 1 Relic and 2 Gems. | For each Tithe player, 1 Relic (in a lair) and 2 Gems are guaranteed to be in the dungeon (user); finding them is up to the player. Resources can't go in a kit anyway, so the carried-out rule adds nothing here. |
 | 5 | **Night of the Liches** | Party | Kill 2 Liches. | Needs CR 5 (user). Quarry: 2 Liches when the rolled CR is 5+. Warn below 5, with the odds. |
 | 5 | **Exodus** | Party | Save 4 villagers, and every player's hero escapes. | At least 4 captive villagers. |
 
