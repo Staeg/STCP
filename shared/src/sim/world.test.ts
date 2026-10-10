@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
+import { STRESS } from '../content/events';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { spawnGroup } from './combat';
 import { buildView } from './views';
@@ -226,3 +227,15 @@ describe('auto-pathing', () => {
   });
 });
 
+
+describe('arriving Afflicted', () => {
+  it('a Character who comes in with an affliction starts at 50 stress', () => {
+    const world = createWorld(1, { monsters: false, loot: false, escalates: false, events: false });
+    const base = { charId: 'c', charName: 'C', owner: 'p', talent: null, injuries: [] };
+    const calm = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: { ...base, affliction: null } });
+    const shaken = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', affliction: 'fearful' } });
+    expect(calm.stress).toBe(0);
+    expect(shaken.stress).toBe(STRESS.afflictedStart);
+    expect(STRESS.afflictedStart).toBe(50);
+  });
+});

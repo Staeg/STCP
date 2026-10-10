@@ -29,6 +29,8 @@ export const STRESS = {
   darkPerSec: 0.5,
   /** After the first break, stress resets here. */
   afterBreak: 60,
+  /** A Character who comes in already Afflicted (from a past run) starts at this much stress (user, 2026-10-11). */
+  afflictedStart: 50,
   /** Selfish voters are dropped from a vote after this long. */
   selfishGrace: 10,
 };

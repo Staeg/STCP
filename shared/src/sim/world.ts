@@ -9,8 +9,8 @@ import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
-import { EVENT_SEEDING, type AfflictionId, type EliteEventKind, type EventKind } from '../content/events';
-import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
+import { EVENT_SEEDING, STRESS, type AfflictionId, type EliteEventKind, type EventKind } from '../content/events';
+import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
   bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
@@ -128,6 +128,8 @@ export interface Hero {
   knownLoot: Record<number, number>;
   /** Collapsed corridors this hero has found out about. */
   knownCollapsed: number[];
+  /** Secret passages (corridor ids) this hero has found: by standing at either end after it opened (user, 2026-10-11). */
+  knownPassages: number[];
   /** Ready to leave (E): everyone conscious at the open exit ready, and nobody fighting or down there → out together. */
   ready: boolean;
   /** A bot has the wheel for this player (O); unlike `isBot`, nobody else can tell. */
@@ -363,7 +365,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     knownContents: {},
     hp: maxHp,
     maxHp,
-    stress: 0,
+    stress: loadout?.affliction ? STRESS.afflictedStart : 0,
     st: {},
     cooldowns: {},
     cdClock: 0,
@@ -383,6 +385,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     messages: [],
     knownLoot: {},
     knownCollapsed: [],
+    knownPassages: [],
     ready: false,
     autopilot: false,
     extracted: false,
@@ -945,6 +948,11 @@ export function cancelTravel(world: World, hero: Hero) {
 export function explore(world: World, hero: Hero, room: number) {
   addUnique(hero.explored, room);
   addUnique(hero.seen, room);
+  // A secret passage that opened since you were last here only shows up once you're back (or there when it opens).
+  for (const cid of world.dungeon.rooms[room].corridors) {
+    const c = world.dungeon.corridors[cid];
+    if (c.secret && (!c.privy || c.privy.includes(hero.id))) addUnique(hero.knownPassages, c.id);
+  }
   if (hero.light >= LIGHT_DIM || seesInDark(hero)) {
     for (const n of neighbours(world.dungeon, room)) {
       // A secret room opened only to a Cutthroat (Cunning Cant) stays hidden from everyone else.
@@ -959,12 +967,15 @@ function addUnique(arr: number[], v: number) {
 }
 
 /**
- * A corridor is known to a hero once they have explored either end, or read the whole map (Cunning Cant). A passage
- * opened only to some heroes (`privy`) doesn't exist for anyone else.
+ * A corridor is known to a hero once they have explored either end, or read the whole map (Cunning Cant). A secret
+ * passage needs exploring an end after it opened (`knownPassages`). A passage opened only to some heroes (`privy`)
+ * doesn't exist for anyone else.
  */
-export function knowsCorridor(hero: Hero, c: { a: number; b: number; privy?: string[] }): boolean {
+export function knowsCorridor(hero: Hero, c: Corridor): boolean {
   if (c.privy && !c.privy.includes(hero.id)) return false;
-  return !!hero.elite.cant || hero.explored.includes(c.a) || hero.explored.includes(c.b);
+  if (hero.elite.cant) return true;
+  if (c.secret) return hero.knownPassages.includes(c.id);
+  return hero.explored.includes(c.a) || hero.explored.includes(c.b);
 }
 
 /** Head straight down the known tunnel to a neighbouring room (from a tunnel: back, or on from where it leads). */
