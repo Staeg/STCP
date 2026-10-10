@@ -3,7 +3,7 @@ import { isHealthy, loadoutOf, type Character } from './village';
 import { Rng } from './rng';
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { titleFor } from './content/titles';
-import { SERVER_TICK, tierAt } from './content/constants';
+import { SERVER_TICK, escalationAt } from './content/constants';
 import { Game, type PlayerSlot } from './sim/game';
 import { buildView } from './sim/views';
 import { addToPile } from './sim/loot';
@@ -284,7 +284,7 @@ export class LobbyManager {
         h.hp = h.maxHp;
         h.downedAt = null;
         h.dead = false;
-        spawnGroup(w, h.pos.room, msg.enemies, tierAt(w.time));
+        spawnGroup(w, h.pos.room, msg.enemies, escalationAt(w.time));
         onHeroInRoom(w, h, h.pos.room);
         return;
       }

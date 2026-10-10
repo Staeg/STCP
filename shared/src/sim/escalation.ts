@@ -1,4 +1,4 @@
-import { EXIT_OPENS_AT, tierAt } from '../content/constants';
+import { EXIT_OPENS_AT, escalationAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { armored, crUnits, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
@@ -22,31 +22,31 @@ export interface Pack {
 
 /** Everything that makes the dungeon worse over time. Called every tick. */
 export function tickEscalation(world: World) {
-  const tier = tierAt(world.time);
-  if (tier > world.tier) {
-    world.tier = tier;
-    onTierUp(world, tier);
+  const esc = escalationAt(world.time);
+  if (esc > world.escalation) {
+    world.escalation = esc;
+    onEscalate(world, esc);
   }
   movePacks(world);
-  if (tier >= 1 && world.time >= world.nextRespawn) {
-    world.nextRespawn = world.time + (tier >= 4 ? ESCALATION.respawnEveryLate : ESCALATION.respawnEvery);
-    respawn(world, tier);
+  if (esc >= 1 && world.time >= world.nextRespawn) {
+    world.nextRespawn = world.time + (esc >= 4 ? ESCALATION.respawnEveryLate : ESCALATION.respawnEvery);
+    respawn(world, esc);
   }
-  if (tier >= 2 && world.time >= world.nextWanderer) {
+  if (esc >= 2 && world.time >= world.nextWanderer) {
     world.nextWanderer = world.time + ESCALATION.wandererEvery;
-    spawnWanderer(world, tier);
+    spawnWanderer(world, esc);
   }
-  if (tier >= 3 && world.time >= world.nextCollapse) {
+  if (esc >= 3 && world.time >= world.nextCollapse) {
     world.nextCollapse = world.time + ESCALATION.collapseEvery;
     collapseRandomCorridor(world);
   }
   if (world.time >= EXIT_OPENS_AT && world.time >= world.nextWave) {
-    world.nextWave = world.time + (tier >= 6 ? ESCALATION.waveEveryLate : ESCALATION.waveEvery);
-    spawnWave(world, tier);
+    world.nextWave = world.time + (esc >= 6 ? ESCALATION.waveEveryLate : ESCALATION.waveEvery);
+    spawnWave(world, esc);
   }
 }
 
-export const TIER_TEXT: Record<number, string> = {
+export const ESCALATION_TEXT: Record<number, string> = {
   1: 'The dead stir again. Cleared rooms can fill back up.',
   2: 'Something walks the halls. Wandering packs roam the dungeon.',
   3: 'The ceiling groans. Tunnels begin to collapse, and Bone Brutes rise.',
@@ -55,8 +55,8 @@ export const TIER_TEXT: Record<number, string> = {
   6: 'The dungeon is coming down. Waves pour toward the exit.',
 };
 
-function onTierUp(world: World, tier: number) {
-  chronicle(world, `Tier ${tier}: ${TIER_TEXT[tier] ?? ''}`);
+function onEscalate(world: World, esc: number) {
+  chronicle(world, `Escalation ${esc}: ${ESCALATION_TEXT[esc] ?? ''}`);
   openDueSecrets(world);
 }
 
@@ -71,45 +71,45 @@ function liveMonsterCount(world: World): number {
 }
 
 function monsterCap(world: World): number {
-  return ESCALATION.capBase + ESCALATION.capPerTier * world.tier;
+  return ESCALATION.capBase + ESCALATION.capPerEscalation * world.escalation;
 }
 
-function groupFor(world: World, tier: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
-  let g = pickGroup(world, tier);
+function groupFor(world: World, esc: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
+  let g = pickGroup(world, esc);
   // Bigger groups later on.
-  if (tier >= 4 && world.rng.chance(0.5)) g = [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
+  if (esc >= 4 && world.rng.chance(0.5)) g = [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
   return crUnits(world, g, kind, room);
 }
 
-function respawn(world: World, tier: number) {
+function respawn(world: World, esc: number) {
   const d = world.dungeon;
-  for (let i = 0; i < (tier >= 4 ? 2 : 1); i++) {
+  for (let i = 0; i < (esc >= 4 ? 2 : 1); i++) {
     if (liveMonsterCount(world) >= monsterCap(world)) return;
     const candidates = d.rooms.filter(
       (r) => r.kind === 'normal' && monstersIn(world, r.id).length === 0 && !occupied(world, r.id) && !world.encounters[r.id],
     );
     if (candidates.length === 0) return;
     const room = world.rng.pick(candidates).id;
-    spawnGroup(world, room, groupFor(world, tier, room), tier);
+    spawnGroup(world, room, groupFor(world, esc, room), esc);
   }
 }
 
-function spawnWanderer(world: World, tier: number) {
+function spawnWanderer(world: World, esc: number) {
   if (liveMonsterCount(world) >= monsterCap(world)) return;
   const d = world.dungeon;
   const candidates = d.rooms.filter((r) => r.kind === 'normal' && !occupied(world, r.id) && monstersIn(world, r.id).length === 0);
   if (candidates.length === 0) return;
   const room = world.rng.pick(candidates).id;
-  makePack(world, spawnGroup(world, room, groupFor(world, tier, room), tier), room, null);
+  makePack(world, spawnGroup(world, room, groupFor(world, esc, room), esc), room, null);
 }
 
 /** Waves spawn next to the exit (so you get a moment's warning) and march on it. */
-function spawnWave(world: World, tier: number) {
+function spawnWave(world: World, esc: number) {
   const d = world.dungeon;
   const near = neighbours(d, d.exit).filter((n) => !occupied(world, n) && !corridorCollapsedBetween(world, n, d.exit));
   if (near.length === 0) return;
   const from = world.rng.pick(near);
-  const pack = makePack(world, spawnGroup(world, from, groupFor(world, tier, from, 'wave'), tier), from, d.exit);
+  const pack = makePack(world, spawnGroup(world, from, groupFor(world, esc, from, 'wave'), esc), from, d.exit);
   pack.restUntil = world.time + 3;
   world.stats.waves++;
   chronicle(world, 'A wave of monsters marches on the exit.');
@@ -185,7 +185,7 @@ function movePacks(world: World) {
     if (pack.goal !== null) {
       const toward = options.find((x) => otherEnd(x, pack.room) === pack.goal);
       if (toward) c = toward;
-    } else if (world.tier >= 5 && world.rng.chance(0.4)) {
+    } else if (world.escalation >= 5 && world.rng.chance(0.4)) {
       // Late game: wanderers drift toward the exit.
       const best = options.sort((a, b) => dist(world, otherEnd(a, pack.room), d.exit) - dist(world, otherEnd(b, pack.room), d.exit))[0];
       c = best;

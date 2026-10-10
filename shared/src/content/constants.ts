@@ -1,6 +1,6 @@
 /** Global timing and tuning constants. All times in seconds. */
-export const TIER_INTERVAL = 120;
-export const MAX_TIER = 6;
+export const ESCALATION_INTERVAL = 120;
+export const MAX_ESCALATION = 6;
 export const EXIT_OPENS_AT = 600;
 export const COLLAPSE_AT = 780;
 
@@ -17,6 +17,6 @@ export const DEFAULT_SPEED = 5;
 /** Nothing gets faster than this, whatever it carries or drinks. */
 export const MIN_SPEED = 2;
 
-export function tierAt(time: number): number {
-  return Math.min(MAX_TIER, Math.floor(time / TIER_INTERVAL));
+export function escalationAt(time: number): number {
+  return Math.min(MAX_ESCALATION, Math.floor(time / ESCALATION_INTERVAL));
 }

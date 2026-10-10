@@ -1,14 +1,14 @@
 /**
  * Headless balance simulator: runs all-bot games and prints metrics against the PLAN.md M8 targets.
  *   npm run sim -- --games 100 --seed 1
- *   npm run sim -- --games 60 --set ESCALATION.capPerTier=2 --set ENEMIES.ghoul.dmg=3 --json
+ *   npm run sim -- --games 60 --set ESCALATION.capPerEscalation=2 --set ENEMIES.ghoul.dmg=3 --json
  *   npm run sim -- --classes warden,cutthroat,lampbearer,witch
  *   npm run sim -- --cr 2        (the first N heroes get a random Talent of their class: Challenge Rating N)
  * --set may repeat; it overrides any number in the tunable content tables below.
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
 import * as shared from '@stcp/shared';
-import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, talentsFor, TIER_INTERVAL, type ClassId } from '@stcp/shared';
+import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, talentsFor, ESCALATION_INTERVAL, type ClassId } from '@stcp/shared';
 
 const args = new Map<string, string>();
 const sets: string[] = [];
@@ -45,7 +45,7 @@ const fixedParty = args.get('classes')?.split(',') as ClassId[] | undefined;
 if (fixedParty?.some((c) => !CLASS_IDS.includes(c))) throw new Error(`--classes: pick from ${CLASS_IDS.join(', ')}`);
 const cr = Math.max(0, Math.min(4, Number(args.get('cr') ?? 0)));
 
-const deathsByTier = new Array(8).fill(0);
+const deathsByEscalation = new Array(8).fill(0);
 const deathsByClass: Record<string, number> = {};
 const runsByClass: Record<string, number> = {};
 const escapesByClass: Record<string, number> = {};
@@ -88,7 +88,7 @@ for (let g = 0; g < games; g++) {
       goldOut += h.gold;
     } else {
       deaths++;
-      deathsByTier[Math.min(7, Math.floor((h.diedAt ?? COLLAPSE_AT) / TIER_INTERVAL))]++;
+      deathsByEscalation[Math.min(7, Math.floor((h.diedAt ?? COLLAPSE_AT) / ESCALATION_INTERVAL))]++;
       deathsByClass[h.cls] = (deathsByClass[h.cls] ?? 0) + 1;
       const cause = (h.fate ?? '').startsWith('was buried') ? 'buried' : 'bled out';
       const where = (h.diedAt ?? 0) >= EXIT_OPENS_AT && h.pos.kind === 'room' && h.pos.room === w.dungeon.exit ? ' at exit' : '';
@@ -103,8 +103,8 @@ for (let g = 0; g < games; g++) {
 }
 
 const json = {
-  games, sets, cr, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByTier[0] + deathsByTier[1]) / Math.max(1, deaths),
-  secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByTier, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
+  games, sets, cr, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByEscalation[0] + deathsByEscalation[1]) / Math.max(1, deaths),
+  secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByEscalation, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
   runsByClass, escapesByClass,
   perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, afflictions: afflictions / games, altars: altars / games, saved: saved / games },
 };
@@ -114,7 +114,7 @@ if (args.has('json')) {
 }
 const pct = (n: number, d: number) => `${((100 * n) / Math.max(1, d)).toFixed(0)}%`;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const early = deathsByTier[0] + deathsByTier[1];
+const early = deathsByEscalation[0] + deathsByEscalation[1];
 arrivals.sort((a, b) => a - b);
 const check = (ok: boolean) => (ok ? '✓' : '✗');
 console.log(`${games} games at CR ${cr} in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
@@ -125,7 +125,7 @@ console.log(`${check(early / Math.max(1, deaths) <= 0.1)} deaths before 4:00: ${
 const secs = fightTime / Math.max(1, fights);
 console.log(`${check(secs >= 18 && secs <= 36)} seconds per fight: ${secs.toFixed(1)} (${(turns / Math.max(1, fights)).toFixed(1)} hero turns)  [target 18–36s, the old 3–6 six-second rounds]`);
 console.log(`full wipes: ${pct(wiped, games)}`);
-console.log(`deaths by tier: ${deathsByTier.map((n, i) => `T${i}:${n}`).join(' ')}`);
+console.log(`deaths by escalation: ${deathsByEscalation.map((n, i) => `E${i}:${n}`).join(' ')}`);
 console.log(`deaths by class: ${JSON.stringify(deathsByClass)}`);
 console.log(`escape rate by class: ${Object.keys(runsByClass).sort().map((c) => `${c} ${Math.round((100 * (escapesByClass[c] ?? 0)) / runsByClass[c])}% (n=${runsByClass[c]})`).join(' · ')}`);
 console.log(`death causes: ${JSON.stringify(causes)}`);

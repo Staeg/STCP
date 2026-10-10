@@ -27,14 +27,14 @@ Set `GAME_PORT` to change the server port, and `SEED` to fix the dungeon seed. I
 - **Loot:** clearing a room of monsters always drops at least one item, and bigger or tougher groups drop more and better ones. Gold is split between everyone in the room. Each item needs a **unanimous vote** of everyone in the room (keys **1, 2, 3…**); walking out takes you out of the vote.
 - **Between fights:** **R** revive a downed ally (6s), walk into rubble to dig through it (18s, Warden 12s), **M** mend (Lampbearer), **4–7** use items (out of a fight an item is your turn: it calls off any walk and happens when your timer runs out). **O** hands your hero to a bot until you press it again.
 - **Events:** altars, captives, idols, wells, vaults, and a few that change your Speed (a quicksilver pool, a courier's heavy satchel, an hourglass, a clockwork shrine)… Each takes some time (altar 18s, vault 24s, most others 3–6s). Whoever chooses first does it, and everyone in the room sees who's doing what; walking away stops it, and it starts over next time. Pick a choice with **1, 2, 3…**.
-- **Hidden rooms:** at tier 4 two sealed passages open somewhere off the map you know (golden tunnels), and four more at tier 5. Each leads to a secret room with a lair's worth of loot and a small guard.
+- **Hidden rooms:** at Escalation 4 two sealed passages open somewhere off the map you know (golden tunnels), and four more at Escalation 5. Each leads to a secret room with a lair's worth of loot and a small guard.
 - **Get out:** return to the ⚑ exit where you started. Once it's open, **F** escapes alone at once. **E** says you're ready to leave (you can press it anywhere, any time): when everyone standing in the exit room is ready, nobody is fighting there and nobody lies downed there, you all escape together; alone and ready, you're out the moment you arrive. Escaped gold counts toward your career title and the **Hall of Fortune**.
 - **The Village:** you bring the Character of the class you pick from your own roster. Each run they survive earns XP, and 2 XP earns a **Talent**. Injuries (from dropping below 50% / 25% HP, or going down) hit at once (less max HP, and Majors slow you; red drops beside your HP) and, like afflictions (😱 beside your stress), follow them home, until you pay to treat them from your purse. A Character who dies is replaced by a new recruit. Talents raise the **Challenge Rating**: more gold, and worse things in the dark.
 
 ## Developer notes
 
 - Design, decisions and the roadmap are in [PLAN.md](PLAN.md). The latest playtest report is in [PLAYTEST.md](PLAYTEST.md).
-- Balance: `npm run sim -- --games 100 [--set ESCALATION.capPerTier=2 …]` and `cd server && npx tsx src/sweep.ts …`.
+- Balance: `npm run sim -- --games 100 [--set ESCALATION.capPerEscalation=2 …]` and `cd server && npx tsx src/sweep.ts …`.
 - Network/fog check: `npx tsx tools/playtest-harness.ts --players 4 --speed 10` (with `npm run dev` running).
 - Sprites: edit `tools/sprites.py`, then run `python tools/sprites.py client/src/render/sprite-data.ts`.
 - Dev-only commands (server started with `--debug`, which `npm run dev` does), from the browser console: `__net.send({t:'debugSkip', seconds: 300})`, `debugSpawn`, `debugLoot`, `debugEvent`, `debugSpeed`.

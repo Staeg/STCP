@@ -145,7 +145,7 @@ export function crUnits(world: World, units: EnemyId[], kind: 'room' | 'lair' | 
   for (const u of units) if (u === 'ghoul' && world.rng.chance(wight)) out.push('wight');
   const queen =
     kind === 'lair' ? CR_RULES.queenLairChance[cr] ?? 0
-    : kind === 'wave' && cr >= CR_RULES.queenWaveCr && world.tier >= CR_RULES.queenWaveTier ? CR_RULES.queenWaveChance
+    : kind === 'wave' && cr >= CR_RULES.queenWaveCr && world.escalation >= CR_RULES.queenWaveEscalation ? CR_RULES.queenWaveChance
     : 0;
   if (queen > 0 && !monstersIn(world, room).some((m) => m.type === 'queen') && world.rng.chance(queen)) out.push('queen');
   return out;
@@ -161,8 +161,8 @@ function pickLair(world: World): EnemyId[] {
   return LAIR_GROUPS[0].units;
 }
 
-export function pickGroup(world: World, tier = 0): EnemyId[] {
-  const groups = ENCOUNTER_GROUPS.filter((g) => (g.minTier ?? 0) <= tier);
+export function pickGroup(world: World, esc = 0): EnemyId[] {
+  const groups = ENCOUNTER_GROUPS.filter((g) => (g.minEscalation ?? 0) <= esc);
   const total = groups.reduce((s, g) => s + g.weight, 0);
   let roll = world.rng.float(0, total);
   for (const g of groups) {
@@ -172,8 +172,8 @@ export function pickGroup(world: World, tier = 0): EnemyId[] {
   return groups[0].units;
 }
 
-export function spawnGroup(world: World, room: number, units: EnemyId[], tier: number): Monster[] {
-  const scale = 1 + ESCALATION.tierScaling * tier;
+export function spawnGroup(world: World, room: number, units: EnemyId[], esc: number): Monster[] {
+  const scale = 1 + ESCALATION.escalationScaling * esc;
   return units.map((type) => {
     const def = ENEMIES[type];
     const m: Monster = {

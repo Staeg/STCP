@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLLAPSE_AT, EXIT_OPENS_AT, TIER_INTERVAL } from '../content/constants';
+import { COLLAPSE_AT, EXIT_OPENS_AT, ESCALATION_INTERVAL } from '../content/constants';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { collapseCorridor } from './escalation';
 import { ESCALATION } from '../content/enemies';
@@ -17,30 +17,30 @@ function place(world: World, id: string, room: number) {
 }
 
 describe('escalation', () => {
-  it('raises the tier every two minutes and writes it into the chronicle', () => {
+  it('raises the Escalation every two minutes and writes it into the chronicle', () => {
     const world = createWorld(9, { monsters: false, loot: false });
     addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-    run(world, TIER_INTERVAL * 2 + 1);
-    expect(world.tier).toBe(2);
-    expect(world.chronicle.filter((c) => c.text.startsWith('Tier')).length).toBe(2);
+    run(world, ESCALATION_INTERVAL * 2 + 1);
+    expect(world.escalation).toBe(2);
+    expect(world.chronicle.filter((c) => c.text.startsWith('Escalation')).length).toBe(2);
   });
 
   it('respawns and sends packs as time goes on', () => {
     const world = createWorld(9, { monsters: false, loot: false });
     addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-    run(world, TIER_INTERVAL * 3);
+    run(world, ESCALATION_INTERVAL * 3);
     expect(Object.keys(world.monsters).length).toBeGreaterThan(0);
     expect(Object.keys(world.packs).length).toBeGreaterThan(0);
   });
 
-  it('tunnels collapse from tier 3, and rubble can be dug through', () => {
+  it('tunnels collapse from Escalation 3, and rubble can be dug through', () => {
     const world = createWorld(9, { monsters: false, loot: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'witch' });
     const d = world.dungeon;
-    run(world, TIER_INTERVAL * 3 + 50);
+    run(world, ESCALATION_INTERVAL * 3 + 50);
     expect(world.collapsed.length).toBeGreaterThan(0);
     // Collapse the corridor next to the hero and dig it out.
-    world.escalation = false;
+    world.escalates = false;
     const next = neighbours(d, d.entrance)[0];
     const c = corridorBetween(d, d.entrance, next)!;
     if (!world.collapsed.includes(c.id)) collapseCorridor(world, c.id);
@@ -64,7 +64,7 @@ describe('escalation', () => {
   });
 
   it('a hero caught in a collapsing tunnel is thrown out and hurt', () => {
-    const world = createWorld(9, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(9, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     const d = world.dungeon;
     const next = neighbours(d, d.entrance)[0];
@@ -79,7 +79,7 @@ describe('escalation', () => {
   });
 
   it('being thrown forward out of a cave-in explores the room you land in', () => {
-    const world = createWorld(9, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(9, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     const d = world.dungeon;
     const next = neighbours(d, d.entrance)[0];
@@ -95,7 +95,7 @@ describe('escalation', () => {
   });
 
   it('you only learn of a collapse when you reach it, and then dig through', () => {
-    const world = createWorld(9, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(9, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     const d = world.dungeon;
     const a = neighbours(d, d.entrance)[0];
@@ -123,7 +123,7 @@ describe('escalation', () => {
     const world = createWorld(9, { monsters: false, loot: false });
     addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     world.time = EXIT_OPENS_AT - 1;
-    world.tier = 5;
+    world.escalation = 5;
     run(world, 2);
     const waves = Object.values(world.packs).filter((p) => p.goal === world.dungeon.exit);
     expect(waves.length).toBe(1);
@@ -133,7 +133,7 @@ describe('escalation', () => {
 
 describe('extraction and the end', () => {
   function atExit(n: number) {
-    const world = createWorld(9, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(9, { monsters: false, loot: false, escalates: false });
     for (let i = 0; i < n; i++) addHero(world, { id: `h${i}`, name: `H${i}`, cls: 'warden' });
     for (let i = 0; i < n; i++) place(world, `h${i}`, world.dungeon.exit);
     return world;

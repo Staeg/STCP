@@ -28,7 +28,7 @@ function choose(world: World, id: string, choice: string) {
 
 /** A quiet world with one hero standing in a room that holds the given event. */
 function withEvent(kind: RoomEvent['kind'], cls: ClassId = 'warden') {
-  const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
+  const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
   const h = addHero(world, { id: 'h', name: 'H', cls });
   const d = world.dungeon;
   const room = d.entrance;
@@ -92,9 +92,9 @@ describe('room events', () => {
     expect(ambushed || rewarded).toBe(true);
   });
 
-  it('crawlspace from tier 5 moves you toward the exit for a price', () => {
+  it('crawlspace from Escalation 5 moves you toward the exit for a price', () => {
     const { world, h, d } = withEvent('crawlspace');
-    world.tier = 5;
+    world.escalation = 5;
     // Move the crawlspace (and the hero) somewhere deep: the exit is where everyone starts.
     const dist = hopDistances(d, d.exit);
     const far = dist.indexOf(Math.max(...dist.filter(Number.isFinite))); // (sealed secret rooms are at Infinity)
@@ -109,7 +109,7 @@ describe('room events', () => {
     expect(h.light).toBeLessThan(25);
   });
 
-  it('crawlspace before tier 5 breaks into a secret room you have not seen, guards and all', () => {
+  it('crawlspace before Escalation 5 breaks into a secret room you have not seen, guards and all', () => {
     const { world, h, d } = withEvent('crawlspace');
     expect(d.secrets.every((s) => !s.open)).toBe(true);
     const hp = h.hp;
@@ -188,7 +188,7 @@ describe('room events', () => {
     choose(world, 'h', 'channel');
     run(world, 9.2);
     expect(h.encounter).toBe(room); // the guardians came at the halfway mark
-    expect(monstersIn(world, room)[0].dmgMult).toBeGreaterThan(1); // a tier above the dungeon (tier 0 here)
+    expect(monstersIn(world, room)[0].dmgMult).toBeGreaterThan(1); // one Escalation above the dungeon (Escalation 0 here)
     // Clear them and finish.
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
     run(world, 7);
@@ -371,7 +371,7 @@ describe('claims', () => {
 
 describe('villagers', () => {
   function captive(cls: ClassId = 'bellwright') {
-    const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
     const h = addHero(world, { id: 'h', name: 'H', cls });
     const d = world.dungeon;
     // One room out from the start (which is also the rendezvous).
@@ -424,7 +424,7 @@ describe('villagers', () => {
 
 describe('stress and afflictions', () => {
   it('darkness raises stress; 100 means an affliction, the second 100 a heart attack', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
     h.light = 0;
     h.stress = 95;
@@ -438,7 +438,7 @@ describe('stress and afflictions', () => {
   });
 
   it('Selfish heroes always vote for themselves and are ignored after 10s', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
     addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     s.affliction = 'selfish';
@@ -454,7 +454,7 @@ describe('stress and afflictions', () => {
   });
 
   it('Paranoid heroes refuse bandages from others', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const p = addHero(world, { id: 'p', name: 'P', cls: 'warden' });
     const o = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
     p.affliction = 'paranoid';

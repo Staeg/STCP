@@ -6,7 +6,7 @@ export interface EnemyDef {
   maxHp: number;
   /** Speed: seconds between its turns. Default 5; lower is quicker. */
   speed: number;
-  /** Base damage of its main attack (scaled by tier). */
+  /** Base damage of its main attack (scaled by Escalation). */
   dmg: number;
   undead: boolean;
   /** Placeholder glyph until sprites (M9). */
@@ -38,9 +38,9 @@ export const CR_RULES = {
   wightSnuff: 15,
   /** Chance, by CR, that a lair holds a Forsaken Queen. */
   queenLairChance: [0, 0, 0, 1 / 3, 1],
-  /** At CR 4, from this tier, each exit wave has this chance of bringing a Queen. */
+  /** At CR 4, from this Escalation, each exit wave has this chance of bringing a Queen. */
   queenWaveCr: 4,
-  queenWaveTier: 5,
+  queenWaveEscalation: 5,
   queenWaveChance: 0.25,
   /** Hymn: the other monsters heal this much and their next turn comes this many seconds sooner. */
   hymnHeal: 4,
@@ -49,15 +49,15 @@ export const CR_RULES = {
   dirgeStress: 8,
 };
 
-export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minTier?: number }[] = [
+export const ENCOUNTER_GROUPS: { weight: number; units: EnemyId[]; minEscalation?: number }[] = [
   { weight: 3, units: ['ghoul'] },
   { weight: 3, units: ['ghoul', 'acolyte'] },
   { weight: 2, units: ['crawler', 'crawler'] },
   { weight: 2, units: ['ghoul', 'crawler'] },
   { weight: 1, units: ['ghoul', 'ghoul', 'acolyte'] },
   { weight: 1, units: ['acolyte', 'crawler', 'crawler'] },
-  { weight: 2, units: ['brute'], minTier: 3 },
-  { weight: 1, units: ['brute', 'acolyte'], minTier: 4 },
+  { weight: 2, units: ['brute'], minEscalation: 3 },
+  { weight: 1, units: ['brute', 'acolyte'], minEscalation: 4 },
 ];
 
 /** Lairs: bigger groups some rooms start with, guarding better loot (see spawnInitialMonsters). */
@@ -68,7 +68,7 @@ export const LAIR_GROUPS: { weight: number; units: EnemyId[] }[] = [
   { weight: 1, units: ['ghoul', 'ghoul', 'acolyte', 'acolyte'] },
 ];
 
-/** The small guard a secret room gets when it opens (scaled to the tier then). */
+/** The small guard a secret room gets when it opens (scaled to the Escalation then). */
 export const SECRET_GUARDS: { weight: number; units: EnemyId[] }[] = [
   { weight: 3, units: ['ghoul', 'crawler'] },
   { weight: 2, units: ['crawler', 'crawler'] },
@@ -82,8 +82,8 @@ export const ESCALATION = {
   roomMonsterChance: 0.3,
   /** Chance that a room which starts with monsters is a lair instead (LAIR_GROUPS). */
   lairChance: 0.15,
-  /** Monster HP and damage scale by (1 + this × tier). */
-  tierScaling: 0.09,
+  /** Monster HP and damage scale by (1 + this × Escalation). */
+  escalationScaling: 0.09,
   respawnEvery: 45,
   respawnEveryLate: 30,
   wandererEvery: 60,
@@ -94,12 +94,12 @@ export const ESCALATION = {
   digTime: 18,
   waveEvery: 45,
   waveEveryLate: 25,
-  /** Max live monsters = capBase + capPerTier × tier. */
+  /** Max live monsters = capBase + capPerEscalation × Escalation. */
   capBase: 8,
-  capPerTier: 1.5,
+  capPerEscalation: 1.5,
   /** Packs take this × their slowest member's Speed to walk a tunnel. */
   packSlowness: 1.5,
-  /** Light drains this much faster from tier 4. */
+  /** Light drains this much faster from Escalation 4. */
   lateLightDrain: 1.5,
 };
 

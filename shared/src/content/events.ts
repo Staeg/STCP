@@ -154,8 +154,8 @@ export const EVENT_SEEDING = {
   villagerHp: 10,
   /** Wounded Stranger: chance it's a trap (an ambush if helped by anyone but a Lampbearer, or walked away from). */
   strangerTrap: 0.4,
-  /** Altar guardians are this many tiers stronger than the dungeon around them. */
-  guardianTiers: 1,
+  /** Altar guardians are this many Escalations stronger than the dungeon around them. */
+  guardianEscalations: 1,
   /** Leading a villager adds this to your Speed (seconds) until they're saved. */
   villagerSlow: 1.5,
 };

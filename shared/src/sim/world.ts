@@ -1,5 +1,5 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
-import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, TIER_INTERVAL } from '../content/constants';
+import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL } from '../content/constants';
 import { CR_RULES, ESCALATION } from '../content/enemies';
 import type { TalentId } from '../content/talents';
 import { injuredMaxHp, VILLAGE_RULES, type Injury, type Loadout } from '../village';
@@ -191,8 +191,8 @@ export interface World {
   piles: Record<number, Pile>;
   /** Points of monster slain per room since it was last cleared; paid out as items when the room is clear. */
   bounty: Record<number, number>;
-  /** Current difficulty tier (see escalation.ts). */
-  tier: number;
+  /** Current Escalation, 0–6 (see escalation.ts). */
+  escalation: number;
   packs: Record<string, Pack>;
   /** Collapsed corridor ids. */
   collapsed: number[];
@@ -204,7 +204,7 @@ export interface World {
   nextWave: number;
   /** The full story of the run, revealed on the results screen. */
   chronicle: { time: number; text: string }[];
-  escalation: boolean;
+  escalates: boolean;
   events: Record<number, RoomEvent>;
   villagers: Record<string, Villager>;
   /** Bells tolled (newest last): everyone hears them. */
@@ -254,7 +254,7 @@ export interface WorldOptions {
   /** Default true. */
   loot?: boolean;
   /** Default true. Turn off for tests that need a static dungeon. */
-  escalation?: boolean;
+  escalates?: boolean;
   /** Default: same as `monsters`. */
   events?: boolean;
   /** Challenge Rating (default 0). */
@@ -268,10 +268,10 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const world: World = {
     seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
-    tier: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalation: opts.escalation !== false,
+    escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], cr: Math.max(0, Math.min(4, opts.cr ?? 0)),
-    nextRespawn: TIER_INTERVAL, nextWanderer: TIER_INTERVAL * 2, nextCollapse: TIER_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
+    nextRespawn: ESCALATION_INTERVAL, nextWanderer: ESCALATION_INTERVAL * 2, nextCollapse: ESCALATION_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
   // Events default to following `monsters` (captives come with guards).
@@ -372,7 +372,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
 export function step(world: World, dt: number): void {
   if (world.phase !== 'running') return;
   world.time += dt;
-  const drain = LIGHT_DRAIN * (world.tier >= 4 ? ESCALATION.lateLightDrain : 1);
+  const drain = LIGHT_DRAIN * (world.escalation >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
     hero.lowestHp = Math.min(hero.lowestHp, hero.hp / hero.maxHp);
@@ -401,7 +401,7 @@ export function step(world: World, dt: number): void {
   tickEvents(world, dt);
   leaveTogether(world);
   tickStress(world, dt);
-  if (world.escalation) tickEscalation(world);
+  if (world.escalates) tickEscalation(world);
   updateKnowledge(world);
   checkEnd(world);
 }

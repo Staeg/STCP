@@ -7,11 +7,11 @@ import { notify } from './notify';
 import { chronicle, explore, type World } from './world';
 
 /**
- * Secret rooms (user, 2026-10-10): sealed from the start and invisible, two open at tier 4 and four more at tier 5,
+ * Secret rooms (user, 2026-10-10): sealed from the start and invisible, two open at Escalation 4 and four more at Escalation 5,
  * each off a single ordinary room by a golden tunnel. Inside: a lair's worth of loot behind a small guard.
  */
 export function openDueSecrets(world: World) {
-  const opened = openSecrets(world.dungeon, world.tier);
+  const opened = openSecrets(world.dungeon, world.escalation);
   for (const s of opened) stockSecret(world, s);
   if (opened.length) {
     for (const h of Object.values(world.heroes)) {
@@ -20,7 +20,7 @@ export function openDueSecrets(world: World) {
   }
 }
 
-/** Break one secret room open ahead of its tier (the Crawlspace), with its loot and guards. */
+/** Break one secret room open ahead of its Escalation (the Crawlspace), with its loot and guards. */
 export function openSecretEarly(world: World, s: SecretPassage) {
   if (s.open) return;
   openSecret(world.dungeon, s);
@@ -37,7 +37,7 @@ function stockSecret(world: World, s: SecretPassage) {
   const total = SECRET_GUARDS.reduce((t, g) => t + g.weight, 0);
   let roll = rng.float(0, total);
   const group = SECRET_GUARDS.find((g) => (roll -= g.weight) <= 0) ?? SECRET_GUARDS[0];
-  spawnGroup(world, s.room, crUnits(world, group.units, 'room', s.room), world.tier);
+  spawnGroup(world, s.room, crUnits(world, group.units, 'room', s.room), world.escalation);
   // Like a lair: the guards' fall drops more, and better, than they're worth on their own.
   world.bounty[s.room] = (world.bounty[s.room] ?? 0) + LOOT.lairBounty;
   chronicle(world, `A hidden passage opened from ${theRoom(d.rooms[s.host].name)} into ${d.rooms[s.room].name}.`);

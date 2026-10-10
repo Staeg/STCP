@@ -2,8 +2,8 @@
  * Balance sweeps: run several sim variants in parallel (same seeds) and print a comparison table.
  *   npx tsx src/sweep.ts --games 60 --parallel 4 \
  *     "base" \
- *     "cap2: ESCALATION.capPerTier=2" \
- *     "cap2+scale: ESCALATION.capPerTier=2 ESCALATION.tierScaling=0.07"
+ *     "cap2: ESCALATION.capPerEscalation=2" \
+ *     "cap2+scale: ESCALATION.capPerEscalation=2 ESCALATION.escalationScaling=0.07"
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';

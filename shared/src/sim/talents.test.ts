@@ -53,7 +53,7 @@ function untilTurn(world: World, room: number, id: string) {
 }
 
 function quiet(specs: Spec[]) {
-  const world = createWorld(5, { monsters: false, loot: false, escalation: false, events: false });
+  const world = createWorld(5, { monsters: false, loot: false, escalates: false, events: false });
   return { world, heroes: specs.map((s, i) => hero(world, i, s)) };
 }
 

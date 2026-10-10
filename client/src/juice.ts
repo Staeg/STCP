@@ -1,5 +1,5 @@
 /** Screen feedback: shakes and colour flashes. Purely cosmetic. */
-type Kind = 'shake' | 'hurt' | 'tier' | 'alarm';
+type Kind = 'shake' | 'hurt' | 'escalate' | 'alarm';
 
 export function juice(kind: Kind) {
   if (kind === 'shake') {

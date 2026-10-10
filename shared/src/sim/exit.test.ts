@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXIT_OPENS_AT, TIER_INTERVAL } from '../content/constants';
+import { EXIT_OPENS_AT, ESCALATION_INTERVAL } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { spawnGroup } from './combat';
 import { Game } from './game';
@@ -12,7 +12,7 @@ function run(world: World, seconds: number) {
 
 /** A quiet world at the moment the exit opens, everyone standing at it. */
 function atOpenExit(n: number) {
-  const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
+  const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
   for (let i = 0; i < n; i++) addHero(world, { id: `h${i}`, name: `H${i}`, cls: 'warden' });
   world.time = EXIT_OPENS_AT;
   return world;
@@ -38,7 +38,7 @@ describe('ready to leave (E)', () => {
   });
 
   it('E toggles, and can be set before the exit opens or away from it', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalation: false, events: false });
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
     addHero(world, { id: 'h0', name: 'H0', cls: 'warden' });
     applyIntent(world, 'h0', { type: 'ready' });
     applyIntent(world, 'h0', { type: 'ready' });
@@ -92,7 +92,7 @@ describe('autopilot (O)', () => {
 });
 
 describe('secret rooms', () => {
-  it('stay hidden until tier 4 (two) and tier 5 (four more), then open with loot and a small guard', () => {
+  it('stay hidden until Escalation 4 (two) and Escalation 5 (four more), then open with loot and a small guard', () => {
     const world = createWorld(77, { monsters: false, events: false });
     addHero(world, { id: 'h0', name: 'H0', cls: 'warden' });
     const d = world.dungeon;
@@ -100,7 +100,7 @@ describe('secret rooms', () => {
     // The hero stands in its host room from the start: still nothing to see.
     world.heroes.h0.pos = { kind: 'room', room: first.host };
     world.heroes.h0.explored.push(first.host);
-    world.time = TIER_INTERVAL * 4 - 0.05;
+    world.time = ESCALATION_INTERVAL * 4 - 0.05;
     step(world, 0.01);
     let view = buildView(world, 'h0');
     expect(view.corridors.some((c) => c.secret)).toBe(false);
@@ -113,7 +113,7 @@ describe('secret rooms', () => {
     expect(world.monsters && Object.values(world.monsters).filter((m) => m.room === first.room).length).toBeLessThanOrEqual(2);
     expect(world.piles[first.room]?.gold).toBeGreaterThan(0);
     expect(neighbours(d, first.room)).toEqual([first.host]);
-    world.time = TIER_INTERVAL * 5 - 0.05;
+    world.time = ESCALATION_INTERVAL * 5 - 0.05;
     run(world, 0.2);
     expect(d.secrets.every((s) => s.open)).toBe(true);
   });

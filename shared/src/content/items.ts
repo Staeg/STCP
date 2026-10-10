@@ -242,7 +242,7 @@ export const LOOT = {
   /** Rooms without monsters: chance of an item lying around (rolled separately from gold). */
   emptyItemChance: 0.35,
   deadEndBonusItemChance: 0.6,
-  /** Clearing a room drops 1 item, +1 per this many points of monster (base HP × tier scaling) slain there. */
+  /** Clearing a room drops 1 item, +1 per this many points of monster (base HP × Escalation scaling) slain there. */
   dropPointsPerItem: 40,
   /** Drop quality: points at or above these give quality 2 / 3. */
   dropQuality2: 20,

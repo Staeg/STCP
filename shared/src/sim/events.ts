@@ -12,8 +12,8 @@ import { openSecretEarly } from './secrets';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
 import { chronicle, crGold, explore, type Hero, type World } from './world';
 
-/** Before this tier the Crawlspace leads into a secret room; from it on, toward the exit. */
-const CRAWL_TO_EXIT_TIER = 5;
+/** Before this Escalation the Crawlspace leads into a secret room; from it on, toward the exit. */
+const CRAWL_TO_EXIT_ESCALATION = 5;
 
 /** A one-off feature of a room (villagers are tracked separately because they move). */
 export interface RoomEvent {
@@ -147,7 +147,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         ? perk(c('open', 'Open it'), 'undertaker', 'The dead hold no fear for you: no stress.')
         : c('open', 'Open it (+20 stress)'));
     case 'crawlspace': {
-      const where = world.tier >= CRAWL_TO_EXIT_TIER ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
+      const where = world.escalation >= CRAWL_TO_EXIT_ESCALATION ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
       const full = h.leading ? "The villager won't fit." : undefined;
       return one(h.cls === 'lampbearer'
         ? perk(c('crawl', `Squeeze through ${where} (4 damage)`, full), 'lampbearer', 'Your lamp stays lit.')
@@ -240,7 +240,7 @@ function strangerIsTrap(world: World, ev: RoomEvent): boolean {
 
 /** The stranger's friends spring out (at the dungeon's strength) and the hero is caught in the fight. */
 function ambush(world: World, h: Hero, room: number) {
-  spawnGroup(world, room, pickGroup(world, world.tier), world.tier);
+  spawnGroup(world, room, pickGroup(world, world.escalation), world.escalation);
   onHeroInRoom(world, h, room);
 }
 
@@ -399,11 +399,11 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
 }
 
 /**
- * Before tier 5: a random secret room this hero hasn't been in, broken open early if it's still sealed
- * (user, 2026-10-10). From tier 5, or with none left: three hops toward the exit.
+ * Before Escalation 5: a random secret room this hero hasn't been in, broken open early if it's still sealed
+ * (user, 2026-10-10). From Escalation 5, or with none left: three hops toward the exit.
  */
 function crawlTarget(world: World, h: Hero, from: number): number | null {
-  if (world.tier < CRAWL_TO_EXIT_TIER) {
+  if (world.escalation < CRAWL_TO_EXIT_ESCALATION) {
     const hidden = world.dungeon.secrets.filter((s) => !h.explored.includes(s.room));
     if (hidden.length) {
       const s = world.rng.pick(hidden);
@@ -463,7 +463,7 @@ export function tickEvents(world: World, dt: number) {
       ev.spawned = true;
       notify(world, h, 'The altar shrieks. Its guardians come!');
       // Guardians are a notch stronger than the dungeon around them (user, 2026-10-10; were a notch weaker).
-      const t = world.tier + EVENT_SEEDING.guardianTiers;
+      const t = world.escalation + EVENT_SEEDING.guardianEscalations;
       spawnGroup(world, ev.room, pickGroup(world, t), t);
       onHeroInRoom(world, h, ev.room);
       continue;

@@ -280,7 +280,7 @@ describe('encounters', () => {
 
 describe('Speed', () => {
   it('comes from class and worn gear (cursed jewelry quickens), and sets how long a tunnel takes', () => {
-    const world = createWorld(777, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(777, { monsters: false, loot: false, escalates: false });
     const d = world.dungeon;
     const h = addHero(world, { id: 'h', name: 'H', cls: 'lampbearer' });
     h.weapon = 'mace';
@@ -302,7 +302,7 @@ describe('Speed', () => {
   });
 
   it('heroes who take the same tunnel the same way arrive together, at the slower one\'s pace', () => {
-    const world = createWorld(777, { monsters: false, loot: false, escalation: false });
+    const world = createWorld(777, { monsters: false, loot: false, escalates: false });
     const d = world.dungeon;
     const fast = addHero(world, { id: 'f', name: 'F', cls: 'cutthroat' });
     const slow = addHero(world, { id: 's', name: 'S', cls: 'warden' });

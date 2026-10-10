@@ -10,7 +10,7 @@ function run(world: World, seconds: number, dt = 0.1) {
 }
 
 function setup() {
-  const world = createWorld(12345, { monsters: false, escalation: false });
+  const world = createWorld(12345, { monsters: false, escalates: false });
   const hero = addHero(world, { id: 'h1', name: 'Mara', cls: 'warden' });
   return { world, hero, d: world.dungeon };
 }
@@ -185,7 +185,7 @@ describe('auto-pathing', () => {
   it('detours around rooms with known monsters when another way exists', () => {
     // Search seeds for a room reachable two different ways.
     for (let seed = 1; seed < 200; seed++) {
-      const world = createWorld(seed, { monsters: false, escalation: false });
+      const world = createWorld(seed, { monsters: false, escalates: false });
       const hero = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
       const d = world.dungeon;
       hero.explored = d.rooms.map((r) => r.id);

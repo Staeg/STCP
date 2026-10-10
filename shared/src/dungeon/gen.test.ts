@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CORRIDOR_TIME, CROSSROADS_COUNT, dirBetween, generateDungeon, neighbours, hopDistances, isCrossroads, MIN_DEPTH, MIN_LOOPS, openSecrets, ROOM_COUNT,
-  SECRET_TIERS,
+  SECRET_ESCALATIONS,
 } from './gen';
 
 const SEEDS = Array.from({ length: 500 }, (_, i) => i * 7919 + 1);
@@ -60,7 +60,7 @@ describe('generateDungeon', () => {
       expect(d.rooms.filter((r) => r.kind === 'exit').length).toBe(1);
 
       // Secret rooms: on free grid cells, each opening off exactly one ordinary room (never the exit).
-      expect(d.secrets.map((s) => s.tier), ctx).toEqual(SECRET_TIERS);
+      expect(d.secrets.map((s) => s.escalation), ctx).toEqual(SECRET_ESCALATIONS);
       const cells = new Set(d.rooms.map((r) => `${r.gx},${r.gy}`));
       expect(cells.size, ctx).toBe(d.rooms.length);
       for (const s of d.secrets) {

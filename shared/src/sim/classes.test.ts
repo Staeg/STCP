@@ -43,8 +43,8 @@ function walkIn(world: World, ids: string[], room: number) {
 }
 
 /** A quiet world (no monsters, loot or escalation) with these heroes at the start. */
-function quiet(classes: ClassId[], escalation = false) {
-  const world = createWorld(5, { monsters: false, loot: false, escalation, events: false });
+function quiet(classes: ClassId[], escalates = false) {
+  const world = createWorld(5, { monsters: false, loot: false, escalates, events: false });
   const heroes = classes.map((cls, i) => addHero(world, { id: `h${i}`, name: `H${i}`, cls }));
   return { world, heroes };
 }

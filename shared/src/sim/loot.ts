@@ -93,7 +93,7 @@ export function rollValuable(world: World): ItemId {
   return VALUABLE_TABLE[0].item;
 }
 
-/** What a slain monster adds to its room's drop: tougher monsters (and later tiers) are worth more. */
+/** What a slain monster adds to its room's drop: tougher monsters (and later Escalations) are worth more. */
 export function monsterPoints(m: Monster): number {
   return ENEMIES[m.type].maxHp * m.dmgMult;
 }

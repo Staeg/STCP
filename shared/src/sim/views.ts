@@ -1,4 +1,4 @@
-import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, tierAt } from '../content/constants';
+import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId } from '../content/enemies';
@@ -182,7 +182,7 @@ export interface ChalkView {
 
 export interface PlayerView {
   time: number;
-  tier: number;
+  escalation: number;
   exitOpensAt: number;
   collapseAt: number;
   phase: WorldPhase;
@@ -286,7 +286,7 @@ export function buildView(world: World, heroId: string): PlayerView {
   });
   return {
     time: world.time,
-    tier: tierAt(world.time),
+    escalation: escalationAt(world.time),
     exitOpensAt: EXIT_OPENS_AT,
     collapseAt: COLLAPSE_AT,
     phase: world.phase,

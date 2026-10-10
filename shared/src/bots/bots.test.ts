@@ -7,7 +7,7 @@ import { applyIntent, step } from '../sim/world';
 import { planRoutes } from './explorer';
 
 function quietGame(bots: { id: string; cls: 'warden' | 'cutthroat' | 'lampbearer' | 'witch'; isBot: boolean }[]) {
-  return new Game(5150, bots.map((b) => ({ ...b, name: b.id })), { monsters: false, loot: false, escalation: false, events: false });
+  return new Game(5150, bots.map((b) => ({ ...b, name: b.id })), { monsters: false, loot: false, escalates: false, events: false });
 }
 
 describe('bot routing', () => {
@@ -78,7 +78,7 @@ describe('bot retreat', () => {
     let fled = 0;
     for (let seed = 0; seed < 20; seed++) {
       const game = new Game(900 + seed, [{ id: 'bot', name: 'B', cls: 'witch', isBot: true }], {
-        monsters: false, loot: false, escalation: false, events: false,
+        monsters: false, loot: false, escalates: false, events: false,
       });
       const w = game.world;
       const room = neighbours(w.dungeon, w.dungeon.entrance)[0];

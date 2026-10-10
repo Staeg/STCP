@@ -1,6 +1,6 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
-  fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
+  fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury,
 } from '@stcp/shared';
 import { beep } from './sound';
@@ -24,7 +24,7 @@ export function fmtTime(seconds: number): string {
 }
 
 export class Hud {
-  private lastTier = 0;
+  private lastEscalation = 0;
   private bannerTimer = 0;
   private persistentBanner = false;
 
@@ -80,7 +80,7 @@ export class Hud {
     const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
-    setHtml($('tier'), tierHtml(view.tier) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: heroes with a Talent. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
+    setHtml($('escalation'), escalationHtml(view.escalation) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: heroes with a Talent. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
@@ -179,14 +179,14 @@ export class Hud {
     if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE ALONE with ${you.gold} gold <kbd>F</kbd>`;
     setHtml($('roster'), rosterHtml(view));
 
-    // Tier-change banner
-    if (view.tier > this.lastTier) {
-      this.lastTier = view.tier;
-      this.showBanner(`Tier ${view.tier}<br><span class="banner-sub">${TIER_TEXT[view.tier] ?? ''}</span>`, 8000, 'tier-up');
-      beep(view.tier >= 5 ? 'alarm' : 'tier');
-      juice(view.tier >= 5 ? 'alarm' : 'tier');
+    // Escalation-change banner
+    if (view.escalation > this.lastEscalation) {
+      this.lastEscalation = view.escalation;
+      this.showBanner(`Escalation ${view.escalation}<br><span class="banner-sub">${ESCALATION_TEXT[view.escalation] ?? ''}</span>`, 8000, 'escalation-up');
+      beep(view.escalation >= 5 ? 'alarm' : 'escalate');
+      juice(view.escalation >= 5 ? 'alarm' : 'escalate');
     }
-    this.lastTier = view.tier;
+    this.lastEscalation = view.escalation;
     if (view.phase !== 'running') $('banner').hidden = true; // the results screen takes over
     else if (you.extracted) this.showBanner(`YOU ESCAPED<br><span style="font-size:24px">with ${you.gold} gold. The others are still inside…</span>`, 0);
     else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
@@ -201,11 +201,11 @@ export class Hud {
 
   /** Called when leaving the game view (back to lobby). */
   reset() {
-    this.lastTier = 0;
+    this.lastEscalation = 0;
     $('banner').hidden = true;
   }
 
-  /** `cls` styles one kind of banner (tier-ups sit higher up, clear of the map around you). */
+  /** `cls` styles one kind of banner (Escalation-ups sit higher up, clear of the map around you). */
   private showBanner(html: string, ms: number, cls = '') {
     const b = $('banner');
     b.innerHTML = html;
@@ -216,12 +216,12 @@ export class Hud {
   }
 }
 
-/** "Tier N", with what every tier so far has done on hover. */
-function tierHtml(tier: number): string {
+/** "Escalation N", with what every Escalation so far has done on hover. */
+function escalationHtml(esc: number): string {
   const lines = [];
-  for (let t = 1; t <= tier; t++) lines.push(`<div><b>Tier ${t}</b>: ${TIER_TEXT[t] ?? ''}</div>`);
-  const next = tier < MAX_TIER ? `<div class="muted">Tier ${tier + 1} comes at ${fmtTime((tier + 1) * TIER_INTERVAL)}.</div>` : '';
-  return `Tier ${tier}<div class="hover-tip">${lines.join('') || '<div>Nothing has stirred yet.</div>'}${next}</div>`;
+  for (let t = 1; t <= esc; t++) lines.push(`<div><b>Escalation ${t}</b>: ${ESCALATION_TEXT[t] ?? ''}</div>`);
+  const next = esc < MAX_ESCALATION ? `<div class="muted">Escalation ${esc + 1} comes at ${fmtTime((esc + 1) * ESCALATION_INTERVAL)}.</div>` : '';
+  return `Escalation ${esc}<div class="hover-tip">${lines.join('') || '<div>Nothing has stirred yet.</div>'}${next}</div>`;
 }
 
 function rosterHtml(view: PlayerView): string {

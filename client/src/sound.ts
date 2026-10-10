@@ -1,7 +1,7 @@
 /** Tiny generated cues (no audio assets). */
 let ctx: AudioContext | null = null;
 
-export function beep(kind: 'tier' | 'alarm') {
+export function beep(kind: 'escalate' | 'alarm') {
   try {
     ctx ??= new AudioContext();
     const notes = kind === 'alarm' ? [440, 330, 440, 330] : [196, 147];

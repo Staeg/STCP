@@ -1,6 +1,6 @@
 import { Rng } from '../rng';
 
-/** The start room is also the exit (the rendezvous). Secret rooms stay sealed until their tier (see `secrets`). */
+/** The start room is also the exit (the rendezvous). Secret rooms stay sealed until their Escalation (see `secrets`). */
 export type RoomKind = 'exit' | 'normal' | 'secret';
 
 export interface Room {
@@ -28,7 +28,7 @@ export interface Corridor {
 }
 
 /**
- * A sealed way into a secret room. The room is in `rooms` from the start, with no corridors; at `tier` (or earlier, if a
+ * A sealed way into a secret room. The room is in `rooms` from the start, with no corridors; at `escalation` (or earlier, if a
  * hero crawls in) the corridor is added to `corridors` and to both rooms. Its id is settled when it opens.
  */
 export interface SecretPassage {
@@ -36,7 +36,7 @@ export interface SecretPassage {
   /** The one ordinary room it opens off (never the exit). */
   host: number;
   corridor: Corridor;
-  tier: number;
+  escalation: number;
   open: boolean;
 }
 
@@ -67,8 +67,8 @@ export const LOOP_CHANCE = 0.3;
 /** At least this many corridors beyond a tree's (rooms − 1): paths cross and rejoin. */
 export const MIN_LOOPS = 6;
 
-/** Secret rooms (user, 2026-10-10): the tier each one opens at, in opening order. */
-export const SECRET_TIERS = [4, 4, 5, 5, 5, 5];
+/** Secret rooms (user, 2026-10-10): the Escalation each one opens at, in opening order. */
+export const SECRET_ESCALATIONS = [4, 4, 5, 5, 5, 5];
 const SECRET_NAMES = [
   'The Sealed Hoard', 'The Hidden Treasury', 'The Gilded Sanctum', 'The Lost Sacristy', 'The Veiled Reliquary',
   'The Buried Coffers', 'The Forgotten Strongroom', 'The Walled-Up Chapel',
@@ -213,8 +213,8 @@ function placeSecrets(seed: number, rooms: Room[], cellRoom: Map<number, number>
   for (let gy = 0; gy < GRID_H; gy++) {
     for (let gx = 0; gx < GRID_W; gx++) if (!cellRoom.has(key(gx, gy)) && hostsOf(gx, gy).length) cells.push([gx, gy]);
   }
-  if (cells.length < SECRET_TIERS.length) return null;
-  const picked = rng.shuffle(cells).slice(0, SECRET_TIERS.length);
+  if (cells.length < SECRET_ESCALATIONS.length) return null;
+  const picked = rng.shuffle(cells).slice(0, SECRET_ESCALATIONS.length);
   const names = rng.shuffle([...SECRET_NAMES]);
   return picked.map(([gx, gy], i) => {
     const id = rooms.length;
@@ -225,22 +225,22 @@ function placeSecrets(seed: number, rooms: Room[], cellRoom: Map<number, number>
       name: names[i], kind: 'secret', corridors: [],
     });
     const host = rng.pick(hostsOf(gx, gy));
-    return { room: id, host, corridor: { id: firstCorridor + i, a: host, b: id, length: CORRIDOR_TIME, secret: true }, tier: SECRET_TIERS[i], open: false };
+    return { room: id, host, corridor: { id: firstCorridor + i, a: host, b: id, length: CORRIDOR_TIME, secret: true }, escalation: SECRET_ESCALATIONS[i], open: false };
   });
 }
 
-/** Open every sealed passage due by `tier`. Returns the ones that just opened. */
-export function openSecrets(d: Dungeon, tier: number): SecretPassage[] {
+/** Open every sealed passage due by `esc`. Returns the ones that just opened. */
+export function openSecrets(d: Dungeon, esc: number): SecretPassage[] {
   const opened: SecretPassage[] = [];
   for (const s of d.secrets) {
-    if (s.open || s.tier > tier) continue;
+    if (s.open || s.escalation > esc) continue;
     openSecret(d, s);
     opened.push(s);
   }
   return opened;
 }
 
-/** Open one sealed passage now, whatever its tier (the Crawlspace can break into one early). */
+/** Open one sealed passage now, whatever its Escalation (the Crawlspace can break into one early). */
 export function openSecret(d: Dungeon, s: SecretPassage) {
   if (s.open) return;
   s.open = true;
