@@ -1,5 +1,7 @@
 /** Bot behaviour knobs (tunable from the sim: --set BOTS.returnStart=420). Seconds unless noted. */
 export const BOTS = {
+  /** A Lampbearer bot prays at the Luminous Liturgy for at most this many seconds. */
+  liturgyPray: 30,
   /** Least greedy bots start heading home at this time… */
   returnStart: 390,
   /** …and the greediest this much later. */

@@ -1,3 +1,5 @@
+import type { ClassId } from './classes';
+
 export type AfflictionId = 'selfish' | 'fearful' | 'paranoid' | 'hopeless';
 
 export interface AfflictionDef {
@@ -33,15 +35,23 @@ export const STRESS = {
 
 export type EventKind =
   | 'altar' | 'villager' | 'idol' | 'stranger' | 'well' | 'vault' | 'chest' | 'crawlspace'
-  | 'quicksilver' | 'satchel' | 'hourglass' | 'clockwork';
+  | 'quicksilver' | 'satchel' | 'hourglass' | 'clockwork'
+  | EliteEventKind
+  /** How an Elite Event looks to every class but its own. */
+  | 'veiled';
+
+/** Class-specific Elite Events (user, 2026-10-10): one per class, only that class can carry it out. */
+export type EliteEventKind = 'wanderers' | 'cant' | 'liturgy' | 'sacrament' | 'uprising' | 'barrage' | 'zenith' | 'alacrity';
 
 export interface EventDef {
   kind: EventKind;
   name: string;
   glyph: string;
   text: string;
-  /** Relative chance when seeding rooms. */
+  /** Relative chance when seeding rooms (0: never seeded the usual way). */
   weight: number;
+  /** Elite Events: the only class that can do it (everyone else sees it veiled). */
+  elite?: ClassId;
 }
 
 export const EVENTS: Record<EventKind, EventDef> = {
@@ -94,6 +104,87 @@ export const EVENTS: Record<EventKind, EventDef> = {
     kind: 'clockwork', name: 'Clockwork Shrine', glyph: '⚙', weight: 1,
     text: 'A shrine of brass gears, wound down and silent. A crank juts from its side. Winding it would take a while.',
   },
+  // ---- Elite Events: seeded per hero (see ELITE_EVENTS), not by weight ----
+  veiled: {
+    kind: 'veiled', name: 'Something Strange', glyph: '✦', weight: 0,
+    text: 'Maybe someone else knows what to do with this…',
+  },
+  wanderers: {
+    kind: 'wanderers', name: 'Wayward Wanderers', glyph: '✦', weight: 0, elite: 'warden',
+    text: 'Two lost villagers huddle in the corner, too frightened to move. They would follow a shield, if it never left them. '
+      + '(12s: they walk with you, Speed −1.5s each, for the rest of the run, and count as two villagers saved when you escape.)',
+  },
+  cant: {
+    kind: 'cant', name: 'Cunning Cant', glyph: '✦', weight: 0, elite: 'cutthroat',
+    text: 'Thieves’ marks cover the wall: a whole map of this place, in a cant only your kind can read. '
+      + '(12s: reveals every room and tunnel, and opens every secret room to you alone until the others find them.)',
+  },
+  liturgy: {
+    kind: 'liturgy', name: 'Luminous Liturgy', glyph: '✦', weight: 0, elite: 'lampbearer',
+    text: 'A shrine to the old light, its wick still trimmed. Wherever your allies are, they would feel it burn. '
+      + '(Pray as long as you like: every second, every ally in the dungeon, you included, gets +1 HP, +1 light and −1 stress.)',
+  },
+  sacrament: {
+    kind: 'sacrament', name: 'Sinful Sacrament', glyph: '✦', weight: 0, elite: 'witch',
+    text: 'A chalice of something dark and warm. Drink, and the whole dungeon will feel what it costs. '
+      + '(12s: +25 stress to every hero, you included; your Speed is the fastest there is (2s) for the rest of the run.)',
+  },
+  uprising: {
+    kind: 'uprising', name: 'Unholy Uprising', glyph: '✦', weight: 0, elite: 'undertaker',
+    text: 'A mass grave, shallow and restless. The dead here would answer a gravedigger. '
+      + '(12s: three Risen follow you for good, into every fight, until they fall. Allies fighting beside them take +8 stress when each fight ends.)',
+  },
+  barrage: {
+    kind: 'barrage', name: 'Booming Barrage', glyph: '✦', weight: 0, elite: 'bellwright',
+    text: 'A great cracked bell hangs from the ceiling, its rope within reach. '
+      + '(36s: you ring it, and it Tolls every 12s while you do.)',
+  },
+  zenith: {
+    kind: 'zenith', name: 'Zen Zenith', glyph: '✦', weight: 0, elite: 'zealot',
+    text: 'A bare stone seat facing a blank wall. Sit, and let it all in. '
+      + '(12s: your stress can rise past 100 for the rest of the run, and you hit harder for every point.)',
+  },
+  alacrity: {
+    kind: 'alacrity', name: 'Artistic Alacrity', glyph: '✦', weight: 0, elite: 'alchemist',
+    text: 'A forgotten laboratory, its glassware arranged just so. Your bottles could ride far lighter. '
+      + '(12s: for the rest of the run, every consumable you carry gives Speed −0.5s.)',
+  },
+};
+
+/** Elite Event of each class. */
+export const CLASS_ELITE: Record<ClassId, EliteEventKind> = {
+  warden: 'wanderers', cutthroat: 'cant', lampbearer: 'liturgy', witch: 'sacrament',
+  undertaker: 'uprising', bellwright: 'barrage', zealot: 'zenith', alchemist: 'alacrity',
+};
+
+export function isElite(kind: EventKind): kind is EliteEventKind {
+  return !!EVENTS[kind].elite;
+}
+
+/** Numbers for the Elite Events. */
+export const ELITE_EVENTS = {
+  /** Each hero in the run adds this chance that their class's Elite Event is in the dungeon (two of a class: twice). */
+  chancePerHero: 0.2,
+  /** Seconds to carry one out (Liturgy: as long as you like; Barrage: below). */
+  channel: 12,
+  /** Wayward Wanderers: villagers that walk with the Warden (each one hurries them as an escort does). */
+  wanderers: 2,
+  /** Luminous Liturgy, per second of prayer, for every ally in the dungeon. */
+  liturgyHp: 1,
+  liturgyLight: 1,
+  liturgyStress: 1,
+  /** Sinful Sacrament: stress to every hero in the dungeon. */
+  sacramentStress: 25,
+  /** Unholy Uprising: how many Risen, and the stress each ally in a fight with them takes when it ends. */
+  uprisingRisen: 3,
+  uprisingStress: 8,
+  /** Booming Barrage: ringing takes this long, Tolling every `barrageEvery` seconds of it. */
+  barrageTime: 36,
+  barrageEvery: 12,
+  /** Zen Zenith: how high stress can go (was 100). */
+  zenithStressMax: 200,
+  /** Artistic Alacrity: Speed per carried consumable. */
+  alacrityPerItem: -0.5,
 };
 
 /** What the Speed events do. Speed is in seconds (lower is faster). */
@@ -115,8 +206,8 @@ export const SPEED_EVENTS = {
 /**
  * Class twists on events (user, 2026-10-10). Deliberately absent from the class picker: a hero learns theirs at the
  * event itself, where the button wears the class icon and says what's different. (The Undertaker's quick digging and
- * the Witch's Speed while Afflicted are class perks, not event twists.)
- * - Witch: cleanses the Altar without waking its guardians.
+ * the Sorceress's Speed while Afflicted are class perks, not event twists.)
+ * - Sorceress: cleanses the Altar without waking its guardians.
  * - Lampbearer: helps the Wounded Stranger without a bandage, and is always rewarded; keeps their light in the Crawlspace.
  * - Cutthroat: takes the Glittering Idol without the cave-in.
  * - Bellwright: the Cracked Hourglass's haste lasts the rest of the run, for everyone it touches.
@@ -135,6 +226,14 @@ export const CLASS_EVENTS = {
 /** Seconds an event choice takes to carry out. `speed` is the hero's current Speed. */
 export function channelTime(kind: EventKind, speed: number): number {
   switch (kind) {
+    case 'liturgy': return Infinity;
+    case 'barrage': return ELITE_EVENTS.barrageTime;
+    case 'wanderers':
+    case 'cant':
+    case 'sacrament':
+    case 'uprising':
+    case 'zenith':
+    case 'alacrity': return ELITE_EVENTS.channel;
     case 'altar': return 18;
     case 'vault': return 24;
     case 'quicksilver':

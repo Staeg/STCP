@@ -6,8 +6,8 @@ import { injuredMaxHp, KIT_RULES, RITES, VILLAGE_RULES, type Injury, type Loadou
 import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
-import { chooseEvent, leaveStranger, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
-import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
+import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
+import { EVENT_SEEDING, type AfflictionId, type EliteEventKind, type EventKind } from '../content/events';
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
@@ -154,6 +154,14 @@ export interface Hero {
   risen: Omit<Risen, 'id' | 'by'> | null;
   /** Called for help (C) this run: only once. */
   called: boolean;
+
+  // ---- Elite Events (content/events.ts) ----
+  /** Lasting effects of the Elite Events this hero carried out (cant: map known · sacrament: Speed 2s · zenith: stress past 100 · alacrity: consumables quicken). */
+  elite: Partial<Record<EliteEventKind, true>>;
+  /** Wayward Wanderers: villagers walking with this Warden; saved if they escape. */
+  wanderers: number;
+  /** Unholy Uprising: Risen that follow this Undertaker into every fight until they fall (HP carries over). */
+  legion: Omit<Risen, 'id' | 'by'>[];
 }
 
 export interface Toll {
@@ -218,6 +226,8 @@ export interface World {
   calls: Call[];
   /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
   objectives: { altars: number; villagers: number };
+  /** Whether heroes joining bring their class's Elite Event with them (off when events are). */
+  eliteEvents: boolean;
   /**
    * Challenge Rating, rolled at the start from the heroes' combined CR (Talents, Gear brought in, Rites). More gold,
    * monsters that only come at higher CR, and above CR 4 tougher monsters all round. No cap.
@@ -288,14 +298,17 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
-    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, eliteEvents: false, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
     nextRespawn: Math.max(ESCALATION_INTERVAL, start + 30), nextWanderer: Math.max(ESCALATION_INTERVAL * 2, start + 30),
     nextCollapse: Math.max(ESCALATION_INTERVAL * 3, start + 60), nextWave: Math.max(EXIT_OPENS_AT, start + 45),
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
   // Events default to following `monsters` (captives come with guards).
-  if (opts.events ?? opts.monsters !== false) spawnEvents(world);
+  if (opts.events ?? opts.monsters !== false) {
+    spawnEvents(world);
+    world.eliteEvents = true;
+  }
   if (opts.loot !== false) spawnInitialLoot(world);
   return world;
 }
@@ -383,6 +396,9 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     immuneUntil: 0,
     risen: null,
     called: false,
+    elite: {},
+    wanderers: 0,
+    legion: [],
   };
   for (const i of hero.injuries) if (i === 'major') hero.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
   if (rites.includes('effigy')) hero.speedMods.push({ amount: KIT_RULES.effigySpeed, until: null, label: RITES.effigy.name });
@@ -394,6 +410,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     hero.hp = hero.maxHp;
   }
   world.heroes[hero.id] = hero;
+  if (world.eliteEvents) seedEliteEvent(world, hero);
   for (const r of rites) notify(world, hero, `${RITES[r].name}: ${RITES[r].desc}`);
   startTimer(world, hero);
   explore(world, hero, d.entrance);
@@ -515,6 +532,12 @@ export function extractHero(world: World, h: Hero) {
     chronicle(world, `${h.name} carried ${dead.name}'s ${gold} gold home for them.`);
   }
   h.bodies = {};
+  // Wayward Wanderers: the villagers who walked out with the Warden are saved.
+  if (h.wanderers > 0) {
+    world.objectives.villagers += h.wanderers;
+    chronicle(world, `${h.name} led ${h.wanderers} wayward villagers out of the dark.`);
+    h.wanderers = 0;
+  }
   // Only those who saw it happen know they left.
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
@@ -867,7 +890,11 @@ export function explore(world: World, hero: Hero, room: number) {
   addUnique(hero.explored, room);
   addUnique(hero.seen, room);
   if (hero.light >= LIGHT_DIM || seesInDark(hero)) {
-    for (const n of neighbours(world.dungeon, room)) addUnique(hero.seen, n);
+    for (const n of neighbours(world.dungeon, room)) {
+      // A secret room opened only to a Cutthroat (Cunning Cant) stays hidden from everyone else.
+      const privy = corridorBetween(world.dungeon, room, n)?.privy;
+      if (!privy || privy.includes(hero.id)) addUnique(hero.seen, n);
+    }
   }
 }
 
@@ -875,9 +902,13 @@ function addUnique(arr: number[], v: number) {
   if (!arr.includes(v)) arr.push(v);
 }
 
-/** A corridor is known to a hero once they have explored either end. */
-export function knowsCorridor(hero: Hero, c: { a: number; b: number }): boolean {
-  return hero.explored.includes(c.a) || hero.explored.includes(c.b);
+/**
+ * A corridor is known to a hero once they have explored either end, or read the whole map (Cunning Cant). A passage
+ * opened only to some heroes (`privy`) doesn't exist for anyone else.
+ */
+export function knowsCorridor(hero: Hero, c: { a: number; b: number; privy?: string[] }): boolean {
+  if (c.privy && !c.privy.includes(hero.id)) return false;
+  return !!hero.elite.cant || hero.explored.includes(c.a) || hero.explored.includes(c.b);
 }
 
 /** Head straight down the known tunnel to a neighbouring room (from a tunnel: back, or on from where it leads). */

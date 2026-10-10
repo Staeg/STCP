@@ -5,8 +5,10 @@ import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
 import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints, wornMult, wornStat } from './loot';
+import { ELITE_EVENTS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
+import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
 
@@ -69,6 +71,8 @@ export interface Risen {
   /** Own turns left before it crumbles. */
   turns: number;
   by: string;
+  /** Unholy Uprising: never crumbles; only falls when its HP runs out. */
+  permanent?: boolean;
 }
 
 export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item';
@@ -113,6 +117,8 @@ export interface Encounter {
   /** The last monster slain here (what Raise brings back), and the risen one, if any. */
   lastSlain?: { type: EnemyId; maxHp: number; dmgMult: number } | null;
   risen?: Risen | null;
+  /** Unholy Uprising: the Risen that follow an Undertaker everywhere, fighting here (fallen ones stay until it ends). */
+  legion?: Risen[];
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
 }
@@ -214,8 +220,13 @@ export function isConscious(h: Hero): boolean {
 export function addStress(h: Hero, amount: number) {
   if (amount > 0) amount *= wornMult(h, 'stressMult');
   const before = h.stress;
-  h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
+  h.stress = Math.max(0, Math.min(stressCap(h), h.stress + amount));
   return h.stress - before;
+}
+
+/** How high stress can go: 100, or more for a Zealot who reached the Zen Zenith. */
+export function stressCap(h: Pick<Hero, 'elite'>): number {
+  return h.elite.zenith ? ELITE_EVENTS.zenithStressMax : STRESS_MAX;
 }
 
 /** Weapon bonus (and the Zealot's stress, and Everflame): multiplies every bit of damage this hero deals. */
@@ -246,7 +257,7 @@ export function abilitiesOf(h: { cls: Hero['cls']; talent?: TalentId | null }): 
 export function takeSins(zealot: Hero, t: Hero, max: number): number {
   const moved = Math.min(max, t.stress);
   t.stress -= moved;
-  zealot.stress = Math.min(STRESS_MAX, zealot.stress + moved);
+  zealot.stress = Math.min(stressCap(zealot), zealot.stress + moved);
   return moved;
 }
 
@@ -308,6 +319,12 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
     for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
     enc.log.push(`${h.name}'s evil eye falls on every foe. (Hexed)`);
   }
+  // Unholy Uprising: the Undertaker's dead come too.
+  if (h.legion.length) {
+    for (const r of h.legion) (enc.legion ??= []).push({ ...r, id: `r${world.nextId++}`, by: h.id });
+    enc.log.push(`${h.name}'s dead shamble in behind them: ${h.legion.map((r) => ENEMIES[r.type].name).join(', ')}.`);
+    h.legion = [];
+  }
   // Restless Dead: the risen that followed the Undertaker here fights on.
   if (h.risen && !risenOf(enc)) {
     enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
@@ -316,8 +333,13 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
   }
 }
 
-/** Restless Dead: when the Undertaker leaves a fight (or it ends), their risen goes with them. */
+/** Restless Dead: when the Undertaker leaves a fight (or it ends), their risen goes with them (and the Uprising's dead, if they still can). */
 function keepRisen(enc: Encounter, h: Hero) {
+  if (enc.legion && inDungeon(h)) {
+    const mine = enc.legion.filter((r) => r.by === h.id);
+    for (const r of mine) if (r.hp > 0) h.legion.push({ type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns, permanent: true });
+    enc.legion = enc.legion.filter((r) => r.by !== h.id);
+  }
   const r = risenOf(enc);
   if (!r || r.by !== h.id || h.talent !== 'restlessDead' || !isConscious(h)) return;
   h.risen = { type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns };
@@ -350,6 +372,16 @@ function resetAfterFight(h: Hero) {
 }
 
 function endEncounter(world: World, enc: Encounter) {
+  // Unholy Uprising: fighting beside the restless dead wears on the living.
+  const raisers = new Set((enc.legion ?? []).map((r) => r.by));
+  for (const by of raisers) {
+    for (const id of enc.heroes) {
+      const o = world.heroes[id];
+      if (!o || id === by || !inDungeon(o)) continue;
+      const added = Math.round(addStress(o, ELITE_EVENTS.uprisingStress));
+      if (added > 0) notify(world, o, `The dead that fought beside you turn their empty eyes on you. (+${added} stress)`);
+    }
+  }
   for (const id of enc.heroes) {
     const h = world.heroes[id];
     if (h) keepRisen(enc, h);
@@ -386,6 +418,7 @@ function startTimers(world: World, enc: Encounter) {
     if ((m.dazedUntil ?? 0) > world.time) m.st.stun = true;
   }
   if (enc.risen) enc.next[enc.risen.id] ??= at(world.time + ENEMIES[enc.risen.type].speed);
+  for (const r of risenAll(enc)) enc.next[r.id] ??= at(world.time + ENEMIES[r.type].speed);
 }
 
 /**
@@ -406,6 +439,12 @@ export function combatOrder(world: World, enc: Encounter): { heroes: Hero[]; mon
 /** The risen ally in this fight, if it's still standing. */
 export function risenOf(enc: Encounter): Risen | null {
   return enc.risen && enc.risen.hp > 0 && enc.risen.turns > 0 ? enc.risen : null;
+}
+
+/** Every risen ally still standing here: the Uprising's dead, then the one Raised (nearest the enemy). */
+export function risenAll(enc: Encounter): Risen[] {
+  const r = risenOf(enc);
+  return [...(enc.legion ?? []).filter((x) => x.hp > 0), ...(r ? [r] : [])];
 }
 
 export function tickCombat(world: World) {
@@ -429,10 +468,9 @@ type Unit = { kind: 'hero'; h: Hero } | { kind: 'monster'; m: Monster } | { kind
 /** The unit whose turn is due soonest (and is due now). Ties go to heroes before monsters, left to right. */
 function nextUp(world: World, enc: Encounter): Unit | null {
   const { heroes, monsters } = combatOrder(world, enc);
-  const risen = risenOf(enc);
   const units: (Unit & { t: number | undefined })[] = [
     ...heroes.filter(isConscious).map((h) => ({ kind: 'hero' as const, h, t: enc.next[h.id] })),
-    ...(risen ? [{ kind: 'risen' as const, r: risen, t: enc.next[risen.id] }] : []),
+    ...risenAll(enc).map((r) => ({ kind: 'risen' as const, r, t: enc.next[r.id] })),
     ...monsters.map((m) => ({ kind: 'monster' as const, m, t: enc.next[m.id] })),
   ];
   let best: (typeof units)[number] | null = null;
@@ -775,7 +813,7 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
         hit(foes[0], 'claws');
     }
   }
-  if (--r.turns <= 0 && r.hp > 0) {
+  if (!r.permanent && --r.turns <= 0 && r.hp > 0) {
     events.push({ actor: r.id, kind: 'death', target: r.id, text: `${name} crumbles back into dust.` });
     delete enc.next[r.id];
   }
@@ -1111,7 +1149,7 @@ function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: numb
     actor: h.id, kind: 'damage', target: m.id, amount: dmg, crit,
     text: `${h.name}'s ${what} ${crit ? 'CRITS' : 'hits'} ${ENEMIES[m.type].name} for ${dmg}.`,
   });
-  // Sanguine: the Witch drinks from every Hex on what she hurts.
+  // Sanguine: the Sorceress drinks from every Hex on what she hurts.
   const hexes = m.st.hexed?.length ?? 0;
   if (h.talent === 'sanguine' && hexes > 0 && dmg > 0 && isConscious(h)) {
     const healed = heal(h, TALENT_RULES.sanguineHeal * hexes);
@@ -1142,8 +1180,7 @@ type Victim = { kind: 'hero'; h: Hero } | { kind: 'risen'; r: Risen };
 
 function victims(world: World, enc: Encounter): Victim[] {
   const heroes = combatOrder(world, enc).heroes.filter(isConscious).map((h) => ({ kind: 'hero' as const, h }));
-  const risen = risenOf(enc);
-  return risen ? [...heroes, { kind: 'risen' as const, r: risen }] : heroes;
+  return [...heroes, ...risenAll(enc).map((r) => ({ kind: 'risen' as const, r }))];
 }
 
 /**

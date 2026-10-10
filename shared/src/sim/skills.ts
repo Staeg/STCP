@@ -139,7 +139,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
 }
 
 /** Bellwright: everyone in the dungeon hears it, sees you for a while, and the monsters next door come running. */
-function toll(world: World, h: Hero) {
+export function toll(world: World, h: Hero) {
   if (h.pos.kind !== 'room') return;
   const room = h.pos.room;
   world.tolls.push({ by: h.id, room, time: world.time });

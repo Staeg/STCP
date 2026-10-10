@@ -36,11 +36,11 @@ export const CLASS_RULES = {
   /** Hex: each Hexed stack adds this much to the damage Hex deals, for this many of the target's turns. */
   hexedBonus: 1,
   hexedTurns: 2,
-  /** Witch: Speed while Afflicted (user, 2026-10-10: rewards risky play). */
+  /** Sorceress: Speed while Afflicted (user, 2026-10-10: rewards risky play). */
   witchAfflictedSpeed: -1.5,
   /** Wither: enemies deal half damage for this many of their own turns. */
   witherTurns: 2,
-  /** Blood Pact: HP every ally (the Witch too) pays. It never takes anyone below 1. */
+  /** Blood Pact: HP every ally (the Sorceress too) pays. It never takes anyone below 1. */
   pactCost: 6,
   /** Undertaker: Spade's damage grows this much for every enemy Last Rites kills, for the rest of the run. */
   spadePerRites: 1,

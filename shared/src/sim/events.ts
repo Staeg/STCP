@@ -1,14 +1,18 @@
-import type { ClassId } from '../content/classes';
-import { LIGHT_DIM } from '../content/constants';
+import { CLASSES, type ClassId } from '../content/classes';
+import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
+import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  AFFLICTIONS, channelTime, CLASS_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS, type AfflictionId, type EventKind,
+  AFFLICTIONS, channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS,
+  type AfflictionId, type EventKind,
 } from '../content/events';
+import { Rng } from '../rng';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { notify } from './notify';
-import { openSecretEarly } from './secrets';
+import { openSecretEarly, openSecretFor } from './secrets';
+import { toll } from './skills';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
 import { chronicle, crGold, explore, type Hero, type World } from './world';
 
@@ -28,6 +32,9 @@ export interface RoomEvent {
   spawned: boolean;
   /** Wounded Stranger: a trap or not, decided the first time it matters. */
   trap?: boolean;
+  /** Luminous Liturgy: seconds of prayer not yet turned into a blessing. Booming Barrage: Tolls rung so far. */
+  pulse?: number;
+  rung?: number;
 }
 
 export interface Villager {
@@ -83,6 +90,28 @@ export function spawnEvents(world: World) {
   }
 }
 
+/**
+ * Elite Events (user, 2026-10-10): every hero brings a 20% chance that their class's Elite Event is somewhere in the
+ * dungeon. Two of a class add up (40%), but there is never more than one of each. Rolled as each hero joins, on
+ * odds that make the total come out right: with k of a class, the k-th one's roll is 0.2 / (1 − 0.2·(k−1)).
+ * Its own RNG, so the rest of the run is the same with or without it.
+ */
+export function seedEliteEvent(world: World, h: Hero) {
+  const kind = CLASS_ELITE[h.cls];
+  if (Object.values(world.events).some((e) => e.kind === kind)) return;
+  const heroes = Object.values(world.heroes);
+  const k = heroes.filter((x) => x.cls === h.cls).length;
+  const p = ELITE_EVENTS.chancePerHero;
+  const rng = new Rng(world.seed ^ 0x2545f491 ^ (heroes.length * 0x9e3779b1));
+  if (rng.next() >= Math.min(1, p / Math.max(p, 1 - p * (k - 1)))) return;
+  const d = world.dungeon;
+  const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
+  const free = d.rooms.filter((r) => r.kind === 'normal' && !safe.has(r.id) && !world.events[r.id] && !villagerHere(world, r.id));
+  if (!free.length) return;
+  const room = rng.pick(free).id;
+  world.events[room] = { room, kind, done: false, progress: 0, by: null, spawned: false };
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 
@@ -99,8 +128,11 @@ export function leadingVillager(world: World, h: Hero): Villager | undefined {
   return h.leading ? world.villagers[h.leading] : undefined;
 }
 
-/** What a hero standing here could do. Empty if nothing (or not yet safe). */
-export function eventChoices(world: World, h: Hero): { kind: EventKind; choices: EventChoice[]; progress?: number } | null {
+/**
+ * What a hero standing here could do. Empty if nothing (or not yet safe). Another class's Elite Event comes back
+ * as `veiled`, with the class that could do it in `forCls`.
+ */
+export function eventChoices(world: World, h: Hero): { kind: EventKind; choices: EventChoice[]; progress?: number; forCls?: ClassId } | null {
   if (h.pos.kind !== 'room') return null;
   const room = h.pos.room;
   const v = villagerHere(world, room);
@@ -113,6 +145,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   }
   const ev = world.events[room];
   if (!ev || ev.done) return null;
+  const elite = EVENTS[ev.kind].elite;
+  if (elite && elite !== h.cls) return { kind: 'veiled', choices: [], forCls: elite };
   if (!quiet(world, room)) return { kind: ev.kind, choices: [] };
   // First come, first served: once someone has started, it's theirs.
   const taken = ev.by && ev.by !== h.id ? `${world.heroes[ev.by]?.name ?? 'Someone'} is already doing it.` : undefined;
@@ -171,7 +205,32 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         : c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`));
     case 'clockwork':
       return one(c('wind', `Wind it (Speed ${signed(SPEED_EVENTS.clockworkSpeed)} for the rest of the run)`));
+    // ---- Elite Events: only their own class gets this far ----
+    case 'wanderers':
+      return one(perk(c('gather', 'Gather them up'), 'warden', 'They will not leave your side until you leave the dungeon.'));
+    case 'cant':
+      return one(perk(c('read', 'Read the marks'), 'cutthroat', 'Every room, every tunnel, every hidden way: yours alone.'));
+    case 'liturgy':
+      return one(perk({ id: 'pray', label: 'Pray (as long as you like)', disabled: taken }, 'lampbearer',
+        `Every second: +${ELITE_EVENTS.liturgyHp} HP, +${ELITE_EVENTS.liturgyLight} light and −${ELITE_EVENTS.liturgyStress} stress to every ally, wherever they are.`));
+    case 'sacrament':
+      return one(perk(c('partake', 'Drink from the chalice'), 'witch', `+${ELITE_EVENTS.sacramentStress} stress to every hero; Speed 2s for the rest of the run.`));
+    case 'uprising':
+      return one(perk(c('raise', 'Wake the dead'), 'undertaker', `${ELITE_EVENTS.uprisingRisen} Risen follow you for good.`));
+    case 'barrage':
+      return one(perk(c('ring', 'Ring the great bell'), 'bellwright', `It Tolls every ${ELITE_EVENTS.barrageEvery}s while you ring.`));
+    case 'zenith':
+      return one(perk(c('sit', 'Sit and let it in'), 'zealot', `Your stress can rise to ${ELITE_EVENTS.zenithStressMax}.`));
+    case 'alacrity':
+      return one(perk(c('rework', 'Rework your bottles'), 'alchemist', `Every consumable you carry: Speed ${signed(ELITE_EVENTS.alacrityPerItem)}.`));
+    case 'veiled':
+      return null;
   }
+}
+
+/** What another class sees at an Elite Event. */
+export function veiledText(cls: ClassId): string {
+  return `Maybe ${CLASSES[cls].name} knows what to do with this…`;
 }
 
 /** "−1s" / "+1s" */
@@ -186,6 +245,8 @@ export function choiceVerb(kind: EventKind, choice: string): string {
     take: 'taking the idol', help: 'bandaging the stranger', drink: 'drinking from the well',
     open: 'opening the chest', crawl: 'squeezing into the crawlspace',
     quaff: 'drinking the quicksilver', haul: 'shouldering the satchel', turn: 'turning the hourglass', wind: 'winding the shrine',
+    gather: 'gathering the wanderers', read: 'reading the marks', pray: 'praying at the shrine', partake: 'drinking from the chalice',
+    raise: 'waking the dead', ring: 'ringing the great bell', sit: 'sitting in silence', rework: 'reworking their bottles',
   };
   return verbs[choice] ?? 'busy';
 }
@@ -221,7 +282,10 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   h.path = [];
   h.channel = { kind: 'event', room, choice: choiceId, until: Infinity };
   const verb = choiceVerb(ev.kind, choiceId);
-  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress))}s; moving away starts it over)`);
+  const secs = channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress);
+  notify(world, h, Number.isFinite(secs)
+    ? `You start ${verb}… (${Math.ceil(secs)}s; moving away starts it over)`
+    : `You start ${verb}. It lasts as long as you stay.`);
   for (const o of othersHere(world, h)) notify(world, o, `${h.name} starts ${verb}.`);
   return null;
 }
@@ -395,6 +459,77 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       notify(world, h, `The gears catch and begin to tick, and your heart keeps time with them. (Speed ${signed(SPEED_EVENTS.clockworkSpeed)})`);
       chronicle(world, `${h.name} wound the Clockwork Shrine.`);
       return;
+    // ---- Elite Events ----
+    case 'gather': {
+      const n = ELITE_EVENTS.wanderers;
+      h.wanderers += n;
+      notify(world, h, `${n} villagers fall in behind your shield. They won't leave until you do. (Speed ${signed(n * CLASS_EVENTS.wardenEscortSpeed)}; +${n * EVENT_SEEDING.villagerBonus} gold each for those who escape, if you do)`);
+      chronicle(world, `${h.name} gathered ${n} wayward villagers.`);
+      return;
+    }
+    case 'read':
+      readTheCant(world, h);
+      return;
+    case 'partake': {
+      h.elite.sacrament = true;
+      for (const x of Object.values(world.heroes)) {
+        if (!inDungeon(x)) continue;
+        const added = Math.round(addStress(x, ELITE_EVENTS.sacramentStress));
+        notify(world, x, x === h
+          ? `It tastes of every sin in this place. Everyone feels it, and you are quicker than anything down here. (+${added} stress, Speed 2s)`
+          : `A cold shudder runs through you: somewhere, ${h.name} has drunk something terrible. (+${added} stress)`);
+      }
+      chronicle(world, `${h.name} partook of the Sinful Sacrament.`);
+      return;
+    }
+    case 'raise': {
+      const scale = 1 + ESCALATION.escalationScaling * world.escalation;
+      const kinds: EnemyId[] = ['ghoul', 'crawler', 'acolyte', 'brute'];
+      for (let i = 0; i < ELITE_EVENTS.uprisingRisen; i++) {
+        const type = rng.pick(kinds);
+        const hp = Math.round(ENEMIES[type].maxHp * scale);
+        h.legion.push({ type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true });
+      }
+      const names = h.legion.map((r) => ENEMIES[r.type].name).join(', ');
+      notify(world, h, `The grave heaves. Your dead rise to follow you: ${names}.`);
+      for (const o of othersHere(world, h)) notify(world, o, `${h.name} wakes the dead. They follow the Undertaker now.`);
+      chronicle(world, `${h.name} raised an Unholy Uprising (${names}).`);
+      return;
+    }
+    case 'ring':
+      notify(world, h, 'The great bell falls silent at last.');
+      chronicle(world, `${h.name} rang the great bell.`);
+      return;
+    case 'sit':
+      h.elite.zenith = true;
+      notify(world, h, `You let it all in, and there is room for more. (Stress can rise to ${ELITE_EVENTS.zenithStressMax})`);
+      chronicle(world, `${h.name} reached the Zen Zenith.`);
+      return;
+    case 'rework':
+      h.elite.alacrity = true;
+      notify(world, h, `Thinner glass, tighter stoppers. Every consumable you carry quickens you. (Speed ${signed(ELITE_EVENTS.alacrityPerItem)} each)`);
+      chronicle(world, `${h.name} reworked their bottles.`);
+      return;
+  }
+}
+
+/** Cunning Cant: the whole map, and every secret room opened to this Cutthroat alone until it opens for everyone. */
+function readTheCant(world: World, h: Hero) {
+  const d = world.dungeon;
+  h.elite.cant = true;
+  for (const s of d.secrets) if (!s.open || s.corridor.privy) openSecretFor(world, s, [h.id]);
+  for (const r of d.rooms) if (r.corridors.length && !h.seen.includes(r.id)) h.seen.push(r.id);
+  notify(world, h, 'The marks unfold into a map: every room, every tunnel, and the hidden ways only your kind knows.');
+  chronicle(world, `${h.name} read the thieves' cant.`);
+}
+
+/** Luminous Liturgy: one second of prayer, felt by every ally in the dungeon. */
+function bless(world: World) {
+  for (const x of Object.values(world.heroes)) {
+    if (!inDungeon(x) || !isConscious(x)) continue;
+    x.hp = Math.min(x.maxHp, x.hp + ELITE_EVENTS.liturgyHp);
+    x.light = Math.min(LIGHT_MAX, x.light + ELITE_EVENTS.liturgyLight);
+    addStress(x, -ELITE_EVENTS.liturgyStress);
   }
 }
 
@@ -457,8 +592,24 @@ export function tickEvents(world: World, dt: number) {
       continue;
     }
     const kind = ev.kind;
+    // Luminous Liturgy never finishes: it blesses every ally each second the Lampbearer keeps praying.
+    if (kind === 'liturgy') {
+      if (ev.pulse === undefined) {
+        world.stats.eventsUsed++;
+        chronicle(world, `${h.name} began the Luminous Liturgy.`);
+        for (const x of Object.values(world.heroes)) if (x !== h && inDungeon(x)) notify(world, x, `A warm light reaches you from far away: ${h.name} is praying.`);
+      }
+      ev.pulse = (ev.pulse ?? 0) + dt;
+      for (; ev.pulse >= 1; ev.pulse -= 1) bless(world);
+      continue;
+    }
     ev.progress = Math.min(1, ev.progress + dt / channelTime(kind, speedOf(h, world.time)));
-    // The Witch's rites keep the guardians asleep.
+    // Booming Barrage: a Toll every so often while the bell swings.
+    if (kind === 'barrage') {
+      const due = Math.floor((ev.progress * ELITE_EVENTS.barrageTime) / ELITE_EVENTS.barrageEvery + 1e-9);
+      for (; (ev.rung ?? 0) < due; ev.rung = (ev.rung ?? 0) + 1) toll(world, h);
+    }
+    // The Sorceress's rites keep the guardians asleep.
     if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned && h.cls !== 'witch') {
       ev.spawned = true;
       notify(world, h, 'The altar shrieks. Its guardians come!');
@@ -477,6 +628,7 @@ export function tickEvents(world: World, dt: number) {
 function abandon(ev: RoomEvent) {
   ev.by = null;
   ev.progress = ev.spawned ? 0.5 : 0;
+  ev.rung = 0;
 }
 
 function completeChannel(world: World, ev: RoomEvent, h: Hero) {
@@ -541,7 +693,7 @@ export function tickStress(world: World, dt: number) {
     addStress(h, STRESS.basePerSec * dt);
     if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
     else if (h.light < LIGHT_DIM && !seesInDark(h)) addStress(h, STRESS.dimPerSec * dt);
-    // The Zealot never breaks: stress just stays at 100 (and makes them hit harder).
+    // The Zealot never breaks: stress just stays at its cap (and makes them hit harder).
     if (h.stress < 100 || h.cls === 'zealot') continue;
     if (!h.affliction) {
       afflict(world, h, world.rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'stress');

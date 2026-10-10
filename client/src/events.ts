@@ -39,9 +39,9 @@ export class EventUi {
     const channelling = view.you.channel?.kind === 'event';
     const w = ev.worker;
     const who = w
-      ? `<div class="ev-worker ${w.you ? 'you' : ''}">${w.you ? 'You are' : `${esc(w.name)} is`} ${esc(w.doing)} · ${Math.ceil(w.secondsLeft)}s left${w.you ? ' <span class="muted small">(moving away starts it over)</span>' : ''}</div>`
+      ? `<div class="ev-worker ${w.you ? 'you' : ''}">${w.you ? 'You are' : `${esc(w.name)} is`} ${esc(w.doing)}${w.secondsLeft === null ? '' : ` · ${Math.ceil(w.secondsLeft)}s left`}${w.you ? ` <span class="muted small">(${w.secondsLeft === null ? 'walk away to stop' : 'moving away starts it over'})</span>` : ''}</div>`
       : '';
-    const progress = w || (ev.progress ?? 0) > 0
+    const progress = ev.progress === undefined ? who : w || (ev.progress ?? 0) > 0
       ? `<div class="ev-progress"><div style="width:${((ev.progress ?? 0) * 100).toFixed(0)}%"></div></div>
          ${who || `<div class="muted small">${Math.round((ev.progress ?? 0) * 100)}% done</div>`}`
       : '';

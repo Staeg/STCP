@@ -26,7 +26,7 @@ for (let i = 2; i < process.argv.length; i++) {
 // Tunables: content tables are plain mutable objects, so overrides apply to every game in this process.
 const TUNABLE: Record<string, unknown> = {
   ESCALATION: shared.ESCALATION, ENEMIES: shared.ENEMIES, CLASSES: shared.CLASSES, LOOT: shared.LOOT,
-  EVENT_SEEDING: shared.EVENT_SEEDING, BOTS: shared.BOTS, STRESS: shared.STRESS, ABILITIES: shared.ABILITIES,
+  EVENT_SEEDING: shared.EVENT_SEEDING, ELITE_EVENTS: shared.ELITE_EVENTS, BOTS: shared.BOTS, STRESS: shared.STRESS, ABILITIES: shared.ABILITIES,
   CLASS_RULES: shared.CLASS_RULES,
 };
 for (const s of sets) {

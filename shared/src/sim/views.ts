@@ -6,7 +6,7 @@ import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
-import { choiceVerb, eventChoices, type EventChoice } from './events';
+import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
   abilitiesOf, abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
@@ -57,7 +57,7 @@ export interface EventView {
   /** Channelled events: 0..1. */
   progress?: number;
   /** Whoever chose it first and is carrying it out (only they can, while they're at it). */
-  worker: { id: string; name: string; you: boolean; doing: string; secondsLeft: number } | null;
+  worker: { id: string; name: string; you: boolean; doing: string; secondsLeft: number | null } | null;
   /** Monsters are here: deal with them first. */
   blocked: boolean;
 }
@@ -140,7 +140,7 @@ export interface CombatUnitView {
   st: Statuses;
   /** Heroes only. */
   stress?: number;
-  /** The risen: own turns left. */
+  /** The risen: own turns left (none for the Uprising's dead, who never crumble). */
   turnsLeft?: number;
   cls?: ClassId;
   color?: string;
@@ -167,6 +167,8 @@ export interface EncounterView {
   heroes: CombatUnitView[];
   /** The Undertaker's risen, shown right of the heroes (nearest the enemy). */
   risen: CombatUnitView | null;
+  /** Unholy Uprising: the Undertaker's lasting dead, between the heroes and the risen. */
+  legion: CombatUnitView[];
   monsters: CombatUnitView[];
   yourChoice: Choice | null;
   /** For each of your abilities ('a0'…): who it can be aimed at now ([] = no target needed), or why it can't be used. */
@@ -283,7 +285,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       corridors: r.corridors.filter((cid) => over || knowsCorridor(you, d.corridors[cid])),
       threat: reveal ? reveal.monsters.length || undefined : you.knownThreat[id],
       loot: reveal ? reveal.items.length + (reveal.gold > 0 ? 1 : 0) || undefined : you.knownLoot[id],
-      event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : you.knownEvents[id],
+      event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : veil(you, you.knownEvents[id]),
       reveal,
     };
   });
@@ -327,18 +329,31 @@ function eventView(world: World, you: Hero): EventView | null {
   if (!opts || you.pos.kind !== 'room') return null;
   const def = EVENTS[opts.kind];
   const ev = world.events[you.pos.room];
+  // Another class's Elite Event: just a hint at whose it is.
+  const text = opts.forCls ? veiledText(opts.forCls) : def.text;
   const h = ev?.by ? world.heroes[ev.by] : undefined;
   const ch = h?.channel;
   const worker = h && ch?.kind === 'event'
     ? {
         id: h.id, name: h.name, you: h === you, doing: choiceVerb(ev.kind, ch.choice),
-        secondsLeft: channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress),
+        // Luminous Liturgy has no end: null.
+        secondsLeft: finiteOrNull(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress)),
       }
     : null;
   return {
-    kind: opts.kind, name: def.name, glyph: def.glyph, text: def.text, choices: opts.choices,
-    progress: opts.progress, worker, blocked: opts.choices.length === 0,
+    kind: opts.kind, name: def.name, glyph: def.glyph, text, choices: opts.choices,
+    progress: ev?.kind === 'liturgy' ? undefined : opts.progress, worker, blocked: opts.choices.length === 0 && !opts.forCls,
   };
+}
+
+function finiteOrNull(n: number): number | null {
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Another class's Elite Event shows on your map as something strange, not as what it is. */
+function veil(you: Hero, kind: EventKind | undefined): EventKind | undefined {
+  const elite = kind && EVENTS[kind].elite;
+  return elite && elite !== you.cls ? 'veiled' : kind;
 }
 
 function revealRoom(world: World, room: number): RoomReveal {
@@ -422,6 +437,10 @@ function encounterView(world: World, you: Hero): EncounterView | null {
         speed: ENEMIES[risen.type].speed, nextIn: nextIn(risen.id), turnsLeft: risen.turns,
       }
     : null;
+  const legion: CombatUnitView[] = (enc.legion ?? []).filter((r) => r.hp > 0).map((r) => ({
+    id: r.id, kind: 'risen', name: `Risen ${ENEMIES[r.type].name}`, hp: r.hp, maxHp: r.maxHp, st: {}, enemy: r.type,
+    speed: ENEMIES[r.type].speed, nextIn: nextIn(r.id),
+  }));
   const yourOptions: EncounterView['yourOptions'] = {};
   if (isConscious(you) && enc.heroes.includes(you.id)) {
     abilitiesOf(you).forEach((ab, i) => {
@@ -433,6 +452,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     room: enc.room,
     heroes: order.heroes.map(heroUnit),
     risen: risenUnit,
+    legion,
     monsters: order.monsters.map((m) => ({
       id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, st: { ...m.st }, enemy: m.type,
       speed: ENEMIES[m.type].speed, nextIn: nextIn(m.id),

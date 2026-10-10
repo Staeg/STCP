@@ -117,7 +117,7 @@ export class Hud {
     $('hp-text').textContent = `${Math.max(0, Math.ceil(you.hp))}/${you.maxHp}`;
     $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
     $('stress-text').textContent = `${Math.round(you.stress)}`;
-    $('stress-fill').style.width = `${you.stress}%`;
+    $('stress-fill').style.width = `${Math.min(100, you.stress)}%`;
     $('light-text').textContent = view.dim ? (you.light <= 0 ? '(DARK)' : '(DIM)') : '';
     $('light-text').title = you.light <= 0
       ? `Darkness: +${STRESS.darkPerSec} stress per second, and monsters hit you 25% harder.`

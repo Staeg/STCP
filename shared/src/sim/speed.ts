@@ -1,7 +1,7 @@
 import { CLASS_RULES } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { MIN_SPEED } from '../content/constants';
-import { CLASS_EVENTS, EVENT_SEEDING } from '../content/events';
+import { CLASS_EVENTS, ELITE_EVENTS, EVENTS, EVENT_SEEDING } from '../content/events';
 import { ITEMS } from '../content/items';
 import type { Hero } from './world';
 
@@ -35,7 +35,18 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
   if (h.leading) parts.push({ label: 'Escorting a villager', amount: escortSpeed(h) });
-  if (h.cls === 'witch' && h.affliction) parts.push({ label: 'Afflicted Witch', amount: CLASS_RULES.witchAfflictedSpeed });
+  if (h.cls === 'witch' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.witchAfflictedSpeed });
+  // Elite Events.
+  if (h.wanderers > 0) parts.push({ label: EVENTS.wanderers.name, amount: h.wanderers * CLASS_EVENTS.wardenEscortSpeed });
+  if (h.elite.alacrity) {
+    const n = h.items.filter((id) => ITEMS[id].kind === 'consumable').length;
+    if (n) parts.push({ label: EVENTS.alacrity.name, amount: n * ELITE_EVENTS.alacrityPerItem });
+  }
+  // Sinful Sacrament: the fastest there is, whatever else would slow you.
+  if (h.elite.sacrament) {
+    const total = parts.reduce((s, p) => s + p.amount, 0);
+    parts.push({ label: EVENTS.sacrament.name, amount: MIN_SPEED - total });
+  }
   return parts;
 }
 

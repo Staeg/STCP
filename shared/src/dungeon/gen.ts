@@ -25,6 +25,8 @@ export interface Corridor {
   length: number;
   /** The way into a secret room (drawn golden). */
   secret?: boolean;
+  /** Opened early to these heroes only (Cunning Cant); everyone else can't see or use it until it opens for real. */
+  privy?: string[];
 }
 
 /**

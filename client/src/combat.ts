@@ -86,6 +86,7 @@ export class CombatUi {
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
     if (enc.risen) this.prevMonsters.set(enc.risen.id, enc.risen);
+    for (const r of enc.legion ?? []) this.prevMonsters.set(r.id, r);
   }
 
   // ---- Replay of each turn's events ----
@@ -177,8 +178,9 @@ export class CombatUi {
       if (h.choiceTarget && h.choiceTarget !== h.id) (this.aimedBy.get(h.choiceTarget) ?? this.aimedBy.set(h.choiceTarget, []).get(h.choiceTarget)!).push(h.color!);
     }
     // The risen stand right of the heroes, nearest the enemy (and so take the hits).
-    const dyingRisen = [...this.pending.dying.values()].filter((u) => u.kind === 'risen' && u.id !== enc.risen?.id);
-    const heroes = [...enc.heroes, ...(enc.risen ? [enc.risen] : []), ...dyingRisen];
+    const legion = enc.legion ?? [];
+    const dyingRisen = [...this.pending.dying.values()].filter((u) => u.kind === 'risen' && u.id !== enc.risen?.id && !legion.some((r) => r.id === u.id));
+    const heroes = [...enc.heroes, ...legion, ...(enc.risen ? [enc.risen] : []), ...dyingRisen];
     const monsters = [...enc.monsters];
     for (const d of this.pending.dying.values()) {
       if (d.kind === 'monster') monsters.splice(Math.min(this.prevSlot.get(d.id) ?? monsters.length, monsters.length), 0, d);
@@ -339,7 +341,7 @@ export class CombatUi {
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
     const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s`
       : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
-      : u.kind === 'risen' ? `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left` : '';
+      : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
     // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.
     const timed = u.nextIn !== null && !dying;
     const fill = timed ? Math.max(0, Math.min(1, 1 - u.nextIn! / u.speed)) : 0;

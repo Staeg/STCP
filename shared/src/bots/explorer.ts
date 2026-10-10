@@ -39,6 +39,10 @@ export interface BotMemory {
   judgedCalls?: string[];
   /** When this bot said it was ready to leave (E). */
   readySince?: number;
+  /** Elite Events: whether to drink the Sacrament / ring the Barrage (decided once), and when to stop the Liturgy. */
+  sacrament?: boolean;
+  barrage?: boolean;
+  prayUntil?: number;
 }
 
 /** `start`: the clock when the run began (later for a Relic Rite run); the return time shrinks with the run. */

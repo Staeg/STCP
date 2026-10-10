@@ -34,7 +34,7 @@ export const TALENT_RULES = {
   everflamePerLight: 0.0033,
   /** Triage: Mend's healing (and it only targets the Lampbearer). */
   triageHeal: 12,
-  /** Sanguine: HP the Witch heals per Hexed stack on whatever she damages. */
+  /** Sanguine: HP the Sorceress heals per Hexed stack on whatever she damages. */
   sanguineHeal: 2,
   /** Restless Dead: the risen fight this many turns. */
   restlessTurns: 6,
