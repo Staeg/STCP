@@ -11,9 +11,9 @@ const baseStress = STRESS.basePerSec;
 beforeEach(() => void (STRESS.basePerSec = 0));
 afterEach(() => void (STRESS.basePerSec = baseStress));
 
-/** Ghoul and Crawler by default, Wight, Brute; Acolyte, Zombie, Queen and Lich only with CR. */
+/** Ghoul and Crawler by default, Wight, Giant; Acolyte, Zombie, Queen and Lich only with CR. */
 const ROSTER: Roster = {
-  main: { 0: ['ghoul', 'crawler'], 1: ['wight'], 2: ['brute'], 3: [] },
+  main: { 0: ['ghoul', 'crawler'], 1: ['wight'], 2: ['giant'], 3: [] },
   cr: { 0: 'acolyte', 1: 'zombie', 2: 'queen', 3: 'lich' },
 };
 
@@ -66,7 +66,7 @@ describe('Roster', () => {
     };
     expect(seen(0)).toEqual(['crawler', 'ghoul']);
     expect(seen(1)).toEqual(['crawler', 'ghoul', 'wight']);
-    expect(seen(3)).toEqual(['brute', 'crawler', 'ghoul', 'wight']);
+    expect(seen(3)).toEqual(['crawler', 'ghoul', 'giant', 'wight']);
   });
 
   it('a default Queen never stands alone', () => {

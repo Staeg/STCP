@@ -804,9 +804,17 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
   (st.poison ??= []).push({ dmg, rounds });
 }
 
-/** What a monster actually takes from a hit of `dmg` (Acid adds to every one). */
-function acidic(m: Monster, dmg: number): number {
-  return m.st.acid ? dmg + m.st.acid.stacks * CLASS_RULES.acidBonus : dmg;
+/** What a monster actually takes from a hit of `dmg`: its armor takes some off (at least 1 gets through), then Acid adds to it. */
+function monsterTakes(m: Monster, dmg: number): number {
+  const reduced = dmg > 0 ? Math.max(1, dmg - ENEMIES[m.type].armor) : dmg;
+  return m.st.acid ? reduced + m.st.acid.stacks * CLASS_RULES.acidBonus : reduced;
+}
+
+/** What a risen takes from a blow: a Risen ally's own armor counts, a risen monster's its kind's. */
+function risenTakes(world: World, r: Risen, dmg: number): number {
+  const ally = r.hero ? world.heroes[r.hero] : undefined;
+  if (ally) return armored(ally, dmg);
+  return Math.max(1, dmg - ENEMIES[r.type!].armor);
 }
 
 function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) {
@@ -903,7 +911,7 @@ function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEve
     vigilFlares(world, enc, events);
   }
   if (world.monsters[m.id]) {
-    endOfTurn(m.st, ENEMIES[m.type].name, m.id, (n) => acidic(m, n), (n) => {
+    endOfTurn(m.st, ENEMIES[m.type].name, m.id, (n) => monsterTakes(m, n), (n) => {
       applyMonsterDamage(world, m, n, events);
       return !!world.monsters[m.id];
     }, events);
@@ -919,7 +927,7 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
   if (foes.length) {
     const dmg = Math.max(1, Math.round(ENEMIES[r.type!].dmg * r.dmgMult));
     const hit = (m: Monster, verb: string) => {
-      const taken = acidic(m, dmg);
+      const taken = monsterTakes(m, dmg);
       events.push({ actor: r.id, kind: 'damage', target: m.id, amount: taken, text: `${name} ${verb} ${ENEMIES[m.type].name} for ${taken}.` });
       applyMonsterDamage(world, m, taken, events);
     };
@@ -930,7 +938,7 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
         if (world.monsters[m.id]) addPoison(m.st, 1, 3);
         break;
       }
-      case 'brute':
+      case 'giant':
         for (const m of foes.slice(0, 2)) hit(m, 'slams');
         break;
       case 'acolyte':
@@ -1283,7 +1291,7 @@ function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: numb
   let dmg = base * damageMult(h, world);
   if (h.st.weak) dmg *= 0.5;
   if (h.affliction === 'hopeless') dmg *= 0.7;
-  dmg = acidic(m, Math.max(1, Math.round(dmg)));
+  dmg = monsterTakes(m, Math.max(1, Math.round(dmg)));
   if (m.st.block) {
     const absorbed = Math.min(m.st.block, dmg);
     m.st.block -= absorbed;
@@ -1370,7 +1378,7 @@ function victims(world: World, enc: Encounter): Victim[] {
 
 /**
  * Monsters go for the nearest unit on the heroes' side (the rightmost), except: Crawlers bite at random,
- * the Bone Brute slams the two nearest, and the Acolyte whispers to a random hero or curses the farthest one.
+ * the Bone Giant slams the two nearest, and the Acolyte whispers to a random hero or curses the farthest one.
  */
 function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEvent[]) {
   const rng = world.rng;
@@ -1418,8 +1426,8 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
         monsterHits(world, enc, m, side[0], ENEMIES.acolyte.dmg, 'curses', events);
       }
       return;
-    case 'brute':
-      for (const t of side.slice(-2)) monsterHits(world, enc, m, t, ENEMIES.brute.dmg, 'slams', events);
+    case 'giant':
+      for (const t of side.slice(-2)) monsterHits(world, enc, m, t, ENEMIES.giant.dmg, 'slams', events);
       return;
     case 'wight': {
       const t = monsterHits(world, enc, m, nearest, ENEMIES.wight.dmg, 'snuffs at', events);
@@ -1461,7 +1469,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   }
   if (victim.kind === 'risen') {
     const r = victim.r;
-    const dmg = Math.max(1, Math.round(base * m.dmgMult * (m.st.weak ? 0.5 : 1)));
+    const dmg = risenTakes(world, r, Math.max(1, Math.round(base * m.dmgMult * (m.st.weak ? 0.5 : 1))));
     r.hp = Math.max(0, r.hp - dmg);
     const rname = risenName(world, r);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
@@ -1502,14 +1510,14 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   });
   applyHeroDamage(world, enc, t, dmg, events);
   if (returned > 0 && world.monsters[m.id]) {
-    const back = acidic(m, returned);
+    const back = monsterTakes(m, returned);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
     applyMonsterDamage(world, m, back, events);
   }
   // Thorn Ring: a blow that lands costs the attacker.
   const thorns = wornStat(t, 'thorns');
   if (thorns > 0 && dmg > 0 && world.monsters[m.id] && m.hp > 0) {
-    const back = acidic(m, thorns);
+    const back = monsterTakes(m, thorns);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Thorns! ${name} takes ${back}.` });
     applyMonsterDamage(world, m, back, events);
   }

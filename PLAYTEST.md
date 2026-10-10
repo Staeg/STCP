@@ -16,7 +16,7 @@ _Date: 2026-10-08 · Build: after M9 (commit efdde6a) · Tester: Claude, using t
 | 0:12–0:32 | Took a Tonic; cracked a **Locked Vault** (+33 gold, Torch, Bandage). |
 | 0:36–1:56 | Two fights vs Acolyte + Crawlers. **Round 10** of a solo fight. HP 50 → 11, **stress 78** by 1:50 (Acolyte Whispers over long fights). Survived on 3 Bandages. |
 | 2:00–6:00 | Cautious exploration (autopilot avoids known monsters when hurt): 31 rooms, 93 gold, drank from a well (+15 HP). Light Dim by about 6:30. |
-| 6:00–6:39 | Another long Acolyte fight (HP 14 → 9), then a **Bone Brute** at 7 HP. **Downed at 6:39** with stress 94, bleeding out with no ally in sight. Ilse (bot) had become **Selfish**. |
+| 6:00–6:39 | Another long Acolyte fight (HP 14 → 9), then a **Bone Giant** at 7 HP. **Downed at 6:39** with stress 94, bleeding out with no ally in sight. Ilse (bot) had become **Selfish**. |
 
 **Findings**
 - 🔴 **The Warden and Lampbearer can't fight alone.** Neither has an attack usable every round (Warden: Bash every 3rd round, Guard needs an ally, Rally deals no damage; Lampbearer: only Flare deals damage, every 4th round). Solo fights run 8–10 rounds, which bleeds HP *and* stress. In a game built around splitting up, every class needs a basic attack.

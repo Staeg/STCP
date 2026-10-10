@@ -11,7 +11,7 @@ import { dropEverything } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, digTime, extractHero, step, type World } from './world';
 import type { ClassId } from '../content/classes';
-import type { EnemyId } from '../content/enemies';
+import { ENEMIES, type EnemyId } from '../content/enemies';
 
 // These tests check exact stress amounts; the dungeon's steady background stress would blur them.
 const baseStress = STRESS.basePerSec;
@@ -53,11 +53,11 @@ function quiet(classes: ClassId[], escalates = false) {
 
 describe('line-ups and targeting', () => {
   it('sorts each side slowest-nearest: heroes fastest → slowest, monsters slowest → fastest', () => {
-    const { world, ids, room } = arena(['warden', 'cutthroat', 'lampbearer'], ['ghoul', 'brute', 'crawler']);
+    const { world, ids, room } = arena(['warden', 'cutthroat', 'lampbearer'], ['ghoul', 'giant', 'crawler']);
     walkIn(world, ids, room);
     const order = combatOrder(world, world.encounters[room]);
     expect(order.heroes.map((h) => h.cls)).toEqual(['cutthroat', 'lampbearer', 'warden']);
-    expect(order.monsters.map((m) => m.type)).toEqual(['brute', 'ghoul', 'crawler']);
+    expect(order.monsters.map((m) => m.type)).toEqual(['giant', 'ghoul', 'crawler']);
   });
 
   it('monsters hit the rightmost (slowest) hero', () => {
@@ -85,6 +85,43 @@ describe('poison and acid', () => {
     expect(m.st.poison).toEqual([{ dmg: 2, rounds: 1 }]);
     // The timer ran out: one stack fades and the other gets a fresh timer.
     expect(m.st.acid).toEqual({ stacks: 1, turns: CLASS_RULES.acidTurns });
+  });
+});
+
+describe('monster armor', () => {
+  it('takes its armor off every hit (at least 1 gets through); only the Bone Giant has any', () => {
+    expect(Object.values(ENEMIES).filter((e) => e.armor > 0).map((e) => [e.id, e.armor])).toEqual([['giant', 3]]);
+    const { world, ids, room, monsters } = arena(['warden'], ['giant']);
+    walkIn(world, ids, room);
+    const giant = monsters[0];
+    applyIntent(world, ids[0], { type: 'combat', choice: { action: 'a0', target: giant.id } });
+    untilTurn(world, room, ids[0]);
+    const hit = world.encounters[room].events.find((e) => e.actor === ids[0] && e.kind === 'damage' && e.target === giant.id)!;
+    expect(hit.amount).toBe(abilityById('bash')!.power - 3);
+  });
+
+  it("a risen keeps its kind's armor, and a Risen ally's armor counts", () => {
+    const { world, ids, room, monsters } = arena(['undertaker', 'warden'], ['ghoul']);
+    const [u, w] = ids.map((id) => world.heroes[id]);
+    w.armor = 'chainshirt';
+    w.dead = true;
+    dropEverything(world, w);
+    run(world, 0.2);
+    walkIn(world, [u.id], room);
+    const enc = world.encounters[room];
+    enc.legion!.push({ id: 'rb', by: u.id, type: 'giant', hp: 50, maxHp: 50, dmgMult: 1, turns: 1, permanent: true });
+    const ghoul = monsters[0];
+    const hits = () => enc.events.filter((e) => e.actor === ghoul.id && e.kind === 'damage');
+    for (let i = 0; i < 6 && !hits().some((e) => e.target === 'rb'); i++) untilTurn(world, room, ghoul.id);
+    const base = Math.round(ENEMIES.ghoul.dmg * ghoul.dmgMult);
+    expect(hits().find((e) => e.target === 'rb')?.amount).toBe(Math.max(1, base - 3));
+    // The Warden's Chain Shirt came back on when they were Raised, and it counts.
+    expect(w.armor).toBe('chainshirt');
+    const rb = enc.legion!.find((r) => r.id === 'rb')!;
+    rb.hp = 0;
+    delete enc.next.rb;
+    for (let i = 0; i < 6 && !hits().some((e) => e.target === w.id); i++) untilTurn(world, room, ghoul.id);
+    expect(hits().find((e) => e.target === w.id)?.amount).toBe(Math.max(1, base - 2));
   });
 });
 
@@ -314,13 +351,13 @@ describe('party', () => {
 
 describe('reworked kits', () => {
   it('Backstab crits an enemy that has not acted yet; Cheap Shot always stuns', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute', 'ghoul']);
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant', 'ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
-    const [brute, ghoul] = monsters;
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: brute.id } });
+    const [giant, ghoul] = monsters;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: giant.id } });
     untilTurn(world, room, 'h0');
-    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power, crit: true });
+    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power - ENEMIES.giant.armor, crit: true });
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: ghoul.id } });
     untilTurn(world, room, 'h0');
     expect(ghoul.st.stun).toBe(true);
@@ -336,7 +373,7 @@ describe('reworked kits', () => {
   });
 
   it('Hex stacks: each Hexed adds +100% to the next Hex, for 2 of the target\'s turns', () => {
-    const { world, ids, room, monsters } = arena(['sorceress'], ['brute']);
+    const { world, ids, room, monsters } = arena(['sorceress'], ['giant']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     const hexes = () => enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').map((e) => e.amount);
@@ -345,8 +382,8 @@ describe('reworked kits', () => {
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
     untilTurn(world, room, 'h0');
     const hex = abilityById('hex')!.power;
-    expect(hexes()).toEqual([hex, 2 * hex]);
-    // The Brute (Speed 8) took its turn right after the second Hex (same moment): both stacks ticked once.
+    expect(hexes()).toEqual([hex, 2 * hex].map((n) => n - ENEMIES.giant.armor));
+    // The Giant (Speed 8) took its turn right after the second Hex (same moment): both stacks ticked once.
     expect(monsters[0].st.hexed).toEqual([1, 1]);
     world.heroes.h0.cooldowns = { hex: 99, pact: 99, wither: 99 }; // just brace from here
     untilTurn(world, room, monsters[0].id);

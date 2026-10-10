@@ -484,7 +484,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
     }
     case 'raise': {
       const scale = 1 + ESCALATION.escalationScaling * world.escalation;
-      const kinds: EnemyId[] = ['ghoul', 'crawler', 'acolyte', 'brute'];
+      const kinds: EnemyId[] = ['ghoul', 'crawler', 'acolyte', 'giant'];
       for (let i = 0; i < ELITE_EVENTS.uprisingRisen; i++) {
         const type = rng.pick(kinds);
         const hp = Math.round(ENEMIES[type].maxHp * scale);

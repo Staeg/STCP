@@ -228,7 +228,7 @@ export const SPRITES: Record<string, string[]> = {
     '...kDDDDDDDDk...',
     '...kkkkkkkkkk...',
   ],
-  brute: [
+  giant: [
     '....kkkkkkkk....',
     '...kccccccccck..',
     '...kckeckeccck..',

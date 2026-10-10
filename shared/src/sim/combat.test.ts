@@ -52,13 +52,13 @@ describe('encounters', () => {
   });
 
   it('each unit acts when its own Speed timer runs out, falling back on the first ability if the hero has not picked', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
     const start = enc.startedAt;
     expect(enc.next.h0).toBeCloseTo(start + 3); // Cutthroat: Speed 3
-    expect(enc.next[monsters[0].id]).toBeCloseTo(start + 8); // Bone Brute: Speed 8
+    expect(enc.next[monsters[0].id]).toBeCloseTo(start + 8); // Bone Giant: Speed 8
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
     run(world, 2.5);
     expect(enc.events).toHaveLength(0); // picked, but it isn't their turn yet
@@ -71,7 +71,7 @@ describe('encounters', () => {
     // Don't pick: when the turn comes the hero uses their first ability that's ready.
     untilTurn(world, room, 'h0');
     expect(enc.events.some((e) => e.text.includes('hesitates, then uses Backstab'))).toBe(true);
-    // Two Cutthroat turns before the Brute's first.
+    // Two Cutthroat turns before the Giant's first.
     expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
   });
 
@@ -95,7 +95,7 @@ describe('encounters', () => {
   });
 
   it('an undecided hero falls back on the next ability off cooldown, and braces only if none is ready', () => {
-    const { world, ids, room, monsters } = arena(['lampbearer'], ['brute']);
+    const { world, ids, room, monsters } = arena(['lampbearer'], ['giant']);
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
@@ -130,7 +130,7 @@ describe('encounters', () => {
   });
 
   it("enforces cooldowns in the hero's own turns (Cheap Shot: cooldown 4 = unusable for the next four turns)", () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['brute']);
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
     walkIn(world, ids, room);
     world.monsters[monsters[0].id].hp = 999;
     const enc = world.encounters[room];
@@ -265,7 +265,7 @@ describe('encounters', () => {
   });
 
   it('a hero arriving mid-fight joins with a full Speed timer', () => {
-    const { world, d, room } = arena(['warden'], ['brute']);
+    const { world, d, room } = arena(['warden'], ['giant']);
     walkIn(world, ['h0'], room);
     run(world, 1.5);
     const late = addHero(world, { id: 'late', name: 'Late', cls: 'sorceress' });

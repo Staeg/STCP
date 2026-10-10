@@ -132,7 +132,7 @@ describe('gear in combat', () => {
     const { world, room } = party(['sorceress']);
     const h = world.heroes.h0;
     h.armor = 'chainshirt';
-    spawnGroup(world, room, ['brute'], 0);
+    spawnGroup(world, room, ['giant'], 0);
     applyIntent(world, 'h0', { type: 'goto', room });
     for (let i = 0; i < 100 && h.encounter === null; i++) step(world, 0.1);
     const enc = world.encounters[room];

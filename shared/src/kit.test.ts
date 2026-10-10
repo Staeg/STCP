@@ -105,11 +105,11 @@ describe('heroes with a kit', () => {
     const at = (cr: number, type: EnemyId) => spawnGroup(createWorld(5, { monsters: false, loot: false, escalates: false, events: false, cr }), 0, [type], 0)[0];
     expect(at(2, 'ghoul').maxHp).toBe(ENEMIES.ghoul.maxHp);
     expect(at(3, 'ghoul').dmgMult).toBeCloseTo(1.25);
-    expect(at(3, 'brute').dmgMult).toBeCloseTo(1);
+    expect(at(3, 'giant').dmgMult).toBeCloseTo(1);
     expect(at(6, 'wight').dmgMult).toBeCloseTo(1.5);
-    expect(at(6, 'brute').dmgMult).toBeCloseTo(1.25);
+    expect(at(6, 'giant').dmgMult).toBeCloseTo(1.25);
     expect(at(8, 'lich').dmgMult).toBeCloseTo(1.25 + 2 * CR_RULES.perCrAbove);
-    expect(at(8, 'brute').maxHp).toBe(Math.round(ENEMIES.brute.maxHp * 1.35));
+    expect(at(8, 'giant').maxHp).toBe(Math.round(ENEMIES.giant.maxHp * 1.35));
   });
 
   it('a Relic Rite starts the whole party’s run at Escalation 5, with the clock that far along', () => {

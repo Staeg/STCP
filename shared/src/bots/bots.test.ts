@@ -82,7 +82,7 @@ describe('bot retreat', () => {
       });
       const w = game.world;
       const room = neighbours(w.dungeon, w.dungeon.entrance)[0];
-      spawnGroup(w, room, ['brute'], 3);
+      spawnGroup(w, room, ['giant'], 3);
       const h = w.heroes.bot;
       h.pos = { kind: 'room', room };
       h.prevRoom = w.dungeon.entrance;
