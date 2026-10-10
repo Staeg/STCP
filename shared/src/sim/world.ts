@@ -13,7 +13,7 @@ import { EVENT_SEEDING, STRESS, type AfflictionId, type EliteEventKind, type Eve
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
+  bleedOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
@@ -229,7 +229,7 @@ export interface World {
   nextCollapse: number;
   nextWave: number;
   /** The full story of the run, revealed on the results screen. */
-  chronicle: { time: number; text: string }[];
+  chronicle: import('./combat').ChronicleEntry[];
   escalates: boolean;
   events: Record<number, RoomEvent>;
   villagers: Record<string, Villager>;
@@ -509,6 +509,7 @@ function checkEnd(world: World) {
     else if (heroes.every((h) => !inDungeon(h))) world.phase = 'ended';
   }
   if (world.phase !== 'running') {
+    closeFights(world);
     const { altars, villagers } = world.objectives;
     const bonus = crGold(world, altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus);
     if (bonus > 0) {

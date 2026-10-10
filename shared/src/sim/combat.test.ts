@@ -352,3 +352,38 @@ describe('full bot games with monsters', () => {
     console.log(`bot games: ${fights} monsters slain, ${deaths}/${total} heroes died`);
   });
 });
+
+describe('fight chronicle', () => {
+  it('writes each fight into the chronicle with its full play-by-play, and how it ended', () => {
+    const { world, ids, room } = arena(['warden', 'cutthroat'], ['ghoul']);
+    walkIn(world, ids, room);
+    const entry = world.chronicle.find((c) => c.fight);
+    expect(entry?.fight?.room).toBe(room);
+    expect(entry?.text).toMatch(/^H\d and H\d fought Ghoul in /);
+    run(world, 60);
+    expect(world.encounters[room]).toBeUndefined();
+    expect(entry?.text).toMatch(/, and won \(\d+s\)\.$/);
+    const lines = entry!.fight!.lines;
+    expect(lines[0]).toEqual({ t: 0, text: 'Ambush! Ghoul.' });
+    expect(lines.at(-1)?.text).toBe('The fight is won.');
+    // More than the live log keeps, in order, and the results view carries it.
+    expect(lines.length).toBeGreaterThan(2);
+    expect(lines.every((l, i) => i === 0 || l.t >= lines[i - 1].t)).toBe(true);
+    world.phase = 'ended';
+    expect(buildView(world, 'h0').results?.chronicle.find((c) => c.fight)?.fight?.lines).toEqual(lines);
+  });
+});
+
+describe('fight chronicle endings', () => {
+  it('a fight the whole party falls in ends with "and fell", even though the dead leave it', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
+    walkIn(world, ids, room);
+    monsters[0].hp = 999;
+    world.heroes.h0.hp = 1;
+    run(world, 60);
+    const entry = world.chronicle.find((c) => c.fight)!;
+    expect(world.phase).toBe('wiped');
+    expect(entry.text).toMatch(/, and fell \(\d+s\)\.$/);
+    expect(entry.fight!.lines.at(-1)?.text).toBe('Nobody is left standing.');
+  });
+});

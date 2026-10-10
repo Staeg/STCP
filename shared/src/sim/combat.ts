@@ -4,7 +4,7 @@ import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
-import { corridorBetween, neighbours } from '../dungeon/gen';
+import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
 import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS } from '../content/events';
@@ -154,7 +154,30 @@ export interface Encounter {
   legion?: Risen[];
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
+  /** The whole play-by-play, for the results screen (shared with this fight's chronicle entry). */
+  history?: FightLine[];
+  /** Everyone who fought here at any point, in join order, and what they faced. */
+  fought?: string[];
+  foes?: string[];
+  /** This fight's entry in `world.chronicle`. */
+  chron?: number;
 }
+
+/** One line of a fight's play-by-play: seconds since the fight began, and what happened. */
+export interface FightLine {
+  t: number;
+  text: string;
+}
+
+/** A chronicle entry; fights carry their full play-by-play, opened by clicking them on the results screen. */
+export interface ChronicleEntry {
+  time: number;
+  text: string;
+  fight?: { room: number; lines: FightLine[] };
+}
+
+/** A fight's play-by-play stops growing here (a stalemate shouldn't bloat the results). */
+const HISTORY_CAP = 200;
 
 // ---------------------------------------------------------------------------
 // Spawning
@@ -330,19 +353,22 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
   if (monstersIn(world, room).length === 0) return;
   let enc = world.encounters[room];
   if (!enc) {
-    enc = { room, startedAt: world.time, heroes: [], next: {}, choices: {}, events: [], seq: 0, log: [] };
+    enc = { room, startedAt: world.time, heroes: [], next: {}, choices: {}, events: [], seq: 0, log: [], history: [], fought: [] };
     world.encounters[room] = enc;
     world.stats.fights++;
     // Everyone already standing here is pulled in, including the downed.
     for (const h of Object.values(world.heroes)) {
       if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room) enlist(enc, h);
     }
-    const names = monstersIn(world, room).map((m) => ENEMIES[m.type].name).join(', ');
-    enc.log.push(`Ambush! ${names}.`);
+    enc.foes = monstersIn(world, room).map((m) => ENEMIES[m.type].name);
+    enc.chron = world.chronicle.length;
+    world.chronicle.push({ time: world.time, text: fightSummary(world, enc), fight: { room, lines: enc.history! } });
+    say(world, enc, `Ambush! ${enc.foes.join(', ')}.`);
     for (const id of enc.heroes) onEnlist(world, enc, world.heroes[id]);
   } else {
     enlist(enc, hero);
-    enc.log.push(`${hero.name} joins the fight.`);
+    say(world, enc, `${hero.name} joins the fight.`);
+    if (enc.chron !== undefined) world.chronicle[enc.chron].text = fightSummary(world, enc);
     onEnlist(world, enc, hero);
   }
   startTimers(world, enc);
@@ -354,20 +380,20 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
   // Evil Eye: every enemy here starts the fight Hexed.
   if (h.talent === 'evilEye') {
     for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
-    enc.log.push(`${h.name}'s evil eye falls on every foe. (Hexed)`);
+    say(world, enc, `${h.name}'s evil eye falls on every foe. (Hexed)`);
   }
   // Unholy Uprising: the Undertaker's dead come too.
   if (h.legion.length) {
     // A Risen ally keeps its hero's id, so the fight screen can show what it does.
     for (const r of h.legion) (enc.legion ??= []).push({ ...r, id: r.hero ?? `r${world.nextId++}`, by: h.id });
-    enc.log.push(`${h.name}'s dead shamble in behind them: ${h.legion.map((r) => risenName(world, r)).join(', ')}.`);
+    say(world, enc, `${h.name}'s dead shamble in behind them: ${h.legion.map((r) => risenName(world, r)).join(', ')}.`);
     h.legion = [];
   }
   // Restless Dead: the risen that followed the Undertaker here fights on.
   if (h.risen && !risenOf(enc)) {
     enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
     h.risen = null;
-    enc.log.push(`The ${risenName(world, enc.risen)} shambles in behind ${h.name}.`);
+    say(world, enc, `The ${risenName(world, enc.risen)} shambles in behind ${h.name}.`);
   }
 }
 
@@ -387,6 +413,7 @@ function keepRisen(enc: Encounter, h: Hero) {
 function enlist(enc: Encounter, h: Hero) {
   if (enc.heroes.includes(h.id)) return;
   enc.heroes.push(h.id);
+  if (enc.fought && !enc.fought.includes(h.id)) enc.fought.push(h.id);
   h.encounter = enc.room;
   h.path = [];
   h.heading = null;
@@ -428,9 +455,59 @@ function endEncounter(world: World, enc: Encounter) {
     if (h) keepRisen(enc, h);
     if (h) resetAfterFight(h);
   }
+  closeFight(world, enc);
   for (const m of monstersIn(world, enc.room)) m.st = {};
   world.stats.fightTime += world.time - enc.startedAt;
   delete world.encounters[enc.room];
+}
+
+const OUTCOMES = {
+  won: ['and won', 'The fight is won.'],
+  fell: ['and fell', 'Nobody is left standing.'],
+  fled: ['and got away', 'Everyone got away.'],
+  some: ['and not everyone got away', 'The rest got away.'],
+  collapsed: ['until the dungeon collapsed', 'The dungeon collapses.'],
+} as const;
+
+/** Write how a fight ended into its chronicle entry and play-by-play. */
+function closeFight(world: World, enc: Encounter, collapsed = false) {
+  const entry = enc.chron !== undefined ? world.chronicle[enc.chron] : undefined;
+  if (!entry) return;
+  const fought = (enc.fought ?? enc.heroes).map((id) => world.heroes[id]).filter(Boolean);
+  // Got away: left the fight alive (the dead are dropped from it too).
+  const away = fought.filter((h) => !enc.heroes.includes(h.id) && !h.dead).length;
+  const outcome =
+    collapsed ? 'collapsed'
+    : monstersIn(world, enc.room).length === 0 ? 'won'
+    : away === 0 ? 'fell'
+    : away === fought.length ? 'fled' : 'some';
+  say(world, enc, OUTCOMES[outcome][1]);
+  entry.text = fightSummary(world, enc, `${OUTCOMES[outcome][0]} (${Math.round(world.time - enc.startedAt)}s)`);
+  enc.chron = undefined;
+}
+
+/** The run is over: fights still going get their endings written too. */
+export function closeFights(world: World) {
+  for (const enc of Object.values(world.encounters)) closeFight(world, enc, world.phase === 'collapsed');
+}
+
+/** "Ann and Bob fought Ghoul ×2, Crawler in the Crypt", plus how it ended once it has. */
+function fightSummary(world: World, enc: Encounter, end?: string): string {
+  const names = (enc.fought ?? enc.heroes).map((id) => world.heroes[id]?.name ?? '?');
+  const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? 'Nobody';
+  const counts = new Map<string, number>();
+  for (const f of enc.foes ?? []) counts.set(f, (counts.get(f) ?? 0) + 1);
+  const foes = [...counts].map(([f, n]) => (n > 1 ? `${f} ×${n}` : f)).join(', ');
+  return `${who} fought ${foes} in ${theRoom(world.dungeon.rooms[enc.room].name)}${end ? `, ${end}` : ''}.`;
+}
+
+/** A line for the fight's live log and its full play-by-play. */
+function say(world: World, enc: Encounter, text: string) {
+  enc.log.push(text);
+  if (enc.log.length > 40) enc.log.splice(0, enc.log.length - 40);
+  const h = enc.history;
+  if (!h || h.length > HISTORY_CAP) return;
+  h.push(h.length === HISTORY_CAP ? { t: h[h.length - 1].t, text: '…' } : { t: Math.round((world.time - enc.startedAt) * 10) / 10, text });
 }
 
 /** Turn times are kept to the millisecond, so units that should tie do tie. */
@@ -648,7 +725,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
       const target = pick.target ?? leftmostTarget(world, enc, h, pick);
       const events: CombatEvent[] = [];
       heroAct(world, enc, h, { ...pick, target }, events);
-      record(enc, events);
+      record(world, enc, events);
       return null;
     }
     enc.choices[h.id] = pick;
@@ -680,16 +757,15 @@ function takeTurn(world: World, enc: Encounter, unit: Unit) {
   if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
   else if (unit.kind === 'monster') monsterTurn(world, enc, unit.m, events);
   else risenTurn(world, enc, unit.r, events);
-  record(enc, events);
+  record(world, enc, events);
 }
 
 /** Add what just happened to the fight's event list and log. */
-function record(enc: Encounter, events: CombatEvent[]) {
+function record(world: World, enc: Encounter, events: CombatEvent[]) {
   for (const e of events) e.seq = ++enc.seq;
   enc.events.push(...events);
   if (enc.events.length > 30) enc.events.splice(0, enc.events.length - 30);
-  enc.log.push(...events.map((e) => e.text));
-  if (enc.log.length > 40) enc.log.splice(0, enc.log.length - 40);
+  for (const e of events) say(world, enc, e.text);
 }
 
 /** Effects that last "until X's next turn" end as X's turn begins. */
@@ -1364,7 +1440,7 @@ export function tickRisings(world: World) {
     const m = unslay(world, r.room, r, true);
     const text = `The ${ENEMIES[m.type].name} gets back up.`;
     const enc = world.encounters[r.room];
-    if (enc) record(enc, [{ actor: m.id, kind: 'status', target: m.id, text }]);
+    if (enc) record(world, enc, [{ actor: m.id, kind: 'status', target: m.id, text }]);
     const here = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === r.room);
     for (const h of here) notify(world, h, text);
     if (!enc && here.length) onHeroInRoom(world, here[0], r.room);
@@ -1630,7 +1706,7 @@ export function bleedOut(world: World, h: Hero) {
   dropRisenAllies(world, h);
   const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
   if (enc) {
-    enc.log.push(`${h.name} has died.`);
+    say(world, enc, `${h.name} has died.`);
     enc.heroes = enc.heroes.filter((id) => id !== h.id);
   }
   h.encounter = null;
@@ -1649,7 +1725,7 @@ export function dropRisenAllies(world: World, u: Hero) {
       if (r.by !== u.id || !r.hero || r.hp <= 0) continue;
       r.hp = 0;
       delete enc.next[r.id];
-      enc.log.push(`With ${u.name} gone, ${risenName(world, r)} falls still.`);
+      say(world, enc, `With ${u.name} gone, ${risenName(world, r)} falls still.`);
       risenAllyFalls(world, world.heroes[r.hero], enc.room);
     }
   }

@@ -12,6 +12,9 @@ function esc(s: string) {
 /** End-of-run screen: everyone's fate, and the full story the fog was hiding. */
 export class ResultsUi {
   private lastHtml = '';
+  private lastView: PlayerView | null = null;
+  /** Chronicle entries (fights) opened to show their play-by-play. */
+  private open = new Set<number>();
 
   constructor(private net: Net) {
     $('results').addEventListener('click', (e) => {
@@ -21,16 +24,24 @@ export class ResultsUi {
         else net.send({ t: 'toLobby' });
       }
       if ((e.target as HTMLElement).closest('[data-act="map"]')) $('results').classList.toggle('peek');
+      const fight = (e.target as HTMLElement).closest<HTMLElement>('[data-fight]');
+      if (fight) {
+        const i = Number(fight.dataset.fight);
+        if (!this.open.delete(i)) this.open.add(i);
+        this.update(this.lastView);
+      }
     });
   }
 
   update(view: PlayerView | null) {
     const el = $('results');
     const res = view?.results;
+    this.lastView = view;
     if (!view || !res) {
       el.hidden = true;
       el.classList.remove('peek');
       this.lastHtml = '';
+      this.open.clear();
       return;
     }
     // Coming over from the lobby to look at the old map: open straight onto the map.
@@ -56,8 +67,16 @@ export class ResultsUi {
         <td class="muted">${h.time !== null ? fmtTime(h.time) : ''}</td>
       </tr>`)
       .join('');
+    // Fights open (click) to show their play-by-play, timed from the fight's start.
     const story = res.chronicle
-      .map((c) => `<div class="chron"><span class="muted">${fmtTime(c.time)}</span> ${esc(c.text)}</div>`)
+      .map((c, i) => {
+        if (!c.fight) return `<div class="chron"><span class="muted">${fmtTime(c.time)}</span> ${esc(c.text)}</div>`;
+        const open = this.open.has(i);
+        const lines = open
+          ? `<div class="fight-log">${c.fight.lines.map((l) => `<div><span class="muted">+${l.t.toFixed(1)}s</span> ${esc(l.text)}</div>`).join('')}</div>`
+          : '';
+        return `<div class="chron fight${open ? ' open' : ''}" data-fight="${i}" title="Show the play-by-play"><span class="muted">${fmtTime(c.time)}</span> <span class="fight-caret">${open ? '▾' : '▸'}</span> ${esc(c.text)}</div>${lines}`;
+      })
       .join('');
     // What the run did to your Village Character (the server sends it as the run ends).
     const report = this.net.village?.report.length
@@ -78,8 +97,12 @@ export class ResultsUi {
       </div>
     </div>`;
     if (html !== this.lastHtml) {
+      // Keep the chronicle where it was scrolled to (opening a fight re-renders it).
+      const scroll = el.querySelector('.chronicle')?.scrollTop ?? 0;
       el.innerHTML = html;
       this.lastHtml = html;
+      const chron = el.querySelector('.chronicle');
+      if (chron) chron.scrollTop = scroll;
     }
   }
 }

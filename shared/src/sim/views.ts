@@ -10,7 +10,7 @@ import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../conte
 import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -128,7 +128,7 @@ export interface ResultHero {
 
 export interface ResultsView {
   heroes: ResultHero[];
-  chronicle: { time: number; text: string }[];
+  chronicle: ChronicleEntry[];
 }
 
 export type CorridorView = Corridor & { collapsed?: boolean };
