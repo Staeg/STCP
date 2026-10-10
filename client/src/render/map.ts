@@ -1,4 +1,4 @@
-import { dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
+import { CALL_RULES, dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
 import { icon, iconize } from '../icons';
 import { drawSprite } from './sprites';
@@ -316,6 +316,22 @@ export class MapRenderer {
       for (let k = 0; k < 3; k++) {
         const phase = ((t * 0.8 + k / 3) % 1);
         ctx.globalAlpha = 0.8 * (1 - phase);
+        ctx.beginPath();
+        ctx.arc(this.sx(room.x), this.sy(room.y), size / 2 + 6 + phase * size * 1.6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // A call for help: red rings pulling in toward the room, while it's fresh.
+    for (const call of view.calls) {
+      const room = rooms.get(call.room);
+      if (!room) continue;
+      ctx.strokeStyle = '#ff4a4a';
+      ctx.lineWidth = 3;
+      for (let k = 0; k < 3; k++) {
+        const phase = 1 - ((t * 1.2 + k / 3) % 1);
+        ctx.globalAlpha = 0.8 * (1 - phase) * Math.max(0.25, 1 - call.ago / CALL_RULES.shown);
         ctx.beginPath();
         ctx.arc(this.sx(room.x), this.sy(room.y), size / 2 + 6 + phase * size * 1.6, 0, Math.PI * 2);
         ctx.stroke();

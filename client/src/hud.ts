@@ -1,7 +1,7 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
-  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury,
+  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -33,6 +33,7 @@ export class Hud {
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
     $('btn-ready').addEventListener('click', () => net.intent({ type: 'ready' }));
+    $('btn-call').addEventListener('click', () => net.intent({ type: 'call' }));
     // Out-of-combat class skills (Toll, and abilities that work in the field): one button per possible target.
     $('skills').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button[data-skill]') as HTMLButtonElement | null;
@@ -46,8 +47,9 @@ export class Hud {
     });
     addEventListener('keydown', (e) => {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
-      // E (ready to leave) and O (autopilot) work in a fight too.
+      // E (ready to leave), O (autopilot) and C (call for help) work in a fight too, and C even while down.
       if (e.code === 'KeyE' && !e.repeat) net.intent({ type: 'ready' });
+      if (e.code === 'KeyC' && !e.repeat) net.intent({ type: 'call' });
       if (e.code === 'KeyO' && !e.repeat) net.intent({ type: 'autopilot' });
       if (net.cur.encounter) return; // combat has its own keys
       if (e.code === 'KeyR') $('btn-revive').click();
@@ -145,6 +147,13 @@ export class Hud {
     setHtml(ready, `${readyText} <kbd>E</kbd>`);
     ready.title = 'Ready to leave: once the exit is open, if everyone standing in the exit room is ready (and nobody is fighting or down there), you all escape together. Alone and ready, you escape as soon as you get there. F still leaves on your own.';
 
+    // C: call for help, once per run.
+    const call = $('btn-call');
+    call.hidden = you.dead || you.extracted || you.called || view.phase !== 'running';
+    setHtml(call, `📣 Call for Help <kbd>C</kbd>`);
+    call.title = `Once per run, even while down: every ally may hear where you are (${Math.round(CALL_RULES.falloff * 100)}% less likely per tunnel away). `
+      + `So will the dungeon: monsters for this Escalation appear up to ${CALL_RULES.spawnWithin} rooms away and come straight here.`;
+
     // Out-of-combat revive: a downed ally in your room.
     const reviveBtn = $('btn-revive');
     const downed = !view.encounter && you.downedAt === null && !you.dead
@@ -192,7 +201,7 @@ export class Hud {
     else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
     else if (you.downedAt !== null && !view.encounter) {
       const left = Math.max(0, BLEED_OUT - (view.time - you.downedAt));
-      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Bleeding out in ${Math.ceil(left)}s — an ally must reach you.</span>`, 0);
+      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Bleeding out in ${Math.ceil(left)}s — an ally must reach you.${you.called ? '' : ' <kbd>C</kbd> to call for help.'}</span>`, 0);
     } else if (this.persistentBanner) {
       $('banner').hidden = true;
     }

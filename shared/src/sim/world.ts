@@ -4,6 +4,7 @@ import { CR_RULES, ESCALATION } from '../content/enemies';
 import type { TalentId } from '../content/talents';
 import { injuredMaxHp, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
+import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
@@ -149,6 +150,8 @@ export interface Hero {
   immuneUntil: number;
   /** Restless Dead: a risen that follows this Undertaker into their next fight. */
   risen: Omit<Risen, 'id' | 'by'> | null;
+  /** Called for help (C) this run: only once. */
+  called: boolean;
 }
 
 export interface Toll {
@@ -209,6 +212,8 @@ export interface World {
   villagers: Record<string, Villager>;
   /** Bells tolled (newest last): everyone hears them. */
   tolls: Toll[];
+  /** Calls for help (C), oldest first. */
+  calls: Call[];
   /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
   objectives: { altars: number; villagers: number };
   /** Challenge Rating: heroes with a Talent (0–4). More gold, and monsters that only come at higher CR. */
@@ -241,6 +246,8 @@ export type Intent =
   | { type: 'extract' }
   /** Ready to leave together (E): toggles, or sets `on`. Works anywhere; it only matters at the open exit. */
   | { type: 'ready'; on?: boolean }
+  /** Call for help (C): once per run, even while Downed or fighting. See call.ts. */
+  | { type: 'call' }
   /** Hand your hero to a bot, or take them back (O). Handled by Game; the world ignores it. */
   | { type: 'autopilot' }
   /** Pick an option of the event in your room. */
@@ -270,7 +277,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
-    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], cr: Math.max(0, Math.min(4, opts.cr ?? 0)),
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], calls: [], cr: Math.max(0, Math.min(4, opts.cr ?? 0)),
     nextRespawn: ESCALATION_INTERVAL, nextWanderer: ESCALATION_INTERVAL * 2, nextCollapse: ESCALATION_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
@@ -360,6 +367,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     oathUsed: false,
     immuneUntil: 0,
     risen: null,
+    called: false,
   };
   for (const i of hero.injuries) if (i === 'major') hero.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
   world.heroes[hero.id] = hero;
@@ -492,7 +500,14 @@ export function extractHero(world: World, h: Hero) {
 
 export function applyIntent(world: World, heroId: string, intent: Intent): void {
   const hero = world.heroes[heroId];
-  if (!hero || world.phase !== 'running' || !isConscious(hero)) return;
+  if (!hero || world.phase !== 'running') return;
+  if (intent.type === 'call') {
+    // A cry needs no turn, nor even standing up.
+    const err = callForHelp(world, hero);
+    if (err && inDungeon(hero)) notify(world, hero, err);
+    return;
+  }
+  if (!isConscious(hero)) return;
   if (intent.type === 'ready') {
     // Allowed mid-fight and away from the exit: it's a standing intention.
     hero.ready = intent.on ?? !hero.ready;

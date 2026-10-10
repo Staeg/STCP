@@ -11,6 +11,7 @@ import { activeItems, canTake, votersIn } from './loot';
 import {
   abilitiesOf, abilityOf, BLEED_OUT, combatOrder, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
+import { CALL_RULES } from './call';
 import { speedOf } from './speed';
 import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
 
@@ -209,6 +210,8 @@ export interface PlayerView {
   results: ResultsView | null;
   /** Bells heard in the last few seconds: where, who, and how long ago. */
   tolls: { room: number; by: string; ago: number }[];
+  /** Calls for help you made or heard in the last minute: where, who, and how long ago. */
+  calls: { room: number; by: string; ago: number }[];
   /** Challenge Rating of this run (heroes with a Talent). */
   cr: number;
 }
@@ -311,6 +314,9 @@ export function buildView(world: World, heroId: string): PlayerView {
     tolls: world.tolls
       .filter((t) => world.time - t.time <= CLASS_RULES.tollReveal)
       .map((t) => ({ room: t.room, by: t.by, ago: world.time - t.time })),
+    calls: world.calls
+      .filter((c) => world.time - c.time <= CALL_RULES.shown && (c.by === heroId || c.heard.includes(heroId)))
+      .map((c) => ({ room: c.room, by: c.by, ago: world.time - c.time })),
     cr: world.cr,
   };
 }

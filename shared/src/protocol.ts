@@ -147,7 +147,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'goto' && Number.isInteger(i.room)) {
         return { t: 'intent', intent: { type: 'goto', room: i.room as number, ...(i.step === true ? { step: true } : {}) } };
       }
-      if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract' || i.type === 'autopilot') return { t: 'intent', intent: { type: i.type } };
+      if (i.type === 'turnBack' || i.type === 'stop' || i.type === 'extract' || i.type === 'autopilot' || i.type === 'call') return { t: 'intent', intent: { type: i.type } };
       if (i.type === 'ready') return { t: 'intent', intent: typeof i.on === 'boolean' ? { type: 'ready', on: i.on } : { type: 'ready' } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
       if (i.type === 'skill') {

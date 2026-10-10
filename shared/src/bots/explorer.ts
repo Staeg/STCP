@@ -1,4 +1,5 @@
 import { BOTS } from './tuning';
+import { speedOf } from '../sim/speed';
 import { Rng } from '../rng';
 import type { PlayerView, RoomView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -32,6 +33,9 @@ export interface BotMemory {
   route: number[];
   /** A bell this bot is answering: the room, and when it gives up. */
   answering: { room: number; until: number } | null;
+  /** A call for help this bot is answering (the room), and calls it has already made up its mind about (by caller). */
+  call?: number | null;
+  judgedCalls?: string[];
   /** When this bot said it was ready to leave (E). */
   readySince?: number;
 }
@@ -75,6 +79,10 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (use) return use;
   const ev = botEvent(view, mem);
   if (ev) return ev;
+
+  // A call for help: drop everything for it if we can get there in time, else ignore it.
+  const callGo = answerCall(view, mem, here);
+  if (callGo) return callGo;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
   if (mem.escortReturnAt !== null && !view.leading) {
@@ -172,6 +180,31 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     return score;
   });
   return travel(best.id) ?? { type: 'goto', room: best.id };
+}
+
+/** Head for a call for help we heard, if it's reachable within `BOTS.callReach` seconds when first heard. */
+function answerCall(view: PlayerView, mem: BotMemory, here: number): Intent | null {
+  const judged = (mem.judgedCalls ??= []);
+  const plan = planRoutes(view, here, 0);
+  for (const c of view.calls) {
+    if (c.by === view.you.id || judged.includes(c.by)) continue;
+    judged.push(c.by);
+    const route = routeTo(plan.prev, here, c.room);
+    // Every tunnel takes one turn of our own Speed (a little more if it's rubble we'd dig through: not counted).
+    if (route && route.length * speedOf(view.you, view.time) <= BOTS.callReach) mem.call = c.room;
+  }
+  if (mem.call === undefined || mem.call === null) return null;
+  if (mem.call === here || !view.calls.some((c) => c.room === mem.call)) {
+    mem.call = null;
+    return null;
+  }
+  const route = routeTo(plan.prev, here, mem.call);
+  if (!route || !route.length) {
+    mem.call = null;
+    return null;
+  }
+  mem.route = route.slice(1);
+  return { type: 'goto', room: route[0] };
 }
 
 /** Dijkstra where entering a room with known monsters costs extra. */

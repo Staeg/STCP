@@ -2,6 +2,7 @@ import { EXIT_OPENS_AT, escalationAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { armored, crUnits, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { hopsFrom } from './call';
 import { notify } from './notify';
 import { openDueSecrets } from './secrets';
 import { chronicle, explore, type World } from './world';
@@ -74,7 +75,7 @@ function monsterCap(world: World): number {
   return ESCALATION.capBase + ESCALATION.capPerEscalation * world.escalation;
 }
 
-function groupFor(world: World, esc: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
+export function groupFor(world: World, esc: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
   let g = pickGroup(world, esc);
   // Bigger groups later on.
   if (esc >= 4 && world.rng.chance(0.5)) g = [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
@@ -115,7 +116,7 @@ function spawnWave(world: World, esc: number) {
   chronicle(world, 'A wave of monsters marches on the exit.');
 }
 
-function makePack(world: World, monsters: Monster[], room: number, goal: number | null): Pack {
+export function makePack(world: World, monsters: Monster[], room: number, goal: number | null): Pack {
   const pack: Pack = {
     id: `p${world.nextId++}`, monsters: monsters.map((m) => m.id), room, to: null, arriveAt: 0,
     restUntil: world.time + world.rng.float(4, 9), goal,
@@ -163,7 +164,8 @@ function movePacks(world: World) {
       // Arrive.
       pack.room = pack.to;
       pack.to = null;
-      pack.restUntil = world.time + world.rng.float(5, 10);
+      // Packs with a goal don't stop to rest on the way.
+      pack.restUntil = pack.goal !== null && pack.room !== pack.goal ? world.time : world.time + world.rng.float(5, 10);
       for (const m of members) m.room = pack.room;
       const here = Object.values(world.heroes).find((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === pack.room);
       if (here) {
@@ -183,7 +185,10 @@ function movePacks(world: World) {
     if (options.length === 0) continue;
     let c = world.rng.pick(options);
     if (pack.goal !== null) {
-      const toward = options.find((x) => otherEnd(x, pack.room) === pack.goal);
+      // Straight for the goal, by the shortest open way.
+      const hops = hopsFrom(world, pack.goal, true);
+      const toward = options.filter((x) => hops.has(otherEnd(x, pack.room)))
+        .sort((a, b) => hops.get(otherEnd(a, pack.room))! - hops.get(otherEnd(b, pack.room))!)[0];
       if (toward) c = toward;
     } else if (world.escalation >= 5 && world.rng.chance(0.4)) {
       // Late game: wanderers drift toward the exit.
