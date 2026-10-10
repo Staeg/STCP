@@ -497,6 +497,8 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .ev-text { color: var(--text); margin: 4px 0 8px; font-size: 19px; line-height: 1.1; }
 .ev-choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .ev-choices button { font-size: 19px; }
+.ev-perk-icon { height: 1.3em; vertical-align: -0.3em; image-rendering: pixelated; }
+.ev-perk { color: var(--cls); font-size: 16px; margin-top: 2px; }
 .ev-progress { height: 8px; background: #221a2a; border: 1px solid #000; margin: 4px 0; }
 .ev-progress > div { height: 100%; background: #b48aff; transition: width 0.2s linear; }
 #affliction { margin-left: 4px; cursor: help; display: inline-block; animation: pulse 0.9s infinite alternate; }

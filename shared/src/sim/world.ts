@@ -5,7 +5,7 @@ import type { TalentId } from '../content/talents';
 import { injuredMaxHp, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
-import { chooseEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
+import { chooseEvent, leaveStranger, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/events';
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
@@ -693,6 +693,11 @@ function advance(world: World, hero: Hero, dt: number) {
         const dig = digTime(hero, world.time);
         hero.channel = { kind: 'dig', corridor: c.id, until: world.time + dig };
         notify(world, hero, `You start digging… (${fmtSpeed(dig)}; walking elsewhere stops it)`);
+        return;
+      }
+      // Turning your back on a Wounded Stranger may spring its trap.
+      if (leaveStranger(world, hero, pos.room)) {
+        hero.path = [];
         return;
       }
       hero.path.shift();

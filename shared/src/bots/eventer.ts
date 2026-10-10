@@ -33,29 +33,31 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return go;
     }
     case 'altar':
-      if (healthy && timeLeft > 40 && (you.cls === 'witch' || rng.chance(0.4))) {
+      // A Witch wakes no guardians, so she needs neither the health nor the luck.
+      if (timeLeft > 40 && (you.cls === 'witch' || (healthy && rng.chance(0.4)))) {
         mem.channelling = room;
         return pick('channel');
       }
       return undefined;
     case 'vault':
-      if (timeLeft > 30 && (you.cls === 'cutthroat' || rng.chance(0.5))) {
+      if (timeLeft > 30 && rng.chance(0.5)) {
         mem.channelling = room;
         return pick('channel');
       }
       return undefined;
     case 'idol':
-      return mem.greed > 0.5 ? pick('take') : undefined;
+      return you.cls === 'cutthroat' || mem.greed > 0.5 ? pick('take') : undefined;
     case 'stranger':
-      return healthy && rng.chance(0.35) ? pick('help') : undefined;
+      return you.cls === 'lampbearer' || (healthy && rng.chance(0.35)) ? pick('help') : undefined;
     case 'well':
+      if (you.cls === 'zealot') return you.hp < you.maxHp ? pick('drink') : undefined;
       return you.stress > 40 || rng.chance(0.3) ? pick('drink') : undefined;
     case 'chest':
-      return healthy && you.stress < 40 && rng.chance(0.6) ? pick('open') : undefined;
+      return you.cls === 'undertaker' || (healthy && you.stress < 40 && rng.chance(0.6)) ? pick('open') : undefined;
     case 'crawlspace':
       return view.time >= mem.returnAt && you.hp > 20 && you.items.includes('torch') ? pick('crawl') : undefined;
     case 'quicksilver':
-      return healthy && rng.chance(0.5) ? pick('quaff') : undefined;
+      return you.cls === 'alchemist' || (healthy && rng.chance(0.5)) ? pick('quaff') : undefined;
     case 'satchel':
       // Greedy bots take the money; it's heavy, so mostly early, while there's time to carry it.
       return mem.greed > 0.45 && timeLeft > 60 ? pick('haul') : undefined;

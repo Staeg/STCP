@@ -28,8 +28,8 @@ export interface Corridor {
 }
 
 /**
- * A sealed way into a secret room. The room is in `rooms` from the start, with no corridors; at `tier` the corridor
- * is added to `corridors` (its id is fixed in advance, so passages must open in order) and to both rooms.
+ * A sealed way into a secret room. The room is in `rooms` from the start, with no corridors; at `tier` (or earlier, if a
+ * hero crawls in) the corridor is added to `corridors` and to both rooms. Its id is settled when it opens.
  */
 export interface SecretPassage {
   room: number;
@@ -234,15 +234,21 @@ export function openSecrets(d: Dungeon, tier: number): SecretPassage[] {
   const opened: SecretPassage[] = [];
   for (const s of d.secrets) {
     if (s.open || s.tier > tier) continue;
-    // Ids were handed out in opening order, so each lands at its own index.
-    if (s.corridor.id !== d.corridors.length) throw new Error('secret passages opened out of order');
-    s.open = true;
-    d.corridors.push(s.corridor);
-    d.rooms[s.host].corridors.push(s.corridor.id);
-    d.rooms[s.room].corridors.push(s.corridor.id);
+    openSecret(d, s);
     opened.push(s);
   }
   return opened;
+}
+
+/** Open one sealed passage now, whatever its tier (the Crawlspace can break into one early). */
+export function openSecret(d: Dungeon, s: SecretPassage) {
+  if (s.open) return;
+  s.open = true;
+  // Corridor ids are indexes into `corridors`, so it takes the next one free (passages may open out of order).
+  s.corridor.id = d.corridors.length;
+  d.corridors.push(s.corridor);
+  d.rooms[s.host].corridors.push(s.corridor.id);
+  d.rooms[s.room].corridors.push(s.corridor.id);
 }
 
 function bfs(adj: number[][], start: number): number[] {

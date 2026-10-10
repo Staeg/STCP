@@ -1,5 +1,3 @@
-import type { ClassId } from './classes';
-
 export type AfflictionId = 'selfish' | 'fearful' | 'paranoid' | 'hopeless';
 
 export interface AfflictionDef {
@@ -77,7 +75,7 @@ export const EVENTS: Record<EventKind, EventDef> = {
   },
   crawlspace: {
     kind: 'crawlspace', name: 'Crawlspace', glyph: '↘', weight: 2,
-    text: 'A narrow crack in the wall. Cold air flows through it — from the direction of the rendezvous.',
+    text: 'A narrow crack in the wall. Cold air flows through it from somewhere beyond.',
   },
   // ---- Events that play with Speed ----
   quicksilver: {
@@ -109,19 +107,40 @@ export const SPEED_EVENTS = {
   /** Hourglass: everyone in the room is faster for a while. */
   hourglassSpeed: -1.5,
   hourglassDuration: 90,
-  /** Clockwork Shrine: a long wind for a small, lasting edge. */
+  /** Clockwork Shrine: a long wind for a small, lasting edge. Winding takes this ÷ your Speed seconds: the quick fumble it. */
   clockworkSpeed: -0.5,
+  clockworkWork: 20,
 };
 
-/** Seconds an event choice takes to carry out, by class. */
-export function channelTime(kind: EventKind, cls: ClassId): number {
+/**
+ * Class twists on events (user, 2026-10-10). Deliberately absent from the class picker: a hero learns theirs at the
+ * event itself, where the button wears the class icon and says what's different. (The Undertaker's quick digging and
+ * the Witch's Speed while Afflicted are class perks, not event twists.)
+ * - Witch: cleanses the Altar without waking its guardians.
+ * - Lampbearer: helps the Wounded Stranger without a bandage, and is always rewarded; keeps their light in the Crawlspace.
+ * - Cutthroat: takes the Glittering Idol without the cave-in.
+ * - Bellwright: the Cracked Hourglass's haste lasts the rest of the run, for everyone it touches.
+ * - Alchemist: Quicksilver gives max HP instead of costing it.
+ * - Undertaker: no stress from the Cursed Chest.
+ * - Zealot: the Whispering Well always gives stress and HP, never an affliction.
+ * - Warden: escorting a villager speeds them up instead of slowing them down.
+ */
+export const CLASS_EVENTS = {
+  alchemistQuicksilverMaxHp: 12,
+  zealotWellStress: 40,
+  zealotWellHp: 15,
+  wardenEscortSpeed: -1.5,
+};
+
+/** Seconds an event choice takes to carry out. `speed` is the hero's current Speed. */
+export function channelTime(kind: EventKind, speed: number): number {
   switch (kind) {
-    case 'altar': return cls === 'witch' ? 12 : 18;
-    case 'vault': return cls === 'cutthroat' ? 12 : 24;
+    case 'altar': return 18;
+    case 'vault': return 24;
     case 'quicksilver':
     case 'satchel':
     case 'hourglass': return 3;
-    case 'clockwork': return 15;
+    case 'clockwork': return SPEED_EVENTS.clockworkWork / speed;
     default: return 6;
   }
 }
@@ -133,6 +152,10 @@ export const EVENT_SEEDING = {
   altarBonus: 15,
   villagerBonus: 25,
   villagerHp: 10,
+  /** Wounded Stranger: chance it's a trap (an ambush if helped by anyone but a Lampbearer, or walked away from). */
+  strangerTrap: 0.4,
+  /** Altar guardians are this many tiers stronger than the dungeon around them. */
+  guardianTiers: 1,
   /** Leading a villager adds this to your Speed (seconds) until they're saved. */
   villagerSlow: 1.5,
 };

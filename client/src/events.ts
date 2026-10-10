@@ -1,6 +1,7 @@
-import { type LootItemView, type PlayerView } from '@stcp/shared';
+import { CLASSES, type EventChoice, type LootItemView, type PlayerView } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
+import { spriteUrl } from './render/sprites';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -51,7 +52,7 @@ export class EventUi {
           const queued = view.you.queuedEvent === c.id
             ? `<div class="small">✔ starts in ${Math.max(0, view.you.turnAt - view.time).toFixed(1)}s</div>` : '';
           return `<button data-choice="${c.id}" ${c.disabled || channelling ? 'disabled' : ''} title="${esc(c.disabled ?? '')}">
-          <kbd>${i + 1}</kbd> ${iconize(c.label)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
+          <kbd>${i + 1}</kbd> ${perkIcon(c)}${iconize(c.label)}${perkText(c)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
         }).join('');
     const html = `
       <div class="ev-head"><span class="item-glyph">${ev.glyph}</span> <b>${esc(ev.name)}</b></div>
@@ -63,6 +64,18 @@ export class EventUi {
       this.lastHtml = html;
     }
   }
+}
+
+/** A class twist on this choice: the class's sprite beside the label… */
+function perkIcon(c: EventChoice): string {
+  if (!c.perk) return '';
+  const cls = CLASSES[c.perk.cls];
+  return `<img class="ev-perk-icon" src="${spriteUrl(cls.id, cls.color)}" alt="${cls.name}" title="${cls.name}"> `;
+}
+
+/** …and under it only what's special about doing it as that class. */
+function perkText(c: EventChoice): string {
+  return c.perk ? `<div class="ev-perk" style="--cls:${CLASSES[c.perk.cls].color}">${esc(c.perk.text)}</div>` : '';
 }
 
 /** Digit1…Digit9 → 0…8, anything else → null. */

@@ -1,14 +1,19 @@
+import type { ClassId } from '../content/classes';
 import { LIGHT_DIM } from '../content/constants';
 import {
-  AFFLICTIONS, channelTime, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS, type AfflictionId, type EventKind,
+  AFFLICTIONS, channelTime, CLASS_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS, type AfflictionId, type EventKind,
 } from '../content/events';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, rollValuable, seesInDark, takeItem } from './loot';
 import { notify } from './notify';
-import { addSpeedMod, fmtSpeed } from './speed';
+import { openSecretEarly } from './secrets';
+import { addSpeedMod, fmtSpeed, speedOf } from './speed';
 import { chronicle, crGold, explore, type Hero, type World } from './world';
+
+/** Before this tier the Crawlspace leads into a secret room; from it on, toward the exit. */
+const CRAWL_TO_EXIT_TIER = 5;
 
 /** A one-off feature of a room (villagers are tracked separately because they move). */
 export interface RoomEvent {
@@ -21,6 +26,8 @@ export interface RoomEvent {
   by: string | null;
   /** Altar: the guardians have been summoned. */
   spawned: boolean;
+  /** Wounded Stranger: a trap or not, decided the first time it matters. */
+  trap?: boolean;
 }
 
 export interface Villager {
@@ -38,6 +45,8 @@ export interface EventChoice {
   label: string;
   /** Why it can't be chosen right now. */
   disabled?: string;
+  /** This hero's class does it differently: shown with the class icon, saying only what's special. */
+  perk?: { cls: ClassId; text: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,53 +107,70 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   if (v) {
     if (!quiet(world, room)) return { kind: 'villager', choices: [] };
     const busy = h.leading ? 'You are already leading someone.' : undefined;
-    return {
-      kind: 'villager',
-      choices: [{ id: 'lead', label: v.state === 'captive' ? 'Cut them loose and lead them out' : 'Lead them to the rendezvous', disabled: busy }],
-    };
+    const lead: EventChoice = { id: 'lead', label: v.state === 'captive' ? 'Cut them loose and lead them out' : 'Lead them to the rendezvous', disabled: busy };
+    if (h.cls === 'warden') lead.perk = { cls: 'warden', text: `They hurry you along: Speed ${signed(CLASS_EVENTS.wardenEscortSpeed)} while you escort them.` };
+    return { kind: 'villager', choices: [lead] };
   }
   const ev = world.events[room];
   if (!ev || ev.done) return null;
   if (!quiet(world, room)) return { kind: ev.kind, choices: [] };
   // First come, first served: once someone has started, it's theirs.
   const taken = ev.by && ev.by !== h.id ? `${world.heroes[ev.by]?.name ?? 'Someone'} is already doing it.` : undefined;
-  const secs = Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress));
+  const secs = Math.ceil(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress));
   const c = (id: string, label: string, disabled?: string): EventChoice => ({ id, label: `${label} (${secs}s)`, disabled: taken ?? disabled });
+  /** The same choice, done this hero's class's way. */
+  const perk = (choice: EventChoice, cls: ClassId, text: string): EventChoice => ({ ...choice, perk: { cls, text } });
   const progress = ev.progress;
+  const one = (choice: EventChoice) => ({ kind: ev.kind, progress, choices: [choice] });
   switch (ev.kind) {
     case 'altar':
-      return { kind: ev.kind, progress, choices: [c('channel', 'Cleanse it')] };
+      return one(h.cls === 'witch'
+        ? perk(c('channel', 'Cleanse it'), 'witch', 'Your rites keep its guardians asleep.')
+        : c('channel', 'Cleanse it'));
     case 'vault':
-      return { kind: ev.kind, progress, choices: [c('channel', 'Pick the lock')] };
+      return one(c('channel', 'Pick the lock'));
     case 'idol':
-      return { kind: ev.kind, progress, choices: [c('take', 'Take the idol: lots of gold, but the way back may cave in')] };
+      return one(h.cls === 'cutthroat'
+        ? perk(c('take', 'Take the idol: lots of gold'), 'cutthroat', 'Light fingers: the trap never springs.')
+        : c('take', 'Take the idol: lots of gold, but the way back may cave in'));
     case 'stranger':
-      return { kind: ev.kind, progress, choices: [c('help', 'Give them a bandage', h.items.includes('bandage') ? undefined : 'You have no bandage.')] };
+      return one(h.cls === 'lampbearer'
+        ? perk(c('help', 'Tend their wound'), 'lampbearer', 'Your lamp shows them true: no bandage needed, and they repay you.')
+        : c('help', 'Give them a bandage', h.items.includes('bandage') ? undefined : 'You have no bandage.'));
     case 'well':
-      return { kind: ev.kind, progress, choices: [c('drink', 'Drink from the well')] };
+      return one(h.cls === 'zealot'
+        ? perk(c('drink', 'Drink from the well'), 'zealot',
+            `The whispers feed your fervour: always +${CLASS_EVENTS.zealotWellStress} stress and +${CLASS_EVENTS.zealotWellHp} HP.`)
+        : c('drink', 'Drink from the well'));
     case 'chest':
-      return { kind: ev.kind, progress, choices: [c('open', 'Open it (+20 stress)')] };
-    case 'crawlspace':
-      return {
-        kind: ev.kind, progress,
-        choices: [c('crawl', 'Squeeze through (4 damage, your torch gutters)', h.leading ? "The villager won't fit." : undefined)],
-      };
+      return one(h.cls === 'undertaker'
+        ? perk(c('open', 'Open it'), 'undertaker', 'The dead hold no fear for you: no stress.')
+        : c('open', 'Open it (+20 stress)'));
+    case 'crawlspace': {
+      const where = world.tier >= CRAWL_TO_EXIT_TIER ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
+      const full = h.leading ? "The villager won't fit." : undefined;
+      return one(h.cls === 'lampbearer'
+        ? perk(c('crawl', `Squeeze through ${where} (4 damage)`, full), 'lampbearer', 'Your lamp stays lit.')
+        : c('crawl', `Squeeze through ${where} (4 damage, your torch gutters)`, full));
+    }
     case 'quicksilver': {
-      const { quicksilverSpeed: s, quicksilverMaxHp: hp } = SPEED_EVENTS;
-      return { kind: ev.kind, progress, choices: [c('quaff', `Drink it (Speed ${signed(s)} for the rest of the run, ${hp} max HP)`)] };
+      const s = SPEED_EVENTS.quicksilverSpeed;
+      if (h.cls === 'alchemist') {
+        const hp = CLASS_EVENTS.alchemistQuicksilverMaxHp;
+        return one(perk(c('quaff', `Drink it (Speed ${signed(s)} for the rest of the run, +${hp} max HP)`), 'alchemist',
+          'You know the right dose: it hardens you, too.'));
+      }
+      return one(c('quaff', `Drink it (Speed ${signed(s)} for the rest of the run, ${SPEED_EVENTS.quicksilverMaxHp} max HP)`));
     }
     case 'satchel':
-      return {
-        kind: ev.kind, progress,
-        choices: [c('haul', `Haul it (+${SPEED_EVENTS.satchelGold} gold for you alone, Speed ${signed(SPEED_EVENTS.satchelSpeed)} for the rest of the run)`)],
-      };
+      return one(c('haul', `Haul it (+${SPEED_EVENTS.satchelGold} gold for you alone, Speed ${signed(SPEED_EVENTS.satchelSpeed)} for the rest of the run)`));
     case 'hourglass':
-      return {
-        kind: ev.kind, progress,
-        choices: [c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`)],
-      };
+      return one(h.cls === 'bellwright'
+        ? perk(c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for the rest of the run)`), 'bellwright',
+            'You keep its time: the haste never runs out, for any of you.')
+        : c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`));
     case 'clockwork':
-      return { kind: ev.kind, progress, choices: [c('wind', `Wind it (Speed ${signed(SPEED_EVENTS.clockworkSpeed)} for the rest of the run)`)] };
+      return one(c('wind', `Wind it (Speed ${signed(SPEED_EVENTS.clockworkSpeed)} for the rest of the run)`));
   }
 }
 
@@ -195,7 +221,7 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   h.path = [];
   h.channel = { kind: 'event', room, choice: choiceId, until: Infinity };
   const verb = choiceVerb(ev.kind, choiceId);
-  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, h.cls) * (1 - ev.progress))}s; moving away starts it over)`);
+  notify(world, h, `You start ${verb}… (${Math.ceil(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress))}s; moving away starts it over)`);
   for (const o of othersHere(world, h)) notify(world, o, `${h.name} starts ${verb}.`);
   return null;
 }
@@ -204,6 +230,34 @@ function othersHere(world: World, h: Hero): Hero[] {
   return Object.values(world.heroes).filter(
     (o) => o !== h && inDungeon(o) && o.pos.kind === 'room' && h.pos.kind === 'room' && o.pos.room === h.pos.room,
   );
+}
+
+/** Whether this Wounded Stranger is a trap: rolled the first time it matters, then fixed. */
+function strangerIsTrap(world: World, ev: RoomEvent): boolean {
+  ev.trap ??= world.rng.chance(EVENT_SEEDING.strangerTrap);
+  return ev.trap;
+}
+
+/** The stranger's friends spring out (at the dungeon's strength) and the hero is caught in the fight. */
+function ambush(world: World, h: Hero, room: number) {
+  spawnGroup(world, room, pickGroup(world, world.tier), world.tier);
+  onHeroInRoom(world, h, room);
+}
+
+/**
+ * A hero is about to walk out of a room. Turning your back on a Wounded Stranger that's a trap springs it
+ * (user, 2026-10-10): the hero is caught before they can go. Returns true if they were.
+ */
+export function leaveStranger(world: World, h: Hero, room: number): boolean {
+  const ev = world.events[room];
+  if (ev?.kind !== 'stranger' || ev.done || !isConscious(h) || h.encounter !== null || !quiet(world, room)) return false;
+  if (!strangerIsTrap(world, ev)) return false;
+  ev.done = true;
+  ev.by = null;
+  notify(world, h, 'As you turn to go, the stranger is suddenly on their feet. It was a trap!');
+  chronicle(world, `${h.name} walked away from a wounded stranger. It was an ambush.`);
+  ambush(world, h, room);
+  return true;
 }
 
 /** The work is done: the event's outcome goes to the hero who did it. */
@@ -221,6 +275,11 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
     case 'take': {
       addToPile(world, room, rng.int(60, 90), []);
       chronicle(world, `${h.name} took the Glittering Idol.`);
+      // A Cutthroat lifts it without springing the trap.
+      if (h.cls === 'cutthroat') {
+        notify(world, h, 'You ease the idol off the plate, and the ceiling holds.');
+        return;
+      }
       // The way you came in caves in (or another way out of here, if you came by crawlspace).
       const back = h.prevRoom !== null ? corridorBetween(world.dungeon, room, h.prevRoom) : undefined;
       const exits = world.dungeon.rooms[room].corridors.filter((cid) => !world.collapsed.includes(cid));
@@ -229,29 +288,39 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'help': {
-      const idx = h.items.indexOf('bandage');
-      if (idx < 0) {
-        // Used it on someone else in the meantime.
-        ev.done = false;
-        ev.progress = 0;
-        world.stats.eventsUsed--;
-        notify(world, h, 'You have no bandage left to give.');
-        return;
+      // A Lampbearer tends them with lamplight alone, and sees them for what they are.
+      const lamp = h.cls === 'lampbearer';
+      if (!lamp) {
+        const idx = h.items.indexOf('bandage');
+        if (idx < 0) {
+          // Used it on someone else in the meantime.
+          ev.done = false;
+          ev.progress = 0;
+          world.stats.eventsUsed--;
+          notify(world, h, 'You have no bandage left to give.');
+          return;
+        }
+        takeItem(h, idx);
       }
-      takeItem(h, idx);
-      if (rng.chance(0.6)) {
+      if (lamp || !strangerIsTrap(world, ev)) {
         addToPile(world, room, 20, [rollItem(world, 2)]);
         notify(world, h, 'The stranger presses something into your hands, and is gone.');
         chronicle(world, `${h.name} helped a wounded stranger, and was rewarded.`);
       } else {
         notify(world, h, 'The stranger smiles. It was a trap!');
         chronicle(world, `${h.name} helped a wounded stranger. It was an ambush.`);
-        spawnGroup(world, room, pickGroup(world, world.tier), world.tier);
-        onHeroInRoom(world, h, room);
+        ambush(world, h, room);
       }
       return;
     }
     case 'drink': {
+      if (h.cls === 'zealot') {
+        const { zealotWellStress: stress, zealotWellHp: hp } = CLASS_EVENTS;
+        addStress(h, stress);
+        h.hp = Math.min(h.maxHp, h.hp + hp);
+        notify(world, h, `The whispers pour in, and you drink them down gladly. (+${stress} stress, +${hp} HP)`);
+        return;
+      }
       const roll = rng.int(0, 2);
       if (roll === 0) {
         addStress(h, -40);
@@ -259,10 +328,6 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       } else if (roll === 1) {
         h.hp = Math.min(h.maxHp, h.hp + 15);
         notify(world, h, 'Warmth spreads through you. (+15 HP)');
-      } else if (h.cls === 'witch') {
-        notify(world, h, 'The whispers try to take hold, but you know their tricks.');
-      } else if (h.cls === 'zealot') {
-        notify(world, h, 'The whispers find nothing in you they can break.');
       } else {
         afflict(world, h, rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'the well');
       }
@@ -270,11 +335,15 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
     }
     case 'open':
       addToPile(world, room, 20, [rollItem(world, 2)]);
-      addStress(h, 20);
-      notify(world, h, 'Something cold brushes your mind as the lid opens. (+20 stress)');
+      if (h.cls === 'undertaker') {
+        notify(world, h, 'Something cold brushes your mind as the lid opens. You have known worse company.');
+      } else {
+        addStress(h, 20);
+        notify(world, h, 'Something cold brushes your mind as the lid opens. (+20 stress)');
+      }
       return;
     case 'crawl': {
-      const dest = crawlTarget(world, room);
+      const dest = crawlTarget(world, h, room);
       if (dest === null) {
         notify(world, h, 'The crack leads nowhere useful.');
         return;
@@ -282,7 +351,8 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       h.pos = { kind: 'room', room: dest };
       h.path = [];
       h.prevRoom = null;
-      h.light = Math.min(h.light, LIGHT_DIM - 1);
+      // A Lampbearer keeps their lamp lit through the squeeze.
+      if (h.cls !== 'lampbearer') h.light = Math.min(h.light, LIGHT_DIM - 1);
       notify(world, h, `You scrape through the dark and tumble out in ${world.dungeon.rooms[dest].name}.`);
       explore(world, h, dest);
       hurtHero(world, h, armored(h, 4), null);
@@ -290,11 +360,15 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'quaff': {
-      const { quicksilverSpeed, quicksilverMaxHp } = SPEED_EVENTS;
-      addSpeedMod(h, world.time, quicksilverSpeed, null, 'Quicksilver');
-      h.maxHp = Math.max(1, h.maxHp + quicksilverMaxHp);
-      h.hp = Math.min(h.hp, h.maxHp);
-      notify(world, h, `It burns going down. The world slows around you. (Speed ${signed(quicksilverSpeed)}, ${quicksilverMaxHp} max HP)`);
+      const speed = SPEED_EVENTS.quicksilverSpeed;
+      const maxHp = h.cls === 'alchemist' ? CLASS_EVENTS.alchemistQuicksilverMaxHp : SPEED_EVENTS.quicksilverMaxHp;
+      addSpeedMod(h, world.time, speed, null, 'Quicksilver');
+      h.maxHp = Math.max(1, h.maxHp + maxHp);
+      h.hp = Math.max(1, Math.min(h.maxHp, h.hp + Math.max(0, maxHp)));
+      const hpText = `${maxHp > 0 ? '+' : ''}${maxHp} max HP`;
+      notify(world, h, h.cls === 'alchemist'
+        ? `You measure out just enough. The world slows around you, and your skin sets like metal. (Speed ${signed(speed)}, ${hpText})`
+        : `It burns going down. The world slows around you. (Speed ${signed(speed)}, ${hpText})`);
       chronicle(world, `${h.name} drank from the Quicksilver Pool.`);
       return;
     }
@@ -306,9 +380,12 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     case 'turn': {
       const party = [h, ...othersHere(world, h).filter(isConscious)];
+      // Turned by a Bellwright, it keeps their time: the haste never wears off.
+      const duration = h.cls === 'bellwright' ? null : SPEED_EVENTS.hourglassDuration;
+      const lasts = duration === null ? 'for the rest of the run' : `for ${duration}s`;
       for (const x of party) {
-        addSpeedMod(x, world.time, SPEED_EVENTS.hourglassSpeed, SPEED_EVENTS.hourglassDuration, 'Hourglass');
-        notify(world, x, `${x === h ? 'You turn the hourglass.' : `${h.name} turns the hourglass.`} The sand runs upward, and so do you. (Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`);
+        addSpeedMod(x, world.time, SPEED_EVENTS.hourglassSpeed, duration, 'Hourglass');
+        notify(world, x, `${x === h ? 'You turn the hourglass.' : `${h.name} turns the hourglass.`} The sand runs upward, and so do you. (Speed ${signed(SPEED_EVENTS.hourglassSpeed)} ${lasts})`);
       }
       chronicle(world, `${h.name} turned the Cracked Hourglass${party.length > 1 ? ` for ${party.length} heroes` : ''}.`);
       return;
@@ -321,8 +398,24 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
   }
 }
 
+/**
+ * Before tier 5: a random secret room this hero hasn't been in, broken open early if it's still sealed
+ * (user, 2026-10-10). From tier 5, or with none left: three hops toward the exit.
+ */
+function crawlTarget(world: World, h: Hero, from: number): number | null {
+  if (world.tier < CRAWL_TO_EXIT_TIER) {
+    const hidden = world.dungeon.secrets.filter((s) => !h.explored.includes(s.room));
+    if (hidden.length) {
+      const s = world.rng.pick(hidden);
+      openSecretEarly(world, s);
+      return s.room;
+    }
+  }
+  return crawlToward(world, from);
+}
+
 /** Three hops along the real shortest open route toward the exit (stopping short of it). */
-function crawlTarget(world: World, from: number): number | null {
+function crawlToward(world: World, from: number): number | null {
   const d = world.dungeon;
   const prev = new Map<number, number>([[from, -1]]);
   const q = [from];
@@ -364,12 +457,13 @@ export function tickEvents(world: World, dt: number) {
       continue;
     }
     const kind = ev.kind;
-    ev.progress = Math.min(1, ev.progress + dt / channelTime(kind, h.cls));
-    if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned) {
+    ev.progress = Math.min(1, ev.progress + dt / channelTime(kind, speedOf(h, world.time)));
+    // The Witch's rites keep the guardians asleep.
+    if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned && h.cls !== 'witch') {
       ev.spawned = true;
       notify(world, h, 'The altar shrieks. Its guardians come!');
-      // Guardians are a notch weaker than the dungeon around them.
-      const t = Math.max(0, world.tier - 1);
+      // Guardians are a notch stronger than the dungeon around them (user, 2026-10-10; were a notch weaker).
+      const t = world.tier + EVENT_SEEDING.guardianTiers;
       spawnGroup(world, ev.room, pickGroup(world, t), t);
       onHeroInRoom(world, h, ev.room);
       continue;

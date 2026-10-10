@@ -1,6 +1,7 @@
+import { CLASS_RULES } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { MIN_SPEED } from '../content/constants';
-import { EVENT_SEEDING } from '../content/events';
+import { CLASS_EVENTS, EVENT_SEEDING } from '../content/events';
 import { ITEMS } from '../content/items';
 import type { Hero } from './world';
 
@@ -33,8 +34,14 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   for (const m of h.speedMods ?? []) {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
-  if (h.leading) parts.push({ label: 'Escorting a villager', amount: EVENT_SEEDING.villagerSlow });
+  if (h.leading) parts.push({ label: 'Escorting a villager', amount: escortSpeed(h) });
+  if (h.cls === 'witch' && h.affliction) parts.push({ label: 'Afflicted Witch', amount: CLASS_RULES.witchAfflictedSpeed });
   return parts;
+}
+
+/** What escorting a villager does to your Speed: slower, except for the Warden, whom it hurries along. */
+export function escortSpeed(h: Pick<Hero, 'cls'>): number {
+  return h.cls === 'warden' ? CLASS_EVENTS.wardenEscortSpeed : EVENT_SEEDING.villagerSlow;
 }
 
 /** Seconds per turn / per tunnel, to a tenth of a second. Never below MIN_SPEED. */

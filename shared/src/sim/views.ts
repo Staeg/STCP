@@ -326,7 +326,7 @@ function eventView(world: World, you: Hero): EventView | null {
   const worker = h && ch?.kind === 'event'
     ? {
         id: h.id, name: h.name, you: h === you, doing: choiceVerb(ev.kind, ch.choice),
-        secondsLeft: channelTime(ev.kind, h.cls) * (1 - ev.progress),
+        secondsLeft: channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress),
       }
     : null;
   return {

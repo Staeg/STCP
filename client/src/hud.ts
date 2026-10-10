@@ -1,5 +1,5 @@
 import {
-  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
+  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, TIER_TEXT, MAX_TIER, TIER_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury,
 } from '@stcp/shared';
@@ -105,7 +105,7 @@ export class Hud {
     setHtml($('injuries'), injuriesHtml([...you.injuries, ...(you.runInjuries ?? [])]));
     const escort = $('escort');
     escort.hidden = !view.leading;
-    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous · Speed +${fmtSpeed(EVENT_SEEDING.villagerSlow)}`;
+    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous · Speed ${escortSpeed(you) < 0 ? '−' : '+'}${fmtSpeed(Math.abs(escortSpeed(you)))}`;
     $('autopilot').hidden = !you.autopilot;
     const { altars, villagers } = view.objectives;
     const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
