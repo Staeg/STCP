@@ -490,7 +490,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
         const hp = Math.round(ENEMIES[type].maxHp * scale);
         h.legion.push({ type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true });
       }
-      const names = h.legion.map((r) => ENEMIES[r.type].name).join(', ');
+      const names = h.legion.filter((r) => r.type).map((r) => ENEMIES[r.type!].name).join(', ');
       notify(world, h, `The grave heaves. Your dead rise to follow you: ${names}.`);
       for (const o of othersHere(world, h)) notify(world, o, `${h.name} wakes the dead. They follow the Undertaker now.`);
       chronicle(world, `${h.name} raised an Unholy Uprising (${names}).`);

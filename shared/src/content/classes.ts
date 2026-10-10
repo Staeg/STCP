@@ -25,7 +25,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   sorceress: { id: 'sorceress', name: 'Sorceress', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
     blurb: '−1.5s Speed while Afflicted.' },
   undertaker: { id: 'undertaker', name: 'Undertaker', role: 'Executions & the dead', color: '#8fa39a', maxHp: 54, speed: 6,
-    blurb: 'Digs through rubble in one turn. Carries the fallen\'s gold home for them.' },
+    blurb: 'Digs through rubble in one turn. Raises each fallen ally once: walk them out and their Village keeps what they carry.' },
   bellwright: { id: 'bellwright', name: 'Bellwright', role: 'Tempo & the call', color: '#d98a3a', maxHp: 63, speed: 7,
     blurb: 'Out of combat, Toll: every ally hears where you are, and so do the monsters.' },
   zealot: { id: 'zealot', name: 'Zealot', role: 'Stress as fuel', color: '#e6dcc4', maxHp: 36, speed: 4,

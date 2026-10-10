@@ -10,7 +10,7 @@ import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../conte
 import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenOf, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -135,7 +135,7 @@ export type CorridorView = Corridor & { collapsed?: boolean };
 
 export interface CombatUnitView {
   id: string;
-  /** risen: a slain monster the Undertaker raised, fighting on the heroes' side. */
+  /** risen: a slain monster (or a fallen ally) the Undertaker raised, fighting on the heroes' side. */
   kind: 'hero' | 'monster' | 'risen';
   name: string;
   hp: number;
@@ -380,7 +380,7 @@ function resultsView(world: World): ResultsView {
     heroes: Object.values(world.heroes).map((h) => ({
       id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talent: h.talent,
       outcome: h.extracted ? 'escaped' : 'dead',
-      fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; ${h.rites.includes('tome') ? 'the Tome Rite' : 'the Undertaker'} carried ${h.legacy} of their gold home` : ''),
+      fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; ${h.legacy} of their gold went home${h.rites.includes('tome') ? ' (the Tome Rite)' : ''}` : ''),
       gold: h.extracted ? h.gold : h.legacy,
       time: h.extracted ? h.extractedAt : h.diedAt,
     })),
@@ -440,14 +440,18 @@ function encounterView(world: World, you: Hero): EncounterView | null {
   const risen = risenOf(enc);
   const risenUnit: CombatUnitView | null = risen
     ? {
-        id: risen.id, kind: 'risen', name: `Risen ${ENEMIES[risen.type].name}`, hp: risen.hp, maxHp: risen.maxHp, st: {}, enemy: risen.type,
-        speed: ENEMIES[risen.type].speed, nextIn: nextIn(risen.id), turnsLeft: risen.turns,
+        id: risen.id, kind: 'risen', name: risenName(world, risen), hp: risen.hp, maxHp: risen.maxHp, st: {}, enemy: risen.type,
+        speed: risenSpeed(world, risen), nextIn: nextIn(risen.id), turnsLeft: risen.turns,
       }
     : null;
-  const legion: CombatUnitView[] = (enc.legion ?? []).filter((r) => r.hp > 0).map((r) => ({
-    id: r.id, kind: 'risen', name: `Risen ${ENEMIES[r.type].name}`, hp: r.hp, maxHp: r.maxHp, st: {}, enemy: r.type,
-    speed: ENEMIES[r.type].speed, nextIn: nextIn(r.id),
-  }));
+  const legion: CombatUnitView[] = (enc.legion ?? []).filter((r) => r.hp > 0).map((r) => {
+    // A Risen ally shows as its hero (class sprite), with its own statuses (Clang, Vengeance…).
+    const ally = r.hero ? world.heroes[r.hero] : undefined;
+    return {
+      id: r.id, kind: 'risen', name: risenName(world, r), hp: r.hp, maxHp: r.maxHp, st: ally ? { ...ally.st } : {}, enemy: r.type,
+      cls: ally?.cls, color: ally?.color, speed: risenSpeed(world, r), nextIn: nextIn(r.id),
+    };
+  });
   const yourOptions: EncounterView['yourOptions'] = {};
   if (isConscious(you) && enc.heroes.includes(you.id)) {
     abilitiesOf(you).forEach((ab, i) => {

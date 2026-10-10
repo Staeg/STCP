@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { STRESS } from '../content/events';
 import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { bleedOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { carriedHome } from './emergency';
+import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
 import { dropEverything } from './loot';
 import { buildView } from './views';
@@ -116,7 +117,7 @@ describe('Undertaker', () => {
     expect(digTime(heroes[1], world.time)).toBe(18);
   });
 
-  it("gathers a fallen ally's gold and gear, and their gold reaches the dead hero's results if the Undertaker escapes", () => {
+  it("Raises a fallen ally with their things; walked out, what they carry goes to the dead hero's Village", () => {
     const { world, heroes } = quiet(['undertaker', 'cutthroat']);
     const [u, c] = heroes;
     c.gold = 50;
@@ -124,12 +125,65 @@ describe('Undertaker', () => {
     c.dead = true;
     dropEverything(world, c);
     run(world, 0.2);
-    expect(u.bodies[c.id]).toBe(50);
-    expect(u.items).toContain('bandage');
-    expect(u.gold).toBe(0);
+    expect(c.raised).toBe(true);
+    expect(u.legion).toEqual([expect.objectContaining({ hero: c.id, hp: c.maxHp, permanent: true })]);
+    expect(c.items).toContain('bandage');
+    expect(c.gold).toBe(50);
+    expect(u.items).not.toContain('bandage');
+    expect(world.piles[world.dungeon.entrance]).toBeUndefined();
     world.time = EXIT_OPENS_AT;
     extractHero(world, u);
     expect(c.legacy).toBe(50);
+    expect(c.legacyItems).toContain('bandage');
+    expect(carriedHome(c)).toContain('bandage');
+    expect(u.legion).toHaveLength(0);
+  });
+
+  it('a Risen ally fights as its class, takes the hits, wears on the living, and drops its things for anyone when it falls', () => {
+    const { world, ids, room, monsters } = arena(['undertaker', 'cutthroat', 'warden'], ['ghoul']);
+    const [u, c, w] = ids.map((id) => world.heroes[id]);
+    c.items.push('bandage');
+    c.dead = true;
+    dropEverything(world, c);
+    run(world, 0.2);
+    walkIn(world, [u.id, w.id], room);
+    const enc = world.encounters[room];
+    const r = enc.legion!.find((x) => x.hero === c.id)!;
+    expect(r.id).toBe(c.id);
+    expect(buildView(world, u.id).encounter!.legion[0]).toMatchObject({ name: `Risen ${c.name}`, cls: 'cutthroat' });
+    expect(enc.next[c.id]).toBeCloseTo(world.time + speedOf(c, world.time) - (world.time - enc.startedAt), 0);
+    untilTurn(world, room, c.id);
+    expect(enc.events.some((e) => e.actor === c.id && e.kind === 'damage' && e.text.includes('Backstab'))).toBe(true);
+    r.hp = 1;
+    untilTurn(world, room, monsters[0].id);
+    expect(r.hp).toBe(0);
+    expect(world.piles[room]?.items.map((f) => f.item)).toContain('bandage');
+    const stress = w.stress;
+    delete world.monsters[monsters[0].id];
+    run(world, 0.5);
+    expect(world.encounters[room]).toBeUndefined();
+    expect(w.stress).toBeGreaterThanOrEqual(stress + ELITE_EVENTS.uprisingStress);
+    expect(u.legion).toHaveLength(0);
+    // Only once: the Undertaker standing over them now just divvies up the loot like anyone.
+    expect(world.piles[room]?.items.map((f) => f.item)).toContain('bandage');
+  });
+
+  it("an Undertaker's death drops their Risen allies, and nobody can Raise them again", () => {
+    const { world, heroes } = quiet(['undertaker', 'cutthroat', 'undertaker']);
+    const [u, c, u2] = heroes;
+    c.items.push('bandage');
+    c.dead = true;
+    dropEverything(world, c);
+    run(world, 0.2);
+    const raiser = u.legion.length ? u : u2;
+    bleedOut(world, raiser);
+    expect(raiser.legion).toHaveLength(0);
+    const other = raiser === u ? u2 : u;
+    run(world, 0.5);
+    // The other Undertaker Raises the dead one (an ally too), but not the Cutthroat a second time: its things stay down for anyone.
+    expect(other.legion.map((r) => r.hero)).toEqual([raiser.id]);
+    expect(c.items).toHaveLength(0);
+    expect(world.piles[world.dungeon.entrance]?.items.map((f) => f.item)).toContain('bandage');
   });
 });
 

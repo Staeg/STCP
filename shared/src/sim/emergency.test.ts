@@ -97,18 +97,18 @@ describe('Emergency progress', () => {
     expect(emergencyDone(w, ann)).toBe(false);
   });
 
-  it('an Undertaker carries home what a fallen player’s Emergency needs', () => {
+  it('a fallen player an Undertaker Raises and walks out carries their Emergency home', () => {
     const w = createWorld(1, quiet);
     const ann = hero(w, 'ann', 'warden', 'larders');
     const und = hero(w, 'und', 'undertaker', null, true);
     ann.items.push('gem', 'tome', 'effigy', 'torch');
     bleedOut(w, ann);
     step(w, 0.1);
-    expect(und.bodyItems.ann?.sort()).toEqual(['effigy', 'gem', 'tome']);
+    expect(und.legion.map((r) => r.hero)).toEqual(['ann']);
     expect(emergencyDone(w, ann)).toBe(false);
     extractHero(w, und);
     expect(emergencyDone(w, ann)).toBe(true);
-    expect(carriedHome(ann).sort()).toEqual(['effigy', 'gem', 'tome']);
+    expect(carriedHome(ann)).toEqual(expect.arrayContaining(['effigy', 'gem', 'tome', 'torch']));
   });
 
   it('the Tome Rite takes consumables home too, Resources not', () => {

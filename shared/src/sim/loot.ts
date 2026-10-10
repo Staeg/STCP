@@ -1,6 +1,5 @@
-import { emergencyBans } from '../content/emergencies';
 import {
-  GEAR_SLOTS, gearGain, isArms, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
+  GEAR_SLOTS, isArms, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -9,7 +8,7 @@ import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster
 import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
 import { STRESS } from '../content/events';
-import { crGold, type Hero, type World } from './world';
+import { chronicle, crGold, roomName, type Hero, type World } from './world';
 
 export const LEAVE = 'leave';
 /** Bots defer to the humans' majority after this many seconds. */
@@ -37,7 +36,7 @@ export interface FloorItem {
 export interface Pile {
   gold: number;
   items: FloorItem[];
-  /** Gold the dead dropped, by whose it was: an Undertaker carries it out for them; anyone else just splits it. */
+  /** Gold the dead dropped, by whose it was: an Undertaker who Raises them gives it back; anyone else just splits it. */
   corpseGold?: Record<string, number>;
 }
 
@@ -243,6 +242,8 @@ export function activeItems(world: World, room: number, voters = votersIn(world,
 // Pickup & voting
 
 export function tickLoot(world: World) {
+  // Before anyone splits the dead's things, an Undertaker standing over them Raises them, things and all.
+  raiseTheFallen(world);
   for (const [key, pile] of Object.entries(world.piles)) {
     const room = Number(key);
     passBy(world, room, pile);
@@ -250,9 +251,7 @@ export function tickLoot(world: World) {
     const voters = votersIn(world, room);
     if (voters.length === 0) continue;
 
-    if (pile.corpseGold) claimCorpseGold(world, pile, voters);
-    const undertaker = voters.find((v) => v.cls === 'undertaker');
-    if (undertaker) mortician(world, room, pile, undertaker);
+    if (pile.corpseGold) claimCorpseGold(pile);
     if (pile.gold > 0) splitGold(world, room, pile);
     for (const f of pile.items) {
       if (f.seen.length === 0) f.startedAt = world.time;
@@ -290,42 +289,81 @@ function passBy(world: World, room: number, pile: Pile) {
   }
 }
 
-/** Gold off the dead: the Undertaker keeps each share apart for its owner; without one, it's just gold to split. */
-function claimCorpseGold(world: World, pile: Pile, voters: Hero[]) {
-  const undertaker = voters.find((v) => v.cls === 'undertaker');
-  for (const [id, gold] of Object.entries(pile.corpseGold ?? {})) {
-    if (undertaker) {
-      undertaker.bodies[id] = (undertaker.bodies[id] ?? 0) + gold;
-      notify(world, undertaker, `You gather ${world.heroes[id]?.name ?? 'the fallen'}'s ${gold} gold, to carry home for them.`);
-    } else {
-      pile.gold += gold;
-    }
-  }
+/** Gold off the dead, once someone finds it and nobody Raised them: just gold to split. */
+function claimCorpseGold(pile: Pile) {
+  for (const gold of Object.values(pile.corpseGold ?? {})) pile.gold += gold;
   delete pile.corpseGold;
 }
 
-/** Was this floor item dropped by someone now dead? */
-function fromTheDead(world: World, by: string | null | undefined): boolean {
-  return !!by && !!world.heroes[by]?.dead;
+// ---------------------------------------------------------------------------
+// Risen allies (the Undertaker's Mortician perk)
+
+/** Where a dead hero's body (and what they dropped) lies. */
+export function bodyRoom(h: Hero): number {
+  return h.pos.kind === 'room' ? h.pos.room : h.pos.from;
 }
 
-/** Mortician: the Undertaker takes what the fallen carried without a vote (gear only if it's an upgrade). */
-function mortician(world: World, room: number, pile: Pile, u: Hero) {
-  // What a fallen player's Emergency needs carried out, the Undertaker carries home for them, apart from their own pack (M13).
-  for (const f of [...pile.items]) {
-    const dead = f.by ? world.heroes[f.by] : undefined;
-    if (!dead?.dead || !emergencyBans(dead.emergency).includes(f.item)) continue;
-    pile.items.splice(pile.items.indexOf(f), 1);
-    (u.bodyItems[dead.id] ??= []).push(f.item);
-    notify(world, u, `You take up ${dead.name}'s ${ITEMS[f.item].name}, to carry home for their Village.`);
+/**
+ * Mortician: a conscious Undertaker out of a fight, in a room with no monsters, Raises every fallen ally lying
+ * there who hasn't been Raised before. The ally gets back up at full HP with what's left of their things (gear on,
+ * pack and gold), and follows the Undertaker into every fight like the Unholy Uprising's dead.
+ */
+function raiseTheFallen(world: World) {
+  for (const u of Object.values(world.heroes)) {
+    if (u.cls !== 'undertaker' || !isConscious(u) || u.encounter !== null || u.pos.kind !== 'room') continue;
+    const room = u.pos.room;
+    if (world.encounters[room] || monstersIn(world, room).length > 0) continue;
+    for (const dead of Object.values(world.heroes)) {
+      if (!dead.dead || dead.raised || bodyRoom(dead) !== room) continue;
+      raiseAlly(world, u, dead, room);
+    }
   }
-  const wanted = (item: ItemId) => {
-    const slot = slotOf(item);
-    if (slot === 'weapon' || slot === 'armor') return gearGain(item, u[slot]) > 0;
-    if (slot) return !u[slot];
-    return canTake(u, item);
-  };
-  for (const f of [...pile.items]) if (fromTheDead(world, f.by) && wanted(f.item)) take(world, room, pile, u, f);
+}
+
+function raiseAlly(world: World, u: Hero, dead: Hero, room: number) {
+  dead.raised = true;
+  const pile = world.piles[room];
+  if (pile) {
+    // Whatever of theirs still lies here goes back on them. A second weapon or armor stays down, fair game.
+    for (const f of pile.items.filter((x) => x.by === dead.id)) {
+      const slot = slotOf(f.item);
+      if (slot ? dead[slot] : !hasSpace(dead, f.item)) continue;
+      pile.items.splice(pile.items.indexOf(f), 1);
+      giveItem(dead, f.item);
+    }
+    dead.gold += pile.corpseGold?.[dead.id] ?? 0;
+    if (pile.corpseGold) {
+      delete pile.corpseGold[dead.id];
+      if (Object.keys(pile.corpseGold).length === 0) delete pile.corpseGold;
+    }
+    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0) delete world.piles[room];
+  }
+  u.legion.push({ hero: dead.id, hp: dead.maxHp, maxHp: dead.maxHp, dmgMult: 1, turns: 1, permanent: true });
+  chronicle(world, `${u.name} raised ${dead.name} from the dead.`);
+  for (const x of presentIn(world, room)) {
+    notify(world, x, x === u ? `${dead.name} rises at your word. Bring them to the exit and their Village keeps what they carry.` : `${u.name} raises ${dead.name}. Their empty eyes find you.`);
+  }
+  notify(world, dead, `${u.name} raises you. If they bring you out, your Village keeps what you carry.`);
+}
+
+/** A Risen ally is destroyed (or its Undertaker died): it falls where it stands, and its things are anyone's now. */
+export function risenAllyFalls(world: World, dead: Hero, room: number) {
+  dead.pos = { kind: 'room', room };
+  dropEverything(world, dead);
+  chronicle(world, `${dead.name}'s risen body fell again in ${roomName(world, dead)}.`);
+}
+
+/** A Risen ally made it out with its Undertaker: everything it carries goes to its Village. */
+export function risenAllyEscapes(world: World, u: Hero, dead: Hero) {
+  dead.legacy += dead.gold;
+  dead.gold = 0;
+  dead.legacyItems.push(...dead.items.splice(0));
+  for (const slot of GEAR_SLOTS) {
+    const worn = equip(dead, slot, null);
+    if (worn) dead.legacyItems.push(worn);
+  }
+  dead.fate = `${dead.fate ?? 'died'}; ${u.name} raised them and walked them out`;
+  chronicle(world, `${u.name} brought the risen ${dead.name} out, and what they carried home to their Village.`);
 }
 
 /** Give a floor item to a hero; gear they had on goes back on the floor as theirs. */
@@ -450,17 +488,9 @@ export function dropEverything(world: World, h: Hero) {
     if (worn) items.push(worn);
   }
   addToPile(world, room, 0, items, h.id);
-  // What a fallen Undertaker carried for others' Emergencies goes down still marked as theirs.
-  for (const [id, carried] of Object.entries(h.bodyItems)) addToPile(world, room, 0, carried, id);
-  h.bodyItems = {};
   const pile = world.piles[room];
-  const corpse = (pile.corpseGold ??= {});
-  if (h.gold > 0) corpse[h.id] = (corpse[h.id] ?? 0) + h.gold;
-  // A fallen Undertaker drops what they carried for others, still marked as theirs.
-  for (const [id, gold] of Object.entries(h.bodies)) corpse[id] = (corpse[id] ?? 0) + gold;
-  if (Object.keys(corpse).length === 0) delete pile.corpseGold;
+  if (h.gold > 0) (pile.corpseGold ??= {})[h.id] = (pile.corpseGold?.[h.id] ?? 0) + h.gold;
   h.gold = 0;
-  h.bodies = {};
 }
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, giveItem, wants, dropItem, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, giveItem, wants, dropItem, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -102,13 +102,11 @@ export interface Hero {
   elixir: boolean;
   /** Alchemist: when the next brew is done. */
   brewAt: number;
-  /** Undertaker: gold carried for fallen allies (hero id → gold). It reaches their stash if this hero escapes. */
-  bodies: Record<string, number>;
-  /** Dead heroes: gold an Undertaker carried out for them. */
+  /** Dead heroes: gold that went home anyway (an Undertaker walked them out Risen, or the Tome Rite). */
   legacy: number;
-  /** Undertaker: things carried for fallen allies' Emergencies (hero id → items); they reach the ally's Stash if this hero escapes. */
-  bodyItems: Record<string, ItemId[]>;
-  /** Things that go home whatever happens to this hero: an Undertaker carried them out, or the Tome Rite kept them (consumables). */
+  /** Dead heroes: an Undertaker has Raised them (only ever once; after that their things are anyone's). */
+  raised: boolean;
+  /** Things that go home whatever happens to this hero: they were walked out Risen, or the Tome Rite kept them (consumables). */
   legacyItems: ItemId[];
   /** A player's hero (not a bot when the run began): Exodus needs every one of them out. */
   player: boolean;
@@ -172,7 +170,7 @@ export interface Hero {
   elite: Partial<Record<EliteEventKind, true>>;
   /** Wayward Wanderers: villagers walking with this Warden; saved if they escape. */
   wanderers: number;
-  /** Unholy Uprising: Risen that follow this Undertaker into every fight until they fall (HP carries over). */
+  /** Risen that follow this Undertaker into every fight until they fall (HP carries over): the Unholy Uprising's, and fallen allies they Raised. */
   legion: Omit<Risen, 'id' | 'by'>[];
 }
 
@@ -399,8 +397,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     spadeBonus: 0,
     elixir: false,
     brewAt: world.time + CLASS_RULES.brewEvery,
-    bodies: {},
     legacy: 0,
+    raised: false,
     color: freeColor(world, opts.cls),
     pos: { kind: 'room', room: d.entrance },
     path: [],
@@ -426,7 +424,6 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     elite: {},
     wanderers: 0,
     legion: [],
-    bodyItems: {},
     legacyItems: [],
     player: !(opts.isBot ?? false),
     emergency: opts.isBot ? null : (loadout?.emergency ?? null),
@@ -553,21 +550,9 @@ export function extractHero(world: World, h: Hero) {
   h.channel = null;
   h.fate = `escaped with ${h.gold} gold`;
   chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
-  // Mortician: the fallen's gold goes home with the Undertaker, and counts for them.
-  for (const [id, gold] of Object.entries(h.bodies)) {
-    const dead = world.heroes[id];
-    if (!dead) continue;
-    dead.legacy += gold;
-    chronicle(world, `${h.name} carried ${dead.name}'s ${gold} gold home for them.`);
-  }
-  h.bodies = {};
-  for (const [id, items] of Object.entries(h.bodyItems)) {
-    const dead = world.heroes[id];
-    if (!dead || !items.length) continue;
-    dead.legacyItems.push(...items);
-    chronicle(world, `${h.name} carried home what ${dead.name}'s Village needed.`);
-  }
-  h.bodyItems = {};
+  // Mortician: the allies this Undertaker Raised walk out with them, and what they carry goes to their Villages.
+  for (const r of h.legion) if (r.hero && world.heroes[r.hero]) risenAllyEscapes(world, h, world.heroes[r.hero]);
+  h.legion = h.legion.filter((r) => !r.hero);
   // Wayward Wanderers: the villagers who walked out with the Warden are saved.
   if (h.wanderers > 0) {
     world.objectives.villagers += h.wanderers;

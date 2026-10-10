@@ -6,7 +6,7 @@ import {
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
-import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints, wornMult, wornStat } from './loot';
+import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
@@ -92,7 +92,10 @@ export interface Rising extends Slain {
 /** A slain monster the Undertaker raised: it fights on the heroes' side, nearest the enemy, for a few turns. */
 export interface Risen {
   id: string;
-  type: EnemyId;
+  /** The slain monster it was (none for a Risen ally). */
+  type?: EnemyId;
+  /** A Risen ally: the fallen hero an Undertaker raised (it fights as their class would, and carries their things). */
+  hero?: string;
   hp: number;
   maxHp: number;
   dmgMult: number;
@@ -355,15 +358,16 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
   }
   // Unholy Uprising: the Undertaker's dead come too.
   if (h.legion.length) {
-    for (const r of h.legion) (enc.legion ??= []).push({ ...r, id: `r${world.nextId++}`, by: h.id });
-    enc.log.push(`${h.name}'s dead shamble in behind them: ${h.legion.map((r) => ENEMIES[r.type].name).join(', ')}.`);
+    // A Risen ally keeps its hero's id, so the fight screen can show what it does.
+    for (const r of h.legion) (enc.legion ??= []).push({ ...r, id: r.hero ?? `r${world.nextId++}`, by: h.id });
+    enc.log.push(`${h.name}'s dead shamble in behind them: ${h.legion.map((r) => risenName(world, r)).join(', ')}.`);
     h.legion = [];
   }
   // Restless Dead: the risen that followed the Undertaker here fights on.
   if (h.risen && !risenOf(enc)) {
     enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
     h.risen = null;
-    enc.log.push(`The risen ${ENEMIES[enc.risen.type].name} shambles in behind ${h.name}.`);
+    enc.log.push(`The ${risenName(world, enc.risen)} shambles in behind ${h.name}.`);
   }
 }
 
@@ -371,7 +375,7 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
 function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
     const mine = enc.legion.filter((r) => r.by === h.id);
-    for (const r of mine) if (r.hp > 0) h.legion.push({ type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns, permanent: true });
+    for (const { id: _id, by: _by, ...r } of mine) if (r.hp > 0) h.legion.push(r);
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
   const r = risenOf(enc);
@@ -454,8 +458,8 @@ function startTimers(world: World, enc: Encounter) {
     // Great Bell: still reeling from the Toll.
     if ((m.dazedUntil ?? 0) > world.time) m.st.stun = true;
   }
-  if (enc.risen) enc.next[enc.risen.id] ??= at(world.time + ENEMIES[enc.risen.type].speed);
-  for (const r of risenAll(enc)) enc.next[r.id] ??= at(world.time + ENEMIES[r.type].speed);
+  if (enc.risen) enc.next[enc.risen.id] ??= at(world.time + risenSpeed(world, enc.risen));
+  for (const r of risenAll(enc)) enc.next[r.id] ??= at(world.time + risenSpeed(world, r));
 }
 
 /**
@@ -476,6 +480,17 @@ export function combatOrder(world: World, enc: Encounter): { heroes: Hero[]; mon
 /** The risen ally in this fight, if it's still standing. */
 export function risenOf(enc: Encounter): Risen | null {
   return enc.risen && enc.risen.hp > 0 && enc.risen.turns > 0 ? enc.risen : null;
+}
+
+/** "Risen Ghoul", or a Risen ally's own name ("Risen Mara"). */
+export function risenName(world: World, r: Pick<Risen, 'type' | 'hero'>): string {
+  return `Risen ${r.hero ? world.heroes[r.hero]?.name ?? 'ally' : ENEMIES[r.type!].name}`;
+}
+
+/** A risen monster keeps its old Speed; a Risen ally has its hero's (gear included). */
+export function risenSpeed(world: World, r: Pick<Risen, 'type' | 'hero'>): number {
+  const h = r.hero ? world.heroes[r.hero] : undefined;
+  return h ? speedOf(h, world.time) : ENEMIES[r.type!].speed;
 }
 
 /** Every risen ally still standing here: the Uprising's dead, then the one Raised (nearest the enemy). */
@@ -660,7 +675,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
 function takeTurn(world: World, enc: Encounter, unit: Unit) {
   const events: CombatEvent[] = [];
   const id = unit.kind === 'hero' ? unit.h.id : unit.kind === 'monster' ? unit.m.id : unit.r.id;
-  const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : ENEMIES[unit.kind === 'monster' ? unit.m.type : unit.r.type].speed;
+  const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : unit.kind === 'monster' ? ENEMIES[unit.m.type].speed : risenSpeed(world, unit.r);
   enc.next[id] = at(enc.next[id] + speed);
   if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
   else if (unit.kind === 'monster') monsterTurn(world, enc, unit.m, events);
@@ -897,10 +912,12 @@ function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEve
 
 /** The risen fight the monsters with their old attacks, then crumble when their turns run out. */
 function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]) {
-  const name = `Risen ${ENEMIES[r.type].name}`;
+  const ally = r.hero ? world.heroes[r.hero] : undefined;
+  if (ally) return risenAllyTurn(world, enc, ally, events);
+  const name = risenName(world, r);
   const foes = combatOrder(world, enc).monsters;
   if (foes.length) {
-    const dmg = Math.max(1, Math.round(ENEMIES[r.type].dmg * r.dmgMult));
+    const dmg = Math.max(1, Math.round(ENEMIES[r.type!].dmg * r.dmgMult));
     const hit = (m: Monster, verb: string) => {
       const taken = acidic(m, dmg);
       events.push({ actor: r.id, kind: 'damage', target: m.id, amount: taken, text: `${name} ${verb} ${ENEMIES[m.type].name} for ${taken}.` });
@@ -927,6 +944,18 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
     events.push({ actor: r.id, kind: 'death', target: r.id, text: `${name} crumbles back into dust.` });
     delete enc.next[r.id];
   }
+}
+
+/**
+ * A Risen ally does what its hero would have done undecided (their class's first ready ability, aimed as the
+ * default would), with their gear, cooldowns and Speed. Nobody steers it, and it never uses items or flees.
+ */
+function risenAllyTurn(world: World, enc: Encounter, dead: Hero, events: CombatEvent[]) {
+  tickCooldowns(dead);
+  startOfTurn(dead.st);
+  const choice = defaultChoice(world, enc, dead);
+  if (choice) heroAct(world, enc, dead, choice, events);
+  else events.push({ actor: dead.id, kind: 'info', text: `Risen ${dead.name} stands, waiting.` });
 }
 
 function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: CombatEvent[]) {
@@ -1434,11 +1463,12 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     const r = victim.r;
     const dmg = Math.max(1, Math.round(base * m.dmgMult * (m.st.weak ? 0.5 : 1)));
     r.hp = Math.max(0, r.hp - dmg);
-    const rname = `the risen ${ENEMIES[r.type].name}`;
+    const rname = risenName(world, r);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
     if (r.hp <= 0) {
-      events.push({ actor: r.id, kind: 'death', target: r.id, text: `${rname[0].toUpperCase()}${rname.slice(1)} falls apart.` });
+      events.push({ actor: r.id, kind: 'death', target: r.id, text: `${rname} falls apart.` });
       delete enc.next[r.id];
+      if (r.hero) risenAllyFalls(world, world.heroes[r.hero], enc.room);
     }
     return null;
   }
@@ -1586,6 +1616,7 @@ export function bleedOut(world: World, h: Hero) {
   h.fate = `bled out in ${roomName(world, h)}`;
   chronicle(world, `${h.name} bled out in ${roomName(world, h)}.`);
   dropEverything(world, h);
+  dropRisenAllies(world, h);
   const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
   if (enc) {
     enc.log.push(`${h.name} has died.`);
@@ -1598,3 +1629,17 @@ export function bleedOut(world: World, h: Hero) {
   }
 }
 
+/** A dead Undertaker's Risen allies fall with them, wherever they are (with them, or still fighting on). */
+export function dropRisenAllies(world: World, u: Hero) {
+  for (const r of u.legion) if (r.hero) risenAllyFalls(world, world.heroes[r.hero], bodyRoom(u));
+  u.legion = u.legion.filter((r) => !r.hero);
+  for (const enc of Object.values(world.encounters)) {
+    for (const r of enc.legion ?? []) {
+      if (r.by !== u.id || !r.hero || r.hp <= 0) continue;
+      r.hp = 0;
+      delete enc.next[r.id];
+      enc.log.push(`With ${u.name} gone, ${risenName(world, r)} falls still.`);
+      risenAllyFalls(world, world.heroes[r.hero], enc.room);
+    }
+  }
+}

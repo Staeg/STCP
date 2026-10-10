@@ -311,7 +311,9 @@ export class CombatUi {
     const pct = (hp / u.maxHp) * 100;
     const flash = now - (this.flashes.get(u.id) ?? -1e9) < 260;
     const color = u.kind === 'hero' ? u.color : u.kind === 'risen' ? '#8fa39a' : '#9a4a3a';
-    const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed) : spriteUrl(u.enemy!, undefined, dying);
+    // A Risen ally is its class's sprite in the colour of the dead.
+    const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed)
+      : u.cls ? spriteUrl(u.cls, '#8fa39a', dying) : spriteUrl(u.enemy!, undefined, dying);
     const st = u.st;
     const time = this.time;
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
