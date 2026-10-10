@@ -60,6 +60,8 @@ export interface Hero {
   knownChalk: Record<number, Record<string, number>>;
   /** Monster count per room, as of when this hero last saw it. */
   knownThreat: Record<number, number>;
+  /** What this hero last saw in each room (for the map's hover box). */
+  knownContents: Record<number, RoomSighting>;
 
   hp: number;
   maxHp: number;
@@ -360,6 +362,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     lastKnown: {},
     knownChalk: {},
     knownThreat: {},
+    knownContents: {},
     hp: maxHp,
     maxHp,
     stress: 0,
@@ -700,6 +703,27 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
 }
 
 /** Loot in a room worth this hero's notice: gold, and items they don't ignore. */
+/** A hero's memory of a room: what was in it when they last looked. A room seen only from next door holds just what showed from there. */
+export interface RoomSighting {
+  at: number;
+  monsters: EnemyId[];
+  items: ItemId[];
+  gold: number;
+  /** An unfinished event, or 'villager' for a captive. */
+  event?: EventKind;
+  /** Only ever seen from next door, so events (and, without Cutthroat eyes, loot) are unknown. */
+  glimpsed?: boolean;
+}
+
+function monsterTypes(world: World, room: number): EnemyId[] {
+  return monstersIn(world, room).map((m) => m.type);
+}
+
+function pileSeen(world: World, room: number): { items: ItemId[]; gold: number } {
+  const p = world.piles[room];
+  return { items: p ? p.items.map((f) => f.item) : [], gold: p?.gold ?? 0 };
+}
+
 function lootCount(world: World, room: number, h: Hero): number {
   const p = world.piles[room];
   return p ? p.items.filter((f) => wants(h, f)).length + (p.gold > 0 ? 1 : 0) : 0;
@@ -880,8 +904,19 @@ function updateKnowledge(world: World) {
       if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
       else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
       else delete a.knownEvents[room];
-      if (a.cls === 'cutthroat') for (const n of neighbours(world.dungeon, room)) a.knownLoot[n] = lootCount(world, n, a);
-      if (a.light >= LIGHT_DIM || seesInDark(a)) for (const n of neighbours(world.dungeon, room)) a.knownThreat[n] = monstersIn(world, n).length;
+      a.knownContents[room] = { at: world.time, monsters: monsterTypes(world, room), ...pileSeen(world, room), event: a.knownEvents[room] };
+      if (a.cls === 'cutthroat') {
+        for (const n of neighbours(world.dungeon, room)) {
+          a.knownLoot[n] = lootCount(world, n, a);
+          a.knownContents[n] = { ...(a.knownContents[n] ?? { monsters: [], glimpsed: true }), ...pileSeen(world, n), at: world.time };
+        }
+      }
+      if (a.light >= LIGHT_DIM || seesInDark(a)) {
+        for (const n of neighbours(world.dungeon, room)) {
+          a.knownThreat[n] = monstersIn(world, n).length;
+          a.knownContents[n] = { ...(a.knownContents[n] ?? { items: [], gold: 0, glimpsed: true }), monsters: monsterTypes(world, n), at: world.time };
+        }
+      }
     }
   }
 }

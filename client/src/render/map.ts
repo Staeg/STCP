@@ -1,4 +1,4 @@
-import { CALL_RULES, dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
+import { CALL_RULES, dirBetween, ENEMIES, EVENTS, itemTier, ITEMS, type AllyView, type EventKind, type HeroPos, type ItemId, type PlayerView, type RoomReveal, type RoomView } from '@stcp/shared';
 import type { Net } from '../net';
 import { icon, iconize } from '../icons';
 import { drawSprite } from './sprites';
@@ -415,7 +415,14 @@ export class MapRenderer {
       ctx.fillText(label, tx + 1, ty + 1);
       ctx.fillStyle = COLORS.hover;
       ctx.fillText(label, tx, ty);
-      if (r.reveal && !pinned) this.drawReveal(r.reveal, tx, this.sy(r.y) + size / 2 + 8);
+      const below = this.sy(r.y) + size / 2 + 8;
+      if (r.reveal && !pinned) this.drawContents(contentLines(r.reveal, 'Nothing left here.'), tx, below);
+      else if (r.memory && !view.results) {
+        const ago = Math.floor(view.time - r.memory.at);
+        const m = r.memory;
+        const when = `${m.glimpsed ? 'Glimpsed from next door' : 'Seen'} ${ago < 2 ? 'just now' : `${ago >= 60 ? `${Math.floor(ago / 60)}m` : `${ago}s`} ago`}`;
+        this.drawContents([{ text: when, color: COLORS.muted }, ...contentLines(m, m.glimpsed ? 'Nothing seen.' : 'Nothing here.')], tx, below);
+      }
     }
     this.drawLock(pinned, size);
 
@@ -480,17 +487,8 @@ export class MapRenderer {
     el.classList.toggle('flip', cx > innerWidth / 2);
   }
 
-  /** After the run: what was left in the hovered room, in a box under it. */
-  private drawReveal(rv: RoomReveal, cx: number, top: number) {
-    const lines: { text: string; color: string }[] = [];
-    const counts = new Map<string, number>();
-    for (const m of rv.monsters) counts.set(ENEMIES[m].name, (counts.get(ENEMIES[m].name) ?? 0) + 1);
-    for (const [name, n] of counts) lines.push({ text: `☠ ${n > 1 ? `${n}× ` : ''}${name}`, color: '#e07a5a' });
-    for (const it of rv.items) lines.push({ text: `${ITEMS[it as ItemId].glyph} ${ITEMS[it as ItemId].name}`, color: TIER_COLORS[itemTier(it)] });
-    if (rv.gold > 0) lines.push({ text: `⛀ ${rv.gold} gold`, color: '#e0b44a' });
-    if (rv.event) lines.push({ text: `${EVENTS[rv.event].glyph} ${EVENTS[rv.event].name} (not done)`, color: '#c08aff' });
-    if (rv.captive) lines.push({ text: '☺ A captive, never freed', color: '#e0c890' });
-    if (!lines.length) lines.push({ text: 'Nothing left here.', color: COLORS.muted });
+  /** What's in the hovered room (left there after the run, or last seen during it), in a box under it. */
+  private drawContents(lines: { text: string; color: string }[], cx: number, top: number) {
     const { ctx } = this;
     ctx.font = '18px VT323, monospace';
     const lh = 18;
@@ -661,6 +659,21 @@ export class MapRenderer {
     }
     ctx.textBaseline = 'alphabetic';
   }
+}
+
+/** One line per thing in a room: monsters, items, gold, an unfinished event or captive. */
+function contentLines(rv: Omit<RoomReveal, 'event'> & { event?: EventKind }, empty: string): { text: string; color: string }[] {
+  const lines: { text: string; color: string }[] = [];
+  const counts = new Map<string, number>();
+  for (const m of rv.monsters) counts.set(ENEMIES[m].name, (counts.get(ENEMIES[m].name) ?? 0) + 1);
+  for (const [name, n] of counts) lines.push({ text: `☠ ${n > 1 ? `${n}× ` : ''}${name}`, color: '#e07a5a' });
+  for (const it of rv.items) lines.push({ text: `${ITEMS[it as ItemId].glyph} ${ITEMS[it as ItemId].name}`, color: TIER_COLORS[itemTier(it)] });
+  if (rv.gold > 0) lines.push({ text: `⛀ ${rv.gold} gold`, color: '#e0b44a' });
+  if (rv.event === 'villager' && !rv.captive) lines.push({ text: '☺ A captive', color: '#e0c890' });
+  else if (rv.event) lines.push({ text: `${EVENTS[rv.event].glyph} ${EVENTS[rv.event].name} (not done)`, color: '#c08aff' });
+  if (rv.captive) lines.push({ text: '☺ A captive, never freed', color: '#e0c890' });
+  if (!lines.length) lines.push({ text: empty, color: COLORS.muted });
+  return lines;
 }
 
 function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {

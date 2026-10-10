@@ -59,6 +59,21 @@ describe('world movement', () => {
     expect(hero.knownThreat[next]).toBe(1);
   });
 
+  it('remembers what was in a room as of when you last saw it, for the map', () => {
+    const { world, hero, d } = setup();
+    const next = neighbours(d, d.entrance)[0];
+    spawnGroup(world, next, ['ghoul'], 0);
+    step(world, 0.1);
+    const seenAt = world.time;
+    const room = () => buildView(world, 'h1').rooms.find((r) => r.id === next)!;
+    expect(room().memory).toMatchObject({ monsters: ['ghoul'], items: [], gold: 0 });
+    // Gone while you're Dim: the map still shows the ghoul you saw.
+    hero.light = LIGHT_DIM - 1;
+    for (const id of Object.keys(world.monsters)) delete world.monsters[id];
+    step(world, 0.1);
+    expect(room().memory).toMatchObject({ at: seenAt, monsters: ['ghoul'] });
+  });
+
   it('turning back returns to the start in the time already walked', () => {
     const { world, hero, d } = setup();
     const next = neighbours(d, d.entrance)[0];

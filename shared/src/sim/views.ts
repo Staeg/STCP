@@ -14,7 +14,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
-import { knowsCorridor, type Hero, type HeroPos, type World, type WorldPhase } from './world';
+import { knowsCorridor, type Hero, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
 export type RoomKnowledge = 'explored' | 'seen' | 'unknown';
@@ -34,6 +34,8 @@ export interface RoomView {
   loot?: number;
   /** An event you saw here and haven't seen resolved. */
   event?: EventKind;
+  /** What you saw here last time you looked, and when (during the run). */
+  memory?: RoomSighting;
   /** Only once the expedition is over: what was really here at the end. */
   reveal?: RoomReveal;
 }
@@ -293,6 +295,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       threat: reveal ? reveal.monsters.length || undefined : you.knownThreat[id],
       loot: reveal ? reveal.items.length + (reveal.gold > 0 ? 1 : 0) || undefined : you.knownLoot[id],
       event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : veil(you, you.knownEvents[id]),
+      memory: reveal ? undefined : sighting(you, you.knownContents[id]),
       reveal,
     };
   });
@@ -363,6 +366,10 @@ function finiteOrNull(n: number): number | null {
 function veil(you: Hero, kind: EventKind | undefined): EventKind | undefined {
   const elite = kind && EVENTS[kind].elite;
   return elite && elite !== you.cls ? 'veiled' : kind;
+}
+
+function sighting(you: Hero, s: RoomSighting | undefined): RoomSighting | undefined {
+  return s && { ...s, event: veil(you, s.event) };
 }
 
 function revealRoom(world: World, room: number): RoomReveal {
