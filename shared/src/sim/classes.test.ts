@@ -76,13 +76,14 @@ describe('poison and acid', () => {
     walkIn(world, ids, room);
     const m = monsters[0];
     m.st.poison = [{ dmg: 2, rounds: 2 }, { dmg: 3, rounds: 1 }];
-    m.st.acid = 2;
+    m.st.acid = { stacks: 2, turns: 1 };
     const enc = world.encounters[room];
     untilTurn(world, room, m.id);
     const ticks = enc.events.filter((e) => e.actor === m.id && e.text.includes('poison damage')).map((e) => e.amount);
-    expect(ticks).toEqual([2 + CLASS_RULES.acidBonus, 3 + CLASS_RULES.acidBonus]);
+    expect(ticks).toEqual([2 + 2 * CLASS_RULES.acidBonus, 3 + 2 * CLASS_RULES.acidBonus]);
     expect(m.st.poison).toEqual([{ dmg: 2, rounds: 1 }]);
-    expect(m.st.acid).toBe(1);
+    // The timer ran out: one stack fades and the other gets a fresh timer.
+    expect(m.st.acid).toEqual({ stacks: 1, turns: CLASS_RULES.acidTurns });
   });
 });
 

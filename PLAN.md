@@ -149,7 +149,7 @@ Current numbers (the v1 draft is in git history). *Slot order (user, 2026-10-09)
 - **Scourge** (CD 0): 8 damage. · **Absolution** (CD 4): spend your stress above 50 as damage split across enemies (dealt at the pre-spend bonus). · **Take Their Sins** (CD 2): move up to 25 stress from an ally to yourself; also out of combat (uses a turn; shared cooldown).
 
 **Alchemist** (brews, poisons; user 2026-10-09). 45 HP, Speed 5. *Perk: Brewer. A random consumable every 45s if the pack has room.*
-- **Acid Flask** (CD 0): 6 damage; for its next 2 turns the target takes +2 from every hit, Bleed ticks included. · **Fumes** (CD 3): Bleed 4×3 on every enemy (stacks). · **Elixir** (CD 4): an ally's (or your own) next item has double effect; also out of combat (uses a turn).
+- **Acid Flask** (CD 0): 6 damage and a stack of Acid: +2 per stack on every hit the target takes, Poison ticks included (user, 2026-10-10: stacks like Clang). The stacks' timer is 2 of the target's turns, refreshed by every Flask; when it runs out one stack fades and the timer restarts for the rest. · **Fumes** (CD 3): Bleed 4×3 on every enemy (stacks). · **Elixir** (CD 4): an ally's (or your own) next item has double effect; also out of combat (uses a turn).
 
 ### 3.5 Enemies
 *(v1 numbers; current ones in `content/enemies.ts`. Targets per the 2026-10-09 rules: nearest hero unless noted.)*
@@ -414,6 +414,8 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 ## 7. Progress Log
 
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-10 · **Acid stacks (user request).** Every Acid Flask adds a stack (+2 per stack to every hit) and refreshes the 2-turn timer; a timeout drops one stack, not all (same rule as Clang). ☣×N icon. 255 tests.
 
 - 2026-10-10 · **Bots show in the lobby (user request).** See the Decisions row "Bots in the lobby". New lobby test; 255 tests. Checked in the browser: bots appear after picking a class, and taking a bot's class swapped it onto the Warden put down. Next: as before.
 - 2026-10-10 · **Clang haste + statuses outlast fights (user request).** Clang adds a −1s Speed stack to the Bellwright (2-turn timer, one stack fades per timeout; 🔔×N icon, shows in the Speed breakdown). Hero timed statuses persist out of combat and tick per field turn, so Poison now hurts while exploring. Field turns split like combat ones: cooldowns/Vengeance/Clang tick before the turn's item, skill or event, Poison/Weak/Acid/Hexed after it (user: a Bandage cures before Poison ticks). See the new Decisions row. 254 tests. Sim (40 games): escape 52%, wipes 15%; small sample, nothing alarming. Next: as before.

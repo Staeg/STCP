@@ -26,8 +26,8 @@ export interface Statuses {
   stun?: boolean;
   /** Each Poison runs on its own: `rounds` = turns of poison left for that one. */
   poison?: Poison[];
-  /** Acid: takes CLASS_RULES.acidBonus more from every hit; turns remaining. */
-  acid?: number;
+  /** Acid: takes CLASS_RULES.acidBonus more from every hit per stack. `turns` = own turns until one stack fades. */
+  acid?: { stacks: number; turns: number };
   /** Hexed: one entry per stack, each the turns it has left. Every stack adds CLASS_RULES.hexedBonus to Hex's damage. */
   hexed?: number[];
   block?: number;
@@ -697,8 +697,10 @@ function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) =
     if (st.poison?.length === 0) delete st.poison;
     if (!hurt(dmg)) return;
   }
-  for (const k of ['weak', 'acid'] as const) {
-    if (st[k] !== undefined && --st[k]! <= 0) delete st[k];
+  if (st.weak !== undefined && --st.weak <= 0) delete st.weak;
+  if (st.acid && --st.acid.turns <= 0) {
+    if (--st.acid.stacks <= 0) delete st.acid;
+    else st.acid.turns = CLASS_RULES.acidTurns;
   }
   if (st.hexed) {
     st.hexed = st.hexed.map((n) => n - 1).filter((n) => n > 0);
@@ -777,7 +779,7 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
 
 /** What a monster actually takes from a hit of `dmg` (Acid adds to every one). */
 function acidic(m: Monster, dmg: number): number {
-  return m.st.acid ? dmg + CLASS_RULES.acidBonus : dmg;
+  return m.st.acid ? dmg + m.st.acid.stacks * CLASS_RULES.acidBonus : dmg;
 }
 
 function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) {
@@ -1179,8 +1181,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = pickEnemy(false);
       if (!t) return;
       if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) {
-        t.st.acid = CLASS_RULES.acidTurns;
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is burned by acid.` });
+        t.st.acid = { stacks: (t.st.acid?.stacks ?? 0) + 1, turns: CLASS_RULES.acidTurns };
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is burned by acid.${t.st.acid.stacks > 1 ? ` (×${t.st.acid.stacks})` : ''}` });
       }
       return;
     }

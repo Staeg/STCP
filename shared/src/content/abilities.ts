@@ -66,7 +66,7 @@ export const CLASS_RULES = {
   absolutionFloor: 50,
   /** Alchemist: a fresh consumable this often (seconds). */
   brewEvery: 45,
-  /** Acid: extra damage on every hit the target takes, for this many of its turns. */
+  /** Acid: extra damage per stack on every hit the target takes. Each stack's timer is this many of its turns; running out loses one stack and restarts it for the rest. Another Flask adds a stack and refreshes it. */
   acidBonus: 2,
   acidTurns: 2,
   /** Fumes: Poison on every enemy. */
@@ -112,7 +112,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
     { id: 'sins', name: 'Take Their Sins', cooldown: 2, target: 'otherAlly', power: 25, desc: 'Take up to 25 stress off an ally onto yourself.', field: true },
   ],
   alchemist: [
-    { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg. For its next 2 turns it takes +2 from every hit, Poison included.' },
+    { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg and a stack of Acid: +2 from every hit, Poison included. Lasts 2 of its turns, then one stack fades; another Flask adds a stack and refreshes it.' },
     { id: 'fumes', name: 'Fumes', cooldown: 3, target: 'allEnemies', power: 3, desc: 'Every enemy is Poisoned for 4 at the end of each of its next 3 turns (stacks with other Poisons).' },
     { id: 'elixir', name: 'Elixir', cooldown: 4, target: 'ally', power: 2, desc: "An ally's next item (or yours) has double effect.", field: true },
   ],
