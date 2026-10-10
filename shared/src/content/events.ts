@@ -125,7 +125,7 @@ export const EVENTS: Record<EventKind, EventDef> = {
       + '(Pray as long as you like: every second, every ally in the dungeon, you included, gets +1 HP, +1 light and −1 stress.)',
   },
   sacrament: {
-    kind: 'sacrament', name: 'Sinful Sacrament', glyph: '✦', weight: 0, elite: 'witch',
+    kind: 'sacrament', name: 'Sinful Sacrament', glyph: '✦', weight: 0, elite: 'sorceress',
     text: 'A chalice of something dark and warm. Drink, and the whole dungeon will feel what it costs. '
       + '(12s: +25 stress to every hero, you included; your Speed is the fastest there is (2s) for the rest of the run.)',
   },
@@ -153,7 +153,7 @@ export const EVENTS: Record<EventKind, EventDef> = {
 
 /** Elite Event of each class. */
 export const CLASS_ELITE: Record<ClassId, EliteEventKind> = {
-  warden: 'wanderers', cutthroat: 'cant', lampbearer: 'liturgy', witch: 'sacrament',
+  warden: 'wanderers', cutthroat: 'cant', lampbearer: 'liturgy', sorceress: 'sacrament',
   undertaker: 'uprising', bellwright: 'barrage', zealot: 'zenith', alchemist: 'alacrity',
 };
 
@@ -182,7 +182,7 @@ export const ELITE_EVENTS = {
   barrageTime: 36,
   barrageEvery: 12,
   /** Zen Zenith: how high stress can go (was 100). */
-  zenithStressMax: 200,
+  zenithStressMax: 1000,
   /** Artistic Alacrity: Speed per carried consumable. */
   alacrityPerItem: -0.5,
 };

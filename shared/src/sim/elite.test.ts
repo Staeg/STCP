@@ -150,7 +150,7 @@ describe('Elite Events: effects', () => {
   });
 
   it('Sinful Sacrament: +25 stress to every hero, and the Sorceress is Speed 2s for good', () => {
-    const { world, h, o } = withElite('witch');
+    const { world, h, o } = withElite('sorceress');
     o.pos = { kind: 'room', room: neighbours(world.dungeon, world.dungeon.entrance)[0] };
     choose(world, 'h', 'partake');
     run(world, ELITE_EVENTS.channel + 0.2);

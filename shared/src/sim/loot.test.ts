@@ -14,7 +14,7 @@ function run(world: World, seconds: number) {
 
 function party(n: number) {
   const world = createWorld(4242, { monsters: false, loot: false });
-  const classes = ['warden', 'cutthroat', 'lampbearer', 'witch'] as const;
+  const classes = ['warden', 'cutthroat', 'lampbearer', 'sorceress'] as const;
   for (let i = 0; i < n; i++) addHero(world, { id: `h${i}`, name: `H${i}`, cls: classes[i] });
   const d = world.dungeon;
   return { world, d, room: neighbours(d, d.entrance)[0] };
@@ -417,7 +417,7 @@ describe('bot games with loot', () => {
         { id: 'a', name: 'A', cls: 'warden', isBot: true },
         { id: 'b', name: 'B', cls: 'cutthroat', isBot: true },
         { id: 'c', name: 'C', cls: 'lampbearer', isBot: true },
-        { id: 'd', name: 'D', cls: 'witch', isBot: true },
+        { id: 'd', name: 'D', cls: 'sorceress', isBot: true },
       ]);
       for (let t = 0; t < COLLAPSE_AT && game.world.phase === 'running'; t += 0.1) game.tick(0.1);
       for (const h of Object.values(game.world.heroes)) {

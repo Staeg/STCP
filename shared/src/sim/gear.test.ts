@@ -32,7 +32,7 @@ describe('equipping gear', () => {
   });
 
   it('swaps: the old piece goes on the floor for a vote', () => {
-    const { world, d } = party(['warden', 'witch']);
+    const { world, d } = party(['warden', 'sorceress']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
     addToPile(world, d.entrance, 0, ['cuirass']);
@@ -80,7 +80,7 @@ describe('equipping gear', () => {
   });
 
   it('bots back the biggest upgrade, and leave pieces nobody needs', () => {
-    const { world, d } = party(['warden', 'witch']);
+    const { world, d } = party(['warden', 'sorceress']);
     world.heroes.h0.isBot = world.heroes.h1.isBot = true;
     world.heroes.h0.weapon = 'runeblade';
     addToPile(world, d.entrance, 0, ['hatchet']);
@@ -129,7 +129,7 @@ describe('gear in combat', () => {
   });
 
   it('armor softens a Pact\'s blood price', () => {
-    const { world, room } = party(['witch']);
+    const { world, room } = party(['sorceress']);
     const h = world.heroes.h0;
     h.armor = 'chainshirt';
     spawnGroup(world, room, ['brute'], 0);
@@ -137,7 +137,7 @@ describe('gear in combat', () => {
     for (let i = 0; i < 100 && h.encounter === null; i++) step(world, 0.1);
     const enc = world.encounters[room];
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
-    run(world, 4.7); // Witch: Speed 4 + 0.5 for the armor
+    run(world, 4.7); // Sorceress: Speed 4 + 0.5 for the armor
     const price = enc.events.find((e) => e.text.includes('spills their own blood'));
     expect(price?.amount).toBe(4);
   });

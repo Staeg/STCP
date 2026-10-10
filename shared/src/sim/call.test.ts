@@ -59,7 +59,7 @@ describe('call for help', () => {
   it('can be done while Downed', () => {
     const world = createWorld(5, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-    addHero(world, { id: 'b', name: 'B', cls: 'witch' });
+    addHero(world, { id: 'b', name: 'B', cls: 'sorceress' });
     h.downedAt = world.time;
     applyIntent(world, 'a', { type: 'call' });
     expect(h.called).toBe(true);
@@ -73,7 +73,7 @@ describe('call for help', () => {
       const world = createWorld(100 + s, { monsters: false, loot: false, escalates: false });
       const room = world.dungeon.entrance;
       addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-      const b = addHero(world, { id: 'b', name: 'B', cls: 'witch' });
+      const b = addHero(world, { id: 'b', name: 'B', cls: 'sorceress' });
       b.pos = { kind: 'room', room: roomAt(world, room, 1 + (s % 9)) };
       expected += Math.max(0, 1 - CALL_RULES.falloff * hopsFrom(world, room).get((b.pos as { room: number }).room)!);
       applyIntent(world, 'a', { type: 'call' });
@@ -90,7 +90,7 @@ describe('call for help', () => {
     const world = createWorld(5, { monsters: false, loot: false, escalates: false });
     const room = world.dungeon.entrance;
     addHero(world, { id: 'a', name: 'A', cls: 'warden' });
-    const bot = addHero(world, { id: 'b', name: 'B', cls: 'witch', isBot: true });
+    const bot = addHero(world, { id: 'b', name: 'B', cls: 'sorceress', isBot: true });
     // The bot knows the whole map, and stands two tunnels away.
     bot.explored = world.dungeon.rooms.map((r) => r.id);
     bot.seen = [...bot.explored];
@@ -112,7 +112,7 @@ describe('call for help', () => {
   it('a downed bot calls for help when no ally is standing with it, and not when one is', () => {
     const bots = [
       { id: 'a', name: 'A', cls: 'warden' as const, isBot: true },
-      { id: 'b', name: 'B', cls: 'witch' as const, isBot: true },
+      { id: 'b', name: 'B', cls: 'sorceress' as const, isBot: true },
     ];
     const game = new Game(5, bots, { monsters: false, loot: false, escalates: false });
     const [a, b] = [game.world.heroes.a, game.world.heroes.b];

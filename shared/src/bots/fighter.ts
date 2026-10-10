@@ -70,7 +70,7 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
       if (ready(0)) return { action: 'a0' };
       break;
     }
-    case 'witch': {
+    case 'sorceress': {
       if (enemies.length >= 2 && ready(1) && allies.every((a) => a.hp > 12)) return { action: 'a1' };
       if (enemies.length >= 2 && ready(2)) return { action: 'a2' };
       const hexed = maxBy(enemies.filter((m) => m.st.hexed?.length), (m) => m.st.hexed!.length);

@@ -84,7 +84,7 @@ export const SPRITES: Record<string, string[]> = {
     '....kBBBBBBBBk..',
     '....kkkkkkkkkk..',
   ],
-  witch: [
+  sorceress: [
     '.......kk.......',
     '......kbbk......',
     '.....kbbbbk.....',

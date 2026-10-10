@@ -63,7 +63,8 @@ export class Stash {
     const raw = store?.load();
     if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as Record<string, number | Record_>;
+      // The Witch became the Sorceress (2026-10-10): Characters saved before then still say 'witch'.
+      const parsed = JSON.parse(raw.replace(/"cls"\s*:\s*"witch"/g, '"cls": "sorceress"')) as Record<string, number | Record_>;
       for (const [key, v] of Object.entries(parsed)) {
         // M5–M10 stored just a gold number.
         this.data[key] = typeof v === 'number' ? { name: key, gold: v, runs: 0, escapes: 0, best: v } : v;

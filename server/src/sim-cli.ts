@@ -2,7 +2,7 @@
  * Headless balance simulator: runs all-bot games and prints metrics against the PLAN.md M8 targets.
  *   npm run sim -- --games 100 --seed 1
  *   npm run sim -- --games 60 --set ESCALATION.capPerEscalation=2 --set ENEMIES.ghoul.dmg=3 --json
- *   npm run sim -- --classes warden,cutthroat,lampbearer,witch
+ *   npm run sim -- --classes warden,cutthroat,lampbearer,sorceress
  *   npm run sim -- --cr 2        (the first N heroes get a random Talent of their class: Challenge Rating N)
  * --set may repeat; it overrides any number in the tunable content tables below.
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).

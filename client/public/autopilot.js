@@ -25,7 +25,7 @@ window.startAutopilot = (opts = {}) => {
   };
   let lastRound = '';
   let busyUntil = 0;
-  const abilityIds = { warden: ['bash', 'vengeance', 'rally'], cutthroat: ['backstab', 'cheap', 'smoke'], lampbearer: ['flare', 'vigil', 'mend'], witch: ['hex', 'pact', 'wither'] };
+  const abilityIds = { warden: ['bash', 'vengeance', 'rally'], cutthroat: ['backstab', 'cheap', 'smoke'], lampbearer: ['flare', 'vigil', 'mend'], sorceress: ['hex', 'pact', 'wither'] };
   const ready = (you, i) => abilityIds[you.cls] && (you.cooldowns[abilityIds[you.cls][i]] ?? 0) === 0;
   // Driven by incoming snapshots (10/s) rather than timers, which background tabs throttle.
   const step = (v) => {
@@ -56,7 +56,7 @@ window.startAutopilot = (opts = {}) => {
         else if (you.cls === 'lampbearer' && hurtAlly && ready(you, 2)) choice = { action: 'a2', target: hurtAlly.id };
         else if (you.cls === 'lampbearer' && ready(you, 0)) choice = { action: 'a0' };
         else if (you.cls === 'warden' && ready(you, 0)) choice = { action: 'a0', target: front.id };
-        else if (you.cls === 'witch' && enc.monsters.length >= 3 && ready(you, 1) && you.hp > 12) choice = { action: 'a1' };
+        else if (you.cls === 'sorceress' && enc.monsters.length >= 3 && ready(you, 1) && you.hp > 12) choice = { action: 'a1' };
         else if (you.cls === 'cutthroat' && enc.monsters.length > 1 && ready(you, 1)) choice = { action: 'a1', target: soft.id };
         else if (you.cls === 'lampbearer' || you.cls === 'warden') choice = { action: 'brace' };
         else choice = { action: 'a0', target: soft.id };

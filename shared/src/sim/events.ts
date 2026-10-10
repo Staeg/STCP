@@ -158,8 +158,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   const one = (choice: EventChoice) => ({ kind: ev.kind, progress, choices: [choice] });
   switch (ev.kind) {
     case 'altar':
-      return one(h.cls === 'witch'
-        ? perk(c('channel', 'Cleanse it'), 'witch', 'Your rites keep its guardians asleep.')
+      return one(h.cls === 'sorceress'
+        ? perk(c('channel', 'Cleanse it'), 'sorceress', 'Your rites keep its guardians asleep.')
         : c('channel', 'Cleanse it'));
     case 'vault':
       return one(c('channel', 'Pick the lock'));
@@ -214,7 +214,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       return one(perk({ id: 'pray', label: 'Pray (as long as you like)', disabled: taken }, 'lampbearer',
         `Every second: +${ELITE_EVENTS.liturgyHp} HP, +${ELITE_EVENTS.liturgyLight} light and −${ELITE_EVENTS.liturgyStress} stress to every ally, wherever they are.`));
     case 'sacrament':
-      return one(perk(c('partake', 'Drink from the chalice'), 'witch', `+${ELITE_EVENTS.sacramentStress} stress to every hero; Speed 2s for the rest of the run.`));
+      return one(perk(c('partake', 'Drink from the chalice'), 'sorceress', `+${ELITE_EVENTS.sacramentStress} stress to every hero; Speed 2s for the rest of the run.`));
     case 'uprising':
       return one(perk(c('raise', 'Wake the dead'), 'undertaker', `${ELITE_EVENTS.uprisingRisen} Risen follow you for good.`));
     case 'barrage':
@@ -610,7 +610,7 @@ export function tickEvents(world: World, dt: number) {
       for (; (ev.rung ?? 0) < due; ev.rung = (ev.rung ?? 0) + 1) toll(world, h);
     }
     // The Sorceress's rites keep the guardians asleep.
-    if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned && h.cls !== 'witch') {
+    if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned && h.cls !== 'sorceress') {
       ev.spawned = true;
       notify(world, h, 'The altar shrieks. Its guardians come!');
       // Guardians are a notch stronger than the dungeon around them (user, 2026-10-10; were a notch weaker).

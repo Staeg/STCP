@@ -59,7 +59,7 @@ describe('line-ups and targeting', () => {
   });
 
   it('monsters hit the rightmost (slowest) hero', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat', 'witch', 'warden'], ['ghoul']);
+    const { world, ids, room, monsters } = arena(['cutthroat', 'sorceress', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     for (let k = 0; k < 3; k++) untilTurn(world, room, monsters[0].id);
@@ -146,7 +146,7 @@ describe('Bellwright', () => {
     expect(knellDamage(knell, 2)).toBe(knell - 2 * CLASS_RULES.knellPerAlly);
     expect(knellDamage(knell, 3)).toBe(0);
 
-    const four = arena(['bellwright', 'warden', 'witch', 'cutthroat'], ['ghoul']);
+    const four = arena(['bellwright', 'warden', 'sorceress', 'cutthroat'], ['ghoul']);
     walkIn(four.world, four.ids, four.room);
     expect(buildView(four.world, 'h0').encounter!.yourOptions.a1!.blocked).toBeTruthy();
   });
@@ -252,7 +252,7 @@ describe('reworked kits', () => {
   });
 
   it('Hex stacks: each Hexed adds +100% to the next Hex, for 2 of the target\'s turns', () => {
-    const { world, ids, room, monsters } = arena(['witch'], ['brute']);
+    const { world, ids, room, monsters } = arena(['sorceress'], ['brute']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
     const hexes = () => enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').map((e) => e.amount);
@@ -270,14 +270,14 @@ describe('reworked kits', () => {
   });
 
   it('Wither weakens every enemy; Blood Pact hits every enemy for 15 and bleeds every ally (never below 1)', () => {
-    const { world, ids, room, monsters } = arena(['witch', 'warden'], ['ghoul', 'ghoul']);
+    const { world, ids, room, monsters } = arena(['sorceress', 'warden'], ['ghoul', 'ghoul']);
     walkIn(world, ids, room);
-    const [witch, warden] = ids.map((id) => world.heroes[id]);
+    const [sorceress, warden] = ids.map((id) => world.heroes[id]);
     warden.hp = 3;
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
     untilTurn(world, room, 'h0');
     expect(monsters.map((m) => m.hp)).toEqual([999 - 15, 999 - 15]);
-    expect(witch.hp).toBe(witch.maxHp - CLASS_RULES.pactCost);
+    expect(sorceress.hp).toBe(sorceress.maxHp - CLASS_RULES.pactCost);
     expect(warden.hp).toBe(1);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
     untilTurn(world, room, 'h0');

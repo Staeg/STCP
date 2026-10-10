@@ -144,7 +144,7 @@ describe('room events', () => {
 
   it('hourglass: everyone in the room is faster for a while', () => {
     const { world, h } = withEvent('hourglass', 'warden');
-    const other = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     choose(world, 'h', 'turn');
     run(world, 3.1);
     expect(speedOf(h, world.time)).toBe(4.5);
@@ -203,16 +203,16 @@ describe('room events', () => {
 
 describe('class twists', () => {
   it('shows the twist only to the class that has it', () => {
-    const witch = withEvent('altar', 'witch');
-    step(witch.world, 0.1);
-    expect(buildView(witch.world, 'h').event?.choices[0].perk?.cls).toBe('witch');
+    const sorceress = withEvent('altar', 'sorceress');
+    step(sorceress.world, 0.1);
+    expect(buildView(sorceress.world, 'h').event?.choices[0].perk?.cls).toBe('sorceress');
     const warden = withEvent('altar', 'warden');
     step(warden.world, 0.1);
     expect(buildView(warden.world, 'h').event?.choices[0].perk).toBeUndefined();
   });
 
-  it('Witch: cleanses the altar without waking its guardians', () => {
-    const { world, h, room } = withEvent('altar', 'witch');
+  it('Sorceress: cleanses the altar without waking its guardians', () => {
+    const { world, h, room } = withEvent('altar', 'sorceress');
     choose(world, 'h', 'channel');
     run(world, 18.2);
     expect(h.encounter).toBeNull();
@@ -220,10 +220,10 @@ describe('class twists', () => {
     expect(world.events[room].done).toBe(true);
   });
 
-  it('Witch: faster while Afflicted', () => {
-    const { world, h } = withEvent('chest', 'witch');
+  it('Sorceress: faster while Afflicted', () => {
+    const { world, h } = withEvent('chest', 'sorceress');
     h.affliction = 'fearful';
-    expect(speedOf(h, world.time)).toBe(4 + CLASS_RULES.witchAfflictedSpeed);
+    expect(speedOf(h, world.time)).toBe(4 + CLASS_RULES.sorceressAfflictedSpeed);
   });
 
   it('Cutthroat: takes the idol without a cave-in', () => {
@@ -261,7 +261,7 @@ describe('class twists', () => {
 
   it('Bellwright: the hourglass haste lasts the run, for everyone it touched', () => {
     const { world, h } = withEvent('hourglass', 'bellwright');
-    const other = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     choose(world, 'h', 'turn');
     run(world, 3.1);
     run(world, 120);
@@ -350,7 +350,7 @@ describe('timing', () => {
 describe('claims', () => {
   it('only the first hero to choose does the work; the others see who and what at once', () => {
     const { world, room } = withEvent('altar');
-    const o = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     choose(world, 'h', 'channel');
     const seen = buildView(world, 'o').event!;
     expect(seen.worker).toMatchObject({ name: 'H', doing: 'cleansing the altar', you: false });
@@ -410,7 +410,7 @@ describe('villagers', () => {
 
   it('wait where their leader fell, and someone else can pick them up', () => {
     const { world, h, room } = captive();
-    const other = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    const other = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     other.pos = { kind: 'room', room };
     choose(world, 'h', 'lead');
     h.hp = 0;
@@ -440,7 +440,7 @@ describe('stress and afflictions', () => {
   it('Selfish heroes always vote for themselves and are ignored after 10s', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
-    addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     s.affliction = 'selfish';
     addToPile(world, world.dungeon.entrance, 0, ['torch']);
     step(world, 0.1);
@@ -456,7 +456,7 @@ describe('stress and afflictions', () => {
   it('Paranoid heroes refuse bandages from others', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const p = addHero(world, { id: 'p', name: 'P', cls: 'warden' });
-    const o = addHero(world, { id: 'o', name: 'O', cls: 'witch' });
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
     p.affliction = 'paranoid';
     p.hp = 10;
     o.items = ['bandage'];

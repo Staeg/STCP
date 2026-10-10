@@ -61,7 +61,7 @@ describe('Stash villages', () => {
 
   it('spends the purse on treatment, and refuses when it is short', () => {
     const stash = new Stash(null);
-    const c = stash.characterFor('Ann', 'witch');
+    const c = stash.characterFor('Ann', 'sorceress');
     stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.1, affliction: 'paranoid' });
     expect(stash.treat('Ann', c.id, 'major')).toMatch(/costs 100/);
     stash.recordRun('Ann', true, 250);
@@ -70,7 +70,7 @@ describe('Stash villages', () => {
     expect(stash.treat('Ann', c.id, 'major')).toBeNull();
     expect(stash.treat('Ann', c.id, 'affliction')).toBeNull();
     expect(stash.purse('Ann')).toBe(50);
-    const after = stash.characterFor('Ann', 'witch');
+    const after = stash.characterFor('Ann', 'sorceress');
     expect(after.injuries).toEqual([]);
     expect(after.affliction).toBeNull();
     // The lifetime total (titles, Hall of Fortune) is untouched by spending.
@@ -104,5 +104,18 @@ describe('Stash villages', () => {
   it('turns banked gold from before villages into the purse', () => {
     const stash = new Stash({ load: () => JSON.stringify({ ann: { name: 'Ann', gold: 300, runs: 3, escapes: 2, best: 200 } }), save: () => {} });
     expect(stash.purse('Ann')).toBe(300);
+  });
+});
+
+describe('Stash migration', () => {
+  it("loads Characters saved as the old 'witch' class as Sorceresses", () => {
+    let saved = '';
+    const first = new Stash({ load: () => null, save: (j) => void (saved = j) });
+    first.village('Ada');
+    first.recordRun('Ada', true, 10); // saves
+    const old = saved.replace(/"cls"\s*:\s*"sorceress"/g, '"cls": "witch"');
+    expect(old).toContain('"witch"');
+    const loaded = new Stash({ load: () => old, save: () => {} });
+    expect(loaded.village('Ada').characters.map((c) => c.cls).sort()).toEqual([...CLASS_IDS].sort());
   });
 });

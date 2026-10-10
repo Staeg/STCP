@@ -111,7 +111,7 @@ describe('heroes with a kit', () => {
   it('a Relic Rite starts the whole party’s run at Escalation 5, with the clock that far along', () => {
     const game = new Game(11, [
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout({ rites: ['relic'] }) },
-      { id: 'b', name: 'B', cls: 'witch', isBot: true },
+      { id: 'b', name: 'B', cls: 'sorceress', isBot: true },
     ], { monsters: false });
     expect(game.world.time).toBe(EXIT_OPENS_AT);
     game.tick(0.1);

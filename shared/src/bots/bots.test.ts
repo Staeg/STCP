@@ -6,7 +6,7 @@ import { buildView } from '../sim/views';
 import { applyIntent, step } from '../sim/world';
 import { planRoutes } from './explorer';
 
-function quietGame(bots: { id: string; cls: 'warden' | 'cutthroat' | 'lampbearer' | 'witch'; isBot: boolean }[]) {
+function quietGame(bots: { id: string; cls: 'warden' | 'cutthroat' | 'lampbearer' | 'sorceress'; isBot: boolean }[]) {
   return new Game(5150, bots.map((b) => ({ ...b, name: b.id })), { monsters: false, loot: false, escalates: false, events: false });
 }
 
@@ -50,7 +50,7 @@ describe('bot rescue', () => {
   it('a bot that sees an ally go down next door goes and revives them', () => {
     const game = quietGame([
       { id: 'bot', cls: 'warden', isBot: true },
-      { id: 'me', cls: 'witch', isBot: false },
+      { id: 'me', cls: 'sorceress', isBot: false },
     ]);
     const w = game.world;
     const d = w.dungeon;
@@ -77,7 +77,7 @@ describe('bot retreat', () => {
   it('a badly hurt bot facing a strong group sometimes flees', () => {
     let fled = 0;
     for (let seed = 0; seed < 20; seed++) {
-      const game = new Game(900 + seed, [{ id: 'bot', name: 'B', cls: 'witch', isBot: true }], {
+      const game = new Game(900 + seed, [{ id: 'bot', name: 'B', cls: 'sorceress', isBot: true }], {
         monsters: false, loot: false, escalates: false, events: false,
       });
       const w = game.world;

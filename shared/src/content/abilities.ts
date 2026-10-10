@@ -37,7 +37,7 @@ export const CLASS_RULES = {
   hexedBonus: 1,
   hexedTurns: 2,
   /** Sorceress: Speed while Afflicted (user, 2026-10-10: rewards risky play). */
-  witchAfflictedSpeed: -1.5,
+  sorceressAfflictedSpeed: -1.5,
   /** Wither: enemies deal half damage for this many of their own turns. */
   witherTurns: 2,
   /** Blood Pact: HP every ally (the Sorceress too) pays. It never takes anyone below 1. */
@@ -87,7 +87,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
     { id: 'vigil', name: 'Vigil', cooldown: 3, target: 'ally', power: 8, desc: "−8 stress. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.", field: true },
     { id: 'mend', name: 'Mend', cooldown: 1, target: 'otherAlly', power: 8, desc: 'Heal an ally (not yourself) 8 and cure Poison.', field: true },
   ],
-  witch: [
+  sorceress: [
     { id: 'hex', name: 'Hex', cooldown: 0, target: 'enemy', power: 5, desc: '5 dmg and Hexed: Hex deals +100% to it for its next 2 turns. Stacks.' },
     { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 15, desc: 'Every ally (you too) loses 6 HP, never below 1. 15 dmg to every enemy.' },
     { id: 'wither', name: 'Wither', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Every enemy deals −50% damage for its next 2 turns.' },

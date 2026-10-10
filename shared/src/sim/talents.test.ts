@@ -143,7 +143,7 @@ describe('Cutthroat talents', () => {
 
 describe('Lampbearer talents', () => {
   it("Everflame: +0.33% damage per point of allies' light", () => {
-    const { world, heroes: [lamp, a, b] } = quiet([['lampbearer', 'everflame'], 'warden', 'witch']);
+    const { world, heroes: [lamp, a, b] } = quiet([['lampbearer', 'everflame'], 'warden', 'sorceress']);
     expect(damageMult(lamp, world)).toBeCloseTo(1 + TALENT_RULES.everflamePerLight * 200);
     a.light = 50;
     b.light = 0;
@@ -161,9 +161,9 @@ describe('Lampbearer talents', () => {
   });
 });
 
-describe('Witch talents', () => {
+describe('Sorceress talents', () => {
   it('Sanguine: heals 2 per Hex on what she hits', () => {
-    const { world, ids, room, monsters } = arena([['witch', 'sanguine']], ['ghoul']);
+    const { world, ids, room, monsters } = arena([['sorceress', 'sanguine']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     h.hp = 10;
@@ -174,7 +174,7 @@ describe('Witch talents', () => {
   });
 
   it('Evil Eye: every enemy starts the fight Hexed', () => {
-    const { world, ids, room, monsters } = arena([['witch', 'evilEye']], ['ghoul', 'crawler']);
+    const { world, ids, room, monsters } = arena([['sorceress', 'evilEye']], ['ghoul', 'crawler']);
     walkIn(world, ids, room);
     expect(monsters.map((m) => m.st.hexed?.length)).toEqual([1, 1]);
   });
@@ -323,7 +323,7 @@ describe('Challenge Rating', () => {
     const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talent, injuries: [], affliction: null });
     const game = new Game(9, [
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('ironOath') },
-      { id: 'b', name: 'B', cls: 'witch', isBot: true, loadout: loadout('sanguine') },
+      { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('sanguine') },
       { id: 'c', name: 'C', cls: 'zealot', isBot: true, loadout: loadout(null) },
     ]);
     expect(game.world.cr).toBe(2);
@@ -335,8 +335,8 @@ describe('Challenge Rating', () => {
     untilTurn(w.world, w.room, w.monsters[0].id);
     expect(w.world.heroes.h0.light).toBeLessThanOrEqual(100 - CR_RULES.wightSnuff);
 
-    // A Witch: no stuns to skip the Queen's turns.
-    const q = arena(['witch'], ['queen', 'ghoul'], 4);
+    // A Sorceress: no stuns to skip the Queen's turns.
+    const q = arena(['sorceress'], ['queen', 'ghoul'], 4);
     walkIn(q.world, q.ids, q.room);
     const [queen, ghoul] = q.monsters;
     ghoul.hp = 500;

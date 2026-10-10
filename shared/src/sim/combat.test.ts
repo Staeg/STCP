@@ -76,8 +76,8 @@ describe('encounters', () => {
   });
 
   it('ties go to heroes before monsters, and to the leftmost hero (equal Speed: join order) before the rightmost', () => {
-    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Witch and the Acolyte.
-    const { world, ids, room, monsters } = arena(['cutthroat', 'witch'], ['acolyte']);
+    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Sorceress and the Acolyte.
+    const { world, ids, room, monsters } = arena(['cutthroat', 'sorceress'], ['acolyte']);
     world.heroes.h0.weapon = 'shortsword';
     world.heroes.h0.armor = 'jerkin';
     monsters[0].hp = 999;
@@ -167,7 +167,7 @@ describe('encounters', () => {
   });
 
   it('ends on victory and frees movement', () => {
-    const { world, d, ids, room, monsters } = arena(['cutthroat', 'witch'], ['crawler']);
+    const { world, d, ids, room, monsters } = arena(['cutthroat', 'sorceress'], ['crawler']);
     walkIn(world, ids, room);
     for (let i = 0; i < 10 && monstersIn(world, room).length; i++) {
       applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
@@ -186,7 +186,7 @@ describe('encounters', () => {
   });
 
   it('downed heroes bleed out unless revived; monsters ignore the downed', () => {
-    const { world, ids, room } = arena(['witch'], ['ghoul']);
+    const { world, ids, room } = arena(['sorceress'], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     h.hp = 1;
@@ -268,7 +268,7 @@ describe('encounters', () => {
     const { world, d, room } = arena(['warden'], ['brute']);
     walkIn(world, ['h0'], room);
     run(world, 1.5);
-    const late = addHero(world, { id: 'late', name: 'Late', cls: 'witch' });
+    const late = addHero(world, { id: 'late', name: 'Late', cls: 'sorceress' });
     expect(late.pos).toEqual({ kind: 'room', room: d.entrance });
     applyIntent(world, 'late', { type: 'goto', room });
     for (let i = 0; i < 60 && late.encounter === null; i++) step(world, 0.1);
@@ -336,7 +336,7 @@ describe('full bot games with monsters', () => {
         { id: 'a', name: 'A', cls: 'warden', isBot: true },
         { id: 'b', name: 'B', cls: 'cutthroat', isBot: true },
         { id: 'c', name: 'C', cls: 'lampbearer', isBot: true },
-        { id: 'd', name: 'D', cls: 'witch', isBot: true },
+        { id: 'd', name: 'D', cls: 'sorceress', isBot: true },
       ]);
       for (let t = 0; t < COLLAPSE_AT + 1 && game.world.phase === 'running'; t += 0.1) game.tick(0.1);
       fights += game.world.stats.slain;

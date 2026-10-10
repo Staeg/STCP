@@ -40,7 +40,7 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
     }
     case 'altar':
       // A Sorceress wakes no guardians, so she needs neither the health nor the luck.
-      if (timeLeft > 40 && (you.cls === 'witch' || (healthy && rng.chance(0.4)))) {
+      if (timeLeft > 40 && (you.cls === 'sorceress' || (healthy && rng.chance(0.4)))) {
         mem.channelling = room;
         return pick('channel');
       }

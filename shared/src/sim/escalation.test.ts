@@ -35,7 +35,7 @@ describe('escalation', () => {
 
   it('tunnels collapse from Escalation 3, and rubble can be dug through', () => {
     const world = createWorld(9, { monsters: false, loot: false });
-    const h = addHero(world, { id: 'a', name: 'A', cls: 'witch' });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
     const d = world.dungeon;
     run(world, ESCALATION_INTERVAL * 3 + 50);
     expect(world.collapsed.length).toBeGreaterThan(0);
@@ -160,7 +160,7 @@ describe('extraction and the end', () => {
 
   it('extracted heroes are not seen by anyone who missed it', () => {
     const world = atExit(1);
-    const far = addHero(world, { id: 'far', name: 'Far', cls: 'witch' });
+    const far = addHero(world, { id: 'far', name: 'Far', cls: 'sorceress' });
     // Somewhere deep (everyone starts at the exit).
     const dist = hopDistances(world.dungeon, world.dungeon.exit);
     far.pos = { kind: 'room', room: dist.indexOf(Math.max(...dist.filter(Number.isFinite))) };
@@ -173,7 +173,7 @@ describe('extraction and the end', () => {
 
   it('the collapse buries everyone still inside', () => {
     const world = atExit(1);
-    const lost = addHero(world, { id: 'lost', name: 'Lost', cls: 'witch' });
+    const lost = addHero(world, { id: 'lost', name: 'Lost', cls: 'sorceress' });
     world.time = EXIT_OPENS_AT;
     applyIntent(world, 'h0', { type: 'extract' });
     run(world, COLLAPSE_AT - EXIT_OPENS_AT + 1);
@@ -188,7 +188,7 @@ describe('extraction and the end', () => {
   it('the exit is where everyone starts, with plenty of dungeon beyond it', () => {
     const world = createWorld(77, { monsters: false });
     const d = world.dungeon;
-    const h = addHero(world, { id: 'a', name: 'A', cls: 'witch' });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
     expect(h.pos).toEqual({ kind: 'room', room: d.exit });
     expect(Math.max(...hopDistances(d, d.exit))).toBeGreaterThanOrEqual(5);
   });

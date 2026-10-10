@@ -1,4 +1,4 @@
-export type ClassId = 'warden' | 'cutthroat' | 'lampbearer' | 'witch' | 'undertaker' | 'bellwright' | 'zealot' | 'alchemist';
+export type ClassId = 'warden' | 'cutthroat' | 'lampbearer' | 'sorceress' | 'undertaker' | 'bellwright' | 'zealot' | 'alchemist';
 
 export interface ClassDef {
   id: ClassId;
@@ -22,7 +22,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     blurb: 'Spots loot next door.' },
   lampbearer: { id: 'lampbearer', name: 'Lampbearer', role: 'Healer & light', color: '#e8c547', maxHp: 45, speed: 5,
     blurb: 'Their own light fades half as fast.' },
-  witch: { id: 'witch', name: 'Sorceress', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
+  sorceress: { id: 'sorceress', name: 'Sorceress', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
     blurb: '−1.5s Speed while Afflicted.' },
   undertaker: { id: 'undertaker', name: 'Undertaker', role: 'Executions & the dead', color: '#8fa39a', maxHp: 54, speed: 6,
     blurb: 'Digs through rubble in one turn. Carries the fallen\'s gold home for them.' },

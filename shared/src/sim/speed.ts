@@ -35,7 +35,7 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
   if (h.leading) parts.push({ label: 'Escorting a villager', amount: escortSpeed(h) });
-  if (h.cls === 'witch' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.witchAfflictedSpeed });
+  if (h.cls === 'sorceress' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.sorceressAfflictedSpeed });
   // Elite Events.
   if (h.wanderers > 0) parts.push({ label: EVENTS.wanderers.name, amount: h.wanderers * CLASS_EVENTS.wardenEscortSpeed });
   if (h.elite.alacrity) {
