@@ -138,7 +138,7 @@ Current numbers (the v1 draft is in git history). *Slot order (user, 2026-10-09)
 - **Flare** (CD 1): 3 damage to every enemy, +10 light to everyone in the room (no longer Marks). · **Vigil** (CD 3): −8 stress on any ally; if the Lampbearer is the only conscious hero in the fight, every enemy action until their next turn sets off a free Flare (no cooldown). The stress immunity is gone. · **Mend** (CD 1): heal another ally 8 and cure Bleed (no longer on yourself).
 
 **Sorceress** (curses, blood; was the Hexer, then the Witch; renamed 2026-10-09 and 2026-10-10; code id `sorceress`). 36 HP, Speed 4. *Perk: −1.5s Speed while Afflicted, to reward risky play (user 2026-10-10; was Ritualist: faster altars, immune to the Well's curse).*
-- **Hex** (CD 0): 5 damage, then a Hexed stack (2 of the target's turns). Each stack adds +100% to Hex's damage, additively. · **Blood Pact** (CD 6): every ally, the Sorceress included, loses 6 HP (armor applies, never below 1); 15 damage to every enemy (no longer split, no heal). · **Wither** (CD 4): every enemy deals −50% for its next 2 turns.
+- **Hex** (CD 0): 5 damage, then a Hexed stack (2 of the target's turns). Each stack adds +100% to Hex's damage, additively. · **Blood Pact** (CD 6): every ally, the Sorceress included, loses 6 HP (armor applies, never below 1) and takes 6 stress; 16 damage to every enemy (no longer split, no heal). · **Wither** (CD 4): every enemy deals −50% for its next 2 turns.
 
 *Marked was removed from the game (2026-10-09).*
 

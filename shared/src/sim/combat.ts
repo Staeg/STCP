@@ -1125,9 +1125,12 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'pact': {
       for (const a of allies()) {
         const cost = Math.min(a.hp - 1, armored(a, CLASS_RULES.pactCost));
-        if (cost <= 0) continue;
-        a.hp -= cost;
-        events.push({ actor: h.id, kind: 'damage', target: a.id, amount: cost, text: a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.` });
+        if (cost > 0) {
+          a.hp -= cost;
+          events.push({ actor: h.id, kind: 'damage', target: a.id, amount: cost, text: a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.` });
+        }
+        const added = Math.round(addStress(a, CLASS_RULES.pactStress));
+        if (added > 0) events.push({ actor: h.id, kind: 'stress', target: a.id, amount: added, text: `The pact gnaws at ${a.name}'s mind. (+${added} stress)` });
       }
       for (const m of enemies()) heroHits(world, enc, h, m, ab.power, events, ab.name);
       return;

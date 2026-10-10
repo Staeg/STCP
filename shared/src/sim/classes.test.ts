@@ -390,16 +390,18 @@ describe('reworked kits', () => {
     expect(monsters[0].st.hexed).toBeUndefined();
   });
 
-  it('Wither weakens every enemy; Blood Pact hits every enemy for 15 and bleeds every ally (never below 1)', () => {
+  it('Wither weakens every enemy; Blood Pact hits every enemy for 16, bleeds every ally (never below 1) and stresses them', () => {
     const { world, ids, room, monsters } = arena(['sorceress', 'warden'], ['ghoul', 'ghoul']);
     walkIn(world, ids, room);
     const [sorceress, warden] = ids.map((id) => world.heroes[id]);
     warden.hp = 3;
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
     untilTurn(world, room, 'h0');
-    expect(monsters.map((m) => m.hp)).toEqual([999 - 15, 999 - 15]);
+    expect(monsters.map((m) => m.hp)).toEqual([999 - 16, 999 - 16]);
     expect(sorceress.hp).toBe(sorceress.maxHp - CLASS_RULES.pactCost);
     expect(warden.hp).toBe(1);
+    expect(sorceress.stress).toBeGreaterThanOrEqual(CLASS_RULES.pactStress);
+    expect(warden.stress).toBeGreaterThanOrEqual(CLASS_RULES.pactStress);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
     untilTurn(world, room, 'h0');
     for (const m of monsters) expect(m.st.weak).toBeGreaterThan(0);

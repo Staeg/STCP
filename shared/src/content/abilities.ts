@@ -42,6 +42,8 @@ export const CLASS_RULES = {
   witherTurns: 2,
   /** Blood Pact: HP every ally (the Sorceress too) pays. It never takes anyone below 1. */
   pactCost: 6,
+  /** Blood Pact: stress every ally (the Sorceress too) takes (user, 2026-10-11). */
+  pactStress: 6,
   /** Undertaker: Spade's damage grows this much for every enemy Last Rites kills, for the rest of the run. */
   spadePerRites: 1,
   /** Undertaker: stress an ally's death takes away (instead of adding STRESS.allyDeath). */
@@ -93,7 +95,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   ],
   sorceress: [
     { id: 'hex', name: 'Hex', cooldown: 0, target: 'enemy', power: 5, desc: '5 dmg and Hexed: Hex deals +100% to it for its next 2 turns. Stacks.' },
-    { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 15, desc: 'Every ally (you too) loses 6 HP, never below 1. 15 dmg to every enemy.' },
+    { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 16, desc: 'Every ally (you too) loses 6 HP (never below 1) and takes 6 stress. 16 dmg to every enemy.' },
     { id: 'wither', name: 'Wither', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Every enemy deals −50% damage for its next 2 turns.' },
   ],
   undertaker: [
