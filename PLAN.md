@@ -369,33 +369,34 @@ User brief and decisions (2026-10-10). Code: `shared/src/village.ts` (Characters
 - [x] Client: the Village screen (menu and lobby; talent choice, treatment, last run's report), Character info on lobby class cards and slots, CR in the lobby, HUD and results, and the run's report on the results screen.
 
 ### M13. Wellbeing & Emergencies (design only, not built)
-User brief and decisions (2026-10-10). Items marked *(proposal)* are my calls, waiting for the user.
+User brief and decisions (2026-10-10). Every open item was settled by the user on 2026-10-10.
 
-**Wellbeing.** Each player's Village has **Wellbeing**: it starts at **3** and moves between 1 and 5. Dropping to **0** ends the game at once (a loss). Reaching **6** wins it. *(Open: what happens to the Village, stash and purse after a win or a loss.)*
+**Wellbeing.** Each player's Village has **Wellbeing**: it starts at **3** and moves between 1 and 5. Dropping to **0** ends the game at once (a loss). Reaching **6** wins it. After a win or a loss the player chooses (user, for now; this will change): **Reset Wellbeing to 3** (everything else is kept) or **Start Over Altogether** (a fresh Village, Stash and purse).
 
 **Emergencies.** Before each run, the Village has an **Emergency**. Doing it gives **+1 Wellbeing**; failing it gives **−1**. Each Wellbeing level has **2 Emergencies**, and the Village screen shows both so the player picks one (user's pick). The difficulty rises with Wellbeing: at 1, failing ends the game, so the Emergencies there are mild; at 5, success wins the game, so they're hard.
 - **Per player** (user): every player in the lobby brings their own Emergency into the shared run.
 - **Bots** (user): what bots do counts toward players' Emergencies, but bots have no Village or Emergency of their own.
-- **Two kinds** (user): **Party-wide** Emergencies are about killing monsters or doing Events. Anything anyone in the run does counts (other players and bots too), even if the player's own hero dies. **Personal** Emergencies are about carrying loot out. Only the player's own hero counts, and only if they escape. If that hero is an Undertaker, the legacy rule also carries the loot home when they die (user). *(Open: does the Tome Rite's legacy count too? It only covers gold today.)*
+- **Two kinds** (user): **Party-wide** Emergencies are about killing monsters or doing Events. Anything anyone in the run does counts (other players and bots too), even if the player's own hero dies. **Personal** Emergencies are about carrying loot out. Only the player's own hero counts, and only if they escape. If that hero is an Undertaker, the legacy rule also carries the loot home when they die (user). **Tome Rite change** (user, applies whether or not there's an Emergency): its legacy carries **consumables** home as well as gold. Resources still have to be carried out by hand.
 - **Guaranteed when possible** (user): the dungeon is seeded with what each Emergency in the run needs. With several players, each requirement takes the largest need: one player's 3 villagers and another's 4 make 4 villagers, not 7. Personal Emergencies get their own copy, so two Tithe players get two guaranteed Relics.
 - **Warned when impossible** (user): if the current setup makes an Emergency impossible, the Village screen and the lobby say so on the Emergency, with the reason (e.g. "Needs CR 5: your party's CR is 3.4"). For a CR that's rolled, they show the odds (CR 4.6 → "60% chance the Liches come"). The player can still pick it or play on.
-- **Quarry** *(proposal)*: a hunting Emergency places its targets at the start of the run, each one leading a group (made from the usual tier template) in its own room. Rooms next to the entrance, the entrance itself and the exit are never used. The targets ignore Escalation, as CR units do. They're also forced into the run's roster, so they show up in ordinary groups too.
+- **Carried out → can't be carried in** (user): if an Emergency asks for something to be carried out, the player can't bring it into the dungeon that run. The kit refuses it, as the Gem Rite does with consumables. Every future carry-out Emergency follows this rule.
+- **Quarry** (agreed): a hunting Emergency places its targets at the start of the run, each one leading a group (made from the usual tier template) in its own room. Rooms next to the entrance, the entrance itself and the exit are never used. The targets ignore Escalation, as CR units do. They're also forced into the run's roster, so they show up in ordinary groups too.
 
 | WB | Emergency | Kind | Goal | Guarantee / warning |
 |---|---|---|---|---|
 | 1 | **Empty Larders** | Personal | Bring home 3 Resources of any kind. | None needed (Resources are in 25% of rooms). |
 | 1 | **The Lamps Gutter** | Party | Cleanse 1 Altar. | At least 1 Altar. |
-| 2 | **Fever Season** | Personal | Bring home 2 healing consumables. *(proposal: ones in your kit don't count)* | Warn: impossible under the Gem Rite. |
+| 2 | **Fever Season** | Personal | Bring home 2 healing consumables. No healing consumables in the kit (carried-out rule). | Warn: impossible under the Gem Rite. |
 | 2 | **Shadows at the Gate** | Party | Kill 3 Lantern Wights. | Quarry: 3 Wights; the Wight is the run's T1 default unit. |
 | 3 | **The Missing Patrol** | Party | Save 3 villagers (Wayward Wanderers count). | At least 3 captive villagers. |
 | 3 | **Tainted Wells** | Party | Cleanse 2 Altars. | At least 2 Altars. |
 | 4 | **The Queen's Envoy** | Party | Kill a Forsaken Queen. | Quarry: 1 Queen; the Queen is the run's T2 default unit. |
-| 4 | **Tithe to the Shrine** | Personal | Bring home 1 Relic and 2 Gems. | One lair holds a sure Relic for each Tithe player *(proposal)*; Gems aren't guaranteed. |
+| 4 | **Tithe to the Shrine** | Personal | Bring home 1 Relic and 2 Gems. | For each Tithe player, 1 Relic (in a lair) and 2 Gems are guaranteed to be in the dungeon (user); finding them is up to the player. No Relics or Gems in the kit (carried-out rule). |
 | 5 | **Night of the Liches** | Party | Kill 2 Liches. | Needs CR 5 (user). Quarry: 2 Liches when the rolled CR is 5+. Warn below 5, with the odds. |
 | 5 | **Exodus** | Party | Save 4 villagers, and every player's hero escapes. | At least 4 captive villagers. |
 
-- Client *(proposal)*: Wellbeing as 5 pips on the Village screen; the Emergency's progress on the HUD's objectives line; the outcome and the Wellbeing change on the results screen and in the Village's last-run report. Quarry targets have no map marker.
-- *(Open)* Does a fast-forwarded (`debugSpeed`) game count, and does leaving before the run starts count as a failure? My suggestion: it counts only when the player's hero was in a real run.
+- Client *(proposal)*: Wellbeing as 5 pips on the Village screen; the win/loss choice; the Emergency's progress on the HUD's objectives line; the outcome and the Wellbeing change on the results screen and in the Village's last-run report. Quarry targets have no map marker.
+- Only real runs settle an Emergency (user): fast-forwarded (`debugSpeed`) games and leaving before the run starts don't count as a success or a failure.
 
 ### Later / parking lot
 Deploying to a public host, more classes and enemies, multiple floors, controller support, a real art pass, music. (In-game pings were removed from this list: they break the no-communication rule.)
@@ -413,7 +414,7 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 ## 7. Progress Log
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
-- 2026-10-10 · **M13 scoped (user request, design only): Wellbeing & Emergencies.** Per-player Village Wellbeing (3, 1–5, 0 loses, 6 wins) and a picked Emergency before each run, split into party-wide (kills, Events) and personal (carry-out) goals, with guaranteed seeding and impossibility warnings. See M13. No code yet. **Next:** the user settles the (proposal)/Open items, then build.
+- 2026-10-10 · **M13 scoped (user request, design only): Wellbeing & Emergencies.** Per-player Village Wellbeing (3, 1–5, 0 loses, 6 wins) and a picked Emergency before each run, split into party-wide (kills, Events) and personal (carry-out) goals, with guaranteed seeding and impossibility warnings. See M13. No code yet. Open items settled the same day (win/loss choice, Tome Rite carries consumables, the carried-out rule, guaranteed Gems). **Next:** build M13.
 - 2026-10-10 · **Monster tiers, run rosters and the CR framework; Zombie and Lich (user request).** See the new Decisions row. Every spawn now goes through tier templates filled from the run's roster, plus CR units; CR scales monster HP and damage by tier from CR 3. New `roster.test.ts` (10 tests); the old Wight/Queen chance tests are replaced; the collapse test's hero is made untouchable, since what wanders by now differs. 238 tests. New Zombie and Lich sprites.
   - Sim, 150 games, seed 5000, last commit → now (`--cr N` = N Talents): CR 0 escape 53% → 47%, wipes 20% → 17%; CR 2 41% → 48%, 25% → 19%; CR 4 **39% → 26%, wipes 25% → 45%** (T0/T1 +25%, CR T2 units and lairs carrying three CR units). Gold per escaper 205/261/327 → 216/260/300. CR 4 is now a steep step; `CR_RULES.lowBonus` and the T2 chance are the knobs if that's too much.
   - Checked in the browser: the lobby's ? panel (tiers, roster rules, CR table, this lobby's CR), a fight against a Lich, Zombie and Ghoul (the Lich raised the slain Zombie, Doom +1 on the header, the aura's 3 damage before each turn), and the HUD CR tag listing the run's roster. No console errors.
