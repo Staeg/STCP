@@ -78,6 +78,9 @@ html, body {
   bottom: 108px;
   left: 50%;
   transform: translateX(-50%);
+  /* Without this the bar shrinks to half the screen and its notes wrap upward into the loot strip. */
+  width: max-content;
+  max-width: calc(100vw - 32px);
 }
 
 button {

@@ -186,6 +186,9 @@ export class LootUi {
     panel.hidden = false;
     panel.classList.toggle('quiet', shown.length === 0);
     panel.style.setProperty('--card-w', solo ? '190px' : '230px');
+    // Sit just above the action bar, however tall it has grown (wrapped notes, a channel bar).
+    const bar = $('actions').getBoundingClientRect();
+    panel.style.bottom = bar.height ? `${Math.max(158, Math.ceil(window.innerHeight - bar.top) + 6)}px` : '';
     if (html !== this.lastVoteHtml) {
       this.noteGone(new Set(items.map((f) => f.id)));
       panel.innerHTML = html;
