@@ -1,4 +1,6 @@
-import { INVENTORY_SLOTS, itemTier, ITEMS, LEAVE, type ItemId, type LootItemView, type PlayerView } from '@stcp/shared';
+import {
+  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, type GearSlot, type ItemId, type LootItemView, type PlayerView,
+} from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
 import { digitClaimed, digitKey, keyedLootItem } from './events';
@@ -9,16 +11,16 @@ function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** An item's name, coloured by tier (white · blue · purple). */
+/** An item's name, coloured by tier (white · blue · purple), or red if it's a cursed amulet or ring. */
 export function itemName(item: ItemId): string {
-  return `<span class="tier-${itemTier(item)}">${esc(ITEMS[item].name)}</span>`;
+  return `<span class="${isCursed(item) ? 'cursed-name' : `tier-${itemTier(item)}`}">${esc(ITEMS[item].name)}</span>`;
 }
 
 /** Use a pack item while exploring (Smelling Salts go to a downed ally you can see). */
 export function useFromField(net: Net, slot: number) {
   const view = net.cur;
   const item = view?.you.items[slot];
-  if (!view || !item) return;
+  if (!view || !item || ITEMS[item].kind !== 'consumable') return;
   const def = ITEMS[item];
   let target: string | undefined;
   if (def.target === 'downed') {
@@ -44,7 +46,7 @@ export class LootUi {
   /** What you carried last update, to spot pickups: pack contents and worn gear. */
   private prevPack: string[] | null = null;
   private prevGear: Record<string, string | null> = {};
-  /** Slot key ('p0'…, 'weapon', 'armor') → when something landed in it. */
+  /** Slot key ('p0'… for pack slots as drawn, or a worn slot) → when something landed in it. */
   private pickedAt = new Map<string, number>();
   /** Cards that just left the panel: where they were, in case their item lands in your pack. */
   private gone: { item: ItemId; rect: DOMRect; at: number }[] = [];
@@ -63,7 +65,7 @@ export class LootUi {
     $('inventory').addEventListener('pointerdown', (e) => {
       const gear = (e.target as HTMLElement).closest('[data-gear]') as HTMLElement | null;
       if (gear && (e.target as HTMLElement).closest('.drop')) {
-        net.intent({ type: 'unequip', slot: gear.dataset.gear as 'weapon' | 'armor' });
+        net.intent({ type: 'unequip', slot: gear.dataset.gear as GearSlot });
         return;
       }
       const el = (e.target as HTMLElement).closest('[data-slot]') as HTMLElement | null;
@@ -89,7 +91,7 @@ export class LootUi {
         }
       }
       if (digit !== null && digitClaimed(view, digit)) return;
-      const n = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(e.code);
+      const n = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].slice(0, HOTKEY_ITEMS).indexOf(e.code);
       if (n >= 0) this.useFromField(n);
     });
   }
@@ -207,7 +209,7 @@ export class LootUi {
   /** A card's item just landed in a slot: send a ghost of it flying over there, then flash the slot. */
   private flyIn(item: ItemId, key: string, now: number): boolean {
     const i = this.gone.findIndex((g) => g.item === item);
-    const target = $('inventory').querySelector<HTMLElement>(key.startsWith('p') ? `[data-slot="${key.slice(1)}"]` : `[data-gear="${key}"]`);
+    const target = $('inventory').querySelector<HTMLElement>(key.startsWith('p') ? `[data-pslot="${key.slice(1)}"]` : `[data-gear="${key}"]`);
     if (i < 0 || !target) return false;
     const from = this.gone.splice(i, 1)[0].rect;
     const to = target.getBoundingClientRect();
@@ -241,14 +243,16 @@ export class LootUi {
         if (n > 0) left.set(you.items[i], n - 1);
         else fresh.add(i);
       }
-      for (const i of fresh) this.landed.push({ key: `p${i}`, item: you.items[i] });
-      for (const slot of ['weapon', 'armor'] as const) {
+      // Flash the slot as drawn (a valuable may land on an existing stack).
+      const drawn = packSlots(you.items);
+      for (const i of fresh) this.landed.push({ key: `p${drawn.findIndex((s) => s.indices.includes(i))}`, item: you.items[i] });
+      for (const slot of GEAR_SLOTS) {
         if (you[slot] && you[slot] !== this.prevGear[slot]) this.landed.push({ key: slot, item: you[slot]! });
       }
       for (const l of this.landed) this.pickedAt.set(l.key, now);
     }
     this.prevPack = [...you.items];
-    this.prevGear = { weapon: you.weapon, armor: you.armor };
+    this.prevGear = { weapon: you.weapon, armor: you.armor, amulet: you.amulet, ring: you.ring };
     for (const [k, t] of this.pickedAt) if (now - t > PICKUP_FLASH_MS) this.pickedAt.delete(k);
   }
 
@@ -263,29 +267,37 @@ export class LootUi {
   private renderInventory(view: PlayerView) {
     this.spotPickups(view);
     const you = view.you;
+    // Pack: consumables first (the first few have number keys), then stacked valuables, then empty slots.
+    const drawn = packSlots(you.items);
     const slots = [];
-    for (let i = 0; i < INVENTORY_SLOTS; i++) {
-      const item = you.items[i];
-      if (!item) {
-        slots.push(`<div class="slot-item empty"><kbd>${i + 4}</kbd></div>`);
+    for (let n = 0; n < INVENTORY_SLOTS; n++) {
+      const s = drawn[n];
+      if (!s) {
+        slots.push('<div class="slot-item empty"></div>');
         continue;
       }
-      const def = ITEMS[item];
-      const f = this.flashAttr(`p${i}`);
-      slots.push(`<div class="slot-item ${def.kind}${f.cls}"${f.style} data-slot="${i}" title="${esc(`${def.name}: ${def.desc}`)}">
-        <kbd>${i + 4}</kbd><span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>
-        <span class="drop" title="Drop on the floor">✕</span></div>`);
+      const def = ITEMS[s.item];
+      const i = s.indices.at(-1)!;
+      const f = this.flashAttr(`p${n}`);
+      const key = def.kind === 'consumable' && i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd>` : '';
+      const count = s.indices.length > 1 ? `<span class="stack">×${s.indices.length}</span>` : '';
+      slots.push(`<div class="slot-item ${def.kind}${f.cls}"${f.style} data-pslot="${n}" data-slot="${i}" title="${esc(`${def.name}: ${def.desc}`)}">
+        ${key}<span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(s.item)}</span>${count}
+        <span class="drop" title="Drop ${s.indices.length > 1 ? 'the stack ' : ''}on the floor">✕</span></div>`);
     }
-    const gear = (['weapon', 'armor'] as const).map((slot) => {
+    const worn = (slot: GearSlot) => {
       const item = you[slot];
-      if (!item) return `<div class="slot-item gear empty" title="No ${slot}"><span class="muted small">${slot === 'weapon' ? 'No weapon' : 'No armor'}</span></div>`;
+      if (!item) return `<div class="slot-item gear empty" title="No ${slot}"><span class="muted small">No ${slot}</span></div>`;
       const def = ITEMS[item];
       const f = this.flashAttr(slot);
-      return `<div class="slot-item gear ${slot}${f.cls}"${f.style} data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}`)}">
+      return `<div class="slot-item gear ${slot}${isCursed(item) ? ' cursed' : ''}${f.cls}"${f.style} data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}`)}">
         <span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>
         <span class="drop" title="Take it off and drop it">✕</span></div>`;
-    });
-    const html = `<div class="gold">⛀ ${you.gold} gold</div><div class="slots-row gear-row">${gear.join('')}</div><div class="slots-row">${slots.join('')}</div>`;
+    };
+    const html = `<div class="gold">⛀ ${you.gold} gold</div>
+      <div class="slots-row gear-row">${worn('weapon')}${worn('armor')}</div>
+      <div class="slots-row gear-row">${worn('amulet')}${worn('ring')}</div>
+      <div class="slots-row pack-row">${slots.join('')}</div>`;
     if (html !== this.lastInvHtml) {
       $('inventory').innerHTML = html;
       this.lastInvHtml = html;

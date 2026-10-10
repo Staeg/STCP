@@ -1,5 +1,7 @@
-import { LIGHT_DIM } from '../content/constants';
-import { gearGain, isGear } from '../content/items';
+import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
+import { STRESS_MAX } from '../sim/combat';
+import { BOTS } from './tuning';
+import { gearGain, isCursed, isGear, isJewel, type ItemId } from '../content/items';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
 import type { LootItemView, PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -49,13 +51,20 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
       .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
     return best ? best.id : LEAVE;
   }
+  if (isJewel(f.item)) {
+    // Blessed beats nothing beats cursed (bots don't trade health for haste). Nobody gains → leave it.
+    const worth = (id: ItemId | null | undefined) => (!id ? 0 : isCursed(id) ? -1 : 1);
+    const best = cands
+      .map((c) => ({ id: c.id, gain: worth(f.item) - worth(c.wearing) }))
+      .filter((c) => c.gain > 0)
+      .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
+    return best ? best.id : LEAVE;
+  }
   switch (f.item) {
     case 'bandage':
       return [...cands].sort((a, b) => hpFrac(a.id) - hpFrac(b.id))[0].id;
     case 'torch':
       return meCand && me.light < 60 ? me.id : cands[0].id;
-    case 'locket':
-      return [...cands].sort((a, b) => hpFrac(a.id) - hpFrac(b.id))[0].id;
     default:
       // Mediocre and a bit selfish: keep it if there's room, else hand it to whoever has the most space.
       return meCand ? me.id : [...cands].sort((a, b) => b.free - a.free)[0].id;
@@ -74,13 +83,14 @@ export function botUseItem(view: PlayerView): Intent | null {
   const skill = botSkill(view);
   if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
-  const hp = me.hp / me.maxHp;
+  // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).
+  const low = (frac: number) => frac <= 1 - BOTS.consumeAt;
   let i = idx((x) => x === 'bandage');
-  if (i >= 0 && (hp < 0.5 || me.st.bleed)) return { type: 'useItem', index: i };
+  if (i >= 0 && (low(me.hp / me.maxHp) || me.st.bleed)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'torch');
-  if (i >= 0 && me.light < LIGHT_DIM + 5) return { type: 'useItem', index: i };
+  if (i >= 0 && low(me.light / LIGHT_MAX)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'tonic');
-  if (i >= 0 && me.stress > 50) return { type: 'useItem', index: i };
+  if (i >= 0 && low(1 - me.stress / STRESS_MAX)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'salts');
   const downed = view.allies.find((a) => a.live && a.downed && !a.dead);
   if (i >= 0 && downed) return { type: 'useItem', index: i, target: downed.id };

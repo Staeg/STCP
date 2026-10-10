@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
+import { INVENTORY_SLOTS, ITEMS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
-import { BLEED_OUT, spawnGroup } from './combat';
+import { armored, BLEED_OUT, spawnGroup } from './combat';
 import { Game } from './game';
-import { activeItems, addToPile, canTake, LEAVE, votersIn } from './loot';
+import { activeItems, addToPile, canTake, giveItem, LEAVE, votersIn, wornStat } from './loot';
 import { buildView } from './views';
-import { addHero, applyIntent, createWorld, step, type World } from './world';
+import { addHero, applyIntent, createWorld, extractHero, step, type World } from './world';
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -34,7 +35,7 @@ describe('gold', () => {
 
   it('Lucky Coin adds 10% to your share', () => {
     const { world, d } = party(1);
-    world.heroes.h0.items.push('coin');
+    world.heroes.h0.amulet = 'coin';
     addToPile(world, d.entrance, 20, []);
     step(world, 0.1);
     expect(world.heroes.h0.gold).toBe(22);
@@ -114,7 +115,7 @@ describe('item votes', () => {
 
   it('a full pack is not a valid recipient', () => {
     const { world, d } = party(2);
-    world.heroes.h0.items = ['torch', 'torch', 'torch', 'torch'];
+    world.heroes.h0.items = Array(INVENTORY_SLOTS).fill('torch');
     addToPile(world, d.entrance, 0, ['tonic']);
     step(world, 0.1);
     const id = fid(world, d.entrance, 'tonic');
@@ -227,6 +228,49 @@ describe('floor space', () => {
 });
 
 describe('items', () => {
+  it('valuables stack three to a slot below the consumables, and sell on the way out', () => {
+    const { world } = party(1);
+    const h = world.heroes.h0;
+    for (const it of ['gem', 'effigy', 'bandage', 'gem', 'gem', 'gem', 'torch'] as const) giveItem(h, it);
+    expect(h.items).toEqual(['bandage', 'torch', 'effigy', 'gem', 'gem', 'gem', 'gem']);
+    expect(packSlotsUsed(h.items)).toBe(5); // 2 consumables, 1 effigy, gems 3 + 1
+    h.items = [...Array(INVENTORY_SLOTS - 1).fill('torch'), 'tome'];
+    expect(canTake(h, 'tome')).toBe(true); // onto the stack
+    expect(canTake(h, 'gem')).toBe(false);
+    h.items = ['bandage', 'effigy', 'tome', 'relic'];
+    extractHero(world, h);
+    expect(h.items).toEqual(['bandage']);
+    expect(h.gold).toBe(ITEMS.effigy.value! + ITEMS.tome.value! + ITEMS.relic.value!);
+  });
+
+  it('dropping a valuable drops its whole stack', () => {
+    const { world, d } = party(1);
+    const h = world.heroes.h0;
+    h.items = ['bandage', 'gem', 'gem', 'gem', 'gem'];
+    applyIntent(world, 'h0', { type: 'drop', index: 2 });
+    expect(h.items).toEqual(['bandage', 'gem']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['gem', 'gem', 'gem']);
+  });
+
+  it('a Thorn Ring hurts what hits you; a Quickblood Ring makes every hit worse', () => {
+    const { world } = party(1);
+    const h = world.heroes.h0;
+    h.ring = 'quickblood';
+    h.armor = 'chainshirt';
+    expect(armored(h, 5)).toBe(4); // 5 − 2 armor + 1
+    h.ring = 'thorns';
+    expect(wornStat(h, 'thorns')).toBe(2);
+  });
+
+  it('relics are only ever found in lairs', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const world = createWorld(seed);
+      for (const [room, pile] of Object.entries(world.piles)) {
+        if (pile.items.some((f) => f.item === 'relic')) expect(world.bounty[Number(room)]).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('bandage heals and cures bleed; torch restores light; tonic lowers stress', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
@@ -258,7 +302,7 @@ describe('items', () => {
     expect(h1.hp).toBe(Math.ceil(h1.maxHp / 2));
   });
 
-  it('Iron Locket raises max HP while carried', () => {
+  it('Iron Locket raises max HP while worn', () => {
     const { world, d } = party(1);
     const h = world.heroes.h0;
     const base = h.maxHp;
@@ -266,8 +310,11 @@ describe('items', () => {
     step(world, 0.1);
     applyIntent(world, 'h0', { type: 'vote', item: fid(world, d.entrance, 'locket'), choice: 'h0' });
     step(world, 0.1);
+    expect(h.amulet).toBe('locket');
+    expect(h.items).toEqual([]);
     expect(h.maxHp).toBe(base + 8);
-    applyIntent(world, 'h0', { type: 'drop', index: 0 });
+    applyIntent(world, 'h0', { type: 'unequip', slot: 'amulet' });
+    expect(h.amulet).toBeNull();
     expect(h.maxHp).toBe(base);
   });
 

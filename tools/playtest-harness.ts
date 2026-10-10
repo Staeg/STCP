@@ -149,7 +149,7 @@ function checkFog(who: string, v: PlayerView) {
     const p = you.pos;
     const q = a.pos;
     let ok = false;
-    if (p.kind === 'room' && q.kind === 'room') ok = p.room === q.room || (!v.dim && adjacent(p.room, q.room)) || (you.items.includes('catseye') && adjacent(p.room, q.room));
+    if (p.kind === 'room' && q.kind === 'room') ok = p.room === q.room || (!v.dim && adjacent(p.room, q.room)) || (you.ring === 'catseye' && adjacent(p.room, q.room));
     else if (p.kind === 'corridor' && q.kind === 'corridor') ok = p.corridor === q.corridor;
     else if (p.kind === 'room' && q.kind === 'corridor') ok = q.from === p.room || q.to === p.room;
     else if (p.kind === 'corridor' && q.kind === 'room') ok = q.room === p.from || q.room === p.to;

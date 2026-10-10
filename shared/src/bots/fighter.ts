@@ -35,8 +35,8 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const slot = (id: ItemId) => view.you.items.indexOf(id);
   if (downed.length && slot('salts') >= 0) return { action: 'item', item: slot('salts'), target: downed[0].id };
   if (downed.length && rng.chance(0.7)) return { action: 'revive', target: minBy(downed, (d) => d.bleedOut ?? 99)!.id };
-  if (me.hp / me.maxHp < 0.35 && slot('bandage') >= 0) return { action: 'item', item: slot('bandage'), target: me.id };
-  if (enemies.length >= 3 && slot('firebomb') >= 0 && rng.chance(0.6)) return { action: 'item', item: slot('firebomb') };
+  if (me.hp / me.maxHp <= 1 - BOTS.consumeAt && slot('bandage') >= 0) return { action: 'item', item: slot('bandage'), target: me.id };
+  if (enemies.length > BOTS.firebombAbove && slot('firebomb') >= 0) return { action: 'item', item: slot('firebomb') };
   if (view.you.light <= 0 && slot('torch') >= 0) return { action: 'item', item: slot('torch') };
   // Retreat when the fight is clearly being lost and nobody can patch us up.
   const enemyHp = enc.monsters.reduce((sum, m) => sum + m.hp, 0);

@@ -4,7 +4,7 @@ import { CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type Enem
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
-import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints } from './loot';
+import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints, wornMult, wornStat } from './loot';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { speedOf } from './speed';
@@ -206,7 +206,7 @@ export function isConscious(h: Hero): boolean {
 }
 
 export function addStress(h: Hero, amount: number) {
-  if (amount > 0 && h.items.includes('ward')) amount *= 0.75;
+  if (amount > 0) amount *= wornMult(h, 'stressMult');
   const before = h.stress;
   h.stress = Math.max(0, Math.min(STRESS_MAX, h.stress + amount));
   return h.stress - before;
@@ -239,10 +239,14 @@ export function takeSins(zealot: Hero, t: Hero, max: number): number {
   return moved;
 }
 
-/** Armor: flat reduction on any damage this hero takes, from any source. A hit always does at least 1. */
+/**
+ * Armor: flat reduction on any damage this hero takes, from any source. A hit always does at least 1.
+ * A Quickblood Ring then adds to it.
+ */
 export function armored(h: Hero, dmg: number): number {
-  if (dmg <= 0 || !h.armor) return dmg;
-  return Math.max(1, dmg - (ITEMS[h.armor].armor ?? 0));
+  if (dmg <= 0) return dmg;
+  const reduced = h.armor ? Math.max(1, dmg - (ITEMS[h.armor].armor ?? 0)) : dmg;
+  return reduced + wornStat(h, 'hurt');
 }
 
 export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World, by?: Hero) {
@@ -1247,6 +1251,13 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   if (returned > 0 && world.monsters[m.id]) {
     const back = acidic(m, returned);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
+    applyMonsterDamage(world, m, back, events);
+  }
+  // Thorn Ring: a blow that lands costs the attacker.
+  const thorns = wornStat(t, 'thorns');
+  if (thorns > 0 && dmg > 0 && world.monsters[m.id] && m.hp > 0) {
+    const back = acidic(m, thorns);
+    events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Thorns! ${name} takes ${back}.` });
     applyMonsterDamage(world, m, back, events);
   }
   return t;

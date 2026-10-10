@@ -47,14 +47,14 @@ describe('world movement', () => {
     expect(hero.path).toEqual([next]);
   });
 
-  it("sees monsters next door while lit, not while Dim, unless carrying a Cat's-Eye", () => {
+  it("sees monsters next door while lit, not while Dim, unless wearing a Cat's-Eye", () => {
     const { world, hero, d } = setup();
     const next = neighbours(d, d.entrance)[0];
     hero.light = LIGHT_DIM - 1;
     spawnGroup(world, next, ['ghoul'], 0);
     step(world, 0.1);
     expect(hero.knownThreat[next]).toBe(0); // still what you saw before your torch dimmed
-    hero.items.push('catseye');
+    hero.ring = 'catseye';
     step(world, 0.1);
     expect(hero.knownThreat[next]).toBe(1);
   });

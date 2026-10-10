@@ -5,7 +5,7 @@ import {
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
-import { addToPile, rollItem, takeItem } from './loot';
+import { addToPile, rollItem, rollValuable, seesInDark, takeItem } from './loot';
 import { notify } from './notify';
 import { addSpeedMod, fmtSpeed } from './speed';
 import { chronicle, crGold, explore, type Hero, type World } from './world';
@@ -395,7 +395,7 @@ function completeChannel(world: World, ev: RoomEvent, h: Hero) {
       notify(world, x, `An altar has been cleansed. You feel lighter. (−20 stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
     }
   } else {
-    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3)]);
+    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3), rollValuable(world)]);
     notify(world, h, 'The lock clicks open!');
     chronicle(world, `${h.name} cracked open a vault.`);
   }
@@ -446,7 +446,7 @@ export function tickStress(world: World, dt: number) {
     if (!isConscious(h)) continue;
     addStress(h, STRESS.basePerSec * dt);
     if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
-    else if (h.light < LIGHT_DIM && !h.items.includes('catseye')) addStress(h, STRESS.dimPerSec * dt);
+    else if (h.light < LIGHT_DIM && !seesInDark(h)) addStress(h, STRESS.dimPerSec * dt);
     // The Zealot never breaks: stress just stays at 100 (and makes them hit harder).
     if (h.stress < 100 || h.cls === 'zealot') continue;
     if (!h.affliction) {

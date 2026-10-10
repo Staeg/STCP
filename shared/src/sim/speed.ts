@@ -5,8 +5,8 @@ import type { Hero } from './world';
 
 /**
  * Speed: a hero's personal timer. It's the seconds between their turns in a fight and the
- * seconds they take to walk a tunnel. Lower is faster. Class sets the base; worn gear,
- * carried trinkets and some events add to it or take from it.
+ * seconds they take to walk a tunnel. Lower is faster. Class sets the base; worn weapons and
+ * armor slow you, cursed amulets and rings quicken you, and some events add to it or take from it.
  */
 export interface SpeedMod {
   /** Seconds added (negative = faster). */
@@ -22,10 +22,10 @@ export interface SpeedPart {
   amount: number;
 }
 
-/** Everything that makes up a hero's Speed right now: class base first, then gear, trinkets and effects. */
+/** Everything that makes up a hero's Speed right now: class base first, then what you wear, then effects. */
 export function speedParts(h: Hero, now: number): SpeedPart[] {
   const parts: SpeedPart[] = [{ label: CLASSES[h.cls].name, amount: CLASSES[h.cls].speed }];
-  for (const id of [h.weapon, h.armor, ...h.items]) {
+  for (const id of [h.weapon, h.armor, h.amulet, h.ring]) {
     const cost = id ? ITEMS[id].speed : undefined;
     if (cost) parts.push({ label: ITEMS[id!].name, amount: cost });
   }

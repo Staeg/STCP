@@ -11,4 +11,8 @@ export const BOTS = {
   /** Bots answer a bell tolled at most this far away (route cost, ~6 per tunnel), and keep heading there this long. */
   tollAnswerCost: 30,
   tollAnswerFor: 40,
+  /** Bots use a Bandage, Tonic or Torch once HP, sanity (stress) or light is this fraction depleted. */
+  consumeAt: 1 / 3,
+  /** …and a Firebomb in a fight against more than this many enemies. */
+  firebombAbove: 2,
 };

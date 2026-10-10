@@ -1,5 +1,5 @@
 import {
-  abilitiesOf, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, ITEMS, readyAbilities,
+  abilitiesOf, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -287,12 +287,12 @@ export class CombatUi {
       if (!enc) {
         const usable = def.field;
         return `<button class="cb-act item ${usable ? 'usable' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
-          <span class="cb-label"><kbd>${i + 4}</kbd> ${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+          <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
       }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
       return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'}>
-        <span class="cb-label"><kbd>${i + 4}</kbd> ${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}</div></button>`;
+        <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
     return btns ? `<div class="cb-actions items">${btns}</div>` : '';
   }
@@ -448,7 +448,7 @@ export class CombatUi {
   private onKey(e: KeyboardEvent) {
     if (!this.net.cur?.encounter || (e.target as HTMLElement).tagName === 'INPUT') return;
     const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
-    const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(e.code);
+    const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].slice(0, HOTKEY_ITEMS).indexOf(e.code);
     if (e.code === 'Escape') this.targeting = null;
     else if (slot >= 0 && this.canUse('item', slot)) this.pick('item', slot);
     else if (map[e.code] && this.canUse(map[e.code])) this.pick(map[e.code]);

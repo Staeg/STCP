@@ -113,7 +113,7 @@ export class Hud {
     $('stress-text').title = `The dungeon wears on you: +${STRESS.basePerSec} stress per second, more while Dim or dark, in fights and from what you see. At 100 something breaks.`;
     // Speed: seconds per turn in a fight and per tunnel. Hover for what's making it up.
     const speed = speedOf(you, view.time);
-    $('speed-text').textContent = `${fmtSpeed(speed)} per turn / tunnel`;
+    $('speed-text').textContent = fmtSpeed(speed);
     $('speed-line').title = `${ICON_TIPS.speed}
 `
       + speedParts(you, view.time).map((p, i) => `${i === 0 ? '' : p.amount < 0 ? '− ' : '+ '}${fmtSpeed(Math.abs(p.amount))} ${p.label}`).join(' ')
@@ -121,7 +121,6 @@ export class Hud {
     const fill = $('light-fill');
     fill.style.width = `${you.light}%`;
     fill.classList.toggle('dim', view.dim);
-    $('location').textContent = locationText(view);
 
     $('btn-turn').hidden = you.pos.kind !== 'corridor' || you.downedAt !== null || you.dead;
 
@@ -220,15 +219,6 @@ function rosterHtml(view: PlayerView): string {
     return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${aff}<div class="ally-status">${escape(status)}${hp}</div></div>`;
   });
   return rows.join('');
-}
-
-function locationText(view: PlayerView): string {
-  const pos = view.you.pos;
-  const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'the unknown';
-  if (pos.kind === 'room') return name(pos.room);
-  // Seconds left at your own pace (escorting a villager slows you down).
-  const rate = view.leading ? EVENT_SEEDING.villagerSpeed : 1;
-  return `Corridor → ${name(pos.to)} (${Math.max(0, Math.ceil((pos.dur - pos.t) / rate))}s)`;
 }
 
 /** What you'll do when your timer runs out (out of combat, standing in a room). */

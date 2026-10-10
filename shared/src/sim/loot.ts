@@ -1,4 +1,7 @@
-import { gearGain, INVENTORY_SLOTS, isGear, itemTier, ITEMS, LOOT, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
+import {
+  GEAR_SLOTS, gearGain, isGear, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, VALUABLE_TABLE,
+  type GearSlot, type ItemDef, type ItemId,
+} from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
@@ -58,6 +61,10 @@ export function spawnInitialLoot(world: World) {
     }
     if (!guarded && rng.chance(LOOT.emptyItemChance)) items.push(rollItem(world));
     if (deadEnd && rng.chance(LOOT.deadEndBonusItemChance)) items.push(rollItem(world));
+    // Valuables lie anywhere (behind the guards, too); Relics only in lairs.
+    if (rng.chance(LOOT.valuableChance)) items.push(rollValuable(world));
+    if (deadEnd && rng.chance(LOOT.deadEndValuableChance)) items.push(rollValuable(world));
+    if (lair && rng.chance(LOOT.relicChance)) items.push('relic');
     if (gold || items.length) addToPile(world, room.id, gold, items);
   }
 }
@@ -75,6 +82,17 @@ export function rollItem(world: World, quality = 1): ItemId {
   return LOOT_TABLE[0].item;
 }
 
+/** An Effigy, Gem or Tome, weighted toward the cheap end. */
+export function rollValuable(world: World): ItemId {
+  const total = VALUABLE_TABLE.reduce((s, e) => s + e.weight, 0);
+  let roll = world.rng.float(0, total);
+  for (const e of VALUABLE_TABLE) {
+    roll -= e.weight;
+    if (roll <= 0) return e.item;
+  }
+  return VALUABLE_TABLE[0].item;
+}
+
 /** What a slain monster adds to its room's drop: tougher monsters (and later tiers) are worth more. */
 export function monsterPoints(m: Monster): number {
   return ENEMIES[m.type].maxHp * m.dmgMult;
@@ -88,6 +106,7 @@ export function dropBounty(world: World, room: number) {
   const quality = points >= LOOT.dropQuality3 ? 3 : points >= LOOT.dropQuality2 ? 2 : 1;
   const count = Math.min(LOOT.maxDrops, 1 + Math.floor(points / LOOT.dropPointsPerItem));
   const items = Array.from({ length: count }, () => rollItem(world, quality));
+  if (world.rng.chance(LOOT.dropValuableChance)) items.push(rollValuable(world));
   addToPile(world, room, 0, items);
 }
 
@@ -115,36 +134,65 @@ export function floorFull(world: World, room: number): boolean {
 // ---------------------------------------------------------------------------
 // Inventory
 
-export function hasSpace(h: Hero): boolean {
-  return h.items.length < INVENTORY_SLOTS;
+/** Room in the pack: a free slot, or (given a valuable) room on a stack of the same. */
+export function hasSpace(h: Hero, item?: ItemId): boolean {
+  return item ? packFits(h.items, item) : packSlotsUsed(h.items) < INVENTORY_SLOTS;
 }
 
 /**
- * Gear swaps with what you wear, unless it's a lower tier than that (take yours off first if you
- * really want it); anything else needs a free pack slot.
+ * Weapons and armor swap with what you wear, unless they're a lower tier than that (take yours off first if you
+ * really want it); amulets and rings always swap; anything else needs room in the pack.
  */
 export function canTake(h: Hero, item: ItemId): boolean {
-  const kind = ITEMS[item].kind;
-  if (kind === 'weapon' || kind === 'armor') {
-    const worn = h[kind];
+  const slot = slotOf(item);
+  if (slot === 'weapon' || slot === 'armor') {
+    const worn = h[slot];
     return !worn || itemTier(item) >= itemTier(worn);
   }
-  return hasSpace(h);
+  if (slot) return true;
+  return hasSpace(h, item);
+}
+
+/** What this hero has on: weapon, armor, amulet, ring. */
+export function wornDefs(h: Hero): ItemDef[] {
+  return GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x).map((x) => ITEMS[x]);
+}
+
+type WornNumber = 'maxHp' | 'hurt' | 'thorns' | 'regen' | 'stressMult' | 'goldMult' | 'lightDrainMult';
+
+/** A worn bonus that adds up (Thorn Ring's damage back, Bloodstone's regen…). */
+export function wornStat(h: Hero, key: WornNumber): number {
+  return wornDefs(h).reduce((s, d) => s + (d[key] ?? 0), 0);
+}
+
+/** A worn multiplier (Ward Charm's stress, Ember Pendant's torch…): 1 if nothing worn touches it. */
+export function wornMult(h: Hero, key: WornNumber): number {
+  return wornDefs(h).reduce((m, d) => m * (d[key] ?? 1), 1);
+}
+
+/** Put something on (or take it off, with null). Max HP follows the amulet or ring. Returns what was there. */
+export function equip(h: Hero, slot: GearSlot, item: ItemId | null): ItemId | null {
+  const old = h[slot];
+  const hpOf = (id: ItemId | null) => (id ? ITEMS[id].maxHp ?? 0 : 0);
+  const delta = hpOf(item) - hpOf(old);
+  h[slot] = item;
+  if (delta !== 0) {
+    h.maxHp = Math.max(1, h.maxHp + delta);
+    // Gaining max HP fills the new part; losing it never takes a standing hero below 1.
+    if (h.downedAt === null) h.hp = Math.max(1, Math.min(h.maxHp, h.hp + Math.max(0, delta)));
+    else h.hp = Math.min(h.hp, h.maxHp);
+  }
+  return old;
 }
 
 /** Returns the gear this displaced, if any (the caller puts it on the floor). */
 export function giveItem(h: Hero, item: ItemId): ItemId | null {
-  const def = ITEMS[item];
-  if (def.kind === 'weapon' || def.kind === 'armor') {
-    const old = h[def.kind];
-    h[def.kind] = item;
-    return old;
-  }
-  h.items.push(item);
-  if (item === 'locket') {
-    h.maxHp += 8;
-    if (h.downedAt === null) h.hp += 8;
-  }
+  const slot = slotOf(item);
+  if (slot) return equip(h, slot, item);
+  // Consumables always sit at the top of the pack (the first few get number keys); valuables stack below.
+  const rank = packRank(item);
+  const at = h.items.findIndex((x) => packRank(x) > rank);
+  h.items.splice(at < 0 ? h.items.length : at, 0, item);
   return null;
 }
 
@@ -152,13 +200,18 @@ export function takeItem(h: Hero, index: number): ItemId | null {
   const item = h.items[index];
   if (item === undefined) return null;
   h.items.splice(index, 1);
-  if (item === 'locket') {
-    h.maxHp -= 8;
-    h.hp = Math.min(h.hp, h.maxHp);
-  }
   return item;
 }
 
+/** On the way out: Effigies, Gems, Tomes and Relics are sold for gold (found treasure: worth more at higher CR). */
+export function sellValuables(world: World, h: Hero) {
+  const sold = h.items.filter((x) => ITEMS[x].kind === 'valuable');
+  if (!sold.length) return;
+  const gold = crGold(world, sold.reduce((s, x) => s + (ITEMS[x].value ?? 0), 0));
+  h.items = h.items.filter((x) => ITEMS[x].kind !== 'valuable');
+  h.gold += gold;
+  notify(world, h, `Sold ${sold.length} valuable${sold.length > 1 ? 's' : ''} for ${gold} gold.`);
+}
 
 /** Who's in a room: everyone not dead (downed heroes still get a share). */
 function presentIn(world: World, room: number): Hero[] {
@@ -176,11 +229,13 @@ export function votersIn(world: World, room: number): Hero[] {
  */
 export function wants(h: Hero, f: FloorItem): boolean {
   if (f.passed.includes(h.id) || !canTake(h, f.item)) return false;
-  const kind = ITEMS[f.item].kind;
-  if (kind === 'weapon' || kind === 'armor') {
-    const worn = h[kind];
+  const slot = slotOf(f.item);
+  if (slot === 'weapon' || slot === 'armor') {
+    const worn = h[slot];
     return !worn || itemTier(f.item) > itemTier(worn);
   }
+  // A different amulet or ring is always worth a look.
+  if (slot) return h[slot] !== f.item;
   return true;
 }
 
@@ -264,9 +319,10 @@ function fromTheDead(world: World, by: string | null | undefined): boolean {
 /** Mortician: the Undertaker takes what the fallen carried without a vote (gear only if it's an upgrade). */
 function mortician(world: World, room: number, pile: Pile, u: Hero) {
   const wanted = (item: ItemId) => {
-    const def = ITEMS[item];
-    if (def.kind === 'weapon' || def.kind === 'armor') return gearGain(item, u[def.kind]) > 0;
-    return hasSpace(u);
+    const slot = slotOf(item);
+    if (slot === 'weapon' || slot === 'armor') return gearGain(item, u[slot]) > 0;
+    if (slot) return !u[slot];
+    return hasSpace(u, item);
   };
   for (const f of [...pile.items]) if (fromTheDead(world, f.by) && wanted(f.item)) take(world, room, pile, u, f);
 }
@@ -276,7 +332,7 @@ function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
   pile.items.splice(pile.items.indexOf(f), 1);
   const def = ITEMS[f.item];
   const old = giveItem(h, f.item);
-  const verb = isGear(f.item) ? ['equip', 'equips'] : ['take', 'takes'];
+  const verb = slotOf(f.item) ? ['put on', 'puts on'] : ['take', 'takes'];
   for (const x of presentIn(world, room)) notify(world, x, x === h ? `You ${verb[0]} the ${def.name}.` : `${h.name} ${verb[1]} the ${def.name}.`);
   // The piece it replaced goes on the floor, up for grabs like any other find (but not for them).
   if (old) addToPile(world, room, 0, [old], h.id);
@@ -288,7 +344,7 @@ function splitGold(world: World, room: number, pile: Pile) {
   let remainder = pile.gold - share * present.length;
   for (const h of world.rng.shuffle(present)) {
     let amount = share + (remainder-- > 0 ? 1 : 0);
-    if (h.items.includes('coin')) amount = Math.round(amount * 1.1);
+    amount = Math.round(amount * wornMult(h, 'goldMult'));
     h.gold += amount;
     notify(world, h, present.length > 1 ? `+${amount} gold (split ${present.length} ways)` : `+${amount} gold`);
   }
@@ -348,23 +404,27 @@ export function claimItem(world: World, h: Hero, id: number): string | null {
   return null;
 }
 
-/** Put an item from your pack on the floor of your room. Others there can then take it; you'll ignore it. */
+/**
+ * Put an item from your pack on the floor of your room (a whole stack of valuables at once). Others there can then
+ * take it; you'll ignore it.
+ */
 export function dropItem(world: World, h: Hero, index: number): string | null {
   if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
   if (floorFull(world, h.pos.room)) return 'No room on the floor here.';
-  const item = takeItem(h, index);
-  if (!item) return 'Nothing there.';
-  addToPile(world, h.pos.room, 0, [item], h.id);
+  const stack = packSlots(h.items).find((s) => s.indices.includes(index));
+  if (!stack) return 'Nothing there.';
+  // Highest index first, so the others don't shift.
+  const items = [...stack.indices].reverse().map((i) => takeItem(h, i)!);
+  addToPile(world, h.pos.room, 0, items, h.id);
   return null;
 }
 
-/** Take off a weapon or armor and put it on the floor of your room. */
+/** Take off a weapon, armor, amulet or ring and put it on the floor of your room. */
 export function unequip(world: World, h: Hero, slot: GearSlot): string | null {
   if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
   if (floorFull(world, h.pos.room)) return 'No room on the floor here.';
-  const item = h[slot];
+  const item = equip(h, slot, null);
   if (!item) return 'Nothing there.';
-  h[slot] = null;
   addToPile(world, h.pos.room, 0, [item], h.id);
   return null;
 }
@@ -374,9 +434,9 @@ export function dropEverything(world: World, h: Hero) {
   const room = h.pos.kind === 'room' ? h.pos.room : h.pos.from;
   const items: ItemId[] = [];
   while (h.items.length) items.push(takeItem(h, 0)!);
-  for (const slot of ['weapon', 'armor'] as const) {
-    if (h[slot]) items.push(h[slot]!);
-    h[slot] = null;
+  for (const slot of GEAR_SLOTS) {
+    const worn = equip(h, slot, null);
+    if (worn) items.push(worn);
   }
   addToPile(world, room, 0, items, h.id);
   const pile = world.piles[room];
@@ -421,7 +481,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   const item = h.items[index];
   if (!item) return '!Nothing there.';
   const def = ITEMS[item];
-  if (def.kind === 'trinket') return '!Trinkets work on their own.';
+  if (def.kind !== 'consumable') return "!You can't use that.";
   if (def.target === 'enemies') {
     const room = h.encounter;
     if (room === null) return '!Only in a fight.';
@@ -465,7 +525,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
 export function useItemInField(world: World, h: Hero, index: number, targetId?: string): string | null {
   const def = ITEMS[h.items[index]];
   if (!def) return 'Nothing there.';
-  if (!def.field) return def.kind === 'trinket' ? 'Trinkets work on their own.' : 'Only in a fight.';
+  if (!def.field) return def.kind === 'consumable' ? 'Only in a fight.' : "You can't use that.";
   if (h.encounter !== null) return 'Use it as your combat action.';
   const result = applyItem(world, h, index, targetId);
   if (result.startsWith('!')) return result.slice(1);
@@ -475,6 +535,6 @@ export function useItemInField(world: World, h: Hero, index: number, targetId?: 
 
 /** Cat's-Eye lets you see through dimness. */
 export function seesInDark(h: Hero): boolean {
-  return h.items.includes('catseye');
+  return wornDefs(h).some((d) => d.seeDim);
 }
 

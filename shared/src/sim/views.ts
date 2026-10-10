@@ -4,7 +4,7 @@ import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId } from '../content/enemies';
 import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
-import { INVENTORY_SLOTS, ITEMS, type ItemId } from '../content/items';
+import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
@@ -369,14 +369,14 @@ function lootView(world: World, you: Hero): LootView | null {
     gold: pile.gold,
     voters: voters.map((v) => v.id),
     items: active.map((f) => {
-      const kind = ITEMS[f.item].kind;
+      const slot = slotOf(f.item);
       return {
         id: f.id,
         item: f.item,
         votes: { ...f.votes },
         candidates: present.filter((h) => canTake(h, f.item)).map((h) => ({
-          id: h.id, name: h.name, free: INVENTORY_SLOTS - h.items.length, isBot: h.isBot,
-          wearing: kind === 'weapon' || kind === 'armor' ? h[kind] : undefined,
+          id: h.id, name: h.name, free: packFree(h.items), isBot: h.isBot,
+          wearing: slot ? h[slot] : undefined,
         })),
         startedAt: f.startedAt,
       };

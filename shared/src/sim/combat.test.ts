@@ -4,6 +4,7 @@ import { neighbours } from '../dungeon/gen';
 import { BLEED_OUT, combatOrder, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
 import { Game } from './game';
 import { buildView } from './views';
+import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { ClassId } from '../content/classes';
 import type { EnemyId } from '../content/enemies';
@@ -278,21 +279,23 @@ describe('encounters', () => {
 });
 
 describe('Speed', () => {
-  it('comes from class, worn gear and carried trinkets, and sets how long a tunnel takes', () => {
+  it('comes from class and worn gear (cursed jewelry quickens), and sets how long a tunnel takes', () => {
     const world = createWorld(777, { monsters: false, loot: false, escalation: false });
     const d = world.dungeon;
     const h = addHero(world, { id: 'h', name: 'H', cls: 'lampbearer' });
     h.weapon = 'mace';
     h.armor = 'cuirass';
-    h.items = ['coin', 'bandage'];
+    h.amulet = 'coin';
+    h.items = ['bandage', 'gem'];
     expect(buildView(world, 'h').you.maxHp).toBe(45);
+    expect(speedOf({ ...h, ring: 'quickblood' }, 0)).toBe(5);
     const next = neighbours(d, d.entrance)[0];
     // The timer running when the gear went on is the old 5s one; the next one (from 5s) carries the weight.
     run(world, 5.2);
     applyIntent(world, 'h', { type: 'goto', room: next });
     step(world, 0.1);
-    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6.1); // 5 + 0.5 + 0.5 + 0.1
-    run(world, 5.6);
+    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6); // 5 + 0.5 + 0.5; blessed amulets and pack items weigh nothing
+    run(world, 5.5);
     expect(h.pos.kind).toBe('corridor');
     run(world, 0.3);
     expect(h.pos).toEqual({ kind: 'room', room: next });

@@ -18,7 +18,7 @@ import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, wants, dropItem, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, type Pile,
+  activeItems, castVote, claimItem, wants, dropItem, unequip, seesInDark, sellValuables, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -105,6 +105,8 @@ export interface Hero {
   /** Equipped gear (separate from the pack). */
   weapon: ItemId | null;
   armor: ItemId | null;
+  amulet: ItemId | null;
+  ring: ItemId | null;
   /** Carried gold. Only extracted gold counts. */
   gold: number;
   /** Short notices for this player ("+12 gold"), newest last. */
@@ -224,7 +226,7 @@ export type Intent =
   /** Bring an ignored floor item back up for grabs (alone: just take it). */
   | { type: 'claim'; item: number }
   | { type: 'drop'; index: number }
-  /** Take off a weapon or armor and put it on the floor. */
+  /** Take off a weapon, armor, amulet or ring and put it on the floor. */
   | { type: 'unequip'; slot: GearSlot }
   | { type: 'useItem'; index: number; target?: string }
   /** Leave the dungeon through the open exit. */
@@ -304,6 +306,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     speedMods: [],
     weapon: null,
     armor: null,
+    amulet: null,
+    ring: null,
     gold: 0,
     messages: [],
     knownLoot: {},
@@ -357,7 +361,10 @@ export function step(world: World, dt: number): void {
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
     hero.lowestHp = Math.min(hero.lowestHp, hero.hp / hero.maxHp);
-    hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * dt);
+    hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * wornMult(hero, 'lightDrainMult') * dt);
+    // Bloodstone Ring: slowly mends while exploring.
+    const regen = wornStat(hero, 'regen');
+    if (regen > 0 && isConscious(hero) && hero.encounter === null) hero.hp = Math.min(hero.maxHp, hero.hp + dt / regen);
     // Cooldowns tick when the Speed timer runs out (see endIdleTurn and arrive); a channel holds the timer, so time it instead.
     if (isConscious(hero) && hero.encounter === null && hero.channel) tickFieldCooldowns(world, hero, dt);
     else hero.cdClock = 0;
@@ -429,6 +436,7 @@ export function extractHero(world: World, h: Hero) {
   h.extractedAt = world.time;
   h.path = [];
   h.channel = null;
+  sellValuables(world, h);
   h.fate = `escaped with ${h.gold} gold`;
   chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
   // Mortician: the fallen's gold goes home with the Undertaker, and counts for them.
