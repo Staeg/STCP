@@ -637,3 +637,19 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .injury.major { color: var(--danger); }
 .class-char { margin-top: 0.3em; font-size: 0.9em; }
 .cr-line { margin: -2px 0 8px; }
+
+/* ---- The Village Stash and the kit (user 2026-10-10) ---- */
+.v-stash { display: grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap: 12px; margin-top: 12px; }
+@media (max-width: 900px) { .v-stash { grid-template-columns: 1fr; } }
+.v-stash > div { border: 1px solid #2a2018; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; line-height: 1.15; }
+.kit-slots, .rite-list { display: flex; flex-direction: column; gap: 4px; }
+.stash-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.kit-slot { text-align: left; font-size: 17px; padding: 2px 6px; border: 1px dashed #3a2e24; }
+.kit-slot.full { border: 1px solid var(--gold); }
+.stash-item { font-size: 17px; padding: 2px 6px; }
+.rite { text-align: left; font-size: 17px; line-height: 1.15; }
+.rite.on { border-color: var(--gold); background: #2a1f10; }
+.rite-glyph { font-size: 20px; }
+.rite-tag { color: var(--gold); cursor: help; }
+.kit-badge { margin-left: 6px; letter-spacing: 2px; }
+.cr-line .danger { color: var(--danger); cursor: help; }

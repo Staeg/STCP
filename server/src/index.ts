@@ -32,7 +32,7 @@ const http = createServer((req, res) => {
 
 // ---- Lobbies & games ----
 const DEBUG = process.argv.includes('--debug');
-const lobbies = new LobbyManager(new Stash(fileStore()), {
+const lobbies = new LobbyManager(new Stash(fileStore(process.env.STASH_PATH || undefined)), {
   debug: DEBUG,
   seed: process.env.SEED ? Number(process.env.SEED) : undefined,
   log: (msg) => console.log(msg),

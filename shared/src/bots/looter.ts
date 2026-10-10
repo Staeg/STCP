@@ -1,7 +1,7 @@
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { STRESS_MAX } from '../sim/combat';
 import { BOTS } from './tuning';
-import { gearGain, isCursed, isGear, isJewel, type ItemId } from '../content/items';
+import { gearGain, isCursed, isArms, isJewel, type ItemId } from '../content/items';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
 import type { LootItemView, PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -43,7 +43,7 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
     const a = view.allies.find((x) => x.id === id);
     return a ? a.hp / a.maxHp : 1;
   };
-  if (isGear(f.item)) {
+  if (isArms(f.item)) {
     // Whoever it's the biggest upgrade for (ties: me). Nobody gains → leave it, so swaps can't ping-pong.
     const best = cands
       .map((c) => ({ id: c.id, gain: gearGain(f.item, c.wearing ?? null) }))

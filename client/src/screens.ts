@@ -1,7 +1,9 @@
 import {
-  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, CR_RULES, ENEMIES, INJURY_NAMES, injuredMaxHp, talentPending, TALENTS, talentsFor, VILLAGE_RULES,
-  type Character, type LeaderboardEntry, type LobbyView, type TalentId, type Treatment, type VillageView,
+  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, CR_RULES, ENEMIES, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
+  slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES,
+  type Character, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
 } from '@stcp/shared';
+import { itemName } from './loot';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
@@ -125,6 +127,7 @@ export class Screens {
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
+        ${kitBadge(m.kit)}
         <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span></span>
       </li>`);
     }
@@ -161,9 +164,10 @@ export class Screens {
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
       </div>`}
       <ul class="slots">${slots.join('')}</ul>
-      <div class="cr-line" title="Challenge Rating: one for every hero with a Talent, bots included. Each point: +${Math.round(CR_RULES.goldPerCr * 100)}% gold. Lantern Wights from CR 1, the Forsaken Queen from CR 3.">
-        Challenge Rating <b>${lobby.cr}</b>${lobby.cr < 4 ? ' <span class="muted">(bots borrowing Talented Characters add to it)</span>' : ''}
+      <div class="cr-line" title="Challenge Rating: 1 for every hero with a Talent (bots included), +${KIT_RULES.crPerGearLevel} per level of Gear brought from the Stash, +${KIT_RULES.effigyCr} for an Effigy Rite, ${KIT_RULES.gemCr} for a Gem Rite. A fraction is the chance of the next CR up. Each point: +${Math.round(CR_RULES.goldPerCr * 100)}% gold. Lantern Wights from CR 1, the Forsaken Queen from CR 3, and above CR ${CR_RULES.tableCr} +${Math.round(CR_RULES.hpDmgPerCrAbove * 100)}% monster HP and damage per point.">
+        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)} <span class="muted">(bots borrowing Talented Characters add to it)</span>
         · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
+        ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
       </div>
       <div class="classes">${cards}</div>
       <div class="row">
@@ -220,6 +224,18 @@ export class Screens {
       case 'treat':
         net.send({ t: 'treat', charId: btn.dataset.char!, what: btn.dataset.what as Treatment });
         break;
+      case 'kit-add':
+      case 'kit-remove':
+      case 'rite': {
+        const v = net.village;
+        if (!v) break;
+        const kit = structuredClone(v.kit);
+        if (btn.dataset.act === 'rite') toggleRite(kit, btn.dataset.rite as ResourceId);
+        else if (btn.dataset.act === 'kit-add') addToKit(kit, btn.dataset.item as ItemId);
+        else removeFromKit(kit, btn.dataset.slot!);
+        net.send({ t: 'setKit', kit });
+        break;
+      }
       case 'leave':
         net.send({ t: 'leave' });
         history.replaceState(null, '', location.pathname);
@@ -308,7 +324,106 @@ function villageHtml(v: VillageView, lobby: LobbyView | null): string {
     </div>
     ${report}
     <div class="v-grid">${cards}</div>
-    <div class="row muted small">Talents raise the Challenge Rating: more gold, but ${ENEMIES.wight.name}s from CR 1 and the ${ENEMIES.queen.name} from CR 3.</div>
+    ${stashHtml(v, lobby)}
+    <div class="row muted small">Talents, Gear brought along and Effigy Rites raise the Challenge Rating: more gold, but ${ENEMIES.wight.name}s from CR 1, the ${ENEMIES.queen.name} from CR 3, and tougher monsters above CR ${CR_RULES.tableCr}.</div>
     <div class="row"><button class="primary" data-act="village-close">Back</button></div>
+  </div>`;
+}
+
+/** " (70% CR 3, else CR 2)" when the combined CR has a fraction. */
+function crOdds(cr: number): string {
+  const base = Math.floor(cr);
+  const frac = Math.round((cr - base) * 100);
+  return frac ? ` <span class="muted">(${frac}% CR ${base + 1}, else CR ${base})</span>` : '';
+}
+
+/** The glyphs of what a lobby member is bringing from their Stash, hover for names. */
+function kitBadge(kit: Kit): string {
+  const items = [...GEAR_SLOTS.map((s) => kit.gear[s]).filter((x): x is ItemId => !!x), ...kit.consumables];
+  const parts = items.map((it) => `<span title="${esc(ITEMS[it].name)}">${ITEMS[it].glyph}</span>`);
+  parts.push(...kit.rites.map((r) => `<span class="rite-tag" title="${esc(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`));
+  return parts.length ? `<span class="kit-badge">${parts.join('')}</span>` : '';
+}
+
+/** How many of `item` the kit already takes. */
+function inKit(kit: Kit, item: ItemId): number {
+  return Object.values(kit.gear).filter((x) => x === item).length + kit.consumables.filter((x) => x === item).length;
+}
+
+/** Gear goes on its slot (replacing what was chosen there); a consumable takes a free place. */
+function addToKit(kit: Kit, item: ItemId) {
+  const slot = slotOf(item);
+  if (slot) kit.gear[slot] = item;
+  else if (kit.consumables.length < KIT_RULES.consumables) kit.consumables.push(item);
+}
+
+/** `slot` is a Gear slot, or "c0"/"c1" for a consumable place. */
+function removeFromKit(kit: Kit, slot: string) {
+  if (slot.startsWith('c')) kit.consumables.splice(Number(slot.slice(1)), 1);
+  else delete kit.gear[slot as GearSlot];
+}
+
+function toggleRite(kit: Kit, r: ResourceId) {
+  kit.rites = kit.rites.includes(r) ? kit.rites.filter((x) => x !== r) : [...kit.rites, r];
+}
+
+const SLOT_NAMES: Record<GearSlot, string> = { weapon: 'Weapon', armor: 'Armor', amulet: 'Amulet', ring: 'Ring' };
+
+/** The Village Stash: what's in it, what goes into the next run, and the Rites Resources can power. */
+function stashHtml(v: VillageView, lobby: LobbyView | null): string {
+  const kit = v.kit;
+  const locked = lobby?.state === 'game';
+  const dis = locked ? 'disabled' : '';
+  const gearCr = (it: ItemId) => `+${(itemTier(it) * KIT_RULES.crPerGearLevel).toFixed(1)} CR`;
+  // The kit: four Gear slots and the free consumable places.
+  const gear = GEAR_SLOTS.map((s) => {
+    const it = kit.gear[s];
+    return it
+      ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">${gearCr(it)}</span></button>`
+      : `<div class="kit-slot muted">${SLOT_NAMES[s]}: none</div>`;
+  });
+  const cons = Array.from({ length: KIT_RULES.consumables }, (_, i) => {
+    const it = kit.consumables[i];
+    return it
+      ? `<button class="kit-slot full" data-act="kit-remove" data-slot="c${i}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">free</span></button>`
+      : '<div class="kit-slot muted">Consumable: none</div>';
+  });
+  const cr = kitCr(kit);
+  // The Stash, one button per kind of item, with how many are left to take.
+  const counts = new Map<ItemId, number>();
+  for (const it of v.items) counts.set(it, (counts.get(it) ?? 0) + 1);
+  const stash = [...counts].map(([it, n]) => {
+    const left = n - inKit(kit, it);
+    const isCons = ITEMS[it].kind === 'consumable';
+    const full = isCons && kit.consumables.length >= KIT_RULES.consumables;
+    const why = left <= 0 ? 'All of them are packed.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
+    const count = n > 1 ? ` <span class="muted">×${left}/${n}</span>` : left <= 0 ? ' <span class="muted">(packed)</span>' : '';
+    return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${locked || left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
+  }).join('');
+  const rites = RESOURCE_IDS.map((r) => {
+    const have = v.resources[r] ?? 0;
+    const on = kit.rites.includes(r);
+    const can = on || have >= KIT_RULES.riteCost;
+    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${locked || !can ? 'disabled' : ''}>
+      <div><span class="rite-glyph">${ITEMS[r].glyph}</span> <b>${pluralName(r)}: ${have}</b>${on ? ' <span class="gold">· active next run</span>' : ''}</div>
+      <div class="small"><b>${esc(RITES[r].name)}</b> (${KIT_RULES.riteCost}): ${esc(RITES[r].desc)}</div>
+    </button>`;
+  }).join('');
+  return `<div class="v-stash">
+    <div class="v-kit">
+      <div class="gold">Taking into the next run${cr ? ` <span class="muted">· CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''}</div>
+      <div class="muted small">Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1 · uncommon 2 · rare 3). Up to ${KIT_RULES.consumables} consumables, free. If your Character dies, what they took is lost.</div>
+      <div class="kit-slots">${gear.join('')}${cons.join('')}</div>
+    </div>
+    <div class="v-stash-items">
+      <div class="gold">Village Stash</div>
+      <div class="muted small">Everything your Characters carry out of the dungeon ends up here.</div>
+      <div class="stash-list">${stash || '<span class="muted">Empty. Bring something home.</span>'}</div>
+    </div>
+    <div class="v-rites">
+      <div class="gold">Resources and Rites</div>
+      <div class="muted small">Spend ${KIT_RULES.riteCost} of a Resource for an effect on your next run only. They're spent when it starts.</div>
+      <div class="rite-list">${rites}</div>
+    </div>
   </div>`;
 }

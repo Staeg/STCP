@@ -173,7 +173,7 @@ export function hearsToll(world: World, h: Hero): boolean {
 export function tickBrew(world: World, h: Hero) {
   if (!inDungeon(h) || world.time < h.brewAt) return;
   h.brewAt += CLASS_RULES.brewEvery;
-  if (!isConscious(h) || !hasSpace(h)) return;
+  if (!isConscious(h) || !hasSpace(h) || h.rites.includes('gem')) return;
   const pool = LOOT_TABLE.filter((e) => ITEMS[e.item].kind === 'consumable');
   let roll = world.rng.float(0, pool.reduce((s, e) => s + e.weight, 0));
   let item: ItemId = pool[0].item;

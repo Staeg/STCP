@@ -32,6 +32,9 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
 export const CR_RULES = {
   /** Every bit of gold found is worth (1 + this × CR). */
   goldPerCr: 0.15,
+  /** CR has no cap (user 2026-10-10). The chance tables stop at this CR; each CR above it gives every monster this much more HP and damage (a placeholder). */
+  tableCr: 4,
+  hpDmgPerCrAbove: 0.1,
   /** Chance, by CR, that each Ghoul spawned comes with a Lantern Wight beside it (index = CR). */
   wightChance: [0, 0.25, 0.5, 0.5, 0.5],
   /** Wight's Snuff: light taken from its target. */

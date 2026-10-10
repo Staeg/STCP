@@ -1,6 +1,7 @@
 import { CLASSES, CLASS_IDS, type ClassId } from './content/classes';
 import { AFFLICTIONS, type AfflictionId } from './content/events';
 import { TALENTS, talentsFor, type TalentId } from './content/talents';
+import { isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlot, type ItemId, type ResourceId } from './content/items';
 import type { Rng } from './rng';
 
 /**
@@ -43,6 +44,96 @@ export const VILLAGE_RULES = {
 
 export const INJURY_NAMES: Record<Injury, string> = { minor: 'Minor Injury', major: 'Major Injury' };
 
+/**
+ * Rites (user 2026-10-10): spend 5 of a Resource in the Village for an effect on your next run only. Effigy, Tome and
+ * Gem change your own hero; a Relic changes the whole party's run.
+ */
+export const RITES: Record<ResourceId, { name: string; desc: string }> = {
+  effigy: { name: 'Effigy Rite', desc: 'CR +1. Your hero deals +20% damage and has +20% max HP, and is 1s faster.' },
+  gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t pick up or use consumables (you can still bring some in and drop them for allies).' },
+  tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold they carry comes home even if they die.' },
+  relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away.' },
+};
+
+export const KIT_RULES = {
+  /** Resources a Rite costs. */
+  riteCost: 5,
+  /** Consumables a hero may bring from the Stash at no cost. */
+  consumables: 2,
+  /** CR added per level (tier) of every piece of Gear brought in. */
+  crPerGearLevel: 0.1,
+  effigyCr: 1,
+  gemCr: -0.5,
+  /** Effigy / Tome: damage dealt and max HP multipliers; Effigy's Speed change (seconds). */
+  effigyMult: 1.2,
+  effigySpeed: -1,
+  tomeMult: 0.8,
+  /** A Relic Rite starts the run at this Escalation. */
+  relicEscalation: 5,
+};
+
+/** What a player takes from their Village into the next run: worn Gear, a few consumables, and Rites. */
+export interface Kit {
+  gear: Partial<Record<GearSlot, ItemId>>;
+  consumables: ItemId[];
+  rites: ResourceId[];
+}
+
+export function emptyKit(): Kit {
+  return { gear: {}, consumables: [], rites: [] };
+}
+
+/** The CR a kit adds: 0.1 per Gear level, +1 for an Effigy Rite, −0.5 for a Gem Rite. */
+export function kitCr(kit: Kit | undefined): number {
+  if (!kit) return 0;
+  let cr = Object.values(kit.gear).reduce((s, it) => s + (it ? itemTier(it) * KIT_RULES.crPerGearLevel : 0), 0);
+  if (kit.rites.includes('effigy')) cr += KIT_RULES.effigyCr;
+  if (kit.rites.includes('gem')) cr += KIT_RULES.gemCr;
+  return Math.round(cr * 100) / 100;
+}
+
+/** A hero's CR: 1 for a Talent, plus what their kit adds. */
+export function heroCr(talent: TalentId | null | undefined, kit: Kit | undefined): number {
+  return (talent ? 1 : 0) + kitCr(kit);
+}
+
+/**
+ * The run's CR from the heroes' combined CR (never below 0): a fraction is the chance of the next CR up, so 2.7 is
+ * a CR 3 run 70% of the time and CR 2 otherwise.
+ */
+export function rollCr(total: number, rng: Rng): number {
+  const t = Math.max(0, Math.round(total * 100) / 100);
+  const base = Math.floor(t);
+  return base + (rng.chance(t - base) ? 1 : 0);
+}
+
+/** Why this kit can't be brought, given what's in the Stash, or null. */
+export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<ResourceId, number>): string | null {
+  const left = [...stash];
+  const take = (it: ItemId) => {
+    const i = left.indexOf(it);
+    if (i < 0) return false;
+    left.splice(i, 1);
+    return true;
+  };
+  for (const [slot, it] of Object.entries(kit.gear) as [GearSlot, ItemId | undefined][]) {
+    if (!it) continue;
+    if (!isGear(it) || slotOf(it) !== slot) return `${ITEMS[it].name} isn't worn there.`;
+    if (!take(it)) return `Your Stash has no ${ITEMS[it].name}.`;
+  }
+  if (kit.consumables.length > KIT_RULES.consumables) return `At most ${KIT_RULES.consumables} consumables.`;
+  for (const it of kit.consumables) {
+    if (ITEMS[it].kind !== 'consumable') return `${ITEMS[it].name} isn't a consumable.`;
+    if (!take(it)) return `Your Stash has no more ${pluralName(it)}.`;
+  }
+  if (new Set(kit.rites).size !== kit.rites.length) return 'One of each Rite at most.';
+  for (const r of kit.rites) {
+    if (!RESOURCE_IDS.includes(r)) return 'No such Rite.';
+    if ((resources[r] ?? 0) < KIT_RULES.riteCost) return `${RITES[r].name} needs ${KIT_RULES.riteCost} ${pluralName(r)}.`;
+  }
+  return null;
+}
+
 /** What a hero brings into the dungeon from a Village. */
 export interface Loadout {
   charId: string;
@@ -52,6 +143,8 @@ export interface Loadout {
   talent: TalentId | null;
   injuries: Injury[];
   affliction: AfflictionId | null;
+  /** Gear, consumables and Rites taken from the player's Village Stash for this run. */
+  kit?: Kit;
 }
 
 /** How a Character's run went, as far as the Village cares. */

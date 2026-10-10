@@ -1,10 +1,11 @@
 import { Stash } from './stash';
-import { isHealthy, loadoutOf, type Character } from './village';
+import { heroCr, isHealthy, loadoutOf, type Character } from './village';
+import { GEAR_SLOTS, type ItemId } from './content/items';
 import { Rng } from './rng';
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { titleFor } from './content/titles';
 import { SERVER_TICK, escalationAt } from './content/constants';
-import { Game, type PlayerSlot } from './sim/game';
+import { combinedCr, Game, type PlayerSlot } from './sim/game';
 import { buildView } from './sim/views';
 import { addToPile } from './sim/loot';
 import { onHeroInRoom, spawnGroup } from './sim/combat';
@@ -79,9 +80,11 @@ export class Lobby {
         return {
           id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
           character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, affliction: c.affliction },
+          kit: this.stash.kitOf(m.name),
         };
       }),
-      cr: this.members.filter((m) => m.cls && this.stash.characterFor(m.name, m.cls).talent).length,
+      cr: Math.round(this.members.reduce((s, m) => s + heroCr(m.cls ? this.stash.characterFor(m.name, m.cls).talent : null, this.stash.kitOf(m.name)), 0) * 100) / 100,
+      relic: this.members.some((m) => this.stash.kitOf(m.name).rites.includes('relic')),
     };
   }
 
@@ -94,15 +97,18 @@ export class Lobby {
     // Each player brings their Village's Character of the class they picked.
     const slots: PlayerSlot[] = this.members.map((m) => {
       const c = this.stash.characterFor(m.name, m.cls!);
-      return { id: m.id, name: `${c.name} (${m.name})`, cls: m.cls!, isBot: false, loadout: loadoutOf(m.name, c) };
+      // What they chose in the Village leaves the Stash now (Rites spend their Resources).
+      return { id: m.id, name: `${c.name} (${m.name})`, cls: m.cls!, isBot: false, loadout: { ...loadoutOf(m.name, c), kit: this.stash.takeKit(m.name) } };
     });
     this.roster = slots.map((s) => ({ heroId: s.id, owner: s.loadout!.owner, charId: s.loadout!.charId }));
     slots.push(...this.botSlots(rng, slots));
     const seed = this.opts.seed ?? rng.int(1, 2 ** 30);
-    this.opts.log?.(`[${this.code}] starting game, seed ${seed}`);
     this.game = new Game(seed, slots);
+    this.opts.log?.(`[${this.code}] starting game, seed ${seed}, CR ${combinedCr(slots)} → ${this.game.world.cr}`);
     this.state = 'game';
     this.banked = false;
+    // The kits have left the Stash.
+    for (const m of this.members) if (m.ws) send(m.ws, { t: 'village', village: this.stash.village(m.name) });
     return null;
   }
 
@@ -155,6 +161,12 @@ export class Lobby {
           const h = this.game.world.heroes[r.heroId];
           if (!h) continue;
           this.stash.recordCharacter(r.owner, r.charId, { escaped: h.extracted, lowestHp: h.lowestHp, downedMajor: h.downedMajor, affliction: h.affliction });
+          // Everything carried out (pack and Gear) goes into the player's Village Stash.
+          if (h.extracted) {
+            const carried: ItemId[] = [...h.items, ...GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x)];
+            const line = this.stash.storeLoot(r.owner, carried);
+            if (line) this.stash.addReport(r.owner, line);
+          }
         }
         for (const m of this.members) if (m.ws) send(m.ws, { t: 'village', village: this.stash.village(m.name) });
       }
@@ -195,8 +207,11 @@ export class LobbyManager {
         send(ws, { t: 'village', village: this.stash.village(name) });
         return;
       case 'chooseTalent':
-      case 'treat': {
-        const problem = msg.t === 'treat' ? this.stash.treat(name, msg.charId, msg.what) : this.stash.chooseTalent(name, msg.charId, msg.talent);
+      case 'treat':
+      case 'setKit': {
+        const problem = msg.t === 'treat' ? this.stash.treat(name, msg.charId, msg.what)
+          : msg.t === 'setKit' ? (found?.lobby.state === 'game' ? 'Not while your expedition is underway.' : this.stash.setKit(name, msg.kit))
+          : this.stash.chooseTalent(name, msg.charId, msg.talent);
         if (problem) err(problem);
         send(ws, { t: 'village', village: this.stash.village(name) });
         // Lobby cards show your Character, and the CR counts Talents.

@@ -2,7 +2,7 @@ import { SECRET_GUARDS } from '../content/enemies';
 import { LOOT } from '../content/items';
 import { openSecret, openSecrets, theRoom, type SecretPassage } from '../dungeon/gen';
 import { crUnits, inDungeon, spawnGroup } from './combat';
-import { addToPile, rollItem, rollValuable } from './loot';
+import { addToPile, rollItem, rollResource } from './loot';
 import { notify } from './notify';
 import { chronicle, explore, type World } from './world';
 
@@ -31,7 +31,7 @@ export function openSecretEarly(world: World, s: SecretPassage) {
 function stockSecret(world: World, s: SecretPassage) {
   const d = world.dungeon;
   const rng = world.rng;
-  const items = [rollItem(world, 3), rollValuable(world)];
+  const items = [rollItem(world, 3), rollResource(world)];
   if (rng.chance(LOOT.relicChance)) items.push('relic');
   addToPile(world, s.room, rng.int(...LOOT.lairGold), items);
   const total = SECRET_GUARDS.reduce((t, g) => t + g.weight, 0);

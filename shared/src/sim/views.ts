@@ -358,7 +358,7 @@ function resultsView(world: World): ResultsView {
     heroes: Object.values(world.heroes).map((h) => ({
       id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talent: h.talent,
       outcome: h.extracted ? 'escaped' : 'dead',
-      fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; the Undertaker carried ${h.legacy} of their gold home` : ''),
+      fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; ${h.rites.includes('tome') ? 'the Tome Rite' : 'the Undertaker'} carried ${h.legacy} of their gold home` : ''),
       gold: h.extracted ? h.gold : h.legacy,
       time: h.extracted ? h.extractedAt : h.diedAt,
     })),

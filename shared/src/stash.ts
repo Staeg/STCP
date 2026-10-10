@@ -2,8 +2,9 @@ import { titleFor, type CareerStats, type LeaderboardEntry } from './content/tit
 import { CLASSES, type ClassId } from './content/classes';
 import type { TalentId } from './content/talents';
 import { Rng } from './rng';
+import { isResource, ITEMS, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
-  applyRun, chooseTalent, foundVillage, newCharacter, VILLAGE_RULES, type Character, type Injury, type RunOutcome,
+  applyRun, chooseTalent, emptyKit, foundVillage, KIT_RULES, kitError, newCharacter, VILLAGE_RULES, type Character, type Injury, type Kit, type RunOutcome,
 } from './village';
 
 /** Where the stash is kept: a JSON file on the server, localStorage in solo play. */
@@ -23,6 +24,12 @@ interface Record_ extends CareerStats {
   nextChar?: number;
   /** What happened to this player's Characters in their last run. */
   report?: string[];
+  /** The Village Stash: every consumable and piece of Gear carried home. */
+  items?: ItemId[];
+  /** Resources carried home (they don't sell any more). */
+  resources?: Record<ResourceId, number>;
+  /** What the player will take into their next run. */
+  kit?: Kit;
 }
 
 /** One player's Village as the client sees it. */
@@ -31,9 +38,18 @@ export interface VillageView {
   characters: Character[];
   /** What the last run did to them. */
   report: string[];
+  /** The Village Stash (consumables and Gear, sorted), Resources, and the kit chosen for the next run. */
+  items: ItemId[];
+  resources: Record<ResourceId, number>;
+  kit: Kit;
 }
 
 export type Treatment = Injury | 'affliction';
+
+/** The Stash lists consumables first, then weapons, armor, amulets, rings. */
+const KIND_ORDER = ['consumable', 'weapon', 'armor', 'amulet', 'ring', 'resource'];
+const STASH_ORDER = (it: ItemId) => KIND_ORDER.indexOf(ITEMS[it].kind);
+
 
 /**
  * Career stats per player name (case-insensitive). No accounts in the prototype, so a name is an
@@ -115,7 +131,78 @@ export class Stash {
 
   village(name: string): VillageView {
     const { r, chars } = this.villageOf(name);
-    return { purse: r.purse ?? 0, characters: structuredClone(chars), report: [...(r.report ?? [])] };
+    return {
+      purse: r.purse ?? 0, characters: structuredClone(chars), report: [...(r.report ?? [])],
+      items: [...(r.items ?? [])], resources: this.resourcesOf(r), kit: structuredClone(r.kit ?? emptyKit()),
+    };
+  }
+
+  private resourcesOf(r: Record_): Record<ResourceId, number> {
+    return { ...(Object.fromEntries(RESOURCE_IDS.map((x) => [x, 0])) as Record<ResourceId, number>), ...r.resources };
+  }
+
+  /** The kit this player would bring now (empty if none chosen). */
+  kitOf(name: string): Kit {
+    return structuredClone(this.data[name.toLowerCase()]?.kit ?? emptyKit());
+  }
+
+  /** Choose what to take into the next run. Returns an error, or null. */
+  setKit(name: string, kit: Kit): string | null {
+    const r = this.record(name);
+    const err = kitError(kit, r.items ?? [], this.resourcesOf(r));
+    if (err) return err;
+    r.kit = structuredClone(kit);
+    this.save();
+    return null;
+  }
+
+  /**
+   * A run is starting: take the chosen kit out of the Stash (whatever of it is still there) and spend the Rites'
+   * Resources. Returns what was actually taken; the choice is cleared.
+   */
+  takeKit(name: string): Kit {
+    const r = this.data[name.toLowerCase()];
+    if (!r?.kit) return emptyKit();
+    const kit = r.kit;
+    const items = r.items ?? [];
+    const res = this.resourcesOf(r);
+    const take = (it: ItemId) => {
+      const i = items.indexOf(it);
+      if (i < 0) return false;
+      items.splice(i, 1);
+      return true;
+    };
+    const out = emptyKit();
+    for (const [slot, it] of Object.entries(kit.gear)) if (it && take(it)) out.gear[slot as keyof Kit['gear']] = it;
+    out.consumables = kit.consumables.filter(take);
+    out.rites = kit.rites.filter((x) => {
+      if (res[x] < KIT_RULES.riteCost) return false;
+      res[x] -= KIT_RULES.riteCost;
+      return true;
+    });
+    r.items = items;
+    r.resources = res;
+    r.kit = undefined;
+    this.save();
+    return out;
+  }
+
+  /** Everything a player's hero carried out goes into their Village Stash. Returns a line for the run report. */
+  storeLoot(name: string, carried: ItemId[]): string | null {
+    if (!carried.length) return null;
+    const r = this.record(name);
+    const res = this.resourcesOf(r);
+    r.items ??= [];
+    for (const it of carried) {
+      if (isResource(it)) res[it]++;
+      else r.items.push(it);
+    }
+    r.items.sort((a, b) => STASH_ORDER(a) - STASH_ORDER(b) || ITEMS[a].name.localeCompare(ITEMS[b].name));
+    r.resources = res;
+    this.save();
+    const counts = new Map<ItemId, number>();
+    for (const it of carried) counts.set(it, (counts.get(it) ?? 0) + 1);
+    return `Into the Village Stash: ${[...counts].map(([it, n]) => (n > 1 ? `${n} ${pluralName(it)}` : ITEMS[it].name)).join(', ')}.`;
   }
 
   purse(name: string): number {
@@ -172,6 +259,13 @@ export class Stash {
     r.report = lines;
     this.save();
     return lines;
+  }
+
+  /** Add a line to this player's last-run report (e.g. what went into the Stash). */
+  addReport(name: string, line: string) {
+    const r = this.record(name);
+    (r.report ??= []).push(line);
+    this.save();
   }
 
   leaderboard(limit = 10): LeaderboardEntry[] {

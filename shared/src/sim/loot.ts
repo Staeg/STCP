@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, gearGain, isGear, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, VALUABLE_TABLE,
+  GEAR_SLOTS, gearGain, isArms, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -61,9 +61,9 @@ export function spawnInitialLoot(world: World) {
     }
     if (!guarded && rng.chance(LOOT.emptyItemChance)) items.push(rollItem(world));
     if (deadEnd && rng.chance(LOOT.deadEndBonusItemChance)) items.push(rollItem(world));
-    // Valuables lie anywhere (behind the guards, too); Relics only in lairs.
-    if (rng.chance(LOOT.valuableChance)) items.push(rollValuable(world));
-    if (deadEnd && rng.chance(LOOT.deadEndValuableChance)) items.push(rollValuable(world));
+    // Resources lie anywhere (behind the guards, too); Relics only in lairs.
+    if (rng.chance(LOOT.resourceChance)) items.push(rollResource(world));
+    if (deadEnd && rng.chance(LOOT.deadEndResourceChance)) items.push(rollResource(world));
     if (lair && rng.chance(LOOT.relicChance)) items.push('relic');
     if (gold || items.length) addToPile(world, room.id, gold, items);
   }
@@ -83,14 +83,14 @@ export function rollItem(world: World, quality = 1): ItemId {
 }
 
 /** An Effigy, Gem or Tome, weighted toward the cheap end. */
-export function rollValuable(world: World): ItemId {
-  const total = VALUABLE_TABLE.reduce((s, e) => s + e.weight, 0);
+export function rollResource(world: World): ItemId {
+  const total = RESOURCE_TABLE.reduce((s, e) => s + e.weight, 0);
   let roll = world.rng.float(0, total);
-  for (const e of VALUABLE_TABLE) {
+  for (const e of RESOURCE_TABLE) {
     roll -= e.weight;
     if (roll <= 0) return e.item;
   }
-  return VALUABLE_TABLE[0].item;
+  return RESOURCE_TABLE[0].item;
 }
 
 /** What a slain monster adds to its room's drop: tougher monsters (and later Escalations) are worth more. */
@@ -106,7 +106,7 @@ export function dropBounty(world: World, room: number) {
   const quality = points >= LOOT.dropQuality3 ? 3 : points >= LOOT.dropQuality2 ? 2 : 1;
   const count = Math.min(LOOT.maxDrops, 1 + Math.floor(points / LOOT.dropPointsPerItem));
   const items = Array.from({ length: count }, () => rollItem(world, quality));
-  if (world.rng.chance(LOOT.dropValuableChance)) items.push(rollValuable(world));
+  if (world.rng.chance(LOOT.dropResourceChance)) items.push(rollResource(world));
   addToPile(world, room, 0, items);
 }
 
@@ -134,7 +134,7 @@ export function floorFull(world: World, room: number): boolean {
 // ---------------------------------------------------------------------------
 // Inventory
 
-/** Room in the pack: a free slot, or (given a valuable) room on a stack of the same. */
+/** Room in the pack: a free slot, or (given a resource) room on a stack of the same. */
 export function hasSpace(h: Hero, item?: ItemId): boolean {
   return item ? packFits(h.items, item) : packSlotsUsed(h.items) < INVENTORY_SLOTS;
 }
@@ -144,6 +144,8 @@ export function hasSpace(h: Hero, item?: ItemId): boolean {
  * really want it); amulets and rings always swap; anything else needs room in the pack.
  */
 export function canTake(h: Hero, item: ItemId): boolean {
+  // Gem Rite: no consumables at all.
+  if (h.rites.includes('gem') && ITEMS[item].kind === 'consumable') return false;
   const slot = slotOf(item);
   if (slot === 'weapon' || slot === 'armor') {
     const worn = h[slot];
@@ -189,7 +191,7 @@ export function equip(h: Hero, slot: GearSlot, item: ItemId | null): ItemId | nu
 export function giveItem(h: Hero, item: ItemId): ItemId | null {
   const slot = slotOf(item);
   if (slot) return equip(h, slot, item);
-  // Consumables always sit at the top of the pack (the first few get number keys); valuables stack below.
+  // Consumables always sit at the top of the pack (the first few get number keys); resources stack below.
   const rank = packRank(item);
   const at = h.items.findIndex((x) => packRank(x) > rank);
   h.items.splice(at < 0 ? h.items.length : at, 0, item);
@@ -201,16 +203,6 @@ export function takeItem(h: Hero, index: number): ItemId | null {
   if (item === undefined) return null;
   h.items.splice(index, 1);
   return item;
-}
-
-/** On the way out: Effigies, Gems, Tomes and Relics are sold for gold (found treasure: worth more at higher CR). */
-export function sellValuables(world: World, h: Hero) {
-  const sold = h.items.filter((x) => ITEMS[x].kind === 'valuable');
-  if (!sold.length) return;
-  const gold = crGold(world, sold.reduce((s, x) => s + (ITEMS[x].value ?? 0), 0));
-  h.items = h.items.filter((x) => ITEMS[x].kind !== 'valuable');
-  h.gold += gold;
-  notify(world, h, `Sold ${sold.length} valuable${sold.length > 1 ? 's' : ''} for ${gold} gold.`);
 }
 
 /** Who's in a room: everyone not dead (downed heroes still get a share). */
@@ -395,7 +387,7 @@ export function claimItem(world: World, h: Hero, id: number): string | null {
   if (!pile || !f || world.encounters[room] || monstersIn(world, room).length > 0) return 'Nothing there.';
   f.passed = f.passed.filter((x) => x !== h.id);
   if (votersIn(world, room).length === 1) {
-    if (!canTake(h, f.item)) return isGear(f.item) ? 'Take yours off first.' : 'Your pack is full.';
+    if (!canTake(h, f.item)) return isArms(f.item) ? 'Take yours off first.' : 'Your pack is full.';
     take(world, room, pile, h, f);
     return null;
   }
@@ -405,7 +397,7 @@ export function claimItem(world: World, h: Hero, id: number): string | null {
 }
 
 /**
- * Put an item from your pack on the floor of your room (a whole stack of valuables at once). Others there can then
+ * Put an item from your pack on the floor of your room (a whole stack of resources at once). Others there can then
  * take it; you'll ignore it.
  */
 export function dropItem(world: World, h: Hero, index: number): string | null {
@@ -441,6 +433,11 @@ export function dropEverything(world: World, h: Hero) {
   addToPile(world, room, 0, items, h.id);
   const pile = world.piles[room];
   const corpse = (pile.corpseGold ??= {});
+  // Tome Rite: the gold is bound to the Village, and goes home whatever happens.
+  if (h.rites.includes('tome') && h.gold > 0) {
+    h.legacy += h.gold;
+    h.gold = 0;
+  }
   if (h.gold > 0) corpse[h.id] = (corpse[h.id] ?? 0) + h.gold;
   // A fallen Undertaker drops what they carried for others, still marked as theirs.
   for (const [id, gold] of Object.entries(h.bodies)) corpse[id] = (corpse[id] ?? 0) + gold;
@@ -495,6 +492,7 @@ function itemTargetError(world: World, h: Hero, index: number, targetId?: string
 export function fieldItemError(world: World, h: Hero, index: number, targetId?: string): string | null {
   const def = ITEMS[h.items[index]];
   if (!def) return 'Nothing there.';
+  if (h.rites.includes('gem') && def.kind === 'consumable') return 'The Gem Rite forbids it. Drop it for an ally.';
   if (!def.field) return def.kind === 'consumable' ? 'Only in a fight.' : "You can't use that.";
   if (h.encounter !== null) return 'Use it as your combat action.';
   return itemTargetError(world, h, index, targetId);

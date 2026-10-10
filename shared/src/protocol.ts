@@ -9,7 +9,8 @@ import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 import { TALENTS, type TalentId } from './content/talents';
 import type { VillageView, Treatment } from './stash';
-import type { Character } from './village';
+import { emptyKit, type Character, type Kit } from './village';
+import { GEAR_SLOTS, RESOURCE_IDS, type ResourceId } from './content/items';
 
 export type LobbyState = 'lobby' | 'game';
 
@@ -24,6 +25,8 @@ export interface LobbyMemberView {
   title: string;
   /** The Village Character they bring (for the class they picked). */
   character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'affliction'> | null;
+  /** What they're bringing from their Village Stash. */
+  kit: Kit;
 }
 
 export interface LobbyView {
@@ -33,8 +36,10 @@ export interface LobbyView {
   state: LobbyState;
   members: LobbyMemberView[];
   maxPlayers: number;
-  /** Challenge Rating so far: players' Characters with a Talent (bots may add to it when the run starts). */
+  /** Combined CR so far: the players' Talents, Gear and Rites (bots may add to it; a fraction is rolled at the start). */
   cr: number;
+  /** Someone is bringing a Relic Rite: the run starts at Escalation 5. */
+  relic: boolean;
 }
 
 export type ClientMsg =
@@ -54,6 +59,8 @@ export type ClientMsg =
   | { t: 'village' }
   | { t: 'chooseTalent'; charId: string; talent: TalentId }
   | { t: 'treat'; charId: string; what: Treatment }
+  /** Choose the Gear, consumables and Rites to take from your Village Stash into the next run. */
+  | { t: 'setKit'; kit: Kit }
   /** Dev-only (server started with --debug): fast-forward the game clock. */
   | { t: 'debugSkip'; seconds: number }
   /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
@@ -127,6 +134,20 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'affliction')
         ? { t: 'treat', charId: msg.charId as string, what: msg.what }
         : null;
+    case 'setKit': {
+      const k = msg.kit as Record<string, unknown> | undefined;
+      if (!k || typeof k !== 'object' || !k.gear || typeof k.gear !== 'object' || !Array.isArray(k.consumables) || !Array.isArray(k.rites)) return null;
+      const kit = emptyKit();
+      for (const [slot, it] of Object.entries(k.gear as Record<string, unknown>)) {
+        if (!GEAR_SLOTS.includes(slot as never) || !(typeof it === 'string' && it in ITEMS)) return null;
+        kit.gear[slot as keyof Kit['gear']] = it as ItemId;
+      }
+      if (k.consumables.length > 4 || !k.consumables.every((x) => typeof x === 'string' && x in ITEMS)) return null;
+      if (k.rites.length > 4 || !k.rites.every((x) => RESOURCE_IDS.includes(x as ResourceId))) return null;
+      kit.consumables = k.consumables as ItemId[];
+      kit.rites = k.rites as ResourceId[];
+      return { t: 'setKit', kit };
+    }
     case 'debugSkip':
       return typeof msg.seconds === 'number' && msg.seconds > 0 && msg.seconds <= 900 ? { t: 'debugSkip', seconds: msg.seconds } : null;
     case 'debugSpeed':

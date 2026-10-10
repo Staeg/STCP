@@ -1,5 +1,5 @@
 import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
-import { EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
+import { escalationAt, EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
 import { CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type EnemyId } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
@@ -8,7 +8,7 @@ import { applyItem, dropBounty, dropEverything, itemTargets, monsterPoints, worn
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { speedOf } from './speed';
-import { injuredMaxHp, VILLAGE_RULES, type Injury } from '../village';
+import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
 
 export const BLEED_OUT = 36;
 export const REVIVE_CHANNEL = 6;
@@ -126,10 +126,10 @@ export function spawnInitialMonsters(world: World) {
   for (const room of d.rooms) {
     if (room.kind === 'secret' || safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
     if (world.rng.chance(ESCALATION.lairChance)) {
-      spawnGroup(world, room.id, crUnits(world, pickLair(world), 'lair', room.id), 0);
+      spawnGroup(world, room.id, crUnits(world, pickLair(world), 'lair', room.id), escalationAt(world.time));
       // Pre-seeded bounty marks the lair (spawnInitialLoot) and sweetens its drop.
       world.bounty[room.id] = LOOT.lairBounty;
-    } else spawnGroup(world, room.id, crUnits(world, pickGroup(world), 'room', room.id), 0);
+    } else spawnGroup(world, room.id, crUnits(world, pickGroup(world, escalationAt(world.time)), 'room', room.id), escalationAt(world.time));
   }
 }
 
@@ -138,7 +138,7 @@ export function spawnInitialMonsters(world: World) {
  * lairs (or late exit waves at CR 4) may hold a Forsaken Queen, never more than one to a room.
  */
 export function crUnits(world: World, units: EnemyId[], kind: 'room' | 'lair' | 'wave', room: number): EnemyId[] {
-  const cr = world.cr;
+  const cr = Math.min(world.cr, CR_RULES.tableCr);
   if (cr <= 0) return units;
   const out = [...units];
   const wight = CR_RULES.wightChance[cr] ?? 0;
@@ -173,7 +173,7 @@ export function pickGroup(world: World, esc = 0): EnemyId[] {
 }
 
 export function spawnGroup(world: World, room: number, units: EnemyId[], esc: number): Monster[] {
-  const scale = 1 + ESCALATION.escalationScaling * esc;
+  const scale = (1 + ESCALATION.escalationScaling * esc) * crMonsterMult(world);
   return units.map((type) => {
     const def = ENEMIES[type];
     const m: Monster = {
@@ -188,6 +188,11 @@ export function spawnGroup(world: World, room: number, units: EnemyId[], esc: nu
     world.monsters[m.id] = m;
     return m;
   });
+}
+
+/** Each CR above the last one with its own monsters makes every monster tougher and harder-hitting. */
+export function crMonsterMult(world: World): number {
+  return 1 + CR_RULES.hpDmgPerCrAbove * Math.max(0, world.cr - CR_RULES.tableCr);
 }
 
 export function monstersIn(world: World, room: number): Monster[] {
@@ -217,7 +222,12 @@ export function addStress(h: Hero, amount: number) {
 export function damageMult(h: Hero, world?: World): number {
   const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
   const zeal = h.cls === 'zealot' ? 1 + h.stress * CLASS_RULES.zealotDmgPerStress : 1;
-  return weapon * zeal * everflame(h, world);
+  return weapon * zeal * everflame(h, world) * riteMult(h);
+}
+
+/** Effigy Rite: +20% damage and max HP; Tome Rite: −20%. */
+export function riteMult(h: { rites: readonly string[] }): number {
+  return (h.rites.includes('effigy') ? KIT_RULES.effigyMult : 1) * (h.rites.includes('tome') ? KIT_RULES.tomeMult : 1);
 }
 
 /** Everflame: the Lampbearer burns brighter the more light their allies still carry. */
@@ -534,6 +544,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     const idx = choice.item ?? -1;
     const def = ITEMS[h.items[idx]];
     if (!def) return 'No such item.';
+    if (h.rites.includes('gem') && def.kind === 'consumable') return 'The Gem Rite forbids it.';
     if (!def.combat) return `${def.name} can't be used in a fight.`;
     if (def.target === 'ally' || def.target === 'downed') {
       const targets = itemTargets(world, h, idx);
@@ -1307,7 +1318,7 @@ export function syncInjuries(h: Hero) {
   const now = runInjuriesOf(h);
   const was = h.runInjuries ?? [];
   if (now.length === was.length && now.every((x, i) => x === was[i])) return;
-  const delta = injuredMaxHp(h.cls, [...h.injuries, ...now]) - injuredMaxHp(h.cls, [...h.injuries, ...was]);
+  const delta = Math.round((injuredMaxHp(h.cls, [...h.injuries, ...now]) - injuredMaxHp(h.cls, [...h.injuries, ...was])) * riteMult(h));
   h.runInjuries = now;
   h.maxHp = Math.max(1, h.maxHp + delta);
   h.hp = Math.min(h.hp, h.maxHp);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
-import { INVENTORY_SLOTS, ITEMS, packSlotsUsed } from '../content/items';
+import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
 import { armored, BLEED_OUT, spawnGroup } from './combat';
 import { Game } from './game';
@@ -235,7 +235,7 @@ describe('floor space', () => {
 });
 
 describe('items', () => {
-  it('valuables stack three to a slot below the consumables, and sell on the way out', () => {
+  it('resources stack three to a slot below the consumables, and are carried out, not sold', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
     for (const it of ['gem', 'effigy', 'bandage', 'gem', 'gem', 'gem', 'torch'] as const) giveItem(h, it);
@@ -246,11 +246,11 @@ describe('items', () => {
     expect(canTake(h, 'gem')).toBe(false);
     h.items = ['bandage', 'effigy', 'tome', 'relic'];
     extractHero(world, h);
-    expect(h.items).toEqual(['bandage']);
-    expect(h.gold).toBe(ITEMS.effigy.value! + ITEMS.tome.value! + ITEMS.relic.value!);
+    expect(h.items).toEqual(['bandage', 'effigy', 'tome', 'relic']);
+    expect(h.gold).toBe(0);
   });
 
-  it('dropping a valuable drops its whole stack', () => {
+  it('dropping a resource drops its whole stack', () => {
     const { world, d } = party(1);
     const h = world.heroes.h0;
     h.items = ['bandage', 'gem', 'gem', 'gem', 'gem'];

@@ -6,7 +6,7 @@ import {
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
-import { addToPile, rollItem, rollValuable, seesInDark, takeItem } from './loot';
+import { addToPile, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { notify } from './notify';
 import { openSecretEarly } from './secrets';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
@@ -489,7 +489,7 @@ function completeChannel(world: World, ev: RoomEvent, h: Hero) {
       notify(world, x, `An altar has been cleansed. You feel lighter. (−20 stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
     }
   } else {
-    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3), rollValuable(world)]);
+    addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3), rollResource(world)]);
     notify(world, h, 'The lock clicks open!');
     chronicle(world, `${h.name} cracked open a vault.`);
   }

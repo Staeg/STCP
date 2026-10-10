@@ -1,7 +1,8 @@
 import { botThink, createBotMemory, type BotMemory } from '../bots/explorer';
 import { chooseCombatAction } from '../bots/fighter';
 import type { ClassId } from '../content/classes';
-import type { Loadout } from '../village';
+import { heroCr, KIT_RULES, rollCr, type Loadout } from '../village';
+import { Rng } from '../rng';
 import { buildView } from './views';
 import { isConscious } from './combat';
 import { addHero, applyIntent, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
@@ -15,18 +16,25 @@ export interface PlayerSlot {
   loadout?: Loadout;
 }
 
+/** The party's combined CR before the roll: a point per Talent, plus each player's Gear and Rites. */
+export function combinedCr(slots: PlayerSlot[]): number {
+  return Math.round(slots.reduce((s, x) => s + heroCr(x.loadout?.talent, x.loadout?.kit), 0) * 100) / 100;
+}
+
 /** A running expedition: the world plus the bots that inhabit it. Shared by the server and the headless sim. */
 export class Game {
   readonly world: World;
   readonly bots = new Map<string, BotMemory>();
 
   constructor(seed: number, slots: PlayerSlot[], opts: WorldOptions = {}) {
-    // Challenge Rating: one per hero with a Talent, unless the caller fixes it.
-    const cr = opts.cr ?? slots.filter((s) => s.loadout?.talent).length;
-    this.world = createWorld(seed, { ...opts, cr });
+    // Challenge Rating: rolled from the heroes' combined CR (Talents, Gear, Rites), unless the caller fixes it.
+    const cr = opts.cr ?? rollCr(combinedCr(slots), new Rng(seed ^ 0x2545f491));
+    // Relic Rite: anyone's makes it the whole party's run.
+    const relic = slots.some((s) => s.loadout?.kit?.rites.includes('relic'));
+    this.world = createWorld(seed, { ...opts, cr, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
     slots.forEach((slot, i) => {
       addHero(this.world, slot);
-      if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919));
+      if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919, this.world.startTime));
     });
   }
 
@@ -36,7 +44,7 @@ export class Game {
     if (!hero) return;
     hero.isBot = true;
     hero.autopilot = false;
-    if (!this.bots.has(heroId)) this.bots.set(heroId, createBotMemory(this.world.seed + this.bots.size * 104729));
+    if (!this.bots.has(heroId)) this.bots.set(heroId, createBotMemory(this.world.seed + this.bots.size * 104729, this.world.startTime));
   }
 
   /** O: a bot takes the wheel for this player, or hands it back. Others can't tell (the hero isn't marked a bot). */
@@ -44,7 +52,7 @@ export class Game {
     const hero = this.world.heroes[heroId];
     if (!hero || hero.isBot) return;
     hero.autopilot = !hero.autopilot;
-    if (hero.autopilot) this.bots.set(heroId, createBotMemory(this.world.seed ^ (Math.floor(this.world.time * 10) + 7919)));
+    if (hero.autopilot) this.bots.set(heroId, createBotMemory(this.world.seed ^ (Math.floor(this.world.time * 10) + 7919), this.world.startTime));
     else this.bots.delete(heroId);
   }
 

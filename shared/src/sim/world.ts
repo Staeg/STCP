@@ -1,8 +1,8 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
-import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL } from '../content/constants';
+import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MAX_ESCALATION } from '../content/constants';
 import { CR_RULES, ESCALATION } from '../content/enemies';
 import type { TalentId } from '../content/talents';
-import { injuredMaxHp, VILLAGE_RULES, type Injury, type Loadout } from '../village';
+import { injuredMaxHp, KIT_RULES, RITES, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
@@ -11,15 +11,15 @@ import { EVENT_SEEDING, type AfflictionId, type EventKind } from '../content/eve
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, MAJOR_INJURY_LABEL, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
+  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Statuses,
 } from './combat';
-import type { GearSlot, ItemId } from '../content/items';
+import type { GearSlot, ItemId, ResourceId } from '../content/items';
 import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, wants, dropItem, fieldItemError, unequip, seesInDark, sellValuables, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, giveItem, wants, dropItem, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -138,6 +138,8 @@ export interface Hero {
   talent: TalentId | null;
   /** Injuries brought in from the Village (already applied to max HP and Speed). */
   injuries: Injury[];
+  /** Village Rites active for this run (Effigy, Tome, Gem, Relic). */
+  rites: ResourceId[];
   /** Injuries taken in this run so far (they take effect at once; see syncInjuries). */
   runInjuries: Injury[];
   /** Lowest HP this run, as a fraction of max: what decides injuries. */
@@ -216,8 +218,13 @@ export interface World {
   calls: Call[];
   /** Shared objectives: every hero who escapes gets a bonus per altar/villager. */
   objectives: { altars: number; villagers: number };
-  /** Challenge Rating: heroes with a Talent (0–4). More gold, and monsters that only come at higher CR. */
+  /**
+   * Challenge Rating, rolled at the start from the heroes' combined CR (Talents, Gear brought in, Rites). More gold,
+   * monsters that only come at higher CR, and above CR 4 tougher monsters all round. No cap.
+   */
   cr: number;
+  /** The clock when the run began: 0, or later for a run that starts at a higher Escalation (Relic Rite). */
+  startTime: number;
   /** Counters for the results screen and the balance simulator. */
   stats: {
     /** turns: hero turns taken in fights · fightTime: total seconds spent fighting. */
@@ -266,19 +273,25 @@ export interface WorldOptions {
   events?: boolean;
   /** Challenge Rating (default 0). */
   cr?: number;
+  /** Start the run at this Escalation, with the clock already that far along (Relic Rite). Default 0. */
+  startEscalation?: number;
 }
 
 /** Auto-paths treat each known monster in a room as this many seconds of extra walking. */
 export const THREAT_DETOUR = 15;
 
 export function createWorld(seed: number, opts: WorldOptions = {}): World {
+  // A run that starts at a higher Escalation starts with the clock that far along: the exit and collapse come as usual.
+  const start = Math.max(0, Math.min(MAX_ESCALATION, opts.startEscalation ?? 0)) * ESCALATION_INTERVAL;
   const world: World = {
-    seed, time: 0, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
+    seed, time: start, startTime: start, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
-    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], calls: [], cr: Math.max(0, Math.min(4, opts.cr ?? 0)),
-    nextRespawn: ESCALATION_INTERVAL, nextWanderer: ESCALATION_INTERVAL * 2, nextCollapse: ESCALATION_INTERVAL * 3, nextWave: EXIT_OPENS_AT,
+    events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
+    // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
+    nextRespawn: Math.max(ESCALATION_INTERVAL, start + 30), nextWanderer: Math.max(ESCALATION_INTERVAL * 2, start + 30),
+    nextCollapse: Math.max(ESCALATION_INTERVAL * 3, start + 60), nextWave: Math.max(EXIT_OPENS_AT, start + 45),
   };
   if (opts.monsters !== false) spawnInitialMonsters(world);
   // Events default to following `monsters` (captives come with guards).
@@ -302,7 +315,8 @@ export function crGold(world: World, gold: number): number {
 export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean; loadout?: Loadout }): Hero {
   const d = world.dungeon;
   const { loadout, ...rest } = opts;
-  const maxHp = injuredMaxHp(opts.cls, loadout?.injuries ?? []);
+  const rites = [...(loadout?.kit?.rites ?? [])];
+  const maxHp = Math.round(injuredMaxHp(opts.cls, loadout?.injuries ?? []) * riteMult({ rites }));
   const hero: Hero = {
     ...rest,
     isBot: opts.isBot ?? false,
@@ -361,6 +375,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     owner: loadout?.owner ?? null,
     talent: loadout?.talent ?? null,
     injuries: [...(loadout?.injuries ?? [])],
+    rites,
     runInjuries: [],
     lowestHp: 1,
     downedMajor: false,
@@ -370,7 +385,16 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     called: false,
   };
   for (const i of hero.injuries) if (i === 'major') hero.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
+  if (rites.includes('effigy')) hero.speedMods.push({ amount: KIT_RULES.effigySpeed, until: null, label: RITES.effigy.name });
+  // What the player brought from the Village Stash: Gear on, consumables in the pack.
+  const kit = loadout?.kit;
+  if (kit) {
+    for (const item of Object.values(kit.gear)) if (item) giveItem(hero, item);
+    for (const item of kit.consumables) giveItem(hero, item);
+    hero.hp = hero.maxHp;
+  }
   world.heroes[hero.id] = hero;
+  for (const r of rites) notify(world, hero, `${RITES[r].name}: ${RITES[r].desc}`);
   startTimer(world, hero);
   explore(world, hero, d.entrance);
   updateKnowledge(world);
@@ -423,6 +447,11 @@ function checkEnd(world: World) {
       h.dead = true;
       h.diedAt = world.time;
       h.fate = `was buried when the dungeon collapsed (in ${roomName(world, h)})`;
+      // Tome Rite: their gold goes home anyway.
+      if (h.rites.includes('tome')) {
+        h.legacy += h.gold;
+        h.gold = 0;
+      }
       chronicle(world, `The dungeon collapsed on ${h.name}.`);
     }
     world.phase = 'collapsed';
@@ -476,7 +505,6 @@ export function extractHero(world: World, h: Hero) {
   h.extractedAt = world.time;
   h.path = [];
   h.channel = null;
-  sellValuables(world, h);
   h.fate = `escaped with ${h.gold} gold`;
   chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
   // Mortician: the fallen's gold goes home with the Undertaker, and counts for them.

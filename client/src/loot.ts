@@ -243,7 +243,7 @@ export class LootUi {
         if (n > 0) left.set(you.items[i], n - 1);
         else fresh.add(i);
       }
-      // Flash the slot as drawn (a valuable may land on an existing stack).
+      // Flash the slot as drawn (a resource may land on an existing stack).
       const drawn = packSlots(you.items);
       for (const i of fresh) this.landed.push({ key: `p${drawn.findIndex((s) => s.indices.includes(i))}`, item: you.items[i] });
       for (const slot of GEAR_SLOTS) {
@@ -267,7 +267,7 @@ export class LootUi {
   private renderInventory(view: PlayerView) {
     this.spotPickups(view);
     const you = view.you;
-    // Pack: consumables first (the first few have number keys), then stacked valuables, then empty slots.
+    // Pack: consumables first (the first few have number keys), then stacked resources, then empty slots.
     const drawn = packSlots(you.items);
     const slots = [];
     for (let n = 0; n < INVENTORY_SLOTS; n++) {

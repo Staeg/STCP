@@ -1,3 +1,4 @@
+import { COLLAPSE_AT } from '../content/constants';
 import { BOTS } from './tuning';
 import { speedOf } from '../sim/speed';
 import { Rng } from '../rng';
@@ -40,11 +41,12 @@ export interface BotMemory {
   readySince?: number;
 }
 
-export function createBotMemory(seed: number): BotMemory {
+/** `start`: the clock when the run began (later for a Relic Rite run); the return time shrinks with the run. */
+export function createBotMemory(seed: number, start = 0): BotMemory {
   const rng = new Rng(seed);
   const greed = rng.float(0.2, 0.8);
   // Greedier bots head home later (and are often late, by design).
-  const returnAt = BOTS.returnStart + ((greed - 0.2) / 0.6) * BOTS.returnSpan;
+  const returnAt = start + (BOTS.returnStart + ((greed - 0.2) / 0.6) * BOTS.returnSpan) * ((COLLAPSE_AT - start) / COLLAPSE_AT);
   return { rng, greed, returnAt, thinkUntil: 0, combatKey: '', decideAt: 0, leaveAt: null, decided: [], channelling: null, escortReturnAt: null, route: [], answering: null };
 }
 

@@ -1,7 +1,7 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
-  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES,
+  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -82,7 +82,7 @@ export class Hud {
     const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
-    setHtml($('escalation'), escalationHtml(view.escalation) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: heroes with a Talent. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
+    setHtml($('escalation'), escalationHtml(view.escalation) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: rolled from the heroes' Talents, Gear and Rites. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
@@ -95,7 +95,9 @@ export class Hud {
     const you = view.you;
     const cls = CLASSES[you.cls];
     const talent = you.talent ? ` <span class="talent-star" title="${escape(TALENTS[you.talent].name)}: ${escape(TALENTS[you.talent].desc)}">★</span>` : '';
-    $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent} <span style="color:var(--muted)">· ${cls.name}</span>`;
+    // Village Rites for this run: the Resource's glyph, hover for what it does.
+    const rites = (you.rites ?? []).map((r) => ` <span class="rite-tag" title="${escape(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`).join('');
+    $('hero-name').innerHTML = `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>`;
     // A screaming face beside your stress when something has broken; hover for which affliction and what it does.
     const aff = $('affliction');
     aff.hidden = !you.affliction;
