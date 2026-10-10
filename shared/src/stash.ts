@@ -174,12 +174,13 @@ export class Stash {
     };
     const out = emptyKit();
     for (const [slot, it] of Object.entries(kit.gear)) if (it && take(it)) out.gear[slot as keyof Kit['gear']] = it;
-    out.consumables = kit.consumables.filter(take);
     out.rites = kit.rites.filter((x) => {
       if (res[x] < KIT_RULES.riteCost) return false;
       res[x] -= KIT_RULES.riteCost;
       return true;
     });
+    // The Gem Rite forbids consumables: they stay in the Stash.
+    out.consumables = out.rites.includes('gem') ? [] : kit.consumables.filter(take);
     r.items = items;
     r.resources = res;
     r.kit = undefined;

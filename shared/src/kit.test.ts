@@ -92,10 +92,11 @@ describe('heroes with a kit', () => {
     expect(world.piles[world.dungeon.entrance]?.corpseGold?.t).toBeUndefined();
   });
 
-  it('Gem: can’t pick up or use consumables, but can bring them in to drop', () => {
+  it('Gem: can’t bring, pick up or use consumables', () => {
+    expect(kitError({ gear: {}, consumables: ['bandage'], rites: ['gem'] }, ['bandage'], full)).toMatch(/Gem Rite forbids/);
     const world = quiet();
     const h = addHero(world, { id: 'g', name: 'G', cls: 'warden', loadout: loadout({ consumables: ['bandage'], rites: ['gem'] }) });
-    expect(h.items).toEqual(['bandage']);
+    expect(h.items).toEqual([]);
     expect(canTake(h, 'torch')).toBe(false);
     expect(canTake(h, 'mace')).toBe(true);
   });

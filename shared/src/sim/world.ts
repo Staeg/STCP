@@ -390,7 +390,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
   const kit = loadout?.kit;
   if (kit) {
     for (const item of Object.values(kit.gear)) if (item) giveItem(hero, item);
-    for (const item of kit.consumables) giveItem(hero, item);
+    if (!rites.includes('gem')) for (const item of kit.consumables) giveItem(hero, item);
     hero.hp = hero.maxHp;
   }
   world.heroes[hero.id] = hero;

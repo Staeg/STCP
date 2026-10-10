@@ -279,6 +279,8 @@ export class CombatUi {
    * can be clicked right here (the rest are greyed, like the combat bar).
    */
   private itemsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
+    // Gem Rite: no consumables at all, so no Items panel either.
+    if (view.you.rites?.includes('gem')) return '';
     const chosen = enc?.yourChoice ?? null;
     const elixir = view.you.elixir ? '<span class="elixir" title="Elixir: your next item has double effect.">⚗×2</span>' : '';
     const btns = elixir + view.you.items.map((it, i) => {

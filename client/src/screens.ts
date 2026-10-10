@@ -365,6 +365,8 @@ function removeFromKit(kit: Kit, slot: string) {
 
 function toggleRite(kit: Kit, r: ResourceId) {
   kit.rites = kit.rites.includes(r) ? kit.rites.filter((x) => x !== r) : [...kit.rites, r];
+  // The Gem Rite forbids consumables: taking it leaves them at home.
+  if (kit.rites.includes('gem')) kit.consumables = [];
 }
 
 const SLOT_NAMES: Record<GearSlot, string> = { weapon: 'Weapon', armor: 'Armor', amulet: 'Amulet', ring: 'Ring' };
@@ -382,7 +384,8 @@ function stashHtml(v: VillageView, lobby: LobbyView | null): string {
       ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">${gearCr(it)}</span></button>`
       : `<div class="kit-slot muted">${SLOT_NAMES[s]}: none</div>`;
   });
-  const cons = Array.from({ length: KIT_RULES.consumables }, (_, i) => {
+  const gem = kit.rites.includes('gem');
+  const cons = gem ? ['<div class="kit-slot muted">Consumables: none (Gem Rite)</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
     const it = kit.consumables[i];
     return it
       ? `<button class="kit-slot full" data-act="kit-remove" data-slot="c${i}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">free</span></button>`
@@ -395,8 +398,8 @@ function stashHtml(v: VillageView, lobby: LobbyView | null): string {
   const stash = [...counts].map(([it, n]) => {
     const left = n - inKit(kit, it);
     const isCons = ITEMS[it].kind === 'consumable';
-    const full = isCons && kit.consumables.length >= KIT_RULES.consumables;
-    const why = left <= 0 ? 'All of them are packed.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
+    const full = isCons && (gem || kit.consumables.length >= KIT_RULES.consumables);
+    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
     const count = n > 1 ? ` <span class="muted">×${left}/${n}</span>` : left <= 0 ? ' <span class="muted">(packed)</span>' : '';
     return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${locked || left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
   }).join('');

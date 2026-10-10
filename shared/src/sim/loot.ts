@@ -314,7 +314,7 @@ function mortician(world: World, room: number, pile: Pile, u: Hero) {
     const slot = slotOf(item);
     if (slot === 'weapon' || slot === 'armor') return gearGain(item, u[slot]) > 0;
     if (slot) return !u[slot];
-    return hasSpace(u, item);
+    return canTake(u, item);
   };
   for (const f of [...pile.items]) if (fromTheDead(world, f.by) && wanted(f.item)) take(world, room, pile, u, f);
 }

@@ -50,7 +50,7 @@ export const INJURY_NAMES: Record<Injury, string> = { minor: 'Minor Injury', maj
  */
 export const RITES: Record<ResourceId, { name: string; desc: string }> = {
   effigy: { name: 'Effigy Rite', desc: 'CR +1. Your hero deals +20% damage and has +20% max HP, and is 1s faster.' },
-  gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t pick up or use consumables (you can still bring some in and drop them for allies).' },
+  gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t bring, pick up or use consumables.' },
   tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold they carry comes home even if they die.' },
   relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away.' },
 };
@@ -122,6 +122,7 @@ export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<R
     if (!take(it)) return `Your Stash has no ${ITEMS[it].name}.`;
   }
   if (kit.consumables.length > KIT_RULES.consumables) return `At most ${KIT_RULES.consumables} consumables.`;
+  if (kit.rites.includes('gem') && kit.consumables.length) return 'The Gem Rite forbids consumables: leave them at home.';
   for (const it of kit.consumables) {
     if (ITEMS[it].kind !== 'consumable') return `${ITEMS[it].name} isn't a consumable.`;
     if (!take(it)) return `Your Stash has no more ${pluralName(it)}.`;
