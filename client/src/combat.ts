@@ -163,7 +163,7 @@ export class CombatUi {
     else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
     else status = `Pick your next move! (defaults to ${this.fallbackName(view)})`;
     const header = `<div class="cb-head">
-      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}</span>
+      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}${enc.doom ? ` <span class="danger" title="The Lich's Doom: every hero here takes this much more from every blow, aura and poison, until the fight ends.">☠ Doom +${enc.doom}</span>` : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
       <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
     </div>`;

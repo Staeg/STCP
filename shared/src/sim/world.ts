@@ -1,6 +1,6 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MAX_ESCALATION } from '../content/constants';
-import { CR_RULES, ESCALATION } from '../content/enemies';
+import { CR_RULES, ESCALATION, rollRoster, type Roster } from '../content/enemies';
 import type { TalentId } from '../content/talents';
 import { injuredMaxHp, KIT_RULES, RITES, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
@@ -11,8 +11,8 @@ import { EVENT_SEEDING, type AfflictionId, type EliteEventKind, type EventKind }
 import { corridorBetween, generateDungeon, isCrossroads, neighbours, otherEnd, theRoom, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, fieldTurn, tickDowned, tickFieldCooldowns,
-  type Choice, type Encounter, type Monster, type Risen, type Statuses,
+  bleedOut, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, tickDowned, tickFieldCooldowns,
+  type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
 import { notify } from './notify';
@@ -233,6 +233,10 @@ export interface World {
    * monsters that only come at higher CR, and above CR 4 tougher monsters all round. No cap.
    */
   cr: number;
+  /** Which monsters this run uses: each tier's default units and its CR unit (rolled at the start). */
+  roster: Roster;
+  /** Zombies due to get back up. */
+  risings: Rising[];
   /** The clock when the run began: 0, or later for a run that starts at a higher Escalation (Relic Rite). */
   startTime: number;
   /** Counters for the results screen and the balance simulator. */
@@ -285,6 +289,8 @@ export interface WorldOptions {
   cr?: number;
   /** Start the run at this Escalation, with the clock already that far along (Relic Rite). Default 0. */
   startEscalation?: number;
+  /** The run's monsters (default: rolled from the seed). */
+  roster?: Roster;
 }
 
 /** Auto-paths treat each known monster in a room as this many seconds of extra walking. */
@@ -299,6 +305,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, eliteEvents: false, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
+    roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [],
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
     nextRespawn: Math.max(ESCALATION_INTERVAL, start + 30), nextWanderer: Math.max(ESCALATION_INTERVAL * 2, start + 30),
     nextCollapse: Math.max(ESCALATION_INTERVAL * 3, start + 60), nextWave: Math.max(EXIT_OPENS_AT, start + 45),
@@ -445,6 +452,7 @@ export function step(world: World, dt: number): void {
     if (hero.cls === 'alchemist') tickBrew(world, hero);
   }
   tickDowned(world);
+  tickRisings(world);
   tickCombat(world);
   tickLoot(world);
   tickEvents(world, dt);

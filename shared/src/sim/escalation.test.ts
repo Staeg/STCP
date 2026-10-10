@@ -36,6 +36,7 @@ describe('escalation', () => {
   it('tunnels collapse from Escalation 3, and rubble can be dug through', () => {
     const world = createWorld(9, { monsters: false, loot: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
+    h.immuneUntil = Infinity; // only the tunnels matter here, not what wanders by
     const d = world.dungeon;
     run(world, ESCALATION_INTERVAL * 3 + 50);
     expect(world.collapsed.length).toBeGreaterThan(0);
@@ -189,6 +190,7 @@ describe('extraction and the end', () => {
     const world = createWorld(77, { monsters: false });
     const d = world.dungeon;
     const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
+    h.immuneUntil = Infinity; // only the tunnels matter here, not what wanders by
     expect(h.pos).toEqual({ kind: 'room', room: d.exit });
     expect(Math.max(...hopDistances(d, d.exit))).toBeGreaterThanOrEqual(5);
   });

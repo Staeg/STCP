@@ -1,7 +1,7 @@
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
-import { ENEMIES, type EnemyId } from '../content/enemies';
+import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
 import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
@@ -176,6 +176,8 @@ export interface EncounterView {
   /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
+  /** Lich's Doom: you all take this much more from everything in this fight. */
+  doom: number;
 }
 
 export interface ChalkView {
@@ -216,6 +218,8 @@ export interface PlayerView {
   calls: { room: number; by: string; ago: number }[];
   /** Challenge Rating of this run (heroes with a Talent). */
   cr: number;
+  /** The monsters this run uses. */
+  roster: Roster;
 }
 
 /**
@@ -320,6 +324,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       .filter((c) => world.time - c.time <= CALL_RULES.shown && (c.by === heroId || c.heard.includes(heroId)))
       .map((c) => ({ room: c.room, by: c.by, ago: world.time - c.time })),
     cr: world.cr,
+    roster: world.roster,
   };
 }
 
@@ -461,6 +466,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     yourOptions,
     events: enc.events,
     log: enc.log.slice(-12),
+    doom: enc.doom ?? 0,
   };
 }
 

@@ -28,8 +28,8 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
     return (view.you.cooldowns[abilities[i].id] ?? 0) === 0 && !!opt && !opt.blocked && (opt.targets.length > 0 || !needsPick(i));
   };
   const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(abilities[i].target);
-  // The Forsaken Queen heals and hastens the rest: kill her first, else the weakest.
-  const weakestEnemy = enemies.find((m) => m.enemy === 'queen') ?? minBy(enemies, (m) => m.hp);
+  // The Forsaken Queen heals and hastens the rest, the Lich sears everyone every turn: kill them first, else the weakest.
+  const weakestEnemy = enemies.find((m) => m.enemy === 'queen') ?? enemies.find((m) => m.enemy === 'lich') ?? minBy(enemies, (m) => m.hp);
   const softTarget = enemies.find((m) => m.st.stun || !m.st.acted);
 
   const slot = (id: ItemId) => view.you.items.indexOf(id);

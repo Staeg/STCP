@@ -1,7 +1,7 @@
 import { EXIT_OPENS_AT, escalationAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { armored, crUnits, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { armored, crUnits, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { hopsFrom } from './call';
 import { notify } from './notify';
 import { openDueSecrets } from './secrets';
@@ -48,9 +48,9 @@ export function tickEscalation(world: World) {
 }
 
 export const ESCALATION_TEXT: Record<number, string> = {
-  1: 'The dead stir again. Cleared rooms can fill back up.',
+  1: 'The dead stir again. Cleared rooms can fill back up, and stronger things walk with them.',
   2: 'Something walks the halls. Wandering packs roam the dungeon.',
-  3: 'The ceiling groans. Tunnels begin to collapse, and Bone Brutes rise.',
+  3: 'The ceiling groans. Tunnels begin to collapse, and the worst of the dead rise.',
   4: 'The air thickens. Torches burn out faster.',
   5: 'THE EXIT IS OPEN. Get to the rendezvous — they are coming for it.',
   6: 'The dungeon is coming down. Waves pour toward the exit.',
@@ -75,11 +75,11 @@ function monsterCap(world: World): number {
   return ESCALATION.capBase + ESCALATION.capPerEscalation * world.escalation;
 }
 
-export function groupFor(world: World, esc: number, room: number, kind: 'room' | 'wave' = 'room'): EnemyId[] {
+export function groupFor(world: World, esc: number, room: number): EnemyId[] {
   let g = pickGroup(world, esc);
-  // Bigger groups later on.
-  if (esc >= 4 && world.rng.chance(0.5)) g = [...g, world.rng.pick(['ghoul', 'crawler'] as EnemyId[])];
-  return crUnits(world, g, kind, room);
+  // Bigger groups later on: one more of the run's T0 units.
+  if (esc >= 4 && world.rng.chance(0.5)) g = [...g, ...fillGroup(world, [0])];
+  return crUnits(world, g, 'room', room);
 }
 
 function respawn(world: World, esc: number) {
@@ -110,7 +110,7 @@ function spawnWave(world: World, esc: number) {
   const near = neighbours(d, d.exit).filter((n) => !occupied(world, n) && !corridorCollapsedBetween(world, n, d.exit));
   if (near.length === 0) return;
   const from = world.rng.pick(near);
-  const pack = makePack(world, spawnGroup(world, from, groupFor(world, esc, from, 'wave'), esc), from, d.exit);
+  const pack = makePack(world, spawnGroup(world, from, groupFor(world, esc, from), esc), from, d.exit);
   pack.restUntil = world.time + 3;
   world.stats.waves++;
   chronicle(world, 'A wave of monsters marches on the exit.');

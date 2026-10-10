@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXIT_OPENS_AT } from './content/constants';
-import { CR_RULES, ENEMIES } from './content/enemies';
+import { CR_RULES, ENEMIES, type EnemyId } from './content/enemies';
 import { CLASSES } from './content/classes';
 import { Rng } from './rng';
 import { Stash } from './stash';
@@ -101,11 +101,15 @@ describe('heroes with a kit', () => {
     expect(canTake(h, 'mace')).toBe(true);
   });
 
-  it('CR has no cap: above 4, every monster gets +10% HP and damage per CR', () => {
-    const at = (cr: number) => spawnGroup(createWorld(5, { monsters: false, loot: false, escalates: false, events: false, cr }), 0, ['ghoul'], 0)[0];
-    expect(at(4).maxHp).toBe(ENEMIES.ghoul.maxHp);
-    expect(at(6).dmgMult).toBeCloseTo(1 + 2 * CR_RULES.hpDmgPerCrAbove);
-    expect(at(6).maxHp).toBe(Math.round(ENEMIES.ghoul.maxHp * (1 + 2 * CR_RULES.hpDmgPerCrAbove)));
+  it('CR has no cap: +25% HP and damage to T0/T1 from CR 3, +25% to all from CR 6, then +5% per CR', () => {
+    const at = (cr: number, type: EnemyId) => spawnGroup(createWorld(5, { monsters: false, loot: false, escalates: false, events: false, cr }), 0, [type], 0)[0];
+    expect(at(2, 'ghoul').maxHp).toBe(ENEMIES.ghoul.maxHp);
+    expect(at(3, 'ghoul').dmgMult).toBeCloseTo(1.25);
+    expect(at(3, 'brute').dmgMult).toBeCloseTo(1);
+    expect(at(6, 'wight').dmgMult).toBeCloseTo(1.5);
+    expect(at(6, 'brute').dmgMult).toBeCloseTo(1.25);
+    expect(at(8, 'lich').dmgMult).toBeCloseTo(1.25 + 2 * CR_RULES.perCrAbove);
+    expect(at(8, 'brute').maxHp).toBe(Math.round(ENEMIES.brute.maxHp * 1.35));
   });
 
   it('a Relic Rite starts the whole party’s run at Escalation 5, with the clock that far along', () => {

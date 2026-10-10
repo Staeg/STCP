@@ -1,6 +1,8 @@
 import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
 import { escalationAt, EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
-import { CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, type EnemyId } from '../content/enemies';
+import {
+  crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
+} from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours } from '../dungeon/gen';
 import { ITEMS, LOOT } from '../content/items';
@@ -59,6 +61,27 @@ export interface Monster {
   st: Statuses;
   /** Great Bell: stopped in its tracks until this game time; a fight it starts before then, it starts Stunned. */
   dazedUntil?: number;
+  /** A Zombie back on its feet: killing it again adds nothing to the room's bounty. */
+  again?: boolean;
+  /** Lich: its raising is used up. */
+  spent?: boolean;
+}
+
+/** A slain monster as a fight remembers it (what Raise and the Lich bring back). */
+export interface Slain {
+  /** The id it had: a Zombie's pending rise is keyed by it. */
+  id?: string;
+  type: EnemyId;
+  maxHp: number;
+  dmgMult: number;
+  again?: boolean;
+}
+
+/** A Zombie that will get back up in `room` at `at`. */
+export interface Rising extends Slain {
+  id: string;
+  room: number;
+  at: number;
 }
 
 /** A slain monster the Undertaker raised: it fights on the heroes' side, nearest the enemy, for a few turns. */
@@ -115,7 +138,11 @@ export interface Encounter {
   seq: number;
   log: string[];
   /** The last monster slain here (what Raise brings back), and the risen one, if any. */
-  lastSlain?: { type: EnemyId; maxHp: number; dmgMult: number } | null;
+  lastSlain?: Slain | null;
+  /** Every monster slain in this fight, oldest first (the Lich raises the newest). */
+  slain?: Slain[];
+  /** Lich's Doom: heroes here take this much more from every blow, aura and poison tick. */
+  doom?: number;
   risen?: Risen | null;
   /** Unholy Uprising: the Risen that follow an Undertaker everywhere, fighting here (fallen ones stay until it ends). */
   legion?: Risen[];
@@ -132,7 +159,7 @@ export function spawnInitialMonsters(world: World) {
   for (const room of d.rooms) {
     if (room.kind === 'secret' || safe.has(room.id) || !world.rng.chance(ESCALATION.roomMonsterChance)) continue;
     if (world.rng.chance(ESCALATION.lairChance)) {
-      spawnGroup(world, room.id, crUnits(world, pickLair(world), 'lair', room.id), escalationAt(world.time));
+      spawnGroup(world, room.id, crUnits(world, fillGroup(world, pickTemplate(world, LAIR_GROUPS).tiers), 'lair', room.id), escalationAt(world.time));
       // Pre-seeded bounty marks the lair (spawnInitialLoot) and sweetens its drop.
       world.bounty[room.id] = LOOT.lairBounty;
     } else spawnGroup(world, room.id, crUnits(world, pickGroup(world, escalationAt(world.time)), 'room', room.id), escalationAt(world.time));
@@ -140,54 +167,58 @@ export function spawnInitialMonsters(world: World) {
 }
 
 /**
- * Challenge Rating additions to a group about to spawn in `room`: a Lantern Wight may come with each Ghoul, and
- * lairs (or late exit waves at CR 4) may hold a Forsaken Queen, never more than one to a room.
+ * Challenge Rating additions to a group about to spawn in `room`: each tier's CR unit, once the CR has unlocked it,
+ * comes along on its own roll (lairs: always). Units that are one to a room skip a room that has one.
  */
-export function crUnits(world: World, units: EnemyId[], kind: 'room' | 'lair' | 'wave', room: number): EnemyId[] {
-  const cr = Math.min(world.cr, CR_RULES.tableCr);
-  if (cr <= 0) return units;
+export function crUnits(world: World, units: EnemyId[], kind: 'room' | 'lair', room: number): EnemyId[] {
   const out = [...units];
-  const wight = CR_RULES.wightChance[cr] ?? 0;
-  for (const u of units) if (u === 'ghoul' && world.rng.chance(wight)) out.push('wight');
-  const queen =
-    kind === 'lair' ? CR_RULES.queenLairChance[cr] ?? 0
-    : kind === 'wave' && cr >= CR_RULES.queenWaveCr && world.escalation >= CR_RULES.queenWaveEscalation ? CR_RULES.queenWaveChance
-    : 0;
-  if (queen > 0 && !monstersIn(world, room).some((m) => m.type === 'queen') && world.rng.chance(queen)) out.push('queen');
+  for (const t of TIERS) {
+    const unit = world.roster.cr[t];
+    const p = crUnitChance(t, world.cr);
+    if (!unit || p <= 0) continue;
+    if (ENEMIES[unit].onePerRoom && (out.includes(unit) || monstersIn(world, room).some((m) => m.type === unit))) continue;
+    if (kind === 'lair' || world.rng.chance(p)) out.push(unit);
+  }
   return out;
 }
 
-function pickLair(world: World): EnemyId[] {
-  const total = LAIR_GROUPS.reduce((s, g) => s + g.weight, 0);
-  let roll = world.rng.float(0, total);
-  for (const g of LAIR_GROUPS) {
-    roll -= g.weight;
-    if (roll <= 0) return g.units;
-  }
-  return LAIR_GROUPS[0].units;
-}
-
-export function pickGroup(world: World, esc = 0): EnemyId[] {
-  const groups = ENCOUNTER_GROUPS.filter((g) => (g.minEscalation ?? 0) <= esc);
+export function pickTemplate(world: World, groups: GroupTemplate[]): GroupTemplate {
   const total = groups.reduce((s, g) => s + g.weight, 0);
   let roll = world.rng.float(0, total);
   for (const g of groups) {
     roll -= g.weight;
-    if (roll <= 0) return g.units;
+    if (roll <= 0) return g;
   }
-  return groups[0].units;
+  return groups[0];
+}
+
+/** One of the run's default units for each tier in the template (a tier it has none of is skipped). */
+export function fillGroup(world: World, tiers: readonly GroupTemplate['tiers'][number][]): EnemyId[] {
+  const out: EnemyId[] = [];
+  for (const t of tiers) {
+    const options = world.roster.main[t].filter((u) => !ENEMIES[u].onePerRoom || !out.includes(u));
+    if (options.length) out.push(world.rng.pick(options));
+  }
+  // The Queen never walks alone.
+  if (out.length && out.every((u) => ENEMIES[u].needsCompany) && world.roster.main[0].length) out.push(world.rng.pick(world.roster.main[0]));
+  return out;
+}
+
+/** An ordinary group of the run's default units, from the rows this Escalation allows. */
+export function pickGroup(world: World, esc = 0): EnemyId[] {
+  const groups = ENCOUNTER_GROUPS.filter((g) => (g.minEscalation ?? 0) <= esc && g.tiers.every((t) => ROSTER_RULES.escalation[t] <= esc));
+  return fillGroup(world, pickTemplate(world, groups).tiers);
 }
 
 export function spawnGroup(world: World, room: number, units: EnemyId[], esc: number): Monster[] {
-  const scale = (1 + ESCALATION.escalationScaling * esc) * crMonsterMult(world);
   return units.map((type) => {
-    const def = ENEMIES[type];
+    const scale = monsterScale(world, type, esc);
     const m: Monster = {
       id: `m${world.nextId++}`,
       type,
       room,
-      hp: Math.round(def.maxHp * scale),
-      maxHp: Math.round(def.maxHp * scale),
+      hp: Math.round(ENEMIES[type].maxHp * scale),
+      maxHp: Math.round(ENEMIES[type].maxHp * scale),
       dmgMult: scale,
       st: {},
     };
@@ -196,9 +227,9 @@ export function spawnGroup(world: World, room: number, units: EnemyId[], esc: nu
   });
 }
 
-/** Each CR above the last one with its own monsters makes every monster tougher and harder-hitting. */
-export function crMonsterMult(world: World): number {
-  return 1 + CR_RULES.hpDmgPerCrAbove * Math.max(0, world.cr - CR_RULES.tableCr);
+/** HP and damage multiplier for a monster spawned now: Escalation's bonus plus CR's for its tier, added together. */
+export function monsterScale(world: World, type: EnemyId, esc: number): number {
+  return 1 + ESCALATION.escalationScaling * esc + crBonus(ENEMIES[type].tier, world.cr);
 }
 
 export function monstersIn(world: World, room: number): Monster[] {
@@ -734,6 +765,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   }
   tickCooldowns(h);
   if (h.st.vengeance !== undefined && --h.st.vengeance <= 0) delete h.st.vengeance;
+  if (!lichAura(world, enc, h, events)) return;
   if (h.st.stun) {
     h.st.stun = false;
     events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
@@ -744,11 +776,37 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     heroAct(world, enc, h, choice, events);
   }
   if (isConscious(h) && h.encounter === enc.room) {
-    endOfTurn(h.st, h.name, h.id, (n) => armored(h, n), (n) => {
+    endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + (enc.doom ?? 0), (n) => {
       applyHeroDamage(world, enc, h, n, events);
       return isConscious(h);
     }, events);
   }
+}
+
+/**
+ * The Lich's aura: before a hero acts, every Lich in the fight hurts them. It can't be dodged or braced; armor
+ * takes from it as usual, and darkness, Weak and Doom change it like any blow. Returns false if it took them down.
+ */
+function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]): boolean {
+  for (const m of monstersIn(world, enc.room)) {
+    if (m.type !== 'lich' || !isConscious(h)) continue;
+    let dmg = ENEMIES.lich.dmg * m.dmgMult;
+    if (m.st.weak) dmg *= 0.5;
+    if (h.light <= 0) dmg *= 1.25;
+    dmg = armored(h, Math.max(1, Math.round(dmg))) + (enc.doom ?? 0);
+    if (h.st.block) {
+      const absorbed = Math.min(h.st.block, dmg);
+      h.st.block -= absorbed;
+      dmg -= absorbed;
+      if (h.st.block <= 0) delete h.st.block;
+    }
+    events.push({
+      actor: m.id, kind: 'damage', target: h.id, amount: dmg,
+      text: dmg > 0 ? `The Lich's cold presence sears ${h.name} for ${dmg}.` : `The Lich's cold presence washes over ${h.name}, but it's blocked.`,
+    });
+    applyHeroDamage(world, enc, h, dmg, events);
+  }
+  return isConscious(h) && h.encounter === enc.room;
 }
 
 /** The first unit, left to right as the fight screen shows them, that `choice` could be aimed at. */
@@ -1013,6 +1071,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         turns: h.talent === 'restlessDead' ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns,
       };
       enc.lastSlain = null;
+      // Raised, it's the Undertaker's: a Zombie won't get back up for the enemy, nor the Lich call it back.
+      enc.slain = (enc.slain ?? []).filter((x) => x !== dead && (!dead.id || x.id !== dead.id));
+      if (dead.id) world.risings = world.risings.filter((r) => r.id !== dead.id);
       events.push({ actor: h.id, kind: 'status', target: enc.risen.id, text: `${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.` });
       return;
     }
@@ -1166,12 +1227,52 @@ function applyMonsterDamage(world: World, m: Monster, dmg: number, events: Comba
     world.stats.slain++;
     events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
     const enc = world.encounters[m.room];
-    if (enc) enc.lastSlain = { type: m.type, maxHp: m.maxHp, dmgMult: m.dmgMult };
-    world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
-    if (monstersIn(world, m.room).length === 0) {
+    const slain: Slain = { id: m.id, type: m.type, maxHp: m.maxHp, dmgMult: m.dmgMult, again: m.again };
+    if (enc) {
+      enc.lastSlain = slain;
+      (enc.slain ??= []).push(slain);
+    }
+    // A Zombie gets back up where it fell (unless an Undertaker raises it first: see 'raise').
+    if (m.type === 'zombie' && m.room >= 0) {
+      world.risings.push({ ...slain, id: m.id, room: m.room, at: world.time + CR_RULES.zombieRise });
+      events.push({ actor: m.id, kind: 'info', text: 'The Zombie twitches. It will not stay down.' });
+    }
+    // A Zombie pays out once, however often it's put down.
+    if (!m.again) world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
+    if (monstersIn(world, m.room).length === 0 && (world.bounty[m.room] ?? 0) > 0) {
       dropBounty(world, m.room);
       events.push({ actor: m.id, kind: 'info', text: 'Something glints among the remains.' });
     }
+  }
+}
+
+/** Bring a slain monster back whole in `room` (a Zombie rising, or the Lich's raising). */
+function unslay(world: World, room: number, s: Slain, again: boolean): Monster {
+  const m: Monster = { id: `m${world.nextId++}`, type: s.type, room, hp: s.maxHp, maxHp: s.maxHp, dmgMult: s.dmgMult, st: {}, again };
+  world.monsters[m.id] = m;
+  // It's no longer dead: nothing else can raise it, and a Zombie won't rise twice from the one death.
+  if (s.id) world.risings = world.risings.filter((r) => r.id !== s.id);
+  const enc = world.encounters[room];
+  if (enc) {
+    enc.slain = (enc.slain ?? []).filter((x) => x !== s && (!s.id || x.id !== s.id));
+    if (enc.lastSlain && (enc.lastSlain === s || (s.id && enc.lastSlain.id === s.id))) enc.lastSlain = null;
+  }
+  return m;
+}
+
+/** Zombies whose time has come get back up where they fell, joining (or starting) a fight with anyone there. */
+export function tickRisings(world: World) {
+  const due = world.risings.filter((r) => r.at <= world.time);
+  if (!due.length) return;
+  world.risings = world.risings.filter((r) => r.at > world.time);
+  for (const r of due) {
+    const m = unslay(world, r.room, r, true);
+    const text = `The ${ENEMIES[m.type].name} gets back up.`;
+    const enc = world.encounters[r.room];
+    if (enc) record(enc, [{ actor: m.id, kind: 'status', target: m.id, text }]);
+    const here = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === r.room);
+    for (const h of here) notify(world, h, text);
+    if (!enc && here.length) onHeroInRoom(world, here[0], r.room);
   }
 }
 
@@ -1197,8 +1298,22 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
 
   switch (m.type) {
     case 'ghoul':
-      monsterHits(world, enc, m, nearest, ENEMIES.ghoul.dmg, 'claws', events);
+    case 'zombie':
+      monsterHits(world, enc, m, nearest, ENEMIES[m.type].dmg, 'claws', events);
       return;
+    case 'lich': {
+      // Its raising goes the moment there's someone to raise; then Doom, again and again.
+      const dead = m.spent ? undefined : enc.slain?.at(-1);
+      if (dead) {
+        m.spent = true;
+        const back = unslay(world, enc.room, dead, !!dead.again);
+        events.push({ actor: m.id, kind: 'status', target: back.id, text: `${name} speaks a word, and the ${ENEMIES[back.type].name} rises whole.` });
+        return;
+      }
+      enc.doom = (enc.doom ?? 0) + CR_RULES.doom;
+      events.push({ actor: m.id, kind: 'status', text: `${name} pronounces Doom. Every wound cuts deeper. (heroes take +${enc.doom} dmg this fight)` });
+      return;
+    }
     case 'crawler': {
       const t = monsterHits(world, enc, m, rng.pick(side), ENEMIES.crawler.dmg, 'bites', events);
       if (t && isConscious(t)) addPoison(t.st, 1, 3);
@@ -1286,7 +1401,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   // Stalwart: the Warden takes less while standing nearest the enemy.
   if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
   if (t.st.brace) dmg *= 0.7;
-  dmg = armored(t, Math.max(1, Math.round(dmg)));
+  dmg = armored(t, Math.max(1, Math.round(dmg))) + (enc.doom ?? 0);
   if (t.st.block) {
     const absorbed = Math.min(t.st.block, dmg);
     t.st.block -= absorbed;

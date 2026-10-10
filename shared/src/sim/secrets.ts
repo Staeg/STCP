@@ -1,7 +1,7 @@
 import { SECRET_GUARDS } from '../content/enemies';
 import { LOOT } from '../content/items';
 import { openSecret, openSecrets, theRoom, type SecretPassage } from '../dungeon/gen';
-import { crUnits, inDungeon, spawnGroup } from './combat';
+import { crUnits, fillGroup, inDungeon, pickTemplate, spawnGroup } from './combat';
 import { addToPile, rollItem, rollResource } from './loot';
 import { notify } from './notify';
 import { chronicle, explore, type World } from './world';
@@ -60,10 +60,7 @@ function stockSecret(world: World, s: SecretPassage) {
   const items = [rollItem(world, 3), rollResource(world)];
   if (rng.chance(LOOT.relicChance)) items.push('relic');
   addToPile(world, s.room, rng.int(...LOOT.lairGold), items);
-  const total = SECRET_GUARDS.reduce((t, g) => t + g.weight, 0);
-  let roll = rng.float(0, total);
-  const group = SECRET_GUARDS.find((g) => (roll -= g.weight) <= 0) ?? SECRET_GUARDS[0];
-  spawnGroup(world, s.room, crUnits(world, group.units, 'room', s.room), world.escalation);
+  spawnGroup(world, s.room, crUnits(world, fillGroup(world, pickTemplate(world, SECRET_GUARDS).tiers), 'room', s.room), world.escalation);
   // Like a lair: the guards' fall drops more, and better, than they're worth on their own.
   world.bounty[s.room] = (world.bounty[s.room] ?? 0) + LOOT.lairBounty;
   chronicle(world, `A hidden passage opened from ${theRoom(d.rooms[s.host].name)} into ${d.rooms[s.room].name}.`);

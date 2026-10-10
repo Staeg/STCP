@@ -4,7 +4,7 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { CR_RULES, type EnemyId } from '../content/enemies';
 import { TALENT_RULES, type TalentId } from '../content/talents';
 import { neighbours } from '../dungeon/gen';
-import { crUnits, damageMult, downHero, spawnGroup, submitChoice } from './combat';
+import { damageMult, downHero, spawnGroup, submitChoice } from './combat';
 import { addToPile } from './loot';
 import { fieldSkillsOf } from './skills';
 import { speedOf } from './speed';
@@ -288,28 +288,6 @@ describe('Alchemist talents', () => {
 });
 
 describe('Challenge Rating', () => {
-  it('adds Lantern Wights beside Ghouls at the CR chance, and none at CR 0', () => {
-    const count = (cr: number) => {
-      const world = createWorld(3, { monsters: false, loot: false, cr });
-      let wights = 0;
-      for (let i = 0; i < 400; i++) wights += crUnits(world, ['ghoul'], 'room', 0).filter((u) => u === 'wight').length;
-      return wights / 400;
-    };
-    expect(count(0)).toBe(0);
-    expect(count(1)).toBeCloseTo(CR_RULES.wightChance[1], 1);
-    expect(count(3)).toBeCloseTo(CR_RULES.wightChance[3], 1);
-  });
-
-  it('puts a Forsaken Queen in every lair at CR 4, none at CR 2, and never two in a room', () => {
-    const w4 = createWorld(3, { monsters: false, loot: false, cr: 4 });
-    expect(crUnits(w4, ['crawler'], 'lair', 0)).toContain('queen');
-    expect(crUnits(w4, ['crawler'], 'room', 0)).not.toContain('queen');
-    spawnGroup(w4, 0, ['queen'], 0);
-    expect(crUnits(w4, ['crawler'], 'lair', 0)).not.toContain('queen');
-    const w2 = createWorld(3, { monsters: false, loot: false, cr: 2 });
-    expect(crUnits(w2, ['crawler'], 'lair', 0)).not.toContain('queen');
-  });
-
   it('makes found gold worth +15% per CR (not dropped gold)', () => {
     const world = createWorld(3, { monsters: false, loot: false, cr: 2 });
     addToPile(world, 0, 100, []);

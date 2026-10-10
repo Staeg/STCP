@@ -1,5 +1,5 @@
 import {
-  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, CR_RULES, ENEMIES, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
+  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
   slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES,
   type Character, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
 } from '@stcp/shared';
@@ -31,6 +31,8 @@ export class Screens {
   private rendered = '';
   /** A mouse button is down on the screen: replacing the DOM now would swallow the click (mousedown and mouseup on different elements). */
   private pressing = false;
+  /** The Challenge Rating explainer under the lobby's CR line is open. */
+  private crHelp = false;
 
   constructor(private net: Net) {
     root().addEventListener('pointerdown', () => (this.pressing = true));
@@ -164,11 +166,13 @@ export class Screens {
         <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
       </div>`}
       <ul class="slots">${slots.join('')}</ul>
-      <div class="cr-line" title="Challenge Rating: 1 for every hero with a Talent (bots included), +${KIT_RULES.crPerGearLevel} per level of Gear brought from the Stash, +${KIT_RULES.effigyCr} for an Effigy Rite, ${KIT_RULES.gemCr} for a Gem Rite. A fraction is the chance of the next CR up. Each point: +${Math.round(CR_RULES.goldPerCr * 100)}% gold. Lantern Wights from CR 1, the Forsaken Queen from CR 3, and above CR ${CR_RULES.tableCr} +${Math.round(CR_RULES.hpDmgPerCrAbove * 100)}% monster HP and damage per point.">
+      <div class="cr-line">
+        <button class="help-btn ${this.crHelp ? 'on' : ''}" data-act="cr-help" title="How Challenge Rating and the monsters work">?</button>
         Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)} <span class="muted">(bots borrowing Talented Characters add to it)</span>
         · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
         ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
       </div>
+      ${this.crHelp ? crHelpHtml(lobby.cr) : ''}
       <div class="classes">${cards}</div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
@@ -217,6 +221,10 @@ export class Screens {
         break;
       case 'village-close':
         net.villageOpen = false;
+        break;
+      case 'cr-help':
+        this.crHelp = !this.crHelp;
+        this.update();
         break;
       case 'talent':
         net.send({ t: 'chooseTalent', charId: btn.dataset.char!, talent: btn.dataset.talent as TalentId });
@@ -325,8 +333,45 @@ function villageHtml(v: VillageView, lobby: LobbyView | null): string {
     ${report}
     <div class="v-grid">${cards}</div>
     ${stashHtml(v, lobby)}
-    <div class="row muted small">Talents, Gear brought along and Effigy Rites raise the Challenge Rating: more gold, but ${ENEMIES.wight.name}s from CR 1, the ${ENEMIES.queen.name} from CR 3, and tougher monsters above CR ${CR_RULES.tableCr}.</div>
+    <div class="row muted small">Talents, Gear brought along and Effigy Rites raise the Challenge Rating: more gold, but stranger monsters more often, and tougher ones from CR ${CR_RULES.lowCr}. The ? by the CR in the lobby explains it all.</div>
     <div class="row"><button class="primary" data-act="village-close">Back</button></div>
+  </div>`;
+}
+
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+const tierUnits = (t: (typeof TIERS)[number]) => UNITS_BY_TIER[t].map((u) => ENEMIES[u].name).join(', ');
+
+/** What a run at this (whole) CR brings: gold, CR units' chances, and monster toughness by tier. */
+function crAtHtml(cr: number): string {
+  const units = TIERS.filter((t) => crUnitChance(t, cr) > 0);
+  const chances = units.length ? units.map((t) => `T${t} ${pct(crUnitChance(t, cr))}`).join(', ') : 'none yet';
+  const bonuses = TIERS.map((t) => crBonus(t, cr));
+  const tough = bonuses.every((b) => b === 0) ? 'normal'
+    : bonuses.every((b) => b === bonuses[0]) ? `+${pct(bonuses[0])} for all`
+    : TIERS.map((t) => `T${t} +${pct(bonuses[t])}`).join(', ');
+  return `<li><b>CR ${cr}</b>: gold ×${(1 + CR_RULES.goldPerCr * cr).toFixed(2)} · CR units per group: ${chances}${units.length ? ` (lairs: all ${units.length})` : ''} · monster HP and damage: ${tough}</li>`;
+}
+
+/** The lobby's Challenge Rating explainer: how monsters are chosen for a run, what CR does, and what this CR means. */
+function crHelpHtml(cr: number): string {
+  const lo = Math.floor(cr);
+  const now = cr === lo ? [lo] : [lo, lo + 1];
+  const u = CR_RULES.units;
+  return `<div class="cr-help">
+    <div><b>Monster tiers.</b> ${TIERS.map((t) => `<span class="tier">T${t}</span> ${tierUnits(t)}`).join(' · ')}</div>
+    <div><b>Each run</b> picks its monsters at random: ${ROSTER_RULES.defaults[0]} T0, ${ROSTER_RULES.defaults[1]} T1 and ${ROSTER_RULES.defaults[2]} T2 are its default monsters.
+      T0 are there from the start, T1 join at Escalation ${ROSTER_RULES.escalation[1]} and T2 at Escalation ${ROSTER_RULES.escalation[2]} (lairs and hidden rooms don't wait).
+      One more of each tier (the T3 always: there is only the ${ENEMIES.lich.name}) is the run's <i>CR unit</i>, which only Challenge Rating brings.</div>
+    <div><b>Challenge Rating</b> is 1 per hero with a Talent (bots included), +${KIT_RULES.crPerGearLevel} per level of Gear brought from the Stash, +${KIT_RULES.effigyCr} for an Effigy Rite and ${KIT_RULES.gemCr} for a Gem Rite. A fraction is the chance of the next CR up. Each CR: +${pct(CR_RULES.goldPerCr)} gold found.</div>
+    <ul>
+      <li>Each group of monsters rolls separately for each CR unit: T0 from CR ${u[0].from} (${pct(u[0].chance)}), T1 from CR ${u[1].from} (${pct(u[1].chance)}), T2 from CR ${u[2].from} (${pct(u[2].chance)}), T3 from CR ${u[3].from} (${pct(u[3].chance)}). Lairs bring every one unlocked.</li>
+      <li>CR ${CR_RULES.lowCr}: T0 and T1 monsters get +${pct(CR_RULES.lowBonus)} HP and damage.</li>
+      <li>CR ${CR_RULES.allCr}: every monster gets +${pct(CR_RULES.allBonus)} HP and damage.</li>
+      <li>Each CR above ${CR_RULES.growFrom}: CR units are ${TIERS.map((t) => pct(u[t].perCr)).join(' / ')} (T0 / T1 / T2 / T3) more likely, and every monster gets +${pct(CR_RULES.perCrAbove)} HP and damage.</li>
+      <li>These bonuses add to Escalation's (+${pct(ESCALATION.escalationScaling)} per Escalation).</li>
+    </ul>
+    <div><b>This lobby${now.length > 1 ? ` (${pct(cr - lo)} chance of CR ${lo + 1})` : ''}:</b></div>
+    <ul>${now.map(crAtHtml).join('')}</ul>
   </div>`;
 }
 

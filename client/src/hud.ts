@@ -1,7 +1,7 @@
 import {
   AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
-  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES,
+  INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
@@ -82,7 +82,7 @@ export class Hud {
     const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
-    setHtml($('escalation'), escalationHtml(view.escalation) + (view.cr > 0 ? ` <span class="cr-tag" title="Challenge Rating: rolled from the heroes' Talents, Gear and Rites. More gold, and worse things in the dark.">· CR ${view.cr}</span>` : ''));
+    setHtml($('escalation'), escalationHtml(view.escalation) + ` <span class="cr-tag" title="${rosterTitle(view)}">· CR ${view.cr}</span>`);
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
     if (time < view.exitOpensAt) {
@@ -233,6 +233,18 @@ function escalationHtml(esc: number): string {
   for (let t = 1; t <= esc; t++) lines.push(`<div><b>Escalation ${t}</b>: ${ESCALATION_TEXT[t] ?? ''}</div>`);
   const next = esc < MAX_ESCALATION ? `<div class="muted">Escalation ${esc + 1} comes at ${fmtTime((esc + 1) * ESCALATION_INTERVAL)}.</div>` : '';
   return `Escalation ${esc}<div class="hover-tip">${lines.join('') || '<div>Nothing has stirred yet.</div>'}${next}</div>`;
+}
+
+/** Hover text for the CR tag: the run's monsters, by tier, and its CR units' chances now. */
+function rosterTitle(view: PlayerView): string {
+  const r = view.roster;
+  const name = (u: EnemyId) => ENEMIES[u].name;
+  const main = TIERS.filter((t) => r.main[t].length).map((t) => `T${t} ${r.main[t].map(name).join(', ')}${ROSTER_RULES.escalation[t] > 0 ? ` (from Escalation ${ROSTER_RULES.escalation[t]})` : ''}`);
+  const cr = TIERS.flatMap((t) => {
+    const u = r.cr[t];
+    return u ? [`T${t} ${name(u)}: ${crUnitChance(t, view.cr) > 0 ? `${Math.round(crUnitChance(t, view.cr) * 100)}% per group` : `from CR ${CR_RULES.units[t].from}`}`] : [];
+  });
+  return `Challenge Rating ${view.cr}: rolled from the heroes' Talents, Gear and Rites. More gold, and worse things in the dark.\n\nThis run's monsters: ${main.join(' · ')}.\nCR units: ${cr.join(' · ')}.`;
 }
 
 function rosterHtml(view: PlayerView): string {
