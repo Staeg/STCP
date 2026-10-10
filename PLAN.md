@@ -395,7 +395,7 @@ User brief and decisions (2026-10-10). Every open item was settled by the user o
 | 5 | **Night of the Liches** | Party | Kill 2 Liches. | Needs CR 5 (user). Quarry: 2 Liches when the rolled CR is 5+. Warn below 5, with the odds. |
 | 5 | **Exodus** | Party | Save 4 villagers, and every player's hero escapes. | At least 4 captive villagers. |
 
-- Client *(proposal)*: Wellbeing as 5 pips on the Village screen; the win/loss choice; the Emergency's progress on the HUD's objectives line; the outcome and the Wellbeing change on the results screen and in the Village's last-run report. Quarry targets have no map marker.
+- Client: Wellbeing as 5 pips on the Village screen; the win/loss choice; the Emergency's progress on the HUD's objectives line; the outcome and the Wellbeing change on the results screen and in the Village's last-run report. Quarry targets have no map marker.
 - Only real runs settle an Emergency (user): fast-forwarded (`debugSpeed`) games and leaving before the run starts don't count as a success or a failure.
 
 ### Later / parking lot
