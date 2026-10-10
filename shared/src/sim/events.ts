@@ -30,6 +30,8 @@ export interface RoomEvent {
   by: string | null;
   /** Altar: the guardians have been summoned. */
   spawned: boolean;
+  /** Altar: whoever woke the guardians picks the Cleanse back up once they're beaten, if still here and standing. */
+  resumeFor?: string;
   /** Wounded Stranger: a trap or not, decided the first time it matters. */
   trap?: boolean;
   /** Luminous Liturgy: seconds of prayer not yet turned into a blessing. Booming Barrage: Tolls rung so far. */
@@ -574,6 +576,7 @@ function crawlToward(world: World, from: number): number | null {
 // Ticking: channels, villagers, stress
 
 export function tickEvents(world: World, dt: number) {
+  resumeCleanses(world);
   // A claim lasts only as long as its hero keeps at it (walking off, a fight or going down all end it).
   for (const ev of Object.values(world.events)) {
     const ch = ev.by ? world.heroes[ev.by]?.channel : null;
@@ -612,6 +615,7 @@ export function tickEvents(world: World, dt: number) {
     // The Sorceress's rites keep the guardians asleep.
     if (kind === 'altar' && ev.progress >= 0.5 && !ev.spawned && h.cls !== 'sorceress') {
       ev.spawned = true;
+      ev.resumeFor = h.id;
       notify(world, h, 'The altar shrieks. Its guardians come!');
       // Guardians are a notch stronger than the dungeon around them (user, 2026-10-10; were a notch weaker).
       const t = world.escalation + EVENT_SEEDING.guardianEscalations;
@@ -622,6 +626,24 @@ export function tickEvents(world: World, dt: number) {
     if (ev.progress >= 1) finishEvent(world, ev, h, ch.choice);
   }
   tickVillagers(world);
+}
+
+/**
+ * Altar guardians beaten: the hero who woke them goes straight back to cleansing (user, 2026-10-11). Leaving the
+ * room or going down forfeits that; they can still start it again by hand.
+ */
+function resumeCleanses(world: World) {
+  for (const ev of Object.values(world.events)) {
+    if (!ev.resumeFor) continue;
+    const h = world.heroes[ev.resumeFor];
+    if (ev.done || (ev.by && ev.by !== h?.id) || !h || !inDungeon(h) || h.pos.kind !== 'room' || h.pos.room !== ev.room) {
+      delete ev.resumeFor;
+      continue;
+    }
+    if (h.encounter !== null || !quiet(world, ev.room)) continue;
+    delete ev.resumeFor;
+    if (isConscious(h) && !h.channel && !h.path.length) chooseEvent(world, h, 'channel');
+  }
 }
 
 /** Stopped before it was done: the work is lost (an altar whose guardians came stays half-cleansed). */

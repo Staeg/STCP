@@ -193,7 +193,8 @@ describe('room events', () => {
     for (const m of monstersIn(world, room)) delete world.monsters[m.id];
     run(world, 7);
     expect(h.encounter).toBeNull();
-    choose(world, 'h', 'channel');
+    // The Cleanse picks back up on its own after the fight.
+    expect(h.channel?.kind).toBe('event');
     run(world, 9.2);
     expect(world.events[room].done).toBe(true);
     expect(world.objectives.altars).toBe(1);
