@@ -10,6 +10,8 @@ import { spriteUrl } from './render/sprites';
 import { cooldownIcon, icon, iconize, iconNum } from './icons';
 
 declare const __BUILD__: string;
+/** Built by vite.config.ts: one group per deploy, newest first; `at` is the push time (null = not pushed yet). */
+declare const __PATCH_NOTES__: { at: string | null; sha: string; commits: { sha: string; msg: string }[] }[];
 
 const root = () => document.getElementById('screen')!;
 
@@ -26,6 +28,30 @@ export function hallOfFortune(entries: LeaderboardEntry[], you: string): string 
   return `<div class="hof"><div class="hof-head">⛀ Hall of Fortune</div><table>${rows}</table></div>`;
 }
 
+/** "3 days 4 hours ago", to the two largest units. */
+function ago(iso: string): string {
+  let mins = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60000));
+  if (mins < 1) return 'just now';
+  const parts: string[] = [];
+  for (const [n, unit] of [[1440, 'day'], [60, 'hour'], [1, 'minute']] as const) {
+    const k = Math.floor(mins / n);
+    mins -= k * n;
+    if (k && parts.length < 2) parts.push(`${k} ${unit}${k === 1 ? '' : 's'}`);
+    else if (parts.length) break;
+  }
+  return `${parts.join(' ')} ago`;
+}
+
+/** The changes each push brought, opened from the build tag in the corner. */
+function patchNotesHtml(): string {
+  const groups = __PATCH_NOTES__.map((g) => `<div class="patch">
+    <div class="patch-head">${g.at ? `<span title="${esc(new Date(g.at).toLocaleString())}">${ago(g.at)}</span>` : '<span class="danger">Not pushed yet</span>'}
+      <span class="muted small">@ ${g.sha}</span></div>
+    <ul>${g.commits.map((c) => `<li>${esc(c.msg)}</li>`).join('')}</ul></div>`).join('');
+  return `<div class="patch-notes card wide"><div class="patch-title"><h1>Patch notes</h1><button data-act="patch-notes" class="quiet">Close</button></div>
+    <div class="patch-list">${groups || '<p class="muted">No notes in this build.</p>'}</div></div>`;
+}
+
 /** Menu (no lobby) and lobby-room screens. The game itself is the map canvas + HUD. */
 export class Screens {
   private rendered = '';
@@ -33,6 +59,8 @@ export class Screens {
   private pressing = false;
   /** The Challenge Rating explainer under the lobby's CR line is open. */
   private crHelp = false;
+  /** The patch notes panel (opened from the build tag) is showing. */
+  private patchNotes = false;
 
   constructor(private net: Net) {
     root().addEventListener('pointerdown', () => (this.pressing = true));
@@ -59,7 +87,7 @@ export class Screens {
     const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
       : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby)
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
-    const html = `${body}<div class="build-tag" title="Branch @ commit this build came from">${esc(__BUILD__)}</div>`;
+    const html = `${body}${this.patchNotes ? patchNotesHtml() : ''}<button class="build-tag" data-act="patch-notes" title="Branch @ commit this build came from. Click for patch notes.">${esc(__BUILD__)}</button>`;
     if (html !== this.rendered && !this.pressing) {
       // Preserve typed text and focus across re-renders (other players' changes trigger these).
       const values = new Map([...el.querySelectorAll('input')].map((i) => [i.id, i.value]));
@@ -238,6 +266,10 @@ export class Screens {
         break;
       case 'village-close':
         net.villageOpen = false;
+        break;
+      case 'patch-notes':
+        this.patchNotes = !this.patchNotes;
+        this.update();
         break;
       case 'cr-help':
         this.crHelp = !this.crHelp;

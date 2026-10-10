@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -23,6 +24,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: the menu's patch notes list each push's commits
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,6 +34,7 @@ jobs:
       - run: npm run build
         env:
           VITE_SOLO: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
