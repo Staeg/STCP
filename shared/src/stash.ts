@@ -2,6 +2,7 @@ import { titleFor, type CareerStats, type LeaderboardEntry } from './content/tit
 import { CLASSES, type ClassId } from './content/classes';
 import type { TalentId } from './content/talents';
 import { Rng } from './rng';
+import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
 import { isResource, ITEMS, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
   applyRun, chooseTalent, emptyKit, foundVillage, KIT_RULES, kitError, newCharacter, VILLAGE_RULES, type Character, type Injury, type Kit, type RunOutcome,
@@ -30,7 +31,18 @@ interface Record_ extends CareerStats {
   resources?: Record<ResourceId, number>;
   /** What the player will take into their next run. */
   kit?: Kit;
+  /** The Village's Wellbeing (M13): 1–5, starting at 3. */
+  wellbeing?: number;
+  /** The Emergency picked for the next run. */
+  emergency?: EmergencyId | null;
+  /** Wellbeing hit 6 or 0: the game is over until the player chooses how to go on. */
+  fate?: VillageFate;
 }
+
+/** How a Village's game ended (Wellbeing 6 or 0). */
+export type VillageFate = 'won' | 'lost';
+/** After a win or a loss (user, for now): Wellbeing back to 3, or a fresh Village, Stash and purse. */
+export type FateChoice = 'reset' | 'restart';
 
 /** One player's Village as the client sees it. */
 export interface VillageView {
@@ -42,6 +54,11 @@ export interface VillageView {
   items: ItemId[];
   resources: Record<ResourceId, number>;
   kit: Kit;
+  wellbeing: number;
+  /** The two Emergencies of this Wellbeing level, and the one picked (if any). */
+  offered: EmergencyId[];
+  emergency: EmergencyId | null;
+  fate: VillageFate | null;
 }
 
 export type Treatment = Injury | 'affliction';
@@ -135,6 +152,8 @@ export class Stash {
     return {
       purse: r.purse ?? 0, characters: structuredClone(chars), report: [...(r.report ?? [])],
       items: [...(r.items ?? [])], resources: this.resourcesOf(r), kit: structuredClone(r.kit ?? emptyKit()),
+      wellbeing: this.wellbeingOf(r), offered: r.fate ? [] : emergenciesAt(this.wellbeingOf(r)), emergency: r.fate ? null : (r.emergency ?? null),
+      fate: r.fate ?? null,
     };
   }
 
@@ -150,7 +169,7 @@ export class Stash {
   /** Choose what to take into the next run. Returns an error, or null. */
   setKit(name: string, kit: Kit): string | null {
     const r = this.record(name);
-    const err = kitError(kit, r.items ?? [], this.resourcesOf(r));
+    const err = kitError(kit, r.items ?? [], this.resourcesOf(r), r.emergency ?? null);
     if (err) return err;
     r.kit = structuredClone(kit);
     this.save();
@@ -180,8 +199,9 @@ export class Stash {
       res[x] -= KIT_RULES.riteCost;
       return true;
     });
-    // The Gem Rite forbids consumables: they stay in the Stash.
-    out.consumables = out.rites.includes('gem') ? [] : kit.consumables.filter(take);
+    // The Gem Rite forbids consumables, and the Emergency what it needs carried out: they stay in the Stash.
+    const banned = emergencyBans(r.emergency);
+    out.consumables = out.rites.includes('gem') ? [] : kit.consumables.filter((it) => !banned.includes(it)).filter(take);
     r.items = items;
     r.resources = res;
     r.kit = undefined;
@@ -205,6 +225,76 @@ export class Stash {
     const counts = new Map<ItemId, number>();
     for (const it of carried) counts.set(it, (counts.get(it) ?? 0) + 1);
     return `Into the Village Stash: ${[...counts].map(([it, n]) => (n > 1 ? `${n} ${pluralName(it)}` : ITEMS[it].name)).join(', ')}.`;
+  }
+
+  private wellbeingOf(r: Record_): number {
+    return r.wellbeing ?? WELLBEING.start;
+  }
+
+  /** The Emergency this player has picked for their next run (none while their game is over). */
+  emergencyOf(name: string): EmergencyId | null {
+    const r = this.data[name.toLowerCase()];
+    return r && !r.fate ? (r.emergency ?? null) : null;
+  }
+
+  /** Pick one of the two Emergencies of the Village's Wellbeing. What it needs carried out leaves the kit. */
+  chooseEmergency(name: string, id: EmergencyId): string | null {
+    const r = this.record(name);
+    if (r.fate) return 'Your Village’s story is over: choose how to go on first.';
+    if (!emergenciesAt(this.wellbeingOf(r)).includes(id)) return `${EMERGENCIES[id].name} isn't this Village's Emergency.`;
+    r.emergency = id;
+    const banned = emergencyBans(id);
+    if (r.kit) {
+      r.kit.consumables = r.kit.consumables.filter((it) => !banned.includes(it));
+      for (const [slot, it] of Object.entries(r.kit.gear)) if (it && banned.includes(it)) delete r.kit.gear[slot as keyof Kit['gear']];
+    }
+    this.save();
+    return null;
+  }
+
+  /**
+   * A real run is over: the player's Emergency was done (+1 Wellbeing) or not (−1). At 6 the game is won, at 0
+   * lost. Returns the lines for the run report.
+   */
+  settleEmergency(name: string, id: EmergencyId, done: boolean): string[] {
+    const r = this.record(name);
+    const before = this.wellbeingOf(r);
+    const after = Math.max(WELLBEING.lose, Math.min(WELLBEING.win, before + (done ? 1 : -1)));
+    r.wellbeing = after;
+    r.emergency = null;
+    const lines = [`${EMERGENCIES[id].name}: ${done ? 'done' : 'failed'}. Wellbeing ${before} → ${after}.`];
+    if (after >= WELLBEING.win) {
+      r.fate = 'won';
+      lines.push('The Village prospers. You have won!');
+    } else if (after <= WELLBEING.lose) {
+      r.fate = 'lost';
+      lines.push('The Village has fallen. The game is lost.');
+    }
+    (r.report ??= []).push(...lines);
+    this.save();
+    return lines;
+  }
+
+  /** After a win or a loss: Wellbeing back to 3 (everything else kept), or start over with a fresh Village. */
+  chooseFate(name: string, choice: FateChoice): string | null {
+    const r = this.record(name);
+    if (!r.fate) return 'Your Village’s story isn’t over.';
+    r.fate = undefined;
+    r.wellbeing = WELLBEING.start;
+    r.emergency = null;
+    if (choice === 'restart') {
+      // A fresh Village, Stash and purse. Career stats (titles, the Hall of Fortune) are kept.
+      r.village = undefined;
+      r.items = [];
+      r.resources = undefined;
+      r.kit = undefined;
+      r.purse = 0;
+      r.report = ['A new Village rises from the old one’s ashes.'];
+    } else {
+      r.report = ['The Village carries on. Wellbeing is back to 3.'];
+    }
+    this.save();
+    return null;
   }
 
   purse(name: string): number {

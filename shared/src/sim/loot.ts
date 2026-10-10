@@ -1,3 +1,4 @@
+import { emergencyBans } from '../content/emergencies';
 import {
   GEAR_SLOTS, gearGain, isArms, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
@@ -310,6 +311,14 @@ function fromTheDead(world: World, by: string | null | undefined): boolean {
 
 /** Mortician: the Undertaker takes what the fallen carried without a vote (gear only if it's an upgrade). */
 function mortician(world: World, room: number, pile: Pile, u: Hero) {
+  // What a fallen player's Emergency needs carried out, the Undertaker carries home for them, apart from their own pack (M13).
+  for (const f of [...pile.items]) {
+    const dead = f.by ? world.heroes[f.by] : undefined;
+    if (!dead?.dead || !emergencyBans(dead.emergency).includes(f.item)) continue;
+    pile.items.splice(pile.items.indexOf(f), 1);
+    (u.bodyItems[dead.id] ??= []).push(f.item);
+    notify(world, u, `You take up ${dead.name}'s ${ITEMS[f.item].name}, to carry home for their Village.`);
+  }
   const wanted = (item: ItemId) => {
     const slot = slotOf(item);
     if (slot === 'weapon' || slot === 'armor') return gearGain(item, u[slot]) > 0;
@@ -422,8 +431,18 @@ export function unequip(world: World, h: Hero, slot: GearSlot): string | null {
 }
 
 /** A hero died: everything they carried hits the floor. */
+/** Tome Rite: the hero's gold and consumables go home whatever happens to them (consumables: user 2026-10-10). */
+export function tomeLegacy(h: Hero) {
+  h.legacy += h.gold;
+  h.gold = 0;
+  h.legacyItems.push(...h.items.filter((it) => ITEMS[it].kind === 'consumable'));
+  h.items = h.items.filter((it) => ITEMS[it].kind !== 'consumable');
+}
+
 export function dropEverything(world: World, h: Hero) {
   const room = h.pos.kind === 'room' ? h.pos.room : h.pos.from;
+  // Tome Rite: the gold and consumables are bound to the Village, and go home whatever happens.
+  if (h.rites.includes('tome')) tomeLegacy(h);
   const items: ItemId[] = [];
   while (h.items.length) items.push(takeItem(h, 0)!);
   for (const slot of GEAR_SLOTS) {
@@ -431,13 +450,11 @@ export function dropEverything(world: World, h: Hero) {
     if (worn) items.push(worn);
   }
   addToPile(world, room, 0, items, h.id);
+  // What a fallen Undertaker carried for others' Emergencies goes down still marked as theirs.
+  for (const [id, carried] of Object.entries(h.bodyItems)) addToPile(world, room, 0, carried, id);
+  h.bodyItems = {};
   const pile = world.piles[room];
   const corpse = (pile.corpseGold ??= {});
-  // Tome Rite: the gold is bound to the Village, and goes home whatever happens.
-  if (h.rites.includes('tome') && h.gold > 0) {
-    h.legacy += h.gold;
-    h.gold = 0;
-  }
   if (h.gold > 0) corpse[h.id] = (corpse[h.id] ?? 0) + h.gold;
   // A fallen Undertaker drops what they carried for others, still marked as theirs.
   for (const [id, gold] of Object.entries(h.bodies)) corpse[id] = (corpse[id] ?? 0) + gold;

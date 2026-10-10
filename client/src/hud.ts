@@ -1,5 +1,5 @@
 import {
-  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING,
+  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
@@ -113,7 +113,12 @@ export class Hud {
     $('autopilot').hidden = !you.autopilot;
     const { altars, villagers } = view.objectives;
     const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
-    $('objectives').textContent = altars || villagers ? `⛧ ${altars} cleansed · ☺ ${villagers} saved · +${bonus} gold on escape` : '';
+    const em = view.emergency;
+    const emText = em
+      ? `⚑ ${EMERGENCIES[em.id].name}: ${em.impossible ?? em.parts.map((p) => `${Math.min(p.have, p.need)}/${p.need} ${p.label}`).join(' · ')}${em.done ? ' ✓' : ''}`
+      : '';
+    $('objectives').textContent = [altars || villagers ? `⛧ ${altars} cleansed · ☺ ${villagers} saved · +${bonus} gold on escape` : '', emText].filter(Boolean).join('  |  ');
+    $('objectives').title = em ? `${EMERGENCIES[em.id].desc} (${KIND_NAMES[EMERGENCIES[em.id].kind]})` : '';
     $('hp-text').textContent = `${Math.max(0, Math.ceil(you.hp))}/${you.maxHp}`;
     $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
     $('stress-text').textContent = `${Math.round(you.stress)}`;

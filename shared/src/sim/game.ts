@@ -31,7 +31,9 @@ export class Game {
     const cr = opts.cr ?? rollCr(combinedCr(slots), new Rng(seed ^ 0x2545f491));
     // Relic Rite: anyone's makes it the whole party's run.
     const relic = slots.some((s) => s.loadout?.kit?.rites.includes('relic'));
-    this.world = createWorld(seed, { ...opts, cr, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
+    // The players' Emergencies decide what the dungeon must hold (M13).
+    const emergencies = opts.emergencies ?? slots.flatMap((s) => (!s.isBot && s.loadout?.emergency ? [s.loadout.emergency] : []));
+    this.world = createWorld(seed, { ...opts, cr, emergencies, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
     slots.forEach((slot, i) => {
       addHero(this.world, slot);
       if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919, this.world.startTime));

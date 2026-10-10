@@ -1237,7 +1237,8 @@ function applyMonsterDamage(world: World, m: Monster, dmg: number, events: Comba
       world.risings.push({ ...slain, id: m.id, room: m.room, at: world.time + CR_RULES.zombieRise });
       events.push({ actor: m.id, kind: 'info', text: 'The Zombie twitches. It will not stay down.' });
     }
-    // A Zombie pays out once, however often it's put down.
+    // A Zombie pays out once, however often it's put down; and only counts once for an Emergency.
+    if (!m.again) world.kills[m.type] = (world.kills[m.type] ?? 0) + 1;
     if (!m.again) world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
     if (monstersIn(world, m.room).length === 0 && (world.bounty[m.room] ?? 0) > 0) {
       dropBounty(world, m.room);

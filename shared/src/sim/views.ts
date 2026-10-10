@@ -1,3 +1,4 @@
+import { emergencyProgress, type EmergencyProgress } from './emergency';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
@@ -220,6 +221,8 @@ export interface PlayerView {
   cr: number;
   /** The monsters this run uses. */
   roster: Roster;
+  /** Your Village's Emergency and how far along it is (players only). */
+  emergency: EmergencyProgress | null;
 }
 
 /**
@@ -325,6 +328,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       .map((c) => ({ room: c.room, by: c.by, ago: world.time - c.time })),
     cr: world.cr,
     roster: world.roster,
+    emergency: emergencyProgress(world, you),
   };
 }
 

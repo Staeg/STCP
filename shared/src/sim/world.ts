@@ -1,6 +1,8 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MAX_ESCALATION } from '../content/constants';
-import { CR_RULES, ESCALATION, rollRoster, type Roster } from '../content/enemies';
+import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../content/enemies';
+import type { EmergencyId } from '../content/emergencies';
+import { forceRoster, seedEmergencies } from './emergency';
 import type { TalentId } from '../content/talents';
 import { injuredMaxHp, KIT_RULES, RITES, VILLAGE_RULES, type Injury, type Loadout } from '../village';
 import { CLASS_RULES } from '../content/abilities';
@@ -19,7 +21,7 @@ import { notify } from './notify';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, giveItem, wants, dropItem, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, giveItem, wants, dropItem, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -102,6 +104,14 @@ export interface Hero {
   bodies: Record<string, number>;
   /** Dead heroes: gold an Undertaker carried out for them. */
   legacy: number;
+  /** Undertaker: things carried for fallen allies' Emergencies (hero id → items); they reach the ally's Stash if this hero escapes. */
+  bodyItems: Record<string, ItemId[]>;
+  /** Things that go home whatever happens to this hero: an Undertaker carried them out, or the Tome Rite kept them (consumables). */
+  legacyItems: ItemId[];
+  /** A player's hero (not a bot when the run began): Exodus needs every one of them out. */
+  player: boolean;
+  /** The Emergency this hero's player has (players only). */
+  emergency: EmergencyId | null;
   items: ItemId[];
   /** Temporary or run-long changes to Speed from events (see speed.ts). */
   speedMods: SpeedMod[];
@@ -237,6 +247,8 @@ export interface World {
   roster: Roster;
   /** Zombies due to get back up. */
   risings: Rising[];
+  /** Monsters slain this run, by kind (a Zombie or a raised monster put down again doesn't count twice). */
+  kills: Partial<Record<EnemyId, number>>;
   /** The clock when the run began: 0, or later for a run that starts at a higher Escalation (Relic Rite). */
   startTime: number;
   /** Counters for the results screen and the balance simulator. */
@@ -291,6 +303,8 @@ export interface WorldOptions {
   startEscalation?: number;
   /** The run's monsters (default: rolled from the seed). */
   roster?: Roster;
+  /** The players' Emergencies: the dungeon is seeded so each can be done (M13). */
+  emergencies?: EmergencyId[];
 }
 
 /** Auto-paths treat each known monster in a room as this many seconds of extra walking. */
@@ -305,11 +319,13 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, eliteEvents: false, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
-    roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [],
+    roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [], kills: {},
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
     nextRespawn: Math.max(ESCALATION_INTERVAL, start + 30), nextWanderer: Math.max(ESCALATION_INTERVAL * 2, start + 30),
     nextCollapse: Math.max(ESCALATION_INTERVAL * 3, start + 60), nextWave: Math.max(EXIT_OPENS_AT, start + 45),
   };
+  // Quarry: Emergencies' kill targets are default units this run.
+  forceRoster(world.roster, opts.emergencies ?? []);
   if (opts.monsters !== false) spawnInitialMonsters(world);
   // Events default to following `monsters` (captives come with guards).
   if (opts.events ?? opts.monsters !== false) {
@@ -317,6 +333,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     world.eliteEvents = true;
   }
   if (opts.loot !== false) spawnInitialLoot(world);
+  if (opts.monsters !== false) seedEmergencies(world, opts.emergencies ?? []);
   return world;
 }
 
@@ -406,6 +423,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     elite: {},
     wanderers: 0,
     legion: [],
+    bodyItems: {},
+    legacyItems: [],
+    player: !(opts.isBot ?? false),
+    emergency: opts.isBot ? null : (loadout?.emergency ?? null),
   };
   for (const i of hero.injuries) if (i === 'major') hero.speedMods.push({ amount: VILLAGE_RULES.majorSpeed, until: null, label: MAJOR_INJURY_LABEL });
   if (rites.includes('effigy')) hero.speedMods.push({ amount: KIT_RULES.effigySpeed, until: null, label: RITES.effigy.name });
@@ -472,11 +493,8 @@ function checkEnd(world: World) {
       h.dead = true;
       h.diedAt = world.time;
       h.fate = `was buried when the dungeon collapsed (in ${roomName(world, h)})`;
-      // Tome Rite: their gold goes home anyway.
-      if (h.rites.includes('tome')) {
-        h.legacy += h.gold;
-        h.gold = 0;
-      }
+      // Tome Rite: their gold and consumables go home anyway.
+      if (h.rites.includes('tome')) tomeLegacy(h);
       chronicle(world, `The dungeon collapsed on ${h.name}.`);
     }
     world.phase = 'collapsed';
@@ -540,6 +558,13 @@ export function extractHero(world: World, h: Hero) {
     chronicle(world, `${h.name} carried ${dead.name}'s ${gold} gold home for them.`);
   }
   h.bodies = {};
+  for (const [id, items] of Object.entries(h.bodyItems)) {
+    const dead = world.heroes[id];
+    if (!dead || !items.length) continue;
+    dead.legacyItems.push(...items);
+    chronicle(world, `${h.name} carried home what ${dead.name}'s Village needed.`);
+  }
+  h.bodyItems = {};
   // Wayward Wanderers: the villagers who walked out with the Warden are saved.
   if (h.wanderers > 0) {
     world.objectives.villagers += h.wanderers;

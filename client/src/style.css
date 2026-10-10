@@ -661,3 +661,18 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .rite-tag { color: var(--gold); cursor: help; }
 .kit-badge { margin-left: 6px; letter-spacing: 2px; }
 .cr-line .danger { color: var(--danger); cursor: help; }
+
+/* Wellbeing & Emergencies (M13) */
+.em-box { margin: 8px 0; padding: 8px 10px; border: 1px solid #3a2f24; border-radius: 6px; background: #15110d; }
+.em-box.fate h2 { margin: 0 0 8px; }
+.em-box.fate.won { border-color: var(--gold); }
+.em-box.fate.lost, .em-box.danger { border-color: var(--danger); }
+.em-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.em-card { flex: 1 1 220px; text-align: left; border-left: 4px solid #6a8caf; }
+.em-card.personal { border-left-color: #b58a4a; }
+.em-card.selected { outline: 2px solid var(--gold); }
+.em-card .danger, .em-box .danger { color: var(--danger); }
+.em-kind { font-size: 11px; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.05em; }
+.wb-pips { color: var(--gold); letter-spacing: 2px; cursor: help; }
+.em-tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #1f2a36; cursor: help; }
+.em-tag.personal { background: #33291a; }

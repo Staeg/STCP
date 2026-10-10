@@ -1,7 +1,7 @@
 import {
   abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
-  slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES,
-  type Character, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
+  slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
+  type Character, type EmergencyId, type FateChoice, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
 import type { Net } from './net';
@@ -130,6 +130,7 @@ export class Screens {
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
         ${kitBadge(m.kit)}
+        ${m.emergency ? `<span class="em-tag ${EMERGENCIES[m.emergency].kind}" title="${esc(EMERGENCIES[m.emergency].desc)}">⚑ ${esc(EMERGENCIES[m.emergency].name)}</span>` : ''}
         <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span></span>
       </li>`);
     }
@@ -173,6 +174,7 @@ export class Screens {
         ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
       </div>
       ${this.crHelp ? crHelpHtml(lobby.cr) : ''}
+      ${village ? lobbyEmergencyHtml(village, lobby.cr, you.kit) : ''}
       <div class="classes">${cards}</div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
@@ -232,6 +234,12 @@ export class Screens {
       case 'treat':
         net.send({ t: 'treat', charId: btn.dataset.char!, what: btn.dataset.what as Treatment });
         break;
+      case 'emergency':
+        net.send({ t: 'chooseEmergency', id: btn.dataset.id as EmergencyId });
+        break;
+      case 'fate':
+        net.send({ t: 'chooseFate', choice: btn.dataset.choice as FateChoice });
+        break;
       case 'kit-add':
       case 'kit-remove':
       case 'rite': {
@@ -266,6 +274,55 @@ export class Screens {
     this.commitName();
     this.net.send({ t: 'join', code });
   }
+}
+
+/** Wellbeing as pips: ● for each point, ○ up to the most it can be. */
+function wellbeingPips(w: number): string {
+  return `<span class="wb-pips" title="Wellbeing ${w}: at ${WELLBEING.win} you win, at ${WELLBEING.lose} you lose.">${Array.from({ length: WELLBEING.max }, (_, i) => (i < w ? '●' : '○')).join('')}</span>`;
+}
+
+/** One Emergency as a pickable card, with its kind and any warning. */
+function emergencyCard(id: EmergencyId, chosen: boolean, warning: string | null, act = true): string {
+  const e = EMERGENCIES[id];
+  return `<button class="em-card ${e.kind} ${chosen ? 'selected' : ''}" ${act ? `data-act="emergency" data-id="${id}"` : 'disabled'}>
+    <div><b>${esc(e.name)}</b> <span class="em-kind">${KIND_NAMES[e.kind]}</span></div>
+    <div class="small">${esc(e.desc)}</div>
+    ${warning ? `<div class="small danger">⚠ ${esc(warning)}</div>` : ''}
+  </button>`;
+}
+
+const KIND_HELP = 'Party-wide: whatever anyone in the run does counts, even if your hero dies. Personal: your own hero has to carry it out (or an Undertaker for them), and what has to come out can’t go in.';
+
+/** The Village screen's Wellbeing and the two Emergencies to pick from. */
+function emergencyHtml(v: VillageView, lobby: LobbyView | null): string {
+  const kit = v.kit;
+  return `<div class="em-box">
+    <div>Wellbeing ${wellbeingPips(v.wellbeing)} <span class="muted small">· do the Emergency for +1, fail it for −1 · ${WELLBEING.win} wins, ${WELLBEING.lose} loses</span></div>
+    <div class="muted small">${v.emergency ? 'This run’s Emergency:' : 'Choose this run’s Emergency:'} <span title="${esc(KIND_HELP)}">(?)</span></div>
+    <div class="em-row">${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr: lobby?.cr, rites: kit.rites }))).join('')}</div>
+  </div>`;
+}
+
+/** The lobby: your Emergency, or a prompt to choose one right here. */
+function lobbyEmergencyHtml(v: VillageView, cr: number, kit: Kit): string {
+  if (v.fate) return `<div class="em-box danger">Your Village’s story is over. Open the Village to go on.</div>`;
+  return `<div class="em-box">
+    <div>Village Wellbeing ${wellbeingPips(v.wellbeing)} · ${v.emergency ? 'your Emergency:' : '<span class="danger">choose your Emergency before you ready up:</span>'} <span class="muted small" title="${esc(KIND_HELP)}">(?)</span></div>
+    <div class="em-row">${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr, rites: kit.rites }))).join('')}</div>
+  </div>`;
+}
+
+/** Wellbeing hit 6 or 0: how to go on (user, for now). */
+function fateHtml(v: VillageView): string {
+  const won = v.fate === 'won';
+  return `<div class="em-box fate ${won ? 'won' : 'lost'}">
+    <h2>${won ? 'The Village prospers. You have won!' : 'The Village has fallen. The game is lost.'}</h2>
+    <div class="row">
+      <button class="primary" data-act="fate" data-choice="reset">Reset Wellbeing to ${WELLBEING.start}</button>
+      <button data-act="fate" data-choice="restart">Start over altogether</button>
+    </div>
+    <div class="muted small">Reset keeps your Characters, Stash and purse. Starting over founds a new Village with an empty Stash and purse.</div>
+  </div>`;
 }
 
 /** "Ilse · XP 1/2 · ★ Iron Oath · Minor Injury" for a Character on a lobby class card. */
@@ -331,6 +388,7 @@ function villageHtml(v: VillageView, lobby: LobbyView | null): string {
       <div class="v-purse">Purse <span class="gold">${v.purse} gold</span></div>
     </div>
     ${report}
+    ${v.fate ? fateHtml(v) : emergencyHtml(v, lobby)}
     <div class="v-grid">${cards}</div>
     ${stashHtml(v, lobby)}
     <div class="row muted small">Talents, Gear brought along and Effigy Rites raise the Challenge Rating: more gold, but stranger monsters more often, and tougher ones from CR ${CR_RULES.lowCr}. The ? by the CR in the lobby explains it all.</div>

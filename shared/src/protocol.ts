@@ -8,7 +8,8 @@ import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 import { TALENTS, type TalentId } from './content/talents';
-import type { VillageView, Treatment } from './stash';
+import type { FateChoice, VillageView, Treatment } from './stash';
+import { EMERGENCIES, type EmergencyId } from './content/emergencies';
 import { emptyKit, type Character, type Kit } from './village';
 import { GEAR_SLOTS, RESOURCE_IDS, type ResourceId } from './content/items';
 
@@ -27,6 +28,8 @@ export interface LobbyMemberView {
   character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'affliction'> | null;
   /** What they're bringing from their Village Stash. */
   kit: Kit;
+  /** Their Village's Emergency for this run (M13), if picked. */
+  emergency: EmergencyId | null;
 }
 
 export interface LobbyView {
@@ -61,6 +64,10 @@ export type ClientMsg =
   | { t: 'treat'; charId: string; what: Treatment }
   /** Choose the Gear, consumables and Rites to take from your Village Stash into the next run. */
   | { t: 'setKit'; kit: Kit }
+  /** Pick the Village's Emergency for the next run (one of the two of its Wellbeing). */
+  | { t: 'chooseEmergency'; id: EmergencyId }
+  /** After the Village's game is won or lost: Wellbeing back to 3, or start over altogether. */
+  | { t: 'chooseFate'; choice: FateChoice }
   /** Dev-only (server started with --debug): fast-forward the game clock. */
   | { t: 'debugSkip'; seconds: number }
   /** Dev-only: spawn monsters in your room (starts a fight) and fully heal you. */
@@ -134,6 +141,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'affliction')
         ? { t: 'treat', charId: msg.charId as string, what: msg.what }
         : null;
+    case 'chooseEmergency':
+      return typeof msg.id === 'string' && msg.id in EMERGENCIES ? { t: 'chooseEmergency', id: msg.id as EmergencyId } : null;
+    case 'chooseFate':
+      return msg.choice === 'reset' || msg.choice === 'restart' ? { t: 'chooseFate', choice: msg.choice } : null;
     case 'setKit': {
       const k = msg.kit as Record<string, unknown> | undefined;
       if (!k || typeof k !== 'object' || !k.gear || typeof k.gear !== 'object' || !Array.isArray(k.consumables) || !Array.isArray(k.rites)) return null;

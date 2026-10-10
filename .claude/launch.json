@@ -40,6 +40,15 @@
         "set GAME_PORT=3023&& set CLIENT_PORT=5213&& set STASH_PATH=data/stash-alt2.json&& npm run dev"
       ],
       "port": 5213
+    },
+    {
+      "name": "dev-alt3",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set GAME_PORT=3031&& set CLIENT_PORT=5231&& set STASH_PATH=data/stash-alt3.json&& npm run dev"
+      ],
+      "port": 5231
     }
   ]
 }

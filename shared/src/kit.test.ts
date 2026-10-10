@@ -145,6 +145,7 @@ describe('the lobby and the Stash', () => {
     const ws: Socket = { OPEN: 1, readyState: 1, send: (d) => sent.push(JSON.parse(d)), close: () => {} };
     const say = (msg: Parameters<LobbyManager['handle']>[3]) => mgr.handle(ws, 'tokenAAAA', 'Ann', msg);
     say({ t: 'create' });
+    say({ t: 'chooseEmergency', id: 'wells' });
     say({ t: 'pickClass', cls: 'warden' });
     const lobbyView = [...sent].reverse().find((m) => m.t === 'lobby');
     expect(lobbyView?.t === 'lobby' && lobbyView.lobby?.relic).toBe(true);
@@ -168,5 +169,7 @@ describe('the lobby and the Stash', () => {
     expect(v.items.sort()).toEqual(['bandage', 'mace']);
     expect(v.resources).toEqual({ effigy: 0, gem: 1, tome: 1, relic: 0 });
     expect(v.report.some((l) => l.startsWith('Into the Village Stash'))).toBe(true);
+    // Tainted Wells: no Altars were cleansed.
+    expect(v.report).toContain('Tainted Wells: failed. Wellbeing 3 → 2.');
   });
 });

@@ -32,6 +32,8 @@ function client(mgr: LobbyManager, token: string, name: string) {
   const sock = ws;
   const say = (msg: ClientMsg) => mgr.handle(sock, token, name, msg);
   say({ t: 'hello', token, name });
+  // Every player needs an Emergency before readying up (M13).
+  say({ t: 'chooseEmergency', id: 'patrol' });
   return { ws, sock, say };
 }
 

@@ -3,6 +3,7 @@ import { AFFLICTIONS, type AfflictionId } from './content/events';
 import { TALENTS, talentsFor, type TalentId } from './content/talents';
 import { isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlot, type ItemId, type ResourceId } from './content/items';
 import type { Rng } from './rng';
+import { EMERGENCIES, emergencyBans, type EmergencyId } from './content/emergencies';
 
 /**
  * The Village (M12): every player keeps a roster of Characters, one per class for now (stored as a list so
@@ -51,7 +52,7 @@ export const INJURY_NAMES: Record<Injury, string> = { minor: 'Minor Injury', maj
 export const RITES: Record<ResourceId, { name: string; desc: string }> = {
   effigy: { name: 'Effigy Rite', desc: 'CR +1. Your hero deals +20% damage and has +20% max HP, and is 1s faster.' },
   gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t bring, pick up or use consumables.' },
-  tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold they carry comes home even if they die.' },
+  tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold and consumables they carry come home even if they die.' },
   relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away.' },
 };
 
@@ -107,8 +108,8 @@ export function rollCr(total: number, rng: Rng): number {
   return base + (rng.chance(t - base) ? 1 : 0);
 }
 
-/** Why this kit can't be brought, given what's in the Stash, or null. */
-export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<ResourceId, number>): string | null {
+/** Why this kit can't be brought, given what's in the Stash and the Village's Emergency, or null. */
+export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<ResourceId, number>, emergency: EmergencyId | null = null): string | null {
   const left = [...stash];
   const take = (it: ItemId) => {
     const i = left.indexOf(it);
@@ -123,6 +124,11 @@ export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<R
   }
   if (kit.consumables.length > KIT_RULES.consumables) return `At most ${KIT_RULES.consumables} consumables.`;
   if (kit.rites.includes('gem') && kit.consumables.length) return 'The Gem Rite forbids consumables: leave them at home.';
+  // What the Emergency needs carried out can't be carried in.
+  const banned = emergencyBans(emergency);
+  for (const it of [...Object.values(kit.gear), ...kit.consumables]) {
+    if (it && banned.includes(it)) return `${EMERGENCIES[emergency!].name}: what the Village needs carried out can't be carried in (${ITEMS[it].name}).`;
+  }
   for (const it of kit.consumables) {
     if (ITEMS[it].kind !== 'consumable') return `${ITEMS[it].name} isn't a consumable.`;
     if (!take(it)) return `Your Stash has no more ${pluralName(it)}.`;
@@ -146,6 +152,8 @@ export interface Loadout {
   affliction: AfflictionId | null;
   /** Gear, consumables and Rites taken from the player's Village Stash for this run. */
   kit?: Kit;
+  /** The player's Emergency this run (M13); bots have none. */
+  emergency?: EmergencyId | null;
 }
 
 /** How a Character's run went, as far as the Village cares. */
