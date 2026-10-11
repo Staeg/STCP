@@ -180,13 +180,25 @@ describe('Village buildings', () => {
     expect(isGear(made)).toBe(true);
     expect(itemTier(made)).toBe(1);
     stash.storeLoot('Ann', ['ringmail', 'censer']);
-    expect(stash.useService('Ann', { service: 'reroll', item: 'ringmail' })).toBeNull();
-    const after = stash.village('Ann').items;
-    expect(after).not.toContain('ringmail');
-    const rolled = after.find((x) => x !== made && x !== 'censer' && gearKind(x) === 'mail')!;
+    // The forged piece may share a kind (or even a name) with the ones reworked, and the Stash keeps itself sorted,
+    // so find each new piece as what the Stash gained and lost across the service.
+    const swap = (service: 'reroll' | 'upgrade', item: ItemId) => {
+      const before = [...stash.village('Ann').items];
+      expect(stash.useService('Ann', { service, item })).toBeNull();
+      const left = [...before];
+      const gained = stash.village('Ann').items.filter((x) => {
+        const i = left.indexOf(x);
+        return i < 0 || (left.splice(i, 1), false);
+      });
+      expect(left).toEqual([item]);
+      expect(gained).toHaveLength(1);
+      return gained[0];
+    };
+    const rolled = swap('reroll', 'ringmail');
+    expect(gearKind(rolled)).toBe('mail');
     expect(itemTier(rolled)).toBe(1);
-    expect(stash.useService('Ann', { service: 'upgrade', item: 'censer' })).toBeNull();
-    const up = stash.village('Ann').items.find((x) => gearKind(x) === 'staff')!;
+    const up = swap('upgrade', 'censer');
+    expect(gearKind(up)).toBe('staff');
     expect(itemTier(up)).toBe(2);
   });
 
