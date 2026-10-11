@@ -4,7 +4,7 @@ import { icon, iconize } from '../icons';
 import { drawSprite } from './sprites';
 
 /** Item tier colours, as in the HUD (style.css .tier-N). */
-const TIER_COLORS = { 1: '#f4f0e8', 2: '#5aa8ff', 3: '#c07cff' } as const;
+const TIER_COLORS = { 1: '#f4f0e8', 2: '#5aa8ff', 3: '#c07cff', 4: '#ff9a2e' } as const;
 
 const COLORS = {
   bg: '#0d0b0a',
@@ -43,6 +43,8 @@ export class MapRenderer {
   private locked: number | null = null;
   private lockEl: HTMLDivElement;
   private lockHtml = '';
+  /** An ability waiting for a room (Unmake, Waystep): a clicked room goes to it, not to walking. Its name, or null. */
+  roomPicker: { picking: () => string | null; pick: (room: number) => boolean } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private net: Net) {
     this.ctx = canvas.getContext('2d')!;
@@ -55,7 +57,7 @@ export class MapRenderer {
     canvas.addEventListener('click', (e) => {
       if (this.net.cur?.results) return;
       const room = this.hitTest(e.clientX, e.clientY);
-      if (room !== null) this.net.intent({ type: 'goto', room });
+      if (room !== null && !this.roomPicker?.pick(room)) this.net.intent({ type: 'goto', room });
     });
     this.lockEl = document.createElement('div');
     this.lockEl.className = 'reveal-lock';
@@ -183,7 +185,8 @@ export class MapRenderer {
     const size = this.roomSize();
 
     this.hover = this.hitTest(this.mouse.x, this.mouse.y);
-    this.canvas.style.cursor = this.hover !== null && this.hover !== curRoom ? 'pointer' : 'default';
+    const picking = this.roomPicker?.picking();
+    this.canvas.style.cursor = picking ? 'crosshair' : this.hover !== null && this.hover !== curRoom ? 'pointer' : 'default';
 
     // Corridors
     ctx.lineCap = 'round';

@@ -165,8 +165,9 @@ export const KIT_RULES = {
   relicRiteCost: 1,
   /** Consumables a hero may bring from the Stash at no cost. */
   consumables: 2,
-  /** CR added per level (tier) of every piece of Gear brought in. */
+  /** CR added per level (tier) of every piece of Gear brought in; a Legendary adds `legendaryCr` (user, 2026-10-11). */
   crPerGearLevel: 0.1,
+  legendaryCr: 1,
   effigyCr: 1,
   gemCr: -0.5,
   /** Effigy / Tome: damage dealt and max HP multipliers; Effigy's Speed change (seconds). */
@@ -188,10 +189,16 @@ export function emptyKit(): Kit {
   return { gear: {}, consumables: [], rites: [] };
 }
 
-/** The CR a kit adds: 0.1 per Gear level, +1 for an Effigy Rite, −0.5 for a Gem Rite. */
+/** The CR one piece of Gear adds when brought in: 0.1 per level, or a whole CR for a Legendary. */
+export function gearCr(item: ItemId): number {
+  const tier = itemTier(item);
+  return tier === 4 ? KIT_RULES.legendaryCr : tier * KIT_RULES.crPerGearLevel;
+}
+
+/** The CR a kit adds: 0.1 per Gear level (1 per Legendary), +1 for an Effigy Rite, −0.5 for a Gem Rite. */
 export function kitCr(kit: Kit | undefined): number {
   if (!kit) return 0;
-  let cr = Object.values(kit.gear).reduce((s, it) => s + (it ? itemTier(it) * KIT_RULES.crPerGearLevel : 0), 0);
+  let cr = Object.values(kit.gear).reduce((s, it) => s + (it ? gearCr(it) : 0), 0);
   if (kit.rites.includes('effigy')) cr += KIT_RULES.effigyCr;
   if (kit.rites.includes('gem')) cr += KIT_RULES.gemCr;
   return Math.round(cr * 100) / 100;

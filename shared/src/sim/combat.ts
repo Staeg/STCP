@@ -14,6 +14,8 @@ import { chronicle, extractHero, roomName, type Hero, type World } from './world
 import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
+import { foredoom, legendError, useLegend } from './legends';
+import type { LegendId } from '../content/legends';
 
 export const DEATH_TIMER = 36;
 export const REVIVE_CHANNEL = 6;
@@ -118,13 +120,17 @@ export interface Risen {
   permanent?: boolean;
 }
 
-export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item';
+export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item' | 'legend';
 
 export interface Choice {
   action: CombatAction;
   target?: string;
   /** Inventory slot, for action 'item'. */
   item?: number;
+  /** Which Legendary ability, for action 'legend'. */
+  legend?: LegendId;
+  /** A room on the hero's map, for Legendary abilities aimed at one (Unmake, Waystep). */
+  room?: number;
 }
 
 export type CombatEventKind = 'damage' | 'heal' | 'miss' | 'status' | 'flee' | 'down' | 'death' | 'info' | 'stress';
@@ -432,13 +438,18 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
     for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
     say(world, enc, `${h.name}'s evil eye falls on every foe. (Hexed)`);
   }
-  // Unholy Uprising: the Undertaker's dead come too.
+  // Unholy Uprising: the Undertaker's dead come too (and Howl's wolves).
   if (h.legion.length) {
     // A Risen ally keeps its hero's id, so the fight screen can show what it does.
     for (const r of h.legion) (enc.legion ??= []).push({ ...r, id: r.hero ?? `r${world.nextId++}`, by: h.id });
-    say(world, enc, `${h.name}'s dead shamble in behind them: ${h.legion.map((r) => risenName(world, r)).join(', ')}.`);
+    const dead = h.legion.filter((r) => r.type !== 'wolf');
+    const wolves = h.legion.length - dead.length;
+    if (dead.length) say(world, enc, `${h.name}'s dead shamble in behind them: ${dead.map((r) => risenName(world, r)).join(', ')}.`);
+    if (wolves) say(world, enc, `${wolves > 1 ? `${wolves} wolves pad` : 'A wolf pads'} in at ${h.name}'s side.`);
     h.legion = [];
   }
+  // Foredoom: the strongest foe here dies as the fight begins.
+  foredoom(world, enc, h);
   // Restless Dead: the risen that followed the Undertaker here fights on.
   if (h.risen && !risenOf(enc)) {
     enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
@@ -473,7 +484,7 @@ function enlist(enc: Encounter, h: Hero) {
   h.channel = null;
 }
 
-function leaveEncounter(world: World, enc: Encounter, h: Hero) {
+export function leaveEncounter(world: World, enc: Encounter, h: Hero) {
   keepRisen(enc, h);
   enc.heroes = enc.heroes.filter((id) => id !== h.id);
   delete enc.choices[h.id];
@@ -494,7 +505,7 @@ function resetAfterFight(h: Hero) {
 
 function endEncounter(world: World, enc: Encounter) {
   // Unholy Uprising: fighting beside the restless dead wears on the living.
-  const raisers = new Set((enc.legion ?? []).map((r) => r.by));
+  const raisers = new Set((enc.legion ?? []).filter((r) => r.type !== 'wolf').map((r) => r.by));
   for (const by of raisers) {
     for (const id of enc.heroes) {
       const o = world.heroes[id];
@@ -555,7 +566,7 @@ function fightSummary(world: World, enc: Encounter, end?: string): string {
 }
 
 /** A line for the fight's live log and its full play-by-play. */
-function say(world: World, enc: Encounter, text: string) {
+export function say(world: World, enc: Encounter, text: string) {
   enc.log.push(text);
   if (enc.log.length > 40) enc.log.splice(0, enc.log.length - 40);
   const h = enc.history;
@@ -612,8 +623,9 @@ export function risenOf(enc: Encounter): Risen | null {
   return enc.risen && enc.risen.hp > 0 && enc.risen.turns > 0 ? enc.risen : null;
 }
 
-/** "Risen Ghoul", or a Risen ally's own name ("Risen Mara"). */
+/** "Risen Ghoul", or a Risen ally's own name ("Risen Mara"). Howl's wolves are just "Wolf". */
 export function risenName(world: World, r: Pick<Risen, 'type' | 'hero'>): string {
+  if (r.type === 'wolf') return ENEMIES.wolf.name;
   return `Risen ${r.hero ? world.heroes[r.hero]?.name ?? 'ally' : ENEMIES[r.type!].name}`;
 }
 
@@ -784,6 +796,13 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     enc.choices[h.id] = pick;
     return null;
   }
+  if (choice.action === 'legend') {
+    if (!choice.legend) return 'No such ability.';
+    const err = legendError(world, h, choice.legend, choice.target ?? null, choice.room ?? null, enc);
+    if (err) return err;
+    enc.choices[h.id] = { action: 'legend', legend: choice.legend, target: choice.target, room: choice.room };
+    return null;
+  }
   const ab = abilityOf(h, choice.action);
   if (ab && (h.cooldowns[ab.id] ?? 0) > 0) return `${ab.name} is on cooldown.`;
   const why = ab && unusableReason(world, enc, h, ab);
@@ -814,7 +833,7 @@ function takeTurn(world: World, enc: Encounter, unit: Unit) {
 }
 
 /** Add what just happened to the fight's event list and log. */
-function record(world: World, enc: Encounter, events: CombatEvent[]) {
+export function record(world: World, enc: Encounter, events: CombatEvent[]) {
   for (const e of events) e.seq = ++enc.seq;
   enc.events.push(...events);
   if (enc.events.length > 30) enc.events.splice(0, enc.events.length - 30);
@@ -1097,6 +1116,13 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
       case 'acolyte':
         hit(foes[foes.length - 1], 'curses');
         break;
+      case 'wolf': {
+        // Howl's wolves: each bite costs its target 1 Block until the fight ends.
+        const m = foes[0];
+        hit(m, 'bites');
+        if (world.monsters[m.id]) m.st.sunder = (m.st.sunder ?? 0) + 1;
+        break;
+      }
       default:
         hit(foes[0], 'claws');
     }
@@ -1177,6 +1203,17 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     }
     // Volatile: every flask the Alchemist opens in a fight leaks fumes.
     if (h.talent === 'volatile') fumes(world, enc, h, events, true);
+    return;
+  }
+  if (c.action === 'legend') {
+    // Things may have changed since it was picked (the target died, the gear came off…): then it fizzles into a brace.
+    const err = c.legend ? legendError(world, h, c.legend, c.target ?? null, c.room ?? null, enc) : 'No such ability.';
+    if (err) {
+      h.st.brace = true;
+      events.push({ actor: h.id, kind: 'info', text: `${h.name} braces instead. (${err})` });
+      return;
+    }
+    useLegend(world, h, c.legend!, c.target ?? null, c.room ?? null, enc, events);
     return;
   }
   if (c.action === 'revive') {
@@ -1480,7 +1517,7 @@ export function hitDamage(h: Hero, base: number, world?: World): number {
 }
 
 /** Hero damages a monster. Returns true if it connected. */
-function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
+export function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
   let dmg = monsterTakes(world, m, hitDamage(h, base, world));
   if (m.st.shield) {
     const absorbed = Math.min(m.st.shield, dmg);
@@ -1501,7 +1538,7 @@ function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: numb
   return true;
 }
 
-function applyMonsterDamage(world: World, m: Monster, dmg: number, events: CombatEvent[]) {
+export function applyMonsterDamage(world: World, m: Monster, dmg: number, events: CombatEvent[]) {
   m.hp -= dmg;
   if (m.hp <= 0) {
     delete world.monsters[m.id];
@@ -1683,7 +1720,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     const rname = risenName(world, r);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
     if (r.hp <= 0) {
-      events.push({ actor: r.id, kind: 'death', target: r.id, text: `${rname} falls apart.` });
+      events.push({ actor: r.id, kind: 'death', target: r.id, text: r.type === 'wolf' ? `${rname} yelps and falls.` : `${rname} falls apart.` });
       delete enc.next[r.id];
       if (r.hero) risenAllyFalls(world, world.heroes[r.hero], enc.room);
     }

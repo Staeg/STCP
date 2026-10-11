@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
+  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, ITEMS, LEGENDARY_IDS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -143,7 +143,10 @@ export function dropKingsTreasure(world: World, room: number) {
     gold += rng.int(...LOOT.lairGold);
     if (rng.chance(LOOT.relicChance)) items.push('relic');
   }
+  // A Legendary always lands, however full the floor already is.
+  const legends = Array.from({ length: CROWNED.legendaries }, () => rng.pick(LEGENDARY_IDS));
   addToPile(world, room, gold, items);
+  addToPile(world, room, 0, legends, null, true);
   world.bounty[room] = (world.bounty[room] ?? 0) + CROWNED.lairs * LOOT.lairBounty;
 }
 
@@ -151,11 +154,11 @@ export function dropKingsTreasure(world: World, room: number) {
  * Put things on a room's floor. Found loot (`droppedBy` null) never takes a room past LOOT.maxDrops; whoever drops
  * something ignores it from then on (they just put it down), so it won't pop up for them again.
  */
-export function addToPile(world: World, room: number, gold: number, items: ItemId[], droppedBy: string | null = null) {
+export function addToPile(world: World, room: number, gold: number, items: ItemId[], droppedBy: string | null = null, uncapped = false) {
   const pile = (world.piles[room] ??= { gold: 0, items: [] });
   // Found gold is worth more at higher Challenge Rating.
   pile.gold += droppedBy === null ? crGold(world, gold) : gold;
-  if (droppedBy === null) items = items.slice(0, Math.max(0, LOOT.maxDrops - pile.items.length));
+  if (droppedBy === null && !uncapped) items = items.slice(0, Math.max(0, LOOT.maxDrops - pile.items.length));
   const dropper = droppedBy ? world.heroes[droppedBy] : undefined;
   for (const item of items) {
     pile.items.push({

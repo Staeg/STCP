@@ -1,6 +1,6 @@
 import type { Rng } from '../rng';
 
-export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich' | 'king';
+export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich' | 'king' | 'wolf';
 
 /**
  * Power tier: 0 the common dead, 4 the worst there is. Which units of tiers 0–3 a run uses is rolled (see `Roster`);
@@ -28,6 +28,8 @@ export interface EnemyDef {
   needsCompany?: boolean;
   /** Only ever spawned by its event, never by the roster or Challenge Rating. */
   eventOnly?: boolean;
+  /** Fights for the heroes, never against them (Howl's wolves). Not in the Bestiary. */
+  ally?: boolean;
   /** Placeholder glyph until sprites (M9). */
   glyph: string;
   desc: string;
@@ -52,6 +54,9 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- T4: only with Crowned in Dread (user, 2026-10-11) ----
   king: { id: 'king', name: 'Dead King', tier: 4, maxHp: 100, speed: 10, dmg: 10, block: 0, undead: true, glyph: '♔', onePerRoom: true, eventOnly: true,
     desc: 'Very slow. Block 3 for every other monster still standing in the fight. Takes turns between Kneel (every hero in the fight is Stunned) and Charge (10 dmg to the nearest hero; every monster in the fight is 1s faster until it ends), starting with either.' },
+  // ---- Allies: Howl (Fenrir's Tooth, a Legendary) calls them (user, 2026-10-11) ----
+  wolf: { id: 'wolf', name: 'Wolf', tier: 0, maxHp: 15, speed: 5, dmg: 2, block: 0, undead: false, glyph: 'ᴥ', eventOnly: true, ally: true,
+    desc: 'Fights at the side of whoever howled for it, from fight to fight. Bite: 2 dmg to the nearest enemy, and −1 Block on it until the fight ends.' },
 };
 
 export const TIERS: RosterTier[] = [0, 1, 2, 3];

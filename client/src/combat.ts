@@ -1,6 +1,6 @@
 import {
-  abilitiesOf, FLEE_CHANCE, INSANITY, INSANITY_RULES, STRESS, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
-  type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
+  abilitiesOf, CLASS_RULES, FLEE_CHANCE, GEAR_SLOTS, INSANITY, INSANITY_RULES, LEGENDS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
+  skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type GearSlot, type LegendId, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
@@ -52,6 +52,12 @@ export class CombatUi {
   private hurry = false;
   /** Out of a fight: the action whose description was clicked open, so its icons can be hovered. */
   private pinned: string | null = null;
+  /**
+   * An ability waiting for its target: someone from the strip of names above the bar, or (`room`) a room clicked on
+   * the map. A field skill out of a fight, or a Legendary ability in or out of one.
+   */
+  private aim: { skill: FieldSkill; legend: boolean; room: boolean } | null = null;
+  private fighting = false;
   private pinTouched = false;
 
   constructor(private net: Net) {
@@ -69,6 +75,9 @@ export class CombatUi {
   update(view: PlayerView | null) {
     const panel = $('combat');
     const enc = view?.encounter ?? null;
+    // A fight starting or ending calls off whatever was being aimed.
+    if (!!enc !== this.fighting) this.aim = null;
+    this.fighting = !!enc;
     if (!view || !enc) {
       this.targeting = null;
       this.prevMonsters.clear();
@@ -77,12 +86,15 @@ export class CombatUi {
       this.pending = { dmg: new Map(), heal: new Map(), dying: new Map() };
       panel.hidden = !view || view.phase !== 'running' || view.you.dead || view.you.extracted;
       panel.classList.add('idle');
+      panel.classList.remove('aim-room');
       if (view && !panel.hidden) this.renderIdle(view);
       return;
     }
     if (this.shownLog.length === 0 && enc.log.length) this.shownLog = enc.log.slice(0, 1); // the "Ambush!" line
     panel.hidden = false;
     panel.classList.remove('idle');
+    // Picking a room on the map: the fight stage folds away so the map shows.
+    panel.classList.toggle('aim-room', !!this.aim?.room);
     this.onNewEvents(enc);
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
@@ -195,7 +207,7 @@ export class CombatUi {
 
     const log = `<div class="cb-log">${this.shownLog.slice(-7).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
 
-    const html = header + `<div class="cb-body">${stage}${log}</div>` + this.actionsHtml(view, enc, canAct);
+    const html = header + `<div class="cb-body">${stage}${log}</div>` + this.aimHtml(view) + this.actionsHtml(view, enc, canAct);
     this.setHtml(html);
   }
 
@@ -203,8 +215,8 @@ export class CombatUi {
   private renderIdle(view: PlayerView) {
     const items = this.itemsHtml(view, null, false);
     this.setHtml(`<div class="cb-group">
-        <div class="cb-idle-head">Combat actions <span class="muted">· usable in a fight · defaults to your first ability that's ready</span></div>
-        ${this.actionsHtml(view, null, false)}
+        <div class="cb-idle-head">Abilities <span class="muted">· bright ones work now too, as your turn · in a fight you default to your first one that's ready</span></div>
+        ${this.aimHtml(view)}${this.actionsHtml(view, null, false)}
       </div>`
       + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now (as your turn), or in a fight</span></div>${items}</div>` : ''));
   }
@@ -225,6 +237,7 @@ export class CombatUi {
 
   /** Which button an out-of-fight click pins: an ability or other action, or a pack item that can't be used now. */
   private static pinKey(el: HTMLElement): string | null {
+    if (el.dataset.pin) return el.dataset.pin;
     if (el.dataset.action) return el.dataset.action;
     if (el.dataset.fieldItem !== undefined && !el.classList.contains('usable')) return `item${el.dataset.fieldItem}`;
     return null;
@@ -266,15 +279,181 @@ export class CombatUi {
       return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc + extra, ab.cooldown, !!ab.field) + why, cd, blocked);
     };
     const actions = `<div class="cb-actions">
-      ${abilities.map((_, i) => ability(i)).join('')}
-      ${btn('revive', 'R', 'Revive', iconize('Get a downed ally back up (30% HP).'), 0, !anyDowned, 'revive')}
+      ${enc ? abilities.map((_, i) => ability(i)).join('') : abilities.map((ab, i) => (ab.field ? this.fieldBtn(view, ab.id as FieldSkill, String(i + 1)) : ability(i))).join('')}
+      ${this.extraBtns(view, enc, canAct)}
+      ${!enc ? '' : `${btn('revive', 'R', 'Revive', iconize('Get a downed ally back up (30% HP).'), 0, !anyDowned, 'revive')}
       ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +${STRESS.flee} stress.`), 0, false, 'flee')}
-      ${btn('brace', 'B', 'Brace', iconize('Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)'), 0, false, 'brace')}
+      ${btn('brace', 'B', 'Brace', iconize('Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)'), 0, false, 'brace')}`}
     </div>`;
 
     if (!enc) return actions;
     const items = this.itemsHtml(view, enc, canAct);
     return actions + items;
+  }
+
+  /** The Bellwright's Toll and Legendary abilities: after the class's three, in the same bar. */
+  private extraBtns(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
+    const you = view.you;
+    const out: string[] = [];
+    if (you.cls === 'bellwright') {
+      out.push(enc ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} ${cooldownIcon(CLASS_RULES.tollCooldown)} Only out of a fight.`, you.cooldowns.toll ?? 0, false, true)
+        : this.fieldBtn(view, 'toll', 'M'));
+    }
+    for (const { legend: l, key } of legendKeys(you)) {
+      const def = LEGENDS[l];
+      if (!enc) {
+        out.push(def.field ? this.fieldBtn(view, l, key) : this.greyBtn(l, key, def.name, `${iconize(def.desc)} ${cooldownIcon(def.cooldown)} Only in a fight.`, you.cooldowns[l] ?? 0, true));
+        continue;
+      }
+      if (!def.combat) {
+        out.push(this.greyBtn(l, key, def.name, `${iconize(def.desc)} ${cooldownIcon(def.cooldown)} Only out of a fight.`, you.cooldowns[l] ?? 0, true, true));
+        continue;
+      }
+      const cd = you.cooldowns[l] ?? 0;
+      const opt = enc.legendOptions?.[l];
+      const blocked = !canAct || cd > 0 || !!opt?.blocked;
+      const sel = (enc.yourChoice?.action === 'legend' && enc.yourChoice.legend === l) || (this.aim?.legend && this.aim.skill === l);
+      const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
+      out.push(`<button class="cb-act legend ${sel ? 'sel' : ''}" data-legend="${l}" ${blocked ? 'disabled' : ''}>
+        <kbd>${key}</kbd> ${esc(def.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+        <div class="cb-desc">${iconize(def.desc)} ${cooldownIcon(def.cooldown)}${def.field ? ` ${icon('field')}` : ''}${why}</div></button>`);
+    }
+    return out.join('');
+  }
+
+  /** An action that can't be used here (in a fight, or out of one): greyed, its description on hover or click. */
+  private greyBtn(pin: string, key: string, name: string, desc: string, cd: number, legend = false, fight = false): string {
+    // In a fight it's just its key and name (what it does on hover), so the usable ones keep the room.
+    return `<button class="cb-act ${legend ? 'legend' : ''} ${fight ? 'mini' : ''}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
+      <kbd>${key}</kbd> ${esc(name)}${cd > 0 && !fight ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      <div class="cb-desc"><b>${esc(name)}</b>: ${desc}</div></button>`;
+  }
+
+  /**
+   * Out of a fight, one button for an ability that works there (a field skill): bright when it's ready, used with a
+   * click (as your turn), its cooldown on it. Targets are picked from a strip above the bar, or on the map.
+   */
+  private fieldBtn(view: PlayerView, skill: FieldSkill, key: string): string {
+    const you = view.you;
+    const legend = skill in LEGENDS;
+    const info = skillInfo(you, skill);
+    const cd = you.cooldowns[skill] ?? 0;
+    const ab = abilitiesOf(you).find((a) => a.id === skill);
+    const cooldown = legend ? LEGENDS[skill as LegendId].cooldown : skill === 'toll' ? CLASS_RULES.tollCooldown : ab?.cooldown ?? 0;
+    const queued = you.queuedSkill?.skill === skill;
+    const aiming = this.aim?.skill === skill;
+    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead;
+    const mKey = skill === this.mSkill(view) && key !== 'M' ? ' <kbd>M</kbd>' : '';
+    const inFights = legend ? LEGENDS[skill as LegendId].combat : !!ab;
+    return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''}" data-skill="${skill}">
+      <kbd>${key}</kbd>${mKey} ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)}${cooldown ? ` ${cooldownIcon(cooldown)}` : ''}${inFights ? ` ${icon('field')}` : ' Only out of a fight.'}</div></button>`;
+  }
+
+  /** The skill M uses out of a fight: the first class skill (Toll first) that's ready. */
+  private mSkill(view: PlayerView): FieldSkill | undefined {
+    return fieldSkillsOf(view.you).find((s) => !(s in LEGENDS) && !((view.you.cooldowns[s] ?? 0) > 0));
+  }
+
+  /** Who an ability being aimed can go to, as name buttons (or a "click a room" note), above the bar. */
+  private aimHtml(view: PlayerView): string {
+    const aim = this.aim;
+    if (!aim) return '';
+    const name = skillInfo(view.you, aim.skill).name;
+    const cancel = '<button class="aim-chip cancel" data-aim-cancel>✕ <kbd>Esc</kbd></button>';
+    if (aim.room) return `<div class="cb-aim"><b>${esc(name)}</b>: click a room on the map. ${cancel}</div>`;
+    const chips = this.aimTargets(view).map((t) => `<button class="aim-chip" data-aim-target="${t.id}">${t.label}</button>`).join('');
+    return `<div class="cb-aim"><b>${esc(name)}</b> on: ${chips || '<span class="muted">nobody here</span>'} ${cancel}</div>`;
+  }
+
+  /** Who the ability being aimed can go to now (labels are HTML). */
+  private aimTargets(view: PlayerView): { id: string; label: string }[] {
+    const aim = this.aim;
+    if (!aim) return [];
+    const you = view.you;
+    const enc = view.encounter;
+    type Person = { id: string; name: string; hp: number; maxHp: number; stress?: number; downed?: boolean; dead: boolean };
+    const label = (a: Person) => a.dead ? `${esc(a.name)} <span class="muted">dead</span>` : a.downed ? `${esc(a.name)} <span class="muted">down</span>`
+      : `${a.id === you.id ? 'yourself' : esc(a.name)} <span class="muted">${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}${a.stress !== undefined ? ` ${Math.round(a.stress)}${icon('stress')}` : ''}</span>`;
+    const people: Person[] = [{ id: you.id, name: you.name, hp: you.hp, maxHp: you.maxHp, stress: you.stress, dead: you.dead }, ...view.allies];
+    if (enc && aim.legend) {
+      const ids = enc.legendOptions?.[aim.skill as LegendId]?.targets ?? [];
+      return ids.flatMap((id) => people.filter((p) => p.id === id)).map((p) => ({ id: p.id, label: label(p) }));
+    }
+    const here = you.pos.kind === 'room' ? you.pos.room : -1;
+    const kind = skillTarget(you, aim.skill);
+    const inRoom = view.allies.filter((a) => a.live && !a.extracted && a.pos.kind === 'room' && a.pos.room === here);
+    if (kind === 'fallen') return inRoom.filter((a) => a.downed || a.dead).map((a) => ({ id: a.id, label: label(a) }));
+    let list: Person[] = [...(kind === 'any' ? [people[0]] : []), ...inRoom.filter((a) => !a.downed && !a.dead)];
+    if (aim.skill === 'sins') list = list.filter((a) => (a.stress ?? 0) > 0);
+    if (aim.skill === 'mend') list = list.filter((a) => a.hp < a.maxHp);
+    return list.map((a) => ({ id: a.id, label: label(a) }));
+  }
+
+  /** Clicked (or its key pressed): a field skill out of a fight. Untargeted ones go at once; others want a target. */
+  private useField(skill: FieldSkill) {
+    const view = this.net.cur;
+    if (!view || view.encounter) return;
+    if ((view.you.cooldowns[skill] ?? 0) > 0) return;
+    const kind = skillTarget(view.you, skill);
+    if (kind === 'none') {
+      this.aim = null;
+      this.net.intent({ type: 'skill', skill });
+      return;
+    }
+    this.aim = { skill, legend: skill in LEGENDS, room: kind === 'room' };
+    if (kind === 'room') return;
+    const targets = this.aimTargets(view);
+    // Only one who it could be: no need to ask.
+    if (targets.length === 1) this.aimAt(targets[0].id);
+    else if (targets.length === 0) {
+      this.aim = null;
+      this.net.intent({ type: 'skill', skill }); // the server says why not
+    }
+  }
+
+  /** A Legendary ability in a fight: picked now, done on your turn. */
+  private pickLegend(l: LegendId) {
+    const view = this.net.cur;
+    const enc = view?.encounter;
+    if (!view || !enc) return;
+    const opt = enc.legendOptions?.[l];
+    if (!opt || opt.blocked || (view.you.cooldowns[l] ?? 0) > 0) return;
+    this.targeting = null;
+    const kind = LEGENDS[l].target;
+    if (kind === 'none') {
+      this.aim = null;
+      this.net.intent({ type: 'combat', choice: { action: 'legend', legend: l } });
+      return;
+    }
+    this.aim = { skill: l, legend: true, room: kind === 'room' };
+    if (kind === 'room') return;
+    if (opt.targets.length === 1) this.aimAt(opt.targets[0]);
+  }
+
+  /** The target of the ability being aimed was picked. */
+  private aimAt(target: string) {
+    const aim = this.aim;
+    if (!aim) return;
+    this.aim = null;
+    if (this.net.cur?.encounter && aim.legend) this.net.intent({ type: 'combat', choice: { action: 'legend', legend: aim.skill as LegendId, target } });
+    else this.net.intent({ type: 'skill', skill: aim.skill, target });
+  }
+
+  /** A room was clicked on the map: true if an ability was waiting for one (and took it), so the click isn't a walk. */
+  pickRoom(room: number): boolean {
+    const aim = this.aim;
+    if (!aim?.room) return false;
+    this.aim = null;
+    if (this.net.cur?.encounter && aim.legend) this.net.intent({ type: 'combat', choice: { action: 'legend', legend: aim.skill as LegendId, room } });
+    else this.net.intent({ type: 'skill', skill: aim.skill, room });
+    return true;
+  }
+
+  /** Waiting for a room to be clicked: the ability's name (the map says so by the pointer). */
+  get pickingRoom(): string | null {
+    const view = this.net.cur;
+    return this.aim?.room && view ? skillInfo(view.you, this.aim.skill).name : null;
   }
 
   /**
@@ -331,7 +510,7 @@ export class CombatUi {
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
     const sub = u.downed ? `DOWN · ${Math.ceil(u.dying ?? 0)}s`
       : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
-      : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
+      : u.enemy === 'wolf' ? 'wolf · runs with you' : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
     // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.
     const timed = u.nextIn !== null && !dying;
     const fill = timed ? Math.max(0, Math.min(1, 1 - u.nextIn! / u.speed)) : 0;
@@ -412,6 +591,22 @@ export class CombatUi {
 
   private onClick(e: Event) {
     const el = e.target as HTMLElement;
+    const chip = el.closest('button.aim-chip') as HTMLElement | null;
+    if (chip) {
+      if (chip.dataset.aimCancel !== undefined) this.aim = null;
+      else if (chip.dataset.aimTarget) this.aimAt(chip.dataset.aimTarget);
+      return;
+    }
+    const live = el.closest('button[data-skill]') as HTMLElement | null;
+    if (live) {
+      if (!live.classList.contains('cooling')) this.useField(live.dataset.skill as FieldSkill);
+      return;
+    }
+    const leg = el.closest('button[data-legend]') as HTMLButtonElement | null;
+    if (leg) {
+      if (!leg.disabled) this.pickLegend(leg.dataset.legend as LegendId);
+      return;
+    }
     // Exploring: clicking a greyed action keeps its description open (click it again, or anywhere, to close).
     const pinBtn = !this.net.cur?.encounter ? (el.closest('button.cb-act') as HTMLElement | null) : null;
     const key = pinBtn && CombatUi.pinKey(pinBtn);
@@ -442,7 +637,26 @@ export class CombatUi {
   }
 
   private onKey(e: KeyboardEvent) {
-    if (!this.net.cur?.encounter || (e.target as HTMLElement).tagName === 'INPUT') return;
+    const view = this.net.cur;
+    if (!view || (e.target as HTMLElement).tagName === 'INPUT' || e.repeat) return;
+    if (e.code === 'Escape' && this.aim) {
+      this.aim = null;
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (view.phase !== 'running' || view.you.dead || view.you.extracted) return;
+    // Legendary abilities (Q, T, G, V), in a fight or out; out of one, M is your class skill.
+    const l = legendKeys(view.you).find((x) => `Key${x.key}` === e.code)?.legend;
+    if (l) {
+      if (view.encounter) this.pickLegend(l);
+      else if (LEGENDS[l].field) this.useField(l);
+      return;
+    }
+    if (!view.encounter) {
+      const m = this.mSkill(view);
+      if (e.code === 'KeyM' && m) this.useField(m);
+      return;
+    }
     const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
     const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].slice(0, HOTKEY_ITEMS).indexOf(e.code);
     if (e.code === 'Escape') this.targeting = null;
@@ -471,6 +685,18 @@ export class CombatUi {
     }
     return true;
   }
+}
+
+/** Keys for Legendary abilities, by the slot their Gear is worn in. */
+const LEGEND_KEYS: Record<GearSlot, string> = { weapon: 'Q', armor: 'T', amulet: 'G', ring: 'V' };
+
+/** The Legendary abilities you have, each with its key. */
+function legendKeys(you: PlayerView['you']): { legend: LegendId; key: string }[] {
+  return GEAR_SLOTS.flatMap((slot) => {
+    const it = you[slot];
+    const legend = it ? ITEMS[it].legend : undefined;
+    return legend ? [{ legend, key: LEGEND_KEYS[slot] }] : [];
+  });
 }
 
 /** Ability text (HTML) with icons for its cooldown and whether it works outside fights. */

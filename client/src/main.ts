@@ -16,6 +16,7 @@ const combat = new CombatUi(net);
 const loot = new LootUi(net);
 const events = new EventUi(net);
 const results = new ResultsUi(net);
+map.roomPicker = { picking: () => combat.pickingRoom, pick: (room) => combat.pickRoom(room) };
 
 // Lobby links: ?lobby=CODE joins automatically, and the URL tracks the lobby you're in so refresh/share works.
 const urlCode = new URLSearchParams(location.search).get('lobby');

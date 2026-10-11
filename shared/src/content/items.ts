@@ -9,9 +9,12 @@ export type ItemId =
   | 'crook' | 'censer' | 'rowan' | 'wardstaff' | 'witchwood' | 'twinned' | 'evergreen' | 'hourglass'
   | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
   | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark'
-  | 'patchwork' | 'hastening' | 'wayfarer' | 'sackcloth' | 'gravecloth' | 'softstep' | 'blinkcloth' | 'gossamer';
+  | 'patchwork' | 'hastening' | 'wayfarer' | 'sackcloth' | 'gravecloth' | 'softstep' | 'blinkcloth' | 'gossamer'
+  | 'nightfang' | 'earthsplitter' | 'hollowrod' | 'lethehide' | 'halvard' | 'elowen' | 'fenrir' | 'ashkar';
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
+import { legendNote, type LegendId } from './legends';
+
 export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
 export const GEAR_TYPE_NAMES: Record<GearType, string> = {
   dagger: 'Dagger', hammer: 'Hammer', staff: 'Staff', leather: 'Leather', mail: 'Mail', cloth: 'Cloth',
@@ -72,6 +75,8 @@ export interface ItemDef {
   regen?: number;
   /** Being Dim no longer hides neighbouring rooms, and you never forget paths. */
   seeDim?: boolean;
+  /** Legendary (tier 4): the active ability it gives whoever wears it. */
+  legend?: LegendId;
 }
 
 /** The pack: this many slots; Effigies, Gems, Tomes and Relics stack up to STACK_SIZE in one. */
@@ -234,7 +239,29 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   blinkcloth: cloth('blinkcloth', 'Blinkcloth Mantle', { effect: 'blink', perFight: true },
     `Slip: instead of going down, you leave at 1 HP for a random room next door (+${CLOTH.blinkStress} stress).`),
   gossamer: cloth('gossamer', 'Gossamer Shroud', { effect: 'gossamer', perFight: true }, 'the first attack aimed at you in a fight misses.', { speed: -0.5 }),
+  // Legendaries (user 2026-10-11): only from the Dead King's treasure. Stats like any piece, plus an ability.
+  nightfang: legendary('nightfang', 'weapon', 'dagger', 'Nightfang of Ysolde', 'foredoom', `${pct(0.35)} damage dealt.`, { dmgPct: 0.35, speed: -0.5 }),
+  earthsplitter: legendary('earthsplitter', 'weapon', 'hammer', "Orvar's Earthsplitter", 'quake', `+5 to every hit, then ${pct(0.75)} damage dealt.`, { flatDmg: 5, dmgPct: 0.75, speed: 0.5 }),
+  hollowrod: legendary('hollowrod', 'weapon', 'staff', "Saint Ilva's Hollow Rod", 'unmake', '', { speed: 0.5 }),
+  lethehide: legendary('lethehide', 'armor', 'leather', 'Lethewyrm Hide', 'lethe', blockNote(3), { block: 3, speed: -0.5 }),
+  halvard: legendary('halvard', 'armor', 'mail', 'Aegis of Halvard', 'bastion', blockNote(6), { block: 6, speed: 0.5 }),
+  elowen: legendary('elowen', 'armor', 'cloth', 'Shroud of Saint Elowen', 'arise', '', { speed: -1 }),
+  fenrir: legendary('fenrir', 'amulet', null, "Fenrir's Tooth", 'howl', '+20 max HP.', { maxHp: 20 }),
+  ashkar: legendary('ashkar', 'ring', null, 'Signet of Ashkar', 'waystep', '', { speed: -0.5 }),
 };
+
+/** Every Legendary, in slot order (the Dead King's treasure holds one at random). */
+export const LEGENDARY_IDS: readonly ItemId[] = ['nightfang', 'earthsplitter', 'hollowrod', 'lethehide', 'halvard', 'elowen', 'fenrir', 'ashkar'];
+
+/** Legendary Gear: a stat line (`text`), Speed, and the ability it gives. */
+function legendary(id: ItemId, kind: GearSlot, gearType: GearType | null, name: string, legend: LegendId, text: string, stats: Partial<ItemDef>): ItemDef {
+  const type = gearType ? GEAR_TYPE_NAMES[gearType] : kind === 'amulet' ? 'Amulet' : 'Ring';
+  return {
+    id, name, kind, glyph: gearType ? GLYPHS[gearType] : kind === 'amulet' ? '❂' : '⊛', target: 'self', combat: false, field: false, legend, ...stats,
+    ...(gearType ? { gearType } : {}),
+    desc: `Legendary ${type}: ${[text, speedNote(stats.speed ?? 0).trim(), legendNote(legend)].filter(Boolean).join(' ')}`,
+  };
+}
 
 /** Gear that no longer exists (weapons and armor from before gear types, Lucky Coin): stashes and kits load it as this. */
 export const OLD_GEAR_IDS: Record<string, ItemId> = {
@@ -291,6 +318,7 @@ export function slotOf(item: ItemId): GearSlot | null {
 
 /** Cursed amulets and rings (they hurt you, and quicken you), and cursed Cloth (a drawback while worn). */
 export function isCursed(item: ItemId): boolean {
+  if (ITEMS[item].legend) return false;
   return (isJewel(item) && (ITEMS[item].speed ?? 0) < 0) || !!ITEMS[item].cursed;
 }
 
@@ -424,8 +452,10 @@ export const RESOURCE_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }
   { item: 'tome', weight: 1, rarity: 3 },
 ];
 
-/** An item's tier (its loot rarity): 1 common · 2 uncommon · 3 rare. Relics count as rare. */
-export function itemTier(item: ItemId): 1 | 2 | 3 {
+/** An item's tier (its loot rarity): 1 common · 2 uncommon · 3 rare · 4 legendary. Relics count as rare. */
+export type ItemTier = 1 | 2 | 3 | 4;
+export function itemTier(item: ItemId): ItemTier {
+  if (ITEMS[item].legend) return 4;
   if (item === 'relic') return 3;
   return (LOOT_TABLE.find((e) => e.item === item) ?? RESOURCE_TABLE.find((e) => e.item === item))?.rarity ?? 1;
 }

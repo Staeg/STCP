@@ -34,7 +34,7 @@ export class Game {
     const relic = slots.some((s) => s.loadout?.kit?.rites.includes('relic'));
     // The players' Emergencies decide what the dungeon must hold (M13).
     const emergencies = opts.emergencies ?? slots.flatMap((s) => (!s.isBot && s.loadout?.emergency ? [s.loadout.emergency] : []));
-    this.world = createWorld(seed, { ...opts, cr, emergencies, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
+    this.world = createWorld(seed, { ...opts, cr, emergencies, relicRite: relic, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
     slots.forEach((slot, i) => {
       addHero(this.world, slot);
       if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919, this.world.startTime));

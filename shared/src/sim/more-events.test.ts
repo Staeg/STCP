@@ -297,7 +297,18 @@ describe('Crowned in Dread', () => {
     expect(dist[pack.to ?? pack.room]).toBeLessThan(dist[start]);
   });
 
-  it("the last of the procession to fall drops three Lairs' worth", () => {
+  it('is never in the dungeon when a Relic Rite wakes the King anyway', () => {
+    let crowned = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const plain = Object.values(createWorld(seed).events).filter((e) => e.kind === 'crowned').length;
+      const rite = Object.values(createWorld(seed, { relicRite: true }).events).filter((e) => e.kind === 'crowned').length;
+      crowned += plain;
+      expect(rite).toBe(0);
+    }
+    expect(crowned).toBeGreaterThan(0);
+  });
+
+  it("the last of the procession to fall drops two Lairs' worth and a Legendary", () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
     const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
     const room = world.dungeon.entrance;
@@ -307,6 +318,7 @@ describe('Crowned in Dread', () => {
     run(world, 40);
     expect(world.monsters[m.id]).toBeUndefined();
     expect(h.gold).toBeGreaterThanOrEqual(CROWNED.lairs * LOOT.lairGold[0]);
-    expect(world.piles[room].items.length).toBeGreaterThanOrEqual(3);
+    const found = [...(world.piles[room]?.items.map((f) => f.item) ?? []), ...h.items, h.weapon, h.armor, h.amulet, h.ring];
+    expect(found.filter((it) => it && ITEMS[it].legend)).toHaveLength(CROWNED.legendaries);
   });
 });

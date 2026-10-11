@@ -1,5 +1,5 @@
 import {
-  BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, itemTier, KIT_RULES, kitCr, LEVEL_NAMES,
+  BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
   LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, forgeable, anvilInto,
   type BuildingId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
@@ -207,13 +207,13 @@ function stashListHtml(v: VillageView, picking: ServiceId | null, locked: boolea
     if (!packing) return `<span class="stash-item" title="${esc(ITEMS[it].desc)}">${ITEMS[it].glyph} ${itemName(it)}${count}</span>`;
     const isCons = ITEMS[it].kind === 'consumable';
     const full = isCons && (gem || kit.consumables.length >= KIT_RULES.consumables);
-    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
+    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCrText(it)}).`;
     return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
   }).join('');
   return `<div class="stash-list">${stash || '<span class="muted">Empty. Bring something home.</span>'}</div>`;
 }
 
-const gearCr = (it: ItemId) => `+${(itemTier(it) * KIT_RULES.crPerGearLevel).toFixed(1)} CR`;
+const gearCrText = (it: ItemId) => `+${gearCr(it).toFixed(1)} CR`;
 
 /** The Village's Stash panel. */
 function stashHtml(v: VillageView, picking: ServiceId | null, locked: boolean): string {
@@ -232,7 +232,7 @@ export function loadoutHtml(v: VillageView): string {
     ...GEAR_SLOTS.map((s) => {
       const it = kit.gear[s];
       return it
-        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" title="${esc(`${ITEMS[it].desc} ${gearCr(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
+        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" title="${esc(`${ITEMS[it].desc} ${gearCrText(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
         : `<div class="kit-slot">${SLOT_NAMES[s]}</div>`;
     }),
     ...(gem ? ['<div class="kit-slot" title="The Gem Rite forbids consumables.">no consumables</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
@@ -244,7 +244,7 @@ export function loadoutHtml(v: VillageView): string {
   ];
   const cr = kitCr(kit);
   return `<div class="lb-panel loadout">
-    <div class="vv-sub"><span class="gold">Loadout</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3). Up to ${KIT_RULES.consumables} consumables, free. ${KIT_RULES.riteCost} of a Resource (1 Relic) performs its Rite. If your Character dies, what they took is lost.">(?)</span>
+    <div class="vv-sub"><span class="gold">Loadout</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3), a Legendary ${KIT_RULES.legendaryCr}. Up to ${KIT_RULES.consumables} consumables, free. ${KIT_RULES.riteCost} of a Resource (1 Relic) performs its Rite. If your Character dies, what they took is lost.">(?)</span>
       <span class="lb-rites">${ritesHtml(v)}</span></div>
     <div class="kit-slots">${slots.join('')}</div>
     <div class="vv-sub"><span class="gold">Stash</span></div>

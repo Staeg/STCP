@@ -1,3 +1,5 @@
+import { LEGENDS, type LegendId } from '../content/legends';
+import { legendError, legendsOf, legendTargets, PICK_A_ROOM } from './legends';
 import { emergencyProgress, type EmergencyProgress } from './emergency';
 import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
@@ -186,6 +188,8 @@ export interface EncounterView {
   yourChoice: Choice | null;
   /** For each of your abilities ('a0'…): who it can be aimed at now ([] = no target needed), or why it can't be used. */
   yourOptions: Partial<Record<CombatAction, { targets: string[]; blocked: string | null }>>;
+  /** The same for each of your Legendary abilities that works in a fight (null `blocked`: usable now). */
+  legendOptions: Partial<Record<LegendId, { targets: string[]; blocked: string | null }>>;
   /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
@@ -474,11 +478,18 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     };
   });
   const yourOptions: EncounterView['yourOptions'] = {};
+  const legendOptions: EncounterView['legendOptions'] = {};
   if (isConscious(you) && enc.heroes.includes(you.id)) {
     abilitiesOf(you).forEach((ab, i) => {
       const action = `a${i}` as CombatAction;
       yourOptions[action] = { targets: validTargets(world, enc, you, action), blocked: unusableReason(world, enc, you, ab) };
     });
+    for (const l of legendsOf(you)) {
+      if (!LEGENDS[l].combat) continue;
+      // The room is picked on the map afterwards, so not having picked one yet isn't a reason it can't be used.
+      const blocked = (you.cooldowns[l] ?? 0) > 0 ? null : legendError(world, you, l, null, null, enc);
+      legendOptions[l] = { targets: legendTargets(world, you, l, enc), blocked: blocked === PICK_A_ROOM ? null : blocked };
+    }
   }
   return {
     room: enc.room,
@@ -491,6 +502,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     })),
     yourChoice: enc.choices[you.id] ?? null,
     yourOptions,
+    legendOptions,
     events: enc.events,
     log: enc.log.slice(-12),
     doom: doomOf(you),
@@ -499,6 +511,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
 
 function choiceLabel(h: Hero, c: Choice): string {
   if (c.action === 'item') return ITEMS[h.items[c.item ?? -1]]?.name ?? 'Item';
+  if (c.action === 'legend') return c.legend ? LEGENDS[c.legend].name : 'Legend';
   const ab = abilityOf(h, c.action);
   if (ab) return ab.name;
   return { revive: 'Revive', flee: 'Flee', brace: 'Brace' }[c.action as 'revive' | 'flee' | 'brace'];

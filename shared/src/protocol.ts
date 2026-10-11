@@ -7,6 +7,7 @@ import type { LeaderboardEntry } from './content/titles';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
+import { LEGENDS, type LegendId } from './content/legends';
 import { TALENTS, type TalentId } from './content/talents';
 import type { FateChoice, ServiceRequest, VillageView } from './stash';
 import { EMERGENCIES, type EmergencyId } from './content/emergencies';
@@ -95,7 +96,7 @@ export type ServerMsg =
   /** Your Village: purse, Characters, and what the last run did to them. */
   | { t: 'village'; village: VillageView };
 
-const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item'];
+const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item', 'legend'];
 
 export const MAX_PLAYERS = 4;
 export const NAME_MAX = 16;
@@ -206,13 +207,14 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'ready') return { t: 'intent', intent: typeof i.on === 'boolean' ? { type: 'ready', on: i.on } : { type: 'ready' } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
       if (i.type === 'skill') {
-        if (i.skill !== undefined && !(typeof i.skill === 'string' && i.skill in FIELD_SKILLS)) return null;
+        if (i.skill !== undefined && !(typeof i.skill === 'string' && (i.skill in FIELD_SKILLS || i.skill in LEGENDS))) return null;
         return {
           t: 'intent',
           intent: {
             type: 'skill',
             ...(i.skill !== undefined ? { skill: i.skill as FieldSkill } : {}),
             ...(str(i.target, 32) ? { target: i.target as string } : {}),
+            ...(Number.isInteger(i.room) ? { room: i.room as number } : {}),
           },
         };
       }
@@ -231,9 +233,17 @@ export function parseClientMsg(raw: string): ClientMsg | null {
         if (!COMBAT_ACTIONS.includes(c.action as CombatAction)) return null;
         if (c.target !== undefined && !str(c.target, 32)) return null;
         if (c.item !== undefined && !slot(c.item)) return null;
+        if (c.legend !== undefined && !(typeof c.legend === 'string' && c.legend in LEGENDS)) return null;
+        if (c.room !== undefined && !Number.isInteger(c.room)) return null;
         return {
           t: 'intent',
-          intent: { type: 'combat', choice: { action: c.action as CombatAction, target: c.target as string | undefined, item: c.item as number | undefined } },
+          intent: {
+            type: 'combat',
+            choice: {
+              action: c.action as CombatAction, target: c.target as string | undefined, item: c.item as number | undefined,
+              ...(c.legend !== undefined ? { legend: c.legend as LegendId } : {}), ...(c.room !== undefined ? { room: c.room as number } : {}),
+            },
+          },
         };
       }
       return null;

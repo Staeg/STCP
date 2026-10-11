@@ -70,11 +70,12 @@ export interface EventChoice {
 // ---------------------------------------------------------------------------
 // Seeding
 
-export function spawnEvents(world: World) {
+/** `noKing`: a Relic Rite wakes the Dead King itself, so Crowned in Dread isn't in the dungeon (user, 2026-10-11). */
+export function spawnEvents(world: World, noKing = false) {
   const d = world.dungeon;
   const rng = world.rng;
   const safe = new Set([d.entrance, d.exit, ...neighbours(d, d.entrance)]);
-  const kinds = Object.values(EVENTS);
+  const kinds = Object.values(EVENTS).filter((k) => !(noKing && k.kind === 'crowned'));
   const total = kinds.reduce((s, k) => s + k.weight, 0);
   for (const room of d.rooms) {
     if (room.kind === 'secret' || safe.has(room.id) || !rng.chance(EVENT_SEEDING.chance)) continue;

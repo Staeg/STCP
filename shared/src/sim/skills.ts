@@ -8,19 +8,25 @@ import { giveItem, hasSpace } from './loot';
 import { buffLength, cooldownFor, healBy, reliefBy, ward } from './gear';
 import { notify } from './notify';
 import type { Hero, World } from './world';
+import { LEGENDS, type LegendId } from '../content/legends';
+import { isLegend, legendError, legendsOf, useLegend } from './legends';
 
 /**
  * Class skills used outside a fight: the Bellwright's Toll, and every ability marked `field`. Like an event
  * choice, the skill is picked now and happens when the hero's timer runs out, using up that turn. Each shares its
  * cooldown with the ability in fights (same `cooldowns` entry, counted in the hero's turns).
  */
-export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil' | 'vengeance';
+export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil' | 'vengeance' | LegendId;
+type ClassSkill = Exclude<FieldSkill, LegendId>;
 
-/** none: no target · any: anyone conscious in your room, you included · other: not you */
-type FieldTarget = 'none' | 'any' | 'other';
+/**
+ * none: no target · any: anyone conscious in your room, you included · other: not you · fallen: a downed or dead ally
+ * in your room · room: a room on your map (Legendary abilities)
+ */
+export type FieldTarget = 'none' | 'any' | 'other' | 'fallen' | 'room';
 
 /** Display name, who it can be aimed at, and what it does out of a fight. */
-export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string }> = {
+export const FIELD_SKILLS: Record<ClassSkill, { name: string; target: FieldTarget; desc: string }> = {
   toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s. Monsters next door come to the bell.` },
   sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
   elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
@@ -32,12 +38,14 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
 
 /** Who a hero's skill can be aimed at, with their Talent (Triage turns Mend on yourself). */
 export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
+  if (isLegend(skill)) return ({ none: 'none', ally: 'any', fallen: 'fallen', room: 'room' } as const)[LEGENDS[skill].target];
   if (skill === 'mend' && h.talent === 'triage') return 'none';
   return FIELD_SKILLS[skill].target;
 }
 
 /** Name and text of a skill for this hero (Talents change some numbers). */
 export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
+  if (isLegend(skill)) return { name: LEGENDS[skill].name, desc: LEGENDS[skill].desc };
   if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: you gain ${TALENT_RULES.greatBellClang} Clang stacks.` } : FIELD_SKILLS.toll;
   const ab = abilitiesOf(h).find((a) => a.id === skill);
   if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
@@ -45,10 +53,11 @@ export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: str
   return FIELD_SKILLS[skill];
 }
 
-/** This hero's field skills, in ability-slot order (the Toll first). */
+/** This hero's field skills, in ability-slot order (the Toll first), then their Legendaries' that work out of a fight. */
 export function fieldSkillsOf(h: Hero): FieldSkill[] {
   const skills: FieldSkill[] = h.cls === 'bellwright' ? ['toll'] : [];
   for (const ab of abilitiesOf(h)) if (ab.field) skills.push(ab.id as FieldSkill);
+  for (const l of legendsOf(h)) if (LEGENDS[l].field) skills.push(l);
   return skills;
 }
 
@@ -57,7 +66,7 @@ export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
 }
 
 /** Cooldown in the hero's own turns after using it. */
-function cooldownOf(h: Hero, skill: FieldSkill): number {
+function cooldownOf(h: Hero, skill: ClassSkill): number {
   return skill === 'toll' ? CLASS_RULES.tollCooldown : abilitiesOf(h).find((a) => a.id === skill)!.cooldown;
 }
 
@@ -65,9 +74,10 @@ function sameRoom(a: Hero, b: Hero) {
   return a.pos.kind === 'room' && b.pos.kind === 'room' && a.pos.room === b.pos.room;
 }
 
-/** Returns an error message, or null if the skill can be used on `targetId` (null = untargeted). */
-export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null): string | null {
+/** Returns an error message, or null if the skill can be used on `targetId` (null = untargeted) or `room`. */
+export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null, room: number | null = null): string | null {
   if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
+  if (isLegend(skill)) return legendError(world, h, skill, targetId, room, null);
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
   const cd = h.cooldowns[skill] ?? 0;
   if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
@@ -85,9 +95,10 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
 }
 
 /** The timer ran out with this skill queued: do it (if it still works). */
-export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null) {
-  const err = checkSkill(world, h, skill, targetId);
+export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null, room: number | null = null) {
+  const err = checkSkill(world, h, skill, targetId, room);
   if (err) return notify(world, h, err);
+  if (isLegend(skill)) return useLegend(world, h, skill, targetId, room, null, null);
   const cd = cooldownFor(h, cooldownOf(h, skill));
   if (cd > 0) h.cooldowns[skill] = cd;
   h.cdClock = 0;

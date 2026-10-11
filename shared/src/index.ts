@@ -30,3 +30,5 @@ export * from './content/emergencies';
 export * from './sim/emergency';
 export type { SoundCue } from './sim/notify';
 export * from './content/forge';
+export * from './content/legends';
+export * from './sim/legends';

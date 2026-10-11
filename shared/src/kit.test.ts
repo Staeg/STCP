@@ -158,6 +158,8 @@ describe('the lobby and the Stash', () => {
     expect(w.startTime).toBe(EXIT_OPENS_AT);
     // ...and the Dead King is already on the march.
     expect(Object.values(w.monsters).filter((m) => m.procession).map((m) => m.type)).toContain('king');
+    // ...so his event never turns up in the dungeon.
+    expect(Object.values(w.events).some((e) => e.kind === 'crowned')).toBe(false);
     const you = Object.values(w.heroes).find((h) => !h.isBot)!;
     expect(you.weapon).toBe('stiletto');
     you.items.push('gem', 'tome');

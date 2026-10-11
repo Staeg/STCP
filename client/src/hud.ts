@@ -1,12 +1,12 @@
 import {
   DEATH_TIMER, INSANITY, INSANITY_RULES, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
-  fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
+  skillInfo, TALENTS, skillTargeted, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
-import { cooldownIcon, icon, ICON_TIPS, type IconId } from './icons';
+import { icon, ICON_TIPS, type IconId } from './icons';
 import { statusIcons } from './statuses';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -35,13 +35,6 @@ export class Hud {
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
     $('btn-ready').addEventListener('click', () => net.intent({ type: 'ready' }));
     $('btn-call').addEventListener('click', () => net.intent({ type: 'call' }));
-    // Out-of-combat class skills (Toll, and abilities that work in the field): one button per possible target.
-    $('skills').addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest('button[data-skill]') as HTMLButtonElement | null;
-      if (!b || b.classList.contains('cooling')) return;
-      const skill = b.dataset.skill as FieldSkill;
-      net.intent(b.dataset.target ? { type: 'skill', skill, target: b.dataset.target } : { type: 'skill', skill });
-    });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
       if (id) net.intent({ type: 'revive', target: id });
@@ -61,7 +54,6 @@ export class Hud {
         const room = roomInDir(net.cur, dir);
         if (room !== null) net.intent({ type: 'goto', room, step: true });
       }
-      if (e.code === 'KeyM' && !$('skills').hidden) ($('skills').querySelector('button[data-skill]:not(.cooling)') as HTMLButtonElement | null)?.click();
       if (e.code === 'Space') {
         e.preventDefault();
         net.intent({ type: 'turnBack' });
@@ -179,7 +171,6 @@ export class Hud {
 
     const free = !view.encounter && you.downedAt === null && !you.dead && !you.extracted && you.pos.kind === 'room';
 
-    renderSkills(view, free, here);
 
     // Channel progress (reviving, digging), or else your Speed timer and what happens when it runs out.
     const ch = $('channel');
@@ -339,42 +330,4 @@ function injuriesHtml(injuries: Injury[]): string {
 
 function escape(s: string) {
   return s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-/** Each field skill: one button if untargeted (Toll, Flare), else one per person here it can go to. */
-function renderSkills(view: PlayerView, free: boolean, here: number) {
-  const box = $('skills');
-  const you = view.you;
-  const skills = fieldSkillsOf(you);
-  if (!skills.length || !free) {
-    box.hidden = true;
-    return;
-  }
-  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
-  let first = true;
-  const html = skills.map((skill) => {
-    const def = { ...skillInfo(you, skill), target: skillTarget(you, skill) };
-    const wait = you.cooldowns[skill] ?? 0;
-    const queued = you.queuedSkill?.skill === skill;
-    type Option = { id: string | null; label: string };
-    let options: Option[] = [{ id: null, label: def.name }];
-    if (def.target !== 'none') {
-      const others = skill === 'sins' ? near.filter((a) => (a.stress ?? 0) > 0) : skill === 'mend' ? near.filter((a) => a.hp < a.maxHp) : near;
-      const label = (a: { name: string; stress?: number; hp: number; maxHp: number }) =>
-        skill === 'sins' || skill === 'vigil' ? `${escape(a.name)} (${a.stress ?? 0}${icon('stress')})` : skill === 'mend' ? `${escape(a.name)} (${icon('hp')}${a.hp}/${a.maxHp})` : escape(a.name);
-      options = others.map((a) => ({ id: a.id, label: `${def.name}: ${label(a)}` }));
-      if (def.target === 'any') options.unshift({ id: you.id, label: `${def.name}: yourself${skill === 'vigil' ? ` (${Math.round(you.stress)}${icon('stress')})` : ''}` });
-    }
-    // Cooling down, the buttons all say the same thing: show just one.
-    if (wait > 0) options = options.slice(0, 1);
-    return options.map((o) => {
-      // Labels are HTML (names escaped above).
-      const text = wait > 0 ? `${def.name} ${cooldownIcon(0, wait)}` : queued && you.queuedSkill?.target === o.id ? `${o.label} (when your timer runs out)` : o.label;
-      const key = first && wait <= 0 ? ' <kbd>M</kbd>' : '';
-      if (wait <= 0) first = false;
-      return `<button data-skill="${skill}" ${o.id ? `data-target="${o.id}"` : ''} class="${wait > 0 ? 'cooling' : ''}" title="${escape(def.desc)}">${text}${key}</button>`;
-    }).join('');
-  }).join('');
-  box.hidden = html === '';
-  setHtml(box, html);
 }

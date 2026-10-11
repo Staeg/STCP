@@ -266,12 +266,14 @@ export const MORE_EVENTS = {
 
 /**
  * Crowned in Dread (user, 2026-10-11): waking the Dead King sends his procession out from one of the rooms farthest
- * from the exit, straight for it, where it holds until killed. They carry his treasure (`lairs` Lairs' worth); the
- * last of them to fall drops it.
+ * from the exit, straight for it, where it holds until killed. They carry his treasure (`lairs` Lairs' worth and a
+ * Legendary); the last of them to fall drops it.
  */
 export const CROWNED = {
   procession: ['king', 'lich', 'queen', 'giant', 'giant', 'giant', 'giant'] as EnemyId[],
-  lairs: 3,
+  /** His treasure: this many Lairs' worth, plus one random Legendary (user, 2026-10-11; was 3 Lairs). */
+  lairs: 2,
+  legendaries: 1,
 };
 
 /**

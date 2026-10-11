@@ -106,7 +106,7 @@ export interface Hero {
   /** Events this hero has seen, by room (for map icons). */
   knownEvents: Record<number, EventKind>;
   /** An out-of-combat skill, picked and waiting for the timer to run out (like an event choice). */
-  queuedSkill: { skill: FieldSkill; target: string | null } | null;
+  queuedSkill: { skill: FieldSkill; target: string | null; room?: number } | null;
   /** A consumable used out of a fight: it takes effect when the timer runs out, and is that turn's action. */
   queuedItem: { item: ItemId; index: number; target: string | null } | null;
   /** Undertaker: extra Spade damage, earned by Last Rites kills this run. */
@@ -189,6 +189,8 @@ export interface Hero {
   called: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
   scryUntil: number;
+  /** Foredoom (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
+  foredoom: boolean;
   /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
   restHp: number | null;
 
@@ -319,7 +321,7 @@ export type Intent =
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
   /** A class skill out of a fight (Toll, or an ability that works in the field): happens when your timer runs out. Default: your first one. */
-  | { type: 'skill'; skill?: FieldSkill; target?: string };
+  | { type: 'skill'; skill?: FieldSkill; target?: string; room?: number };
 
 export interface WorldOptions {
   /** Default true. Tests of pure movement turn monsters off. */
@@ -336,6 +338,8 @@ export interface WorldOptions {
   startEscalation?: number;
   /** The run's monsters (default: rolled from the seed). */
   roster?: Roster;
+  /** A Relic Rite is performed: it wakes the Dead King as the run begins, so his event is never in the dungeon. */
+  relicRite?: boolean;
   /** The players' Emergencies: the dungeon is seeded so each can be done (M13). */
   emergencies?: EmergencyId[];
 }
@@ -362,7 +366,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
   if (opts.monsters !== false) spawnInitialMonsters(world);
   // Events default to following `monsters` (captives come with guards).
   if (opts.events ?? opts.monsters !== false) {
-    spawnEvents(world);
+    spawnEvents(world, !!opts.relicRite);
     world.eliteEvents = true;
   }
   if (opts.loot !== false) spawnInitialLoot(world);
@@ -464,6 +468,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     risen: null,
     called: false,
     scryUntil: 0,
+    foredoom: false,
     restHp: null,
     elite: {},
     wanderers: 0,
@@ -724,12 +729,12 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     }
     case 'skill': {
       const skill = intent.skill ?? fieldSkillsOf(hero)[0];
-      const err = skill ? checkSkill(world, hero, skill, intent.target ?? null) : 'You have no such skill.';
+      const err = skill ? checkSkill(world, hero, skill, intent.target ?? null, intent.room ?? null) : 'You have no such skill.';
       if (err) return notify(world, hero, err);
       hero.channel = null;
       hero.queuedEvent = null;
       hero.queuedItem = null;
-      hero.queuedSkill = { skill: skill!, target: intent.target ?? null };
+      hero.queuedSkill = { skill: skill!, target: intent.target ?? null, room: intent.room };
       hero.path = [];
       hero.heading = null;
       return;
@@ -851,7 +856,7 @@ function endIdleTurn(world: World, hero: Hero) {
   }
   const skill = hero.queuedSkill;
   hero.queuedSkill = null;
-  if (skill) useSkill(world, hero, skill.skill, skill.target);
+  if (skill) useSkill(world, hero, skill.skill, skill.target, skill.room ?? null);
   const used = hero.queuedItem;
   hero.queuedItem = null;
   if (used) {

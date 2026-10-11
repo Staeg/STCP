@@ -184,7 +184,7 @@ describe('LobbyManager', () => {
     expect(last).toHaveLength(2);
     expect(last[0]).toEqual(after[0]);
     // Not her hurt Warden (Bob's healthy one may come, though: the pick is random).
-    expect(last[1].charId).not.toBe(w.id);
+    expect(last[1].owner === 'Ann' && last[1].cls === 'warden').toBe(false);
     expect(new Set([a.ws.lastLobby()!.members.map((m) => m.cls), last.map((x) => x.cls)].flat()).size).toBe(4);
 
     // A third player joins: one bot leaves. The run uses exactly the bots shown.

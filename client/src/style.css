@@ -589,8 +589,16 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #escort { color: #9fe0ff; font-size: 17px; }
 .insane { color: #ff8a6a; font-size: 15px; pointer-events: auto; cursor: help; }
 .icons span, #light-text { cursor: help; }
-#skills:not([hidden]) { display: contents; }
-#skills button.cooling { opacity: 0.5; cursor: default; }
+/* One button per ability, in a fight or out (2026-10-11): out of one, those that work there are bright. */
+#combat.idle .cb-act.live { color: var(--text); cursor: pointer; border-color: #6a5a3a; }
+#combat.idle .cb-act.live:hover { border-color: var(--gold); }
+#combat.idle .cb-act.live.cooling { color: var(--muted); cursor: default; border-color: var(--border); }
+.cb-act.legend { border-color: #8a5a20; color: #ffb45a; }
+#combat.idle .cb-act.legend:not(.live) { color: #9a7450; }
+#combat.aim-room .cb-body { display: none; }
+.cb-aim { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 2px; font-size: 18px; color: var(--gold); }
+.aim-chip { font-size: 17px; padding: 1px 8px; }
+.aim-chip.cancel { color: var(--muted); }
 .cb-actions .elixir { align-self: center; padding: 0 6px; color: #5fc46a; }
 
 /* ---- Sprites & juice ---- */
@@ -689,10 +697,11 @@ button.mini { font-size: 15px; padding: 0 6px; }
 }
 #combat:not(.idle) .cb-act.mini:hover .cb-desc { display: block; }
 
-/* Item tiers: 1 common · 2 uncommon · 3 rare */
+/* Item tiers: 1 common · 2 uncommon · 3 rare · 4 legendary (orange) */
 .tier-1 { color: #f4f0e8; }
 .tier-2 { color: #5aa8ff; }
 .tier-3 { color: #c07cff; }
+.tier-4 { color: #ff9a2e; }
 
 /* ---- The Village (M12; one-screen layout 2026-10-11) ---- */
 #screen:has(.village) { padding: 10px; }
