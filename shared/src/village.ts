@@ -84,22 +84,26 @@ export const SERVICES: Record<ServiceId, { name: string; desc: string; relic?: t
   train: { name: 'Teach', desc: '+1 XP for a Character.', relic: true },
 };
 
-/** Upkeep is per level, so a Master Elder costs 15 + 20 + 25 = 60 gold a run. */
+/**
+ * Upkeep is per level, so a Master Elder costs 15 + 20 + 25 = 60 gold a run. Building costs (user, 2026-10-11): Blacksmith
+ * Effigies and Gems, Seer Effigies and Tomes, Elder Gems and Tomes; more of each per level, more of the commoner one.
+ * Relics are never a building cost, only the Master services'.
+ */
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   blacksmith: { id: 'blacksmith', name: 'Blacksmith', glyph: '⚒', levels: [
-    { cost: { effigy: 3 }, upkeep: 10, service: 'forge' },
-    { cost: { effigy: 2, gem: 2 }, upkeep: 15, service: 'reroll' },
-    { cost: { gem: 3, relic: 1 }, upkeep: 20, service: 'upgrade' },
+    { cost: { effigy: 3, gem: 1 }, upkeep: 10, service: 'forge' },
+    { cost: { effigy: 5, gem: 2 }, upkeep: 15, service: 'reroll' },
+    { cost: { effigy: 8, gem: 4 }, upkeep: 20, service: 'upgrade' },
   ] },
   seer: { id: 'seer', name: 'Seer', glyph: '◎', levels: [
-    { cost: { effigy: 2 }, upkeep: 5, service: 'seeConsumable' },
-    { cost: { effigy: 2, gem: 1 }, upkeep: 10, service: 'seeResource' },
-    { cost: { gem: 2, tome: 1 }, upkeep: 20, service: 'seeGear' },
+    { cost: { effigy: 3, tome: 1 }, upkeep: 5, service: 'seeConsumable' },
+    { cost: { effigy: 5, tome: 2 }, upkeep: 10, service: 'seeResource' },
+    { cost: { effigy: 8, tome: 3 }, upkeep: 20, service: 'seeGear' },
   ] },
   elder: { id: 'elder', name: 'Elder', glyph: '⚕', levels: [
-    { cost: { effigy: 3 }, upkeep: 15, service: 'heal' },
-    { cost: { gem: 2, tome: 1 }, upkeep: 20, service: 'cure' },
-    { cost: { tome: 2, relic: 1 }, upkeep: 25, service: 'train' },
+    { cost: { gem: 2, tome: 1 }, upkeep: 15, service: 'heal' },
+    { cost: { gem: 4, tome: 2 }, upkeep: 20, service: 'cure' },
+    { cost: { gem: 6, tome: 3 }, upkeep: 25, service: 'train' },
   ] },
 };
 

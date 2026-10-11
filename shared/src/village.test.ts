@@ -107,7 +107,7 @@ describe('Stash migration', () => {
 });
 
 /** A Stash with plenty of every Resource. */
-function rich(n = 20) {
+function rich(n = 40) {
   const stash = new Stash(null);
   stash.storeLoot('Ann', [...Array(n).fill('effigy'), ...Array(n).fill('gem'), ...Array(n).fill('tome'), ...Array(n).fill('relic')] as ItemId[]);
   return stash;
@@ -116,17 +116,18 @@ function rich(n = 20) {
 describe('Village buildings', () => {
   it('cost Resources to build, add upkeep per level, and come down for free', () => {
     const stash = new Stash(null);
-    expect(stash.build('Ann', 'elder')).toMatch(/needs 3 Effigies/);
-    stash.storeLoot('Ann', ['effigy', 'effigy', 'effigy', 'effigy']);
+    expect(stash.build('Ann', 'elder')).toMatch(/needs 2 Gems/);
+    stash.storeLoot('Ann', ['gem', 'gem', 'gem', 'tome']);
     expect(stash.build('Ann', 'elder')).toBeNull();
     let v = stash.village('Ann');
     expect(v.buildings.elder).toBe(1);
-    expect(v.resources.effigy).toBe(1);
+    expect(v.resources.gem).toBe(1);
+    expect(v.resources.tome).toBe(0);
     expect(v.upkeep).toBe(BUILDINGS.elder.levels[0].upkeep);
     expect(stash.demolish('Ann', 'elder')).toBeNull();
     v = stash.village('Ann');
     expect(v.buildings.elder).toBe(0);
-    expect(v.resources.effigy).toBe(1); // nothing back
+    expect(v.resources.gem).toBe(1); // nothing back
     expect(upkeepOf({ blacksmith: 3, seer: 3, elder: 3 })).toBe(140);
   });
 
