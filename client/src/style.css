@@ -196,8 +196,9 @@ kbd { color: var(--muted); font-family: inherit; }
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* safe: a card taller than the window starts at the top instead of overflowing off it unscrollably. */
+  align-items: safe center;
+  justify-content: safe center;
   background: radial-gradient(ellipse at center, #1c1612 0%, #0d0b0a 70%);
   overflow: auto;
   padding: 24px;
