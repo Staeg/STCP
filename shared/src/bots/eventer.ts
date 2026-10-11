@@ -33,7 +33,8 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       // Deliver them to the rendezvous, then carry on exploring.
       const go = pick('lead');
       if (go) {
-        mem.escortReturnAt = mem.returnAt;
+        // Picking up another on the way keeps the plan from before the first.
+        if (mem.escortReturnAt === null) mem.escortReturnAt = mem.returnAt;
         mem.returnAt = view.time;
       }
       return go;

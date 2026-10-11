@@ -374,7 +374,7 @@ export class MapRenderer {
       ctx.stroke();
     }
     if (curRoom !== null && you.encounter === null && you.downedAt === null) this.drawKeyHints(view, rooms.get(curRoom), size);
-    if (view.leading) drawSprite(ctx, 'villager', hp.x + sprite * 0.55, hp.y + sprite * 0.1, Math.round(sprite * 0.75));
+    view.leading.forEach((_, i) => drawSprite(ctx, 'villager', hp.x + sprite * (0.55 + 0.35 * i), hp.y + sprite * 0.1, Math.round(sprite * 0.75)));
     this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
     if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
 

@@ -210,8 +210,8 @@ export interface PlayerView {
   exitOpen: boolean;
   /** The event in your room, if any. */
   event: EventView | null;
-  /** The villager you're escorting. */
-  leading: { hp: number; maxHp: number } | null;
+  /** The villagers you're escorting. */
+  leading: { hp: number; maxHp: number }[];
   objectives: { altars: number; villagers: number };
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
@@ -320,7 +320,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     exitRoom: d.exit,
     exitOpen: world.time >= EXIT_OPENS_AT,
     event: eventView(world, you),
-    leading: you.leading ? { hp: world.villagers[you.leading].hp, maxHp: world.villagers[you.leading].maxHp } : null,
+    leading: you.leading.map((id) => ({ hp: world.villagers[id].hp, maxHp: world.villagers[id].maxHp })),
     objectives: { ...world.objectives },
     results: world.phase === 'running' ? null : resultsView(world),
     tolls: world.tolls

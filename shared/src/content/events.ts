@@ -191,8 +191,8 @@ export const ELITE_EVENTS = {
 
 /** What the Speed events do. Speed is in seconds (lower is faster). */
 export const SPEED_EVENTS = {
-  /** Quicksilver: faster for the rest of the run, but frailer. (−1 until 2026-10-10: lasting costs now pay more.) */
-  quicksilverSpeed: -1.5,
+  /** Quicksilver: faster for the rest of the run, but frailer. (−1.5 from 2026-10-10 to 2026-10-11: too strong.) */
+  quicksilverSpeed: -1,
   quicksilverMaxHp: -6,
   /** Courier's Satchel: gold for the hero who hauls it, who is slower for the rest of the run. */
   satchelGold: 100, // 45 until 2026-10-10
@@ -257,6 +257,6 @@ export const EVENT_SEEDING = {
   strangerTrap: 0.4,
   /** Altar guardians are this many Escalations stronger than the dungeon around them. */
   guardianEscalations: 1,
-  /** Leading a villager adds this to your Speed (seconds) until they're saved. */
+  /** Each villager you lead adds this to your Speed (seconds) until they're saved; several stack. */
   villagerSlow: 1.5,
 };

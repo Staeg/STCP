@@ -90,8 +90,8 @@ export interface Hero {
     | null;
   /** Broken by stress (see content/events.ts). */
   affliction: AfflictionId | null;
-  /** Id of the villager following this hero. */
-  leading: string | null;
+  /** Ids of the villagers following this hero. */
+  leading: string[];
   /** Events this hero has seen, by room (for map icons). */
   knownEvents: Record<number, EventKind>;
   /** An out-of-combat skill, picked and waiting for the timer to run out (like an event choice). */
@@ -395,7 +395,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     fate: null,
     arrivedAt: null,
     affliction: loadout?.affliction ?? null,
-    leading: null,
+    leading: [],
     knownEvents: {},
     queuedSkill: null,
     queuedItem: null,

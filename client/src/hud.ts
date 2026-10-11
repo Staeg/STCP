@@ -111,8 +111,13 @@ export class Hud {
     // Injuries beside your HP: a small drop for each Minor, a small and a big one for each Major.
     setHtml($('injuries'), injuriesHtml([...you.injuries, ...(you.runInjuries ?? [])]));
     const escort = $('escort');
-    escort.hidden = !view.leading;
-    if (view.leading) escort.textContent = `☺ Escorting a villager (${view.leading.hp}/${view.leading.maxHp}) → rendezvous · Speed ${escortSpeed(you) < 0 ? '−' : '+'}${fmtSpeed(Math.abs(escortSpeed(you)))}`;
+    const led = view.leading;
+    escort.hidden = !led.length;
+    if (led.length) {
+      const slow = led.length * escortSpeed(you);
+      const who = led.length > 1 ? `${led.length} villagers` : 'a villager';
+      escort.textContent = `☺ Escorting ${who} (${led.map((v) => `${v.hp}/${v.maxHp}`).join(', ')}) → rendezvous · Speed ${slow < 0 ? '−' : '+'}${fmtSpeed(Math.abs(slow))}`;
+    }
     $('autopilot').hidden = !you.autopilot;
     const { altars, villagers } = view.objectives;
     const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;

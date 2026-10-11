@@ -35,7 +35,8 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
   if (h.st?.clang) parts.push({ label: 'Clang', amount: -h.st.clang.stacks * CLASS_RULES.clangHaste });
-  if (h.leading) parts.push({ label: 'Escorting a villager', amount: escortSpeed(h) });
+  const led = h.leading.length;
+  if (led) parts.push({ label: led > 1 ? `Escorting ${led} villagers` : 'Escorting a villager', amount: led * escortSpeed(h) });
   if (h.cls === 'sorceress' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.sorceressAfflictedSpeed });
   // Elite Events.
   if (h.wanderers > 0) parts.push({ label: EVENTS.wanderers.name, amount: h.wanderers * CLASS_EVENTS.wardenEscortSpeed });
@@ -51,7 +52,7 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   return parts;
 }
 
-/** What escorting a villager does to your Speed: slower, except for the Warden, whom it hurries along. */
+/** What escorting one villager does to your Speed (each one counts): slower, except for the Warden, whom it hurries along. */
 export function escortSpeed(h: Pick<Hero, 'cls'>): number {
   return h.cls === 'warden' ? CLASS_EVENTS.wardenEscortSpeed : EVENT_SEEDING.villagerSlow;
 }

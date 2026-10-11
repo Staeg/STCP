@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
 import { CLASS_RULES } from '../content/abilities';
-import { CLASS_EVENTS, STRESS } from '../content/events';
+import { CLASS_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
@@ -128,10 +128,10 @@ describe('room events', () => {
     const { world, h } = withEvent('quicksilver', 'lampbearer');
     choose(world, 'h', 'quaff');
     run(world, 3.1); // not a multiple of 6: events can take any time now
-    expect(speedOf(h, world.time)).toBe(3.5);
+    expect(speedOf(h, world.time)).toBe(4);
     expect(h.maxHp).toBe(39);
     run(world, 600);
-    expect(speedOf(h, world.time)).toBe(3.5);
+    expect(speedOf(h, world.time)).toBe(4);
   });
 
   it("courier's satchel: gold for the one who hauls it, who is slower from then on", () => {
@@ -276,7 +276,7 @@ describe('class twists', () => {
     choose(world, 'h', 'quaff');
     run(world, 3.1);
     expect(h.maxHp).toBe(maxHp + CLASS_EVENTS.alchemistQuicksilverMaxHp);
-    expect(speedOf(h, world.time)).toBe(3.5);
+    expect(speedOf(h, world.time)).toBe(4);
   });
 
   it('Undertaker: no stress from the cursed chest', () => {
@@ -386,7 +386,7 @@ describe('villagers', () => {
   it('follow their rescuer, slow them down, and are saved on reaching the rendezvous', () => {
     const { world, h, d } = captive();
     choose(world, 'h', 'lead');
-    expect(h.leading).toBe('v1');
+    expect(h.leading).toEqual(['v1']);
     applyIntent(world, 'h', { type: 'goto', room: d.exit });
     run(world, CORRIDOR_TIME + 0.2);
     expect(h.pos.kind).toBe('corridor'); // slower than normal
@@ -394,7 +394,7 @@ describe('villagers', () => {
     // Delivered on reaching the rendezvous, even before the exit opens.
     expect(world.villagers.v1.state).toBe('saved');
     expect(world.objectives.villagers).toBe(1);
-    expect(h.leading).toBeNull();
+    expect(h.leading).toEqual([]);
     world.time = EXIT_OPENS_AT;
     applyIntent(world, 'h', { type: 'extract' });
     step(world, 0.1);
@@ -419,7 +419,25 @@ describe('villagers', () => {
     step(world, 0.1);
     expect(world.villagers.v1.state).toBe('waiting');
     choose(world, 'o', 'lead');
-    expect(other.leading).toBe('v1');
+    expect(other.leading).toEqual(['v1']);
+  });
+
+  it('can be led several at a time, each one slowing you further', () => {
+    const { world, h, d, room } = captive();
+    const base = speedOf(h, world.time);
+    choose(world, 'h', 'lead');
+    world.villagers.v2 = { id: 'v2', room, leader: null, hp: 10, maxHp: 10, state: 'captive' };
+    expect(buildView(world, 'h').event?.choices[0].disabled).toBeUndefined();
+    choose(world, 'h', 'lead');
+    expect(h.leading).toEqual(['v1', 'v2']);
+    expect(speedOf(h, world.time)).toBe(base + 2 * EVENT_SEEDING.villagerSlow);
+    expect(buildView(world, 'h').leading).toHaveLength(2);
+    applyIntent(world, 'h', { type: 'goto', room: d.exit });
+    run(world, 2 * CORRIDOR_TIME);
+    expect(world.villagers.v1.state).toBe('saved');
+    expect(world.villagers.v2.state).toBe('saved');
+    expect(world.objectives.villagers).toBe(2);
+    expect(h.leading).toEqual([]);
   });
 });
 

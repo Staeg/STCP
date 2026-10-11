@@ -126,10 +126,6 @@ export function villagerHere(world: World, room: number): Villager | undefined {
   return Object.values(world.villagers).find((v) => (v.state === 'captive' || v.state === 'waiting') && v.room === room);
 }
 
-export function leadingVillager(world: World, h: Hero): Villager | undefined {
-  return h.leading ? world.villagers[h.leading] : undefined;
-}
-
 /**
  * What a hero standing here could do. Empty if nothing (or not yet safe). Another class's Elite Event comes back
  * as `veiled`, with the class that could do it in `forCls`.
@@ -140,8 +136,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   const v = villagerHere(world, room);
   if (v) {
     if (!quiet(world, room)) return { kind: 'villager', choices: [] };
-    const busy = h.leading ? 'You are already leading someone.' : undefined;
-    const lead: EventChoice = { id: 'lead', label: v.state === 'captive' ? 'Cut them loose and lead them out' : 'Lead them to the rendezvous', disabled: busy };
+    const lead: EventChoice = { id: 'lead', label: v.state === 'captive' ? 'Cut them loose and lead them out' : 'Lead them to the rendezvous' };
+    if (h.leading.length) lead.label += ` (${h.leading.length + 1} in tow)`;
     if (h.cls === 'warden') lead.perk = { cls: 'warden', text: `They hurry you along: Speed ${signed(CLASS_EVENTS.wardenEscortSpeed)} while you escort them.` };
     return { kind: 'villager', choices: [lead] };
   }
@@ -184,7 +180,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         : c('open', 'Open it (+20 stress)'));
     case 'crawlspace': {
       const where = world.escalation >= CRAWL_TO_EXIT_ESCALATION ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
-      const full = h.leading ? "The villager won't fit." : undefined;
+      const full = h.leading.length ? (h.leading.length > 1 ? "The villagers won't fit." : "The villager won't fit.") : undefined;
       return one(h.cls === 'lampbearer'
         ? perk(c('crawl', `Squeeze through ${where} (4 damage)`, full), 'lampbearer', 'Your lamp stays lit.')
         : c('crawl', `Squeeze through ${where} (4 damage, your torch gutters)`, full));
@@ -271,8 +267,10 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
     if (v.state === 'captive') chronicle(world, `${h.name} freed a captive villager.`);
     v.state = 'following';
     v.leader = h.id;
-    h.leading = v.id;
-    notify(world, h, 'The villager clings to you. Get them to the rendezvous! (You move slower.)');
+    h.leading.push(v.id);
+    notify(world, h, h.leading.length > 1
+      ? `Another villager clings to you: ${h.leading.length} in tow. Get them to the rendezvous! (Each one slows you.)`
+      : 'The villager clings to you. Get them to the rendezvous! (You move slower.)');
     for (const o of othersHere(world, h)) notify(world, o, `${h.name} cuts the villager loose and leads them away.`);
     return null;
   }
@@ -678,7 +676,7 @@ function tickVillagers(world: World) {
       // Delivered: they slip out on their own, and you're free to go back in.
       v.state = 'saved';
       v.room = world.dungeon.exit;
-      leader.leading = null;
+      leader.leading = leader.leading.filter((id) => id !== v.id);
       world.objectives.villagers++;
       notify(world, leader, `The villager squeezes out through a crack in the wall. Saved! (+${EVENT_SEEDING.villagerBonus} gold each for those who escape)`);
       chronicle(world, `${leader.name} brought a villager to safety.`);
@@ -686,7 +684,7 @@ function tickVillagers(world: World) {
       v.state = 'waiting';
       v.room = leader.pos.kind === 'room' ? leader.pos.room : leader.pos.from;
       v.leader = null;
-      leader.leading = null;
+      leader.leading = leader.leading.filter((id) => id !== v.id);
       chronicle(world, `A villager was left alone in ${world.dungeon.rooms[v.room].name}.`);
     } else if (leader.pos.kind === 'room') {
       v.room = leader.pos.room;
@@ -696,13 +694,14 @@ function tickVillagers(world: World) {
 
 /** Monsters sometimes strike the villager you're escorting. Returns the event text, or null. */
 export function maybeHitVillager(world: World, room: number, dmg: number, attacker: string): string | null {
-  const v = Object.values(world.villagers).find((x) => x.state === 'following' && x.room === room);
-  if (!v || !world.rng.chance(0.15)) return null;
+  const here = Object.values(world.villagers).filter((x) => x.state === 'following' && x.room === room);
+  if (!here.length || !world.rng.chance(0.15)) return null;
+  const v = here.length > 1 ? here[world.rng.int(0, here.length - 1)] : here[0];
   v.hp -= dmg;
   if (v.hp > 0) return `${attacker} strikes the villager! (${v.hp}/${v.maxHp})`;
   v.state = 'dead';
   const leader = v.leader ? world.heroes[v.leader] : undefined;
-  if (leader) leader.leading = null;
+  if (leader) leader.leading = leader.leading.filter((id) => id !== v.id);
   v.leader = null;
   chronicle(world, `A villager was killed in ${world.dungeon.rooms[room].name}.`);
   return `${attacker} kills the villager!`;

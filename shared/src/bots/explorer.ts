@@ -91,7 +91,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (callGo) return callGo;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
-  if (mem.escortReturnAt !== null && !view.leading) {
+  if (mem.escortReturnAt !== null && !view.leading.length) {
     // Villager delivered (or lost): back to the original plan.
     mem.returnAt = mem.escortReturnAt;
     mem.escortReturnAt = null;
