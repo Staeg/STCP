@@ -52,7 +52,7 @@ const escapesByClass: Record<string, number> = {};
 const causes: Record<string, number> = {};
 let heroes = 0, deaths = 0, escaped = 0, wiped = 0, lateRuns = 0, goldOut = 0, dramaRuns = 0;
 let fights = 0, turns = 0, fightTime = 0, downs = 0, revives = 0, slain = 0, collapses = 0, waves = 0;
-let afflictions = 0, heartAttacks = 0, eventsUsed = 0, altars = 0, saved = 0;
+let insanity = 0, forgotten = 0, heartAttacks = 0, eventsUsed = 0, altars = 0, saved = 0;
 const arrivals: number[] = [];
 const t0 = performance.now();
 
@@ -61,7 +61,7 @@ for (let g = 0; g < games; g++) {
   const talentRng = new Rng((seed0 + g) * 31 + 7);
   const game = new Game(seed0 + g, party.map((cls, i) => ({
     id: `b${i}`, name: cls, cls, isBot: true,
-    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talent: talentRng.pick(talentsFor(cls)), injuries: [], affliction: null } : undefined,
+    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talent: talentRng.pick(talentsFor(cls)), injuries: [], insane: false } : undefined,
   })), worldOpts);
   const w = game.world;
   // The climax check: when the exit opens, is someone waiting there while someone else is still alive out there?
@@ -98,7 +98,7 @@ for (let g = 0; g < games; g++) {
   if (late) lateRuns++;
   fights += w.stats.fights; turns += w.stats.turns; fightTime += w.stats.fightTime; downs += w.stats.downs; revives += w.stats.revives;
   slain += w.stats.slain; collapses += w.stats.collapses; waves += w.stats.waves;
-  afflictions += w.stats.afflictions; heartAttacks += w.stats.heartAttacks; eventsUsed += w.stats.eventsUsed;
+  insanity += w.stats.insanity; forgotten += w.stats.forgotten; heartAttacks += w.stats.heartAttacks; eventsUsed += w.stats.eventsUsed;
   altars += w.objectives.altars; saved += w.objectives.villagers;
 }
 
@@ -106,7 +106,7 @@ const json = {
   games, sets, cr, escaped: escaped / heroes, drama: dramaRuns / games, wipes: wiped / games, lateRuns: lateRuns / games, earlyDeathShare: (deathsByEscalation[0] + deathsByEscalation[1]) / Math.max(1, deaths),
   secondsPerFight: fightTime / Math.max(1, fights), turnsPerFight: turns / Math.max(1, fights), deathsByEscalation, causes, goldPerEscaped: goldOut / Math.max(1, escaped),
   runsByClass, escapesByClass,
-  perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, afflictions: afflictions / games, altars: altars / games, saved: saved / games },
+  perGame: { fights: fights / games, downs: downs / games, revives: revives / games, collapses: collapses / games, waves: waves / games, insanity: insanity / games, forgotten: forgotten / games, altars: altars / games, saved: saved / games },
 };
 if (args.has('json')) {
   console.log(JSON.stringify(json));
@@ -131,5 +131,5 @@ console.log(`escape rate by class: ${Object.keys(runsByClass).sort().map((c) => 
 console.log(`death causes: ${JSON.stringify(causes)}`);
 console.log(`exit arrivals: median ${arrivals.length ? fmt(arrivals[Math.floor(arrivals.length / 2)]) : '-'}, n=${arrivals.length}`);
 console.log(`per game: ${(fights / games).toFixed(1)} fights, ${(slain / games).toFixed(1)} slain, ${(downs / games).toFixed(1)} downs, ${(revives / games).toFixed(1)} revives, ${(collapses / games).toFixed(1)} collapses, ${(waves / games).toFixed(1)} waves`);
-console.log(`per game: ${(afflictions / games).toFixed(1)} afflictions, ${(heartAttacks / games).toFixed(1)} heart attacks, ${(eventsUsed / games).toFixed(1)} events used, ${(altars / games).toFixed(1)} altars, ${(saved / games).toFixed(1)} villagers saved`);
+console.log(`per game: ${(insanity / games).toFixed(1)} gone Insane, ${(forgotten / games).toFixed(1)} paths forgotten, ${(heartAttacks / games).toFixed(1)} heart attacks, ${(eventsUsed / games).toFixed(1)} events used, ${(altars / games).toFixed(1)} altars, ${(saved / games).toFixed(1)} villagers saved`);
 console.log(`gold extracted per escaped hero: ${(goldOut / Math.max(1, escaped)).toFixed(0)}`);

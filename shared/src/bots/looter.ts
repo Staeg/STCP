@@ -121,7 +121,7 @@ function botSkill(view: PlayerView): Intent | null {
   if (me.pos.kind !== 'room' || me.queuedSkill) return null;
   const ready = (id: string) => (me.cooldowns[id] ?? 0) <= 0;
   const here = me.pos.room;
-  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here && a.affliction !== 'paranoid');
+  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
   if (me.cls === 'zealot' && me.stress < 90 && ready('sins')) {
     const burdened = near.filter((a) => (a.stress ?? 0) >= 40).sort((a, b) => (b.stress ?? 0) - (a.stress ?? 0))[0];
     if (burdened) return { type: 'skill', skill: 'sins', target: burdened.id };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
+import { STRESS } from '../content/events';
 import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
 import { armored, DEATH_TIMER, spawnGroup } from './combat';
@@ -314,7 +315,7 @@ describe('items', () => {
     expect(h.light).toBeGreaterThan(light + 47);
     const stress = h.stress;
     use(world, 'h0', 0);
-    expect(h.stress).toBeLessThan(stress - 23);
+    expect(h.stress).toBeLessThan(stress - (STRESS.tonic - 2));
     expect(h.items).toEqual([]);
   });
 

@@ -3,8 +3,8 @@ import { CLASS_IDS, CLASSES } from './content/classes';
 import { Stash } from './stash';
 import { applyRun, injuredMaxHp, VILLAGE_RULES, type Character } from './village';
 
-const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [], affliction: null });
-const ok = { escaped: true, lowestHp: 1, downedMajor: false, affliction: null };
+const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [], insane: false });
+const ok = { escaped: true, lowestHp: 1, downedMajor: false, insane: false };
 
 describe('applyRun', () => {
   it('gives 1 XP per run survived; 2 XP earns a Talent choice', () => {
@@ -29,10 +29,10 @@ describe('applyRun', () => {
     expect(c.injuries).toEqual(['major', 'major']);
   });
 
-  it('keeps an affliction from the run', () => {
+  it('keeps Insanity from the run', () => {
     const c = fresh();
-    applyRun(c, { ...ok, affliction: 'fearful' });
-    expect(c.affliction).toBe('fearful');
+    applyRun(c, { ...ok, insane: true });
+    expect(c.insane).toBe(true);
   });
 
   it('reports a death (the Stash replaces them)', () => {
@@ -62,17 +62,17 @@ describe('Stash villages', () => {
   it('spends the purse on treatment, and refuses when it is short', () => {
     const stash = new Stash(null);
     const c = stash.characterFor('Ann', 'sorceress');
-    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.1, affliction: 'paranoid' });
+    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.1, insane: true });
     expect(stash.treat('Ann', c.id, 'major')).toMatch(/costs 100/);
     stash.recordRun('Ann', true, 250);
     expect(stash.purse('Ann')).toBe(250);
     expect(stash.treat('Ann', c.id, 'minor')).toMatch(/nothing like that/);
     expect(stash.treat('Ann', c.id, 'major')).toBeNull();
-    expect(stash.treat('Ann', c.id, 'affliction')).toBeNull();
+    expect(stash.treat('Ann', c.id, 'insanity')).toBeNull();
     expect(stash.purse('Ann')).toBe(50);
     const after = stash.characterFor('Ann', 'sorceress');
     expect(after.injuries).toEqual([]);
-    expect(after.affliction).toBeNull();
+    expect(after.insane).toBe(false);
     // The lifetime total (titles, Hall of Fortune) is untouched by spending.
     expect(stash.get('Ann')).toBe(250);
   });

@@ -10,7 +10,7 @@ import { addHero, createWorld, extractHero, step, type World } from './world';
 const SEEDS = Array.from({ length: 12 }, (_, i) => 100 + i * 17);
 
 function loadout(owner: string, emergency: EmergencyId | null, rites: Loadout['kit'] = emptyKit()): Loadout {
-  return { charId: 'c1', charName: owner, owner, talent: null, injuries: [], affliction: null, kit: rites, emergency };
+  return { charId: 'c1', charName: owner, owner, talent: null, injuries: [], insane: false, kit: rites, emergency };
 }
 
 function hero(w: World, id: string, cls: ClassId, emergency: EmergencyId | null = null, isBot = false, kit = emptyKit()) {

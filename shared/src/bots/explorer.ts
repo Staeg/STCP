@@ -251,8 +251,14 @@ function routeTo(prev: Map<number, number>, from: number, to: number): number[] 
   return path;
 }
 
+/**
+ * Rooms worth a look: never explored. Failing that, explored ones with paths we've since forgotten (going back
+ * brings them back), so a bot whose memory has gone patchy can still find a way on.
+ */
 function frontierRooms(view: PlayerView, costs: Map<number, number>): RoomView[] {
-  return view.rooms.filter((r) => r.knowledge !== 'explored' && r.kind !== 'exit' && costs.has(r.id));
+  const reachable = view.rooms.filter((r) => r.kind !== 'exit' && costs.has(r.id));
+  const fresh = reachable.filter((r) => r.knowledge !== 'explored');
+  return fresh.length ? fresh : reachable.filter((r) => r.hazy);
 }
 
 /** Dijkstra over the corridors in a view. */

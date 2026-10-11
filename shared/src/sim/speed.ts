@@ -37,7 +37,7 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   if (h.st?.clang) parts.push({ label: 'Clang', amount: -h.st.clang.stacks * CLASS_RULES.clangHaste });
   const led = h.leading.length;
   if (led) parts.push({ label: led > 1 ? `Escorting ${led} villagers` : 'Escorting a villager', amount: led * escortSpeed(h) });
-  if (h.cls === 'sorceress' && h.affliction) parts.push({ label: 'Afflicted Sorceress', amount: CLASS_RULES.sorceressAfflictedSpeed });
+  if (h.cls === 'sorceress' && h.insane) parts.push({ label: 'Insane Sorceress', amount: CLASS_RULES.sorceressInsaneSpeed });
   // Elite Events.
   if (h.wanderers > 0) parts.push({ label: EVENTS.wanderers.name, amount: h.wanderers * CLASS_EVENTS.wardenEscortSpeed });
   if (h.elite.alacrity) {

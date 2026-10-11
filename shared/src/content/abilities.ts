@@ -36,18 +36,20 @@ export const CLASS_RULES = {
   /** Hex: each Hexed stack adds this much to the damage Hex deals, for this many of the target's turns. */
   hexedBonus: 1,
   hexedTurns: 2,
-  /** Sorceress: Speed while Afflicted (user, 2026-10-10: rewards risky play). */
-  sorceressAfflictedSpeed: -1.5,
+  /** Sorceress: Speed while Insane (user, 2026-10-10: rewards risky play). */
+  sorceressInsaneSpeed: -1.5,
   /** Wither: enemies deal half damage for this many of their own turns. */
   witherTurns: 2,
   /** Blood Pact: HP every ally (the Sorceress too) pays. It never takes anyone below 1. */
   pactCost: 6,
   /** Blood Pact: stress every ally (the Sorceress too) takes (user, 2026-10-11). */
-  pactStress: 6,
+  pactStress: 4, // 6 until the stress rework (user, 2026-10-11: every stress effect ×⅔)
   /** Undertaker: Spade's damage grows this much for every enemy Last Rites kills, for the rest of the run. */
   spadePerRites: 1,
   /** Undertaker: stress an ally's death takes away (instead of adding STRESS.allyDeath). */
-  morticianRelief: 10,
+  morticianRelief: 7, // 10
+  /** Warden: stress Rally lifts from every ally. */
+  rallyStress: 7, // 10
   /** Raise: the risen fight for this many of their own turns, at this fraction of their max HP. */
   raiseTurns: 4,
   raiseHp: 1,
@@ -81,7 +83,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   warden: [
     { id: 'bash', name: 'Shield Bash', cooldown: 0, target: 'enemyFirst', power: 10, desc: '10 dmg to the nearest enemy. 35% Stun.' },
     { id: 'vengeance', name: 'Vengeance', cooldown: 4, target: 'self', power: 0, desc: 'For your next 2 turns, anyone who attacks you takes the full damage of the attack back (before armor, Shield or bracing).' },
-    { id: 'rally', name: 'Rally', cooldown: 4, target: 'allAllies', power: 3, desc: 'All allies: −10 stress, +3 Shield.' },
+    { id: 'rally', name: 'Rally', cooldown: 4, target: 'allAllies', power: 3, desc: 'All allies: −7 stress, +3 Shield.' },
   ],
   cutthroat: [
     { id: 'backstab', name: 'Backstab', cooldown: 0, target: 'enemy', power: 7, desc: "7 dmg. Crits (×2) vs an enemy that is Stunned or hasn't acted yet this fight." },
@@ -90,12 +92,12 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   ],
   lampbearer: [
     { id: 'flare', name: 'Flare', cooldown: 1, target: 'allEnemies', power: 3, desc: '3 dmg to all enemies, +10 light to everyone in the room.', field: true },
-    { id: 'vigil', name: 'Vigil', cooldown: 3, target: 'ally', power: 8, desc: "−8 stress. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.", field: true },
+    { id: 'vigil', name: 'Vigil', cooldown: 3, target: 'ally', power: 5, desc: "−5 stress. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.", field: true },
     { id: 'mend', name: 'Mend', cooldown: 1, target: 'otherAlly', power: 8, desc: 'Heal an ally (not yourself) 8 and cure Poison.', field: true },
   ],
   sorceress: [
     { id: 'hex', name: 'Hex', cooldown: 0, target: 'enemy', power: 5, desc: '5 dmg and Hexed: Hex deals +100% to it for its next 2 turns. Stacks.' },
-    { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 16, desc: 'Every ally (you too) loses 6 HP (never below 1) and takes 6 stress. 16 dmg to every enemy.' },
+    { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 16, desc: 'Every ally (you too) loses 6 HP (never below 1) and takes 4 stress. 16 dmg to every enemy.' },
     { id: 'wither', name: 'Wither', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Every enemy deals −50% damage for its next 2 turns. Stacks: each Wither halves it again.' },
   ],
   undertaker: [
@@ -111,7 +113,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   zealot: [
     { id: 'scourge', name: 'Scourge', cooldown: 0, target: 'enemy', power: 8, desc: '8 dmg.' },
     { id: 'absolution', name: 'Absolution', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Spend your stress above 50 as damage, split across enemies.' },
-    { id: 'sins', name: 'Take Their Sins', cooldown: 2, target: 'otherAlly', power: 25, desc: 'Take up to 25 stress off an ally onto yourself.', field: true },
+    { id: 'sins', name: 'Take Their Sins', cooldown: 2, target: 'otherAlly', power: 17, desc: 'Take up to 17 stress off an ally onto yourself.', field: true },
   ],
   alchemist: [
     { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg and a stack of Acid: +2 from every hit, Poison included. Lasts 2 of its turns, then one stack fades; another Flask adds a stack and refreshes it.' },

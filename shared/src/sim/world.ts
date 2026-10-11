@@ -9,7 +9,8 @@ import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
-import { EVENT_SEEDING, STRESS, type AfflictionId, type EliteEventKind, type EventKind } from '../content/events';
+import { EVENT_SEEDING, STRESS, type EliteEventKind, type EventKind } from '../content/events';
+import { hallucinate, perceive, relearnPaths, seeTruly, tickForgetting } from './mind';
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
@@ -89,8 +90,16 @@ export interface Hero {
     /** Carrying out an event choice in `room`; progress lives on the event itself. */
     | { kind: 'event'; room: number; choice: string; until: number; /** Hastening Robe: done in CLOTH.hastenSecs. */ hasten?: boolean }
     | null;
-  /** Broken by stress (see content/events.ts). */
-  affliction: AfflictionId | null;
+  /** Gone Insane (stress reached STRESS.insanityAt, or brought in from the Village): hallucinates and misjudges (sim/mind.ts). */
+  insane: boolean;
+  /** Paths (corridor ids) this hero has forgotten: unknown again until they stand at either end. */
+  forgotten: number[];
+  /** Paths in sight as of the last tick (the ones that drop out of it may be forgotten). */
+  inSight: number[];
+  /** Insanity: monsters this hero imagines in rooms that are empty, until they walk in. */
+  phantoms: Record<number, EnemyId[]>;
+  /** Insanity: how many monsters this hero thinks a room holds, for the real number they last judged. */
+  misjudged: Record<number, { real: number; seen: number }>;
   /** Ids of the villagers following this hero. */
   leading: string[];
   /** Events this hero has seen, by room (for map icons). */
@@ -204,7 +213,7 @@ export interface Sighting {
   dead: boolean;
   /** You watched them leave through the exit. */
   extracted?: boolean;
-  affliction: AfflictionId | null;
+  insane: boolean;
 }
 
 /** collapsed: the 13:00 deadline hit · wiped: everyone died · ended: everyone left (or died) early */
@@ -222,6 +231,8 @@ export interface World {
   /** Active fights, keyed by room. */
   encounters: Record<number, Encounter>;
   rng: Rng;
+  /** Forgetting and Insanity roll on their own RNG (sim/mind.ts). */
+  mindRng: Rng;
   nextId: number;
   /** Loot lying in rooms. */
   piles: Record<number, Pile>;
@@ -268,7 +279,7 @@ export interface World {
   stats: {
     /** turns: hero turns taken in fights · fightTime: total seconds spent fighting. */
     fights: number; turns: number; fightTime: number; slain: number; downs: number; revives: number; collapses: number; waves: number;
-    afflictions: number; heartAttacks: number; eventsUsed: number;
+    insanity: number; forgotten: number; heartAttacks: number; eventsUsed: number;
   };
 }
 
@@ -330,9 +341,9 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
   const start = Math.max(0, Math.min(MAX_ESCALATION, opts.startEscalation ?? 0)) * ESCALATION_INTERVAL;
   const world: World = {
     seed, time: start, startTime: start, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
-    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), nextId: 1, piles: {}, bounty: {},
+    monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), mindRng: new Rng(seed ^ 0x1b873593), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
-    stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, afflictions: 0, heartAttacks: 0, eventsUsed: 0 },
+    stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, insanity: 0, forgotten: 0, heartAttacks: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, eliteEvents: false, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
     roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [], kills: {},
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
@@ -378,7 +389,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     knownContents: {},
     hp: maxHp,
     maxHp,
-    stress: loadout?.affliction ? STRESS.afflictedStart : 0,
+    stress: loadout?.insane ? STRESS.insaneStart : 0,
     st: {},
     cooldowns: {},
     cdClock: 0,
@@ -409,7 +420,11 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     extractedAt: null,
     fate: null,
     arrivedAt: null,
-    affliction: loadout?.affliction ?? null,
+    insane: !!loadout?.insane && opts.cls !== 'zealot',
+    forgotten: [],
+    inSight: [],
+    phantoms: {},
+    misjudged: {},
     leading: [],
     knownEvents: {},
     queuedSkill: null,
@@ -501,6 +516,7 @@ export function step(world: World, dt: number): void {
   leaveTogether(world);
   tickStress(world, dt);
   if (world.escalates) tickEscalation(world);
+  tickForgetting(world);
   updateKnowledge(world);
   checkEnd(world);
 }
@@ -586,7 +602,7 @@ export function extractHero(world: World, h: Hero) {
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
       o.lastKnown[h.id] = {
-        pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, affliction: h.affliction,
+        pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, insane: h.insane,
       };
       notify(world, o, `${h.name} escapes through the exit.`);
     }
@@ -923,7 +939,7 @@ function updateKnowledge(world: World) {
     for (const b of heroes) {
       if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b))) {
         a.lastKnown[b.id] = {
-          pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, affliction: b.affliction,
+          pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, insane: b.insane,
         };
       }
     }
@@ -937,6 +953,7 @@ function updateKnowledge(world: World) {
       }
       if (world.chalk[room]) a.knownChalk[room] = Object.fromEntries(Object.entries(world.chalk[room]).map(([id, cs]) => [id, [...cs]]));
       a.knownThreat[room] = monstersIn(world, room).length;
+      seeTruly(a, room);
       a.knownLoot[room] = lootCount(world, room, a);
       const ev = world.events[room];
       if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
@@ -951,8 +968,10 @@ function updateKnowledge(world: World) {
       }
       if (a.light >= LIGHT_DIM || seesInDark(a)) {
         for (const n of neighbours(world.dungeon, room)) {
-          a.knownThreat[n] = monstersIn(world, n).length;
-          a.knownContents[n] = { ...(a.knownContents[n] ?? { items: [], gold: 0, glimpsed: true }), monsters: monsterTypes(world, n), at: world.time };
+          // Insane eyes see what they see (sim/mind.ts).
+          const monsters = perceive(world, a, n, monsterTypes(world, n));
+          a.knownThreat[n] = monsters.length;
+          a.knownContents[n] = { ...(a.knownContents[n] ?? { items: [], gold: 0, glimpsed: true }), monsters, at: world.time };
         }
       }
     }
@@ -998,6 +1017,7 @@ export function cancelTravel(world: World, hero: Hero) {
 export function explore(world: World, hero: Hero, room: number) {
   addUnique(hero.explored, room);
   addUnique(hero.seen, room);
+  relearnPaths(world, hero, room);
   // A secret passage that opened since you were last here only shows up once you're back (or there when it opens).
   for (const cid of world.dungeon.rooms[room].corridors) {
     const c = world.dungeon.corridors[cid];
@@ -1007,23 +1027,29 @@ export function explore(world: World, hero: Hero, room: number) {
     for (const n of neighbours(world.dungeon, room)) {
       // A secret room opened only to a Cutthroat (Cunning Cant) stays hidden from everyone else.
       const privy = corridorBetween(world.dungeon, room, n)?.privy;
-      if (!privy || privy.includes(hero.id)) addUnique(hero.seen, n);
+      // Insane: a room you've just discovered (or rediscovered) may seem to hold monsters.
+      if ((!privy || privy.includes(hero.id)) && addUnique(hero.seen, n)) hallucinate(world, hero, n);
     }
   }
 }
 
-function addUnique(arr: number[], v: number) {
-  if (!arr.includes(v)) arr.push(v);
+/** Adds `v` if it's missing; true if it was. */
+function addUnique(arr: number[], v: number): boolean {
+  if (arr.includes(v)) return false;
+  arr.push(v);
+  return true;
 }
 
 /**
  * A corridor is known to a hero once they have explored either end, or read the whole map (Cunning Cant). A secret
  * passage needs exploring an end after it opened (`knownPassages`). A passage opened only to some heroes (`privy`)
- * doesn't exist for anyone else.
+ * doesn't exist for anyone else. A forgotten one (`forgotten`) is unknown again.
  */
 export function knowsCorridor(hero: Hero, c: Corridor): boolean {
   if (c.privy && !c.privy.includes(hero.id)) return false;
   if (hero.elite.cant) return true;
+  // Forgotten (sim/mind.ts) until you stand at either end again.
+  if (hero.forgotten.includes(c.id)) return false;
   if (c.secret) return hero.knownPassages.includes(c.id);
   return hero.explored.includes(c.a) || hero.explored.includes(c.b);
 }

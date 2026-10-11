@@ -12,7 +12,7 @@ export interface PlayerSlot {
   name: string;
   cls: ClassId;
   isBot: boolean;
-  /** The Village Character this hero is, if any (its Talent, injuries and affliction come with it). */
+  /** The Village Character this hero is, if any (its Talent, injuries and Insanity come with it). */
   loadout?: Loadout;
 }
 

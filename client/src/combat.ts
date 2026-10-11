@@ -1,5 +1,5 @@
 import {
-  abilitiesOf, AFFLICTION_RULES, AFFLICTIONS, FLEE_CHANCE, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
+  abilitiesOf, FLEE_CHANCE, INSANITY, INSANITY_RULES, STRESS, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
   type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -268,7 +268,7 @@ export class CombatUi {
     const actions = `<div class="cb-actions">
       ${abilities.map((_, i) => ability(i)).join('')}
       ${btn('revive', 'R', 'Revive', iconize('Get a downed ally back up (30% HP).'), 0, !anyDowned, 'revive')}
-      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +5 stress.`), 0, false, 'flee')}
+      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +${STRESS.flee} stress.`), 0, false, 'flee')}
       ${btn('brace', 'B', 'Brace', iconize('Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)'), 0, false, 'brace')}
     </div>`;
 
@@ -317,9 +317,8 @@ export class CombatUi {
     const st = u.st;
     const time = this.time;
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
-    const aff = u.affliction ? AFFLICTIONS[u.affliction] : null;
     const icons = [
-      aff && sym('😱', `${aff.name}: ${aff.desc} ${AFFLICTION_RULES}`),
+      u.insane && sym('😱', `${INSANITY.name}: ${INSANITY.desc} ${INSANITY_RULES}`),
       u.kind === 'hero' && (u.stress ?? 0) > 0 && iconNum('stress', u.stress!, `Stress ${u.stress}/100.`),
       u.kind === 'monster' && !st.acted && sym('◌', "Hasn't acted yet: Backstab crits it for double damage."),
       ...statusIcons(st, time),

@@ -81,7 +81,6 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
   if (skill === 'sins' && t.stress <= 0) return `${t.name} has nothing weighing on them.`;
   if (skill === 'mend' && t.hp >= t.maxHp && !t.st.poison) return `${t.name} is not hurt.`;
   if (skill === 'vigil' && t.stress <= 0) return `${t === h ? 'You are' : `${t.name} is`} already calm.`;
-  if (t !== h && t.affliction === 'paranoid') return `${t.name} refuses your help. (Paranoid)`;
   return null;
 }
 

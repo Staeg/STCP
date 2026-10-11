@@ -30,7 +30,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- T0 ----
   ghoul: { id: 'ghoul', name: 'Ghoul', tier: 0, maxHp: 14, speed: 5, dmg: 4, armor: 0, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to the nearest hero.' },
   crawler: { id: 'crawler', name: 'Crawler', tier: 0, maxHp: 8, speed: 3, dmg: 2, armor: 0, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Poison to a random hero.' },
-  acolyte: { id: 'acolyte', name: 'Acolyte', tier: 0, maxHp: 11, speed: 4, dmg: 3, armor: 0, undead: false, glyph: '♆', desc: 'Whisper: +6 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
+  acolyte: { id: 'acolyte', name: 'Acolyte', tier: 0, maxHp: 11, speed: 4, dmg: 3, armor: 0, undead: false, glyph: '♆', desc: 'Whisper: +4 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
   // ---- T1 ----
   wight: { id: 'wight', name: 'Lantern Wight', tier: 1, maxHp: 16, speed: 5, dmg: 3, armor: 0, undead: true, glyph: '♰', desc: 'Snuff: 3 dmg and −15 light to the nearest hero.' },
   zombie: { id: 'zombie', name: 'Zombie', tier: 1, maxHp: 10, speed: 5, dmg: 3, armor: 0, undead: true, glyph: '⚰',
@@ -38,7 +38,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- T2 ----
   giant: { id: 'giant', name: 'Bone Giant', tier: 2, maxHp: 34, speed: 8, dmg: 7, armor: 3, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes. Armor 3: every hit on it does 3 less (at least 1).' },
   queen: { id: 'queen', name: 'Forsaken Queen', tier: 2, maxHp: 32, speed: 6, dmg: 4, armor: 0, undead: false, glyph: '♛', onePerRoom: true, needsCompany: true,
-    desc: 'Hymn: every other monster heals 4 and acts 2s sooner. Alone, Dirge: +8 stress to every hero.' },
+    desc: 'Hymn: every other monster heals 4 and acts 2s sooner. Alone, Dirge: +5 stress to every hero.' },
   // ---- T3 ----
   lich: { id: 'lich', name: 'Lich', tier: 3, maxHp: 30, speed: 6, dmg: 3, armor: 0, undead: true, glyph: '♚', onePerRoom: true,
     desc: 'Aura: every hero takes 3 dmg before each of their turns. Once a fight it raises a slain monster whole; otherwise Doom: every hero in the fight gains a stack of +1 dmg taken from everything. Stacks hold while a Lich stands in their fight, then fade one per turn of theirs, even after the fight.' },
@@ -110,7 +110,7 @@ export const CR_RULES = {
   hymnHeal: 4,
   hymnHaste: 2,
   /** Dirge (when she's alone): stress to every hero in the fight. */
-  dirgeStress: 8,
+  dirgeStress: 5, // 8 until the stress rework (×⅔)
   /** Zombie: gets back up this many seconds after it dies. */
   zombieRise: 12,
   /** Lich's Doom: extra damage heroes take from everything, per stack (see `Statuses.doom`). */

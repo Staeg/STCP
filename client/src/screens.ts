@@ -1,5 +1,5 @@
 import {
-  abilitiesFor, AFFLICTIONS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
+  abilitiesFor, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
   slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
   type Character, type EmergencyId, type FateChoice, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
 } from '@stcp/shared';
@@ -161,7 +161,7 @@ export class Screens {
         slots.push(`<li class="slot bot">
           <span class="swatch" style="background:${bc.color}"></span>
           <span class="slot-name">${esc(bot.name)}${bch?.talent ? ` <span class="talent-star" title="${esc(TALENTS[bch.talent].name)}">★</span>` : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
-          ${bch && (bch.injuries.length || bch.affliction) ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
+          ${bch && (bch.injuries.length || bch.insane) ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
           <span class="slot-meta"><span class="muted">${bc.name}</span> · <span class="muted">BOT</span></span>
         </li>`);
         continue;
@@ -381,7 +381,7 @@ function characterLine(c: Character): string {
   if (c.talent) bits.push(`<span class="talent-star" title="${esc(TALENTS[c.talent].desc)}">★ ${esc(TALENTS[c.talent].name)}</span>`);
   else bits.push(talentPending(c) ? '<span class="gold">Talent ready!</span>' : `XP ${c.xp}/${VILLAGE_RULES.xpForTalent}`);
   for (const i of c.injuries) bits.push(`<span class="injury ${i}">${INJURY_NAMES[i]}</span>`);
-  if (c.affliction) bits.push(`<span class="injury major">${AFFLICTIONS[c.affliction].name}</span>`);
+  if (c.insane) bits.push('<span class="injury major">Insane</span>');
   return bits.join(' · ');
 }
 
@@ -415,7 +415,7 @@ function villageHtml(v: VillageView, lobby: LobbyView | null): string {
     };
     const wounds = [
       ...c.injuries.map((i) => treat(i, INJURY_NAMES[i])),
-      ...(c.affliction ? [treat('affliction', AFFLICTIONS[c.affliction].name)] : []),
+      ...(c.insane ? [treat('insanity', 'Insanity')] : []),
     ];
     return `<div class="v-card" style="--cls:${cls.color}">
       <div class="class-head">
@@ -434,7 +434,7 @@ function villageHtml(v: VillageView, lobby: LobbyView | null): string {
   const report = v.report.length ? `<div class="v-report"><div class="muted small">After the last run</div>${v.report.map((l) => `<div>${esc(l)}</div>`).join('')}</div>` : '';
   return `<div class="card wide village">
     <div class="lobby-head">
-      <div><h1>The Village</h1><div class="muted small">Each run a Character survives earns 1 XP; ${VILLAGE_RULES.xpForTalent} XP earns a Talent. Wounds and afflictions follow them home. Death sends a raw recruit in their place.</div></div>
+      <div><h1>The Village</h1><div class="muted small">Each run a Character survives earns 1 XP; ${VILLAGE_RULES.xpForTalent} XP earns a Talent. Wounds and Insanity follow them home. Death sends a raw recruit in their place.</div></div>
       <div class="v-purse">Purse <span class="gold">${v.purse} gold</span></div>
     </div>
     ${report}

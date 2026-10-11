@@ -24,7 +24,7 @@ export interface FloorItem {
   by: string | null;
   /** voterId → recipient hero id. (Voting LEAVE isn't stored: it takes you out of this item's vote.) */
   votes: Record<string, string>;
-  /** When the people now around it first saw it (bots defer, Selfish grace). */
+  /** When the people now around it first saw it (bots defer). */
   startedAt: number;
   /** Heroes who have stood in the room with it; once they walk out they've passed it by. */
   seen: string[];
@@ -290,13 +290,7 @@ export function tickLoot(world: World) {
     for (const f of activeItems(world, room, voters)) {
       if (!pile.items.includes(f)) continue;
       // Only those still in on this item decide: leaving it is like walking out, for this item alone.
-      let deciders = decidersOf(f, voters);
-      // Selfish heroes always claim it, and get outvoted by being ignored after a grace period.
-      for (const v of deciders) if (v.affliction === 'selfish' && canTake(v, f.item)) f.votes[v.id] = v.id;
-      if (world.time - f.startedAt > STRESS.selfishGrace) {
-        const fair = deciders.filter((v) => v.affliction !== 'selfish');
-        if (fair.length) deciders = fair;
-      }
+      const deciders = decidersOf(f, voters);
       const ids = new Set(deciders.map((v) => v.id));
       for (const id of Object.keys(f.votes)) if (!ids.has(id)) delete f.votes[id];
       // A vote for someone who can no longer take it is void.
@@ -448,7 +442,6 @@ export function castVote(world: World, h: Hero, id: number, choice: string): str
   const room = h.pos.room;
   if (!votersIn(world, room).includes(h)) return 'You cannot vote right now.';
   if (!activeItems(world, room).includes(f) || !decidersOf(f, [h]).length) return 'You left that. Claim it first.';
-  if (h.affliction === 'selfish' && canTake(h, f.item) && choice !== h.id) return 'Mine! (Selfish)';
   if (choice === LEAVE) {
     delete f.votes[h.id];
     if (!f.passed.includes(h.id)) f.passed.push(h.id);
@@ -567,7 +560,6 @@ function itemTargetError(world: World, h: Hero, index: number, targetId?: string
   const tid = itemTarget(world, h, index, targetId);
   if (!tid || !itemTargets(world, h, index).includes(tid)) return 'No valid target.';
   const t = world.heroes[tid];
-  if (t !== h && t.affliction === 'paranoid' && item !== 'salts') return `${t.name} refuses your help. (Paranoid)`;
   if (item === 'bandage' && t.hp >= t.maxHp && !t.st.poison) return `${t === h ? "You're" : `${t.name} is`} not hurt.`;
   if (item === 'tonic' && t.stress <= 0) return 'You feel steady already.';
   return null;
@@ -624,7 +616,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
       t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
       return `${h.name} lights a fresh torch.${boost}`;
     case 'tonic': {
-      const eased = reliefBy(h, 25 * x);
+      const eased = reliefBy(h, STRESS.tonic * x);
       addStress(t, -eased);
       return `${h.name} drinks a tonic. (−${eased} stress)${boost}${warded()}`;
     }

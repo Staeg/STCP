@@ -41,10 +41,10 @@ export const TALENT_RULES = {
   /** Great Bell: monsters outside fights are dazed this long (seconds) by the Toll. */
   greatBellDaze: 7,
   /** Resonance: Peal also lifts this much stress from, and heals, every ally it hastens. */
-  resonanceStress: 5,
+  resonanceStress: 3, // 5 until the stress rework (×⅔)
   resonanceHeal: 3,
   /** Martyr: Take Their Sins moves up to this much and heals the ally. */
-  martyrSins: 40,
+  martyrSins: 27, // 40
   martyrHeal: 5,
 };
 

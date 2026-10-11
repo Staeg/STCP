@@ -301,7 +301,7 @@ describe('Zealot', () => {
     expect(damageMult(z)).toBeCloseTo(1.1 * (1 + 50 * CLASS_RULES.zealotDmgPerStress));
     z.stress = 100;
     run(world, 1);
-    expect(z.affliction).toBeNull();
+    expect(z.insane).toBe(false);
     expect(z.downedAt).toBeNull();
   });
 
@@ -311,8 +311,8 @@ describe('Zealot', () => {
     applyIntent(world, 'h0', { type: 'skill', target: 'h1' });
     expect(heroes[1].stress).toBe(40);
     run(world, CLASSES.zealot.speed + 0.2);
-    expect(heroes[1].stress).toBe(15);
-    expect(heroes[0].stress).toBe(25);
+    expect(heroes[1].stress).toBe(40 - 17);
+    expect(heroes[0].stress).toBe(17);
     expect(heroes[0].cooldowns.sins).toBe(2); // the same cooldown as in a fight
   });
 });

@@ -61,7 +61,7 @@ export interface VillageView {
   fate: VillageFate | null;
 }
 
-export type Treatment = Injury | 'affliction';
+export type Treatment = Injury | 'insanity';
 
 /** The Stash lists consumables first, then weapons, armor, amulets, rings. */
 const KIND_ORDER = ['consumable', 'weapon', 'armor', 'amulet', 'ring', 'resource'];
@@ -91,6 +91,14 @@ export class Stash {
         const r = this.data[key];
         if (r.items) r.items = r.items.map(migrateItemId);
         if (r.kit) for (const s of Object.keys(r.kit.gear) as (keyof Kit['gear'])[]) r.kit.gear[s] = migrateItemId(r.kit.gear[s]!);
+        // Insanity replaced the four afflictions (2026-10-11): any affliction a Character carried home is now Insanity.
+        for (const c of (r.village ?? []) as (Character & { affliction?: string | null })[]) {
+          if ('affliction' in c) {
+            c.insane = !!c.affliction;
+            delete c.affliction;
+          }
+          c.insane ??= false;
+        }
       }
     } catch {
       // Unreadable stash: start empty.
@@ -324,16 +332,16 @@ export class Stash {
     return err;
   }
 
-  /** Pay to treat one injury (or the affliction) of a Character. Returns an error, or null. */
+  /** Pay to treat one injury (or the Insanity) of a Character. Returns an error, or null. */
   treat(name: string, charId: string, what: Treatment): string | null {
     const { r, chars } = this.villageOf(name);
     const c = chars.find((x) => x.id === charId);
     if (!c) return 'No such Character.';
-    if (what === 'affliction' ? !c.affliction : !c.injuries.includes(what)) return `${c.name} has nothing like that to treat.`;
+    if (what === 'insanity' ? !c.insane : !c.injuries.includes(what)) return `${c.name} has nothing like that to treat.`;
     const cost = VILLAGE_RULES.cost[what];
     if ((r.purse ?? 0) < cost) return `That costs ${cost} gold; you have ${r.purse ?? 0}.`;
     r.purse = (r.purse ?? 0) - cost;
-    if (what === 'affliction') c.affliction = null;
+    if (what === 'insanity') c.insane = false;
     else c.injuries.splice(c.injuries.indexOf(what), 1);
     this.save();
     return null;

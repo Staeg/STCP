@@ -134,7 +134,7 @@ export const CLOTH = {
   penitentHeal: 15,
   graveTurns: 2,
   graveHp: 0.25,
-  blinkStress: 20,
+  blinkStress: 13, // 20 until the stress rework (×⅔)
 };
 const cloth = (id: ItemId, name: string, def: ClothDef, text: string, extra: Partial<ItemDef> = {}): ItemDef => {
   const limit = def.perFight ? 'Once a fight.' : def.cooldown ? `Every ${def.cooldown}s worn.` : def.usesPerRun ? `${def.usesPerRun === 1 ? 'Once' : `${def.usesPerRun}×`} a run.` : '';
@@ -161,7 +161,7 @@ const resource = (id: ItemId, name: string, glyph: string, rite: string): ItemDe
 export const ITEMS: Record<ItemId, ItemDef> = {
   bandage: { id: 'bandage', name: 'Bandage', kind: 'consumable', glyph: '✚', desc: 'Heal 12 and cure Poison.', target: 'ally', combat: true, field: true },
   torch: { id: 'torch', name: 'Torch', kind: 'consumable', glyph: '🔥', desc: '+50 light.', target: 'self', combat: true, field: true },
-  tonic: { id: 'tonic', name: 'Tonic', kind: 'consumable', glyph: '⚗', desc: '−25 stress.', target: 'self', combat: true, field: true },
+  tonic: { id: 'tonic', name: 'Tonic', kind: 'consumable', glyph: '⚗', desc: '−17 stress.', target: 'self', combat: true, field: true },
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },
   salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed ally at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
   // Amulets and rings: blessed ones only help; cursed ones hurt you but quicken your step.

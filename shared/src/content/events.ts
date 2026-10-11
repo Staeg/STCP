@@ -1,38 +1,56 @@
 import type { ClassId } from './classes';
 
-export type AfflictionId = 'selfish' | 'fearful' | 'paranoid' | 'hopeless';
-
-export interface AfflictionDef {
-  id: AfflictionId;
-  name: string;
-  desc: string;
-}
-
-export const AFFLICTIONS: Record<AfflictionId, AfflictionDef> = {
-  selfish: { id: 'selfish', name: 'Selfish', desc: 'Always votes to take loot for themself. After 10s, votes go ahead without them.' },
-  fearful: { id: 'fearful', name: 'Fearful', desc: 'Each combat turn, 25% chance to try to flee (50% to escape, +5 stress) instead of the chosen action.' },
-  paranoid: {
-    id: 'paranoid', name: 'Paranoid',
-    desc: "Refuses allies' Mend, Vigil, Guard, Blood Pact healing and items (Smelling Salts still work).",
-  },
-  hopeless: { id: 'hopeless', name: 'Hopeless', desc: 'Every hit they deal does 30% less damage (×0.7, before Shield).' },
+/**
+ * The mind under strain (user, 2026-10-11; replaced the four Darkest Dungeon afflictions). Two effects:
+ * - **Forgetting** (linear): whenever a known path drops out of a hero's sight, they forget it with a chance of
+ *   Stress %. A room whose every path is forgotten is forgotten too.
+ * - **Insanity** (binary): at `STRESS.insanityAt` a hero goes Insane for the rest of the run (and it follows a Village
+ *   Character home until treated). Insane heroes hallucinate monsters in rooms they discover and misjudge how many
+ *   monsters a room holds. The Zealot never goes Insane; the Sorceress is faster for it.
+ */
+export const INSANITY = {
+  name: 'Insane',
+  desc: "Sees monsters that aren't there in rooms they discover, and misjudges how many are in a room (seeing few as many, many as few).",
 };
 
-/** Shown alongside an affliction's description. */
-export const AFFLICTION_RULES = 'Afflictions last the rest of the run. Reaching 100 stress again stops your heart: you go down and stress resets to 80.';
+/** Shown alongside Insanity's description. */
+export const INSANITY_RULES = 'Insanity lasts the rest of the run. Reaching 100 stress stops your heart: you go down and stress resets to 80.';
+
+/** Shown alongside stress: what it does on its own. */
+export const FORGETTING_RULES = 'Every path that drops out of your sight may be forgotten (chance = your stress %). A room whose every path is forgotten is forgotten too.';
 
 export const STRESS = {
-  /** Per second, always, just for being down here: about 100 in 10 minutes if nothing relieves it. */
-  basePerSec: 0.16,
+  /** Per second, always, just for being down here: about 70 in 10 minutes if nothing relieves it. */
+  basePerSec: 0.107,
   /** Per second on top of that while Dim / in total darkness. */
-  dimPerSec: 0.15,
-  darkPerSec: 0.5,
-  /** After the first break, stress resets here. */
-  afterBreak: 60,
-  /** A Character who comes in already Afflicted (from a past run) starts at this much stress (user, 2026-10-11). */
-  afflictedStart: 50,
-  /** Selfish voters are dropped from a vote after this long. */
-  selfishGrace: 10,
+  dimPerSec: 0.1,
+  darkPerSec: 0.33,
+  /** Stress at which a hero goes Insane (not the Zealot). */
+  insanityAt: 50,
+  /** Hallucinations: chance per discovered room = this × stress (%), so 10% at 50 stress. */
+  phantomPerStress: 0.002,
+  /** Misjudged numbers: chance per sighted group = this × stress (%), so 5% at 50 stress. */
+  misjudgePerStress: 0.001,
+  /** After a heart attack, stress resets here. */
+  afterHeartAttack: 80,
+  // Every stress source and relief below was cut by a third in the Insanity rework (user, 2026-10-11); old values in comments.
+  /** Witnessing an ally go down / die in your room. */
+  allyDown: 10, // 15
+  allyDeath: 17, // 25
+  /** Fleeing a fight. */
+  flee: 3, // 5
+  /** Acolyte's Whisper. */
+  whisper: 4, // 6
+  /** Tonic relief. */
+  tonic: 17, // 25
+  /** Whispering Well's calm outcome. */
+  wellRelief: 27, // 40
+  /** Cursed Chest. */
+  chest: 13, // 20
+  /** Every hero still inside when an altar is cleansed. */
+  altarRelief: 13, // 20
+  /** A Character who comes in already Insane (from a past run) starts at this much stress (user, 2026-10-11). */
+  insaneStart: 50,
 };
 
 export type EventKind =
@@ -124,17 +142,17 @@ export const EVENTS: Record<EventKind, EventDef> = {
   liturgy: {
     kind: 'liturgy', name: 'Luminous Liturgy', glyph: '✦', weight: 0, elite: 'lampbearer',
     text: 'A shrine to the old light, its wick still trimmed. Wherever your allies are, they would feel it burn. '
-      + '(Pray as long as you like: every second, every ally in the dungeon, you included, gets +1 HP, +1 light and −1 stress.)',
+      + '(Pray as long as you like: every second, every ally in the dungeon, you included, gets +1 HP, +1 light and −⅔ stress.)',
   },
   sacrament: {
     kind: 'sacrament', name: 'Sinful Sacrament', glyph: '✦', weight: 0, elite: 'sorceress',
     text: 'A chalice of something dark and warm. Drink, and the whole dungeon will feel what it costs. '
-      + '(12s: +25 stress to every hero, you included; your Speed is the fastest there is (2s) for the rest of the run.)',
+      + '(12s: +17 stress to every hero, you included; your Speed is the fastest there is (2s) for the rest of the run.)',
   },
   uprising: {
     kind: 'uprising', name: 'Unholy Uprising', glyph: '✦', weight: 0, elite: 'undertaker',
     text: 'A mass grave, shallow and restless. The dead here would answer a gravedigger. '
-      + '(12s: three Risen follow you for good, into every fight, until they fall. Allies fighting beside them take +8 stress when each fight ends.)',
+      + '(12s: three Risen follow you for good, into every fight, until they fall. Allies fighting beside them take +5 stress when each fight ends.)',
   },
   barrage: {
     kind: 'barrage', name: 'Booming Barrage', glyph: '✦', weight: 0, elite: 'bellwright',
@@ -174,12 +192,12 @@ export const ELITE_EVENTS = {
   /** Luminous Liturgy, per second of prayer, for every ally in the dungeon. */
   liturgyHp: 1,
   liturgyLight: 1,
-  liturgyStress: 1,
+  liturgyStress: 0.67, // 1 until the stress rework (user, 2026-10-11: every stress effect ×⅔)
   /** Sinful Sacrament: stress to every hero in the dungeon. */
-  sacramentStress: 25,
+  sacramentStress: 17, // 25
   /** Unholy Uprising: how many Risen, and the stress each ally in a fight with them takes when it ends. */
   uprisingRisen: 3,
-  uprisingStress: 8,
+  uprisingStress: 5, // 8
   /** Booming Barrage: ringing takes this long, Tolling every `barrageEvery` seconds of it. */
   barrageTime: 36,
   barrageEvery: 12,
@@ -208,19 +226,19 @@ export const SPEED_EVENTS = {
 /**
  * Class twists on events (user, 2026-10-10). Deliberately absent from the class picker: a hero learns theirs at the
  * event itself, where the button wears the class icon and says what's different. (The Undertaker's quick digging and
- * the Sorceress's Speed while Afflicted are class perks, not event twists.)
+ * the Sorceress's Speed while Insane are class perks, not event twists.)
  * - Sorceress: cleanses the Altar without waking its guardians.
  * - Lampbearer: helps the Wounded Stranger without a bandage, and is always rewarded; keeps their light in the Crawlspace.
  * - Cutthroat: takes the Glittering Idol without the cave-in.
  * - Bellwright: the Cracked Hourglass's haste lasts the rest of the run, for everyone it touches.
  * - Alchemist: Quicksilver gives max HP instead of costing it.
  * - Undertaker: no stress from the Cursed Chest.
- * - Zealot: the Whispering Well always gives stress and HP, never an affliction.
+ * - Zealot: the Whispering Well always gives stress and HP, never Insanity.
  * - Warden: escorting a villager speeds them up instead of slowing them down.
  */
 export const CLASS_EVENTS = {
   alchemistQuicksilverMaxHp: 12,
-  zealotWellStress: 40,
+  zealotWellStress: 27, // 40
   zealotWellHp: 15,
   wardenEscortSpeed: -1.5,
 };

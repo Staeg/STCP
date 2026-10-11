@@ -25,7 +25,7 @@ export interface LobbyMemberView {
   stash: number;
   title: string;
   /** The Village Character they bring (for the class they picked). */
-  character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'affliction'> | null;
+  character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'insane'> | null;
   /** What they're bringing from their Village Stash. */
   kit: Kit;
   /** Their Village's Emergency for this run (M13), if picked. */
@@ -140,7 +140,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
         ? { t: 'chooseTalent', charId: msg.charId as string, talent: msg.talent as TalentId }
         : null;
     case 'treat':
-      return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'affliction')
+      return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'insanity')
         ? { t: 'treat', charId: msg.charId as string, what: msg.what }
         : null;
     case 'chooseEmergency':

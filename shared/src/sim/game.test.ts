@@ -32,7 +32,8 @@ describe('bots', () => {
         explored += h.explored.length;
       }
     }
-    expect(atExit / total).toBeGreaterThan(0.9);
+    // (Not quite all: with no torches down here, a bot whose memory frays can lose enough time in the dark for its heart to give out.)
+    expect(atExit / total).toBeGreaterThan(0.85);
     expect(explored / total).toBeGreaterThan(10);
     expect(divergent).toBeGreaterThanOrEqual(6); // bots split up early
   });

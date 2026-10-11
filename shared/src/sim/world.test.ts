@@ -228,14 +228,15 @@ describe('auto-pathing', () => {
 });
 
 
-describe('arriving Afflicted', () => {
-  it('a Character who comes in with an affliction starts at 50 stress', () => {
+describe('arriving Insane', () => {
+  it('a Character who comes in Insane starts Insane, at 50 stress', () => {
     const world = createWorld(1, { monsters: false, loot: false, escalates: false, events: false });
     const base = { charId: 'c', charName: 'C', owner: 'p', talent: null, injuries: [] };
-    const calm = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: { ...base, affliction: null } });
-    const shaken = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', affliction: 'fearful' } });
+    const calm = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: { ...base, insane: false } });
+    const shaken = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', insane: true } });
     expect(calm.stress).toBe(0);
-    expect(shaken.stress).toBe(STRESS.afflictedStart);
-    expect(STRESS.afflictedStart).toBe(50);
+    expect(shaken.stress).toBe(STRESS.insaneStart);
+    expect(shaken.insane).toBe(true);
+    expect(STRESS.insaneStart).toBe(50);
   });
 });

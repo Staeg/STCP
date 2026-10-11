@@ -11,6 +11,7 @@
   Major: Undertakers Raise fallen allies, who fight beside them and can walk out with them
   Minor: Bone Brute renamed to Bone Giant
   ```
+- Code names and player-facing names must match. When you rename or change one (identifiers, types, ids, comments on one side; on-screen text, tooltips, docs and PLAN.md on the other), change the other to match in the same commit.
 - Before ending a session, tick off finished milestones and add a Progress Log entry (date, what changed, what's next, known bugs). Then commit.
 - Once a task is done, stop every dev server your session started: `preview_stop` each server from `preview_list`, and kill any leftover game-server (tsx `src/index.ts`, ports 30xx) or Vite (51xx–52xx) processes you spawned.
 

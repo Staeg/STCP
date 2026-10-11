@@ -2,14 +2,15 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  AFFLICTIONS, channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS,
-  type AfflictionId, type EventKind,
+  channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS,
+  type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, rollResource, seesInDark, takeItem } from './loot';
+import { goInsane } from './mind';
 import { notify } from './notify';
 import { clothReady, spendCloth } from './gear';
 import { CLOTH } from '../content/items';
@@ -179,7 +180,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
     case 'chest':
       return one(h.cls === 'undertaker'
         ? perk(c('open', 'Open it'), 'undertaker', 'The dead hold no fear for you: no stress.')
-        : c('open', 'Open it (+20 stress)'));
+        : c('open', `Open it (+${STRESS.chest} stress)`));
     case 'crawlspace': {
       const where = world.escalation >= CRAWL_TO_EXIT_ESCALATION ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
       const full = h.leading.length ? (h.leading.length > 1 ? "The villagers won't fit." : "The villager won't fit.") : undefined;
@@ -404,13 +405,14 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       }
       const roll = rng.int(0, 2);
       if (roll === 0) {
-        addStress(h, -40);
-        notify(world, h, 'The water is cold and clean. Your mind clears. (−40 stress)');
+        addStress(h, -STRESS.wellRelief);
+        notify(world, h, `The water is cold and clean. Your mind clears. (−${STRESS.wellRelief} stress)`);
       } else if (roll === 1) {
         h.hp = Math.min(h.maxHp, h.hp + 15);
         notify(world, h, 'Warmth spreads through you. (+15 HP)');
       } else {
-        afflict(world, h, rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'the well');
+        if (h.insane) notify(world, h, 'The whispers in the water are old friends by now.');
+        else goInsane(world, h, 'the well');
       }
       return;
     }
@@ -419,8 +421,8 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       if (h.cls === 'undertaker') {
         notify(world, h, 'Something cold brushes your mind as the lid opens. You have known worse company.');
       } else {
-        addStress(h, 20);
-        notify(world, h, 'Something cold brushes your mind as the lid opens. (+20 stress)');
+        addStress(h, STRESS.chest);
+        notify(world, h, `Something cold brushes your mind as the lid opens. (+${STRESS.chest} stress)`);
       }
       return;
     case 'crawl': {
@@ -674,8 +676,8 @@ function completeChannel(world: World, ev: RoomEvent, h: Hero) {
     chronicle(world, `${h.name} cleansed the altar in ${world.dungeon.rooms[ev.room].name}.`);
     for (const x of Object.values(world.heroes)) {
       if (!inDungeon(x)) continue;
-      addStress(x, -20);
-      notify(world, x, `An altar has been cleansed. You feel lighter. (−20 stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
+      addStress(x, -STRESS.altarRelief);
+      notify(world, x, `An altar has been cleansed. You feel lighter. (−${STRESS.altarRelief} stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
     }
   } else {
     addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3), rollResource(world)]);
@@ -724,7 +726,7 @@ export function maybeHitVillager(world: World, room: number, dmg: number, attack
   return `${attacker} kills the villager!`;
 }
 
-/** The dungeon wears on the mind, darkness most of all; at 100 stress something breaks. Called every tick. */
+/** The dungeon wears on the mind, darkness most of all: at 50 stress you go Insane, at 100 your heart gives out. Called every tick. */
 export function tickStress(world: World, dt: number) {
   for (const h of Object.values(world.heroes)) {
     if (!isConscious(h)) continue;
@@ -732,27 +734,16 @@ export function tickStress(world: World, dt: number) {
     if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
     else if (h.light < LIGHT_DIM && !seesInDark(h)) addStress(h, STRESS.dimPerSec * dt);
     // The Zealot never breaks: stress just stays at its cap (and makes them hit harder).
-    if (h.stress < 100 || h.cls === 'zealot') continue;
-    if (!h.affliction) {
-      afflict(world, h, world.rng.pick(Object.keys(AFFLICTIONS) as AfflictionId[]), 'stress');
-      h.stress = STRESS.afterBreak;
-    } else {
-      h.stress = 80;
-      world.stats.heartAttacks++;
-      chronicle(world, `${h.name}'s heart gave out under the strain.`);
-      notify(world, h, 'Your heart seizes!');
-      const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
-      downHero(world, h, null, enc);
-    }
+    if (h.cls === 'zealot') continue;
+    if (h.stress >= STRESS.insanityAt) goInsane(world, h, 'stress');
+    if (h.stress < 100) continue;
+    h.stress = STRESS.afterHeartAttack;
+    world.stats.heartAttacks++;
+    chronicle(world, `${h.name}'s heart gave out under the strain.`);
+    notify(world, h, 'Your heart seizes!');
+    const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+    downHero(world, h, null, enc);
   }
-}
-
-function afflict(world: World, h: Hero, id: AfflictionId, cause: string) {
-  h.affliction = id;
-  world.stats.afflictions++;
-  const def = AFFLICTIONS[id];
-  chronicle(world, `${h.name} became ${def.name} (${cause}).`);
-  notify(world, h, `You have become ${def.name.toUpperCase()}: ${def.desc}`);
 }
 
 export function eventName(kind: EventKind): string {

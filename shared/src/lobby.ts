@@ -88,14 +88,14 @@ export class Lobby {
         const c = m.cls ? this.stash.characterFor(m.name, m.cls) : null;
         return {
           id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
-          character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, affliction: c.affliction },
+          character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, insane: c.insane },
           kit: this.stash.kitOf(m.name),
           emergency: this.stash.emergencyOf(m.name),
         };
       }),
       bots: this.bots.map((b) => {
         const c = this.botCharacter(b);
-        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, affliction: c.affliction } };
+        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, insane: c.insane } };
       }),
       cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? this.stash.characterFor(m.name, m.cls).talent : null, this.stash.kitOf(m.name)), 0)
         + this.bots.reduce((s, b) => s + heroCr(this.botCharacter(b)?.talent, undefined), 0)) * 100) / 100,
@@ -213,7 +213,7 @@ export class Lobby {
         for (const r of this.roster) {
           const h = this.game.world.heroes[r.heroId];
           if (!h) continue;
-          this.stash.recordCharacter(r.owner, r.charId, { escaped: h.extracted, lowestHp: h.lowestHp, downedMajor: h.downedMajor, affliction: h.affliction });
+          this.stash.recordCharacter(r.owner, r.charId, { escaped: h.extracted, lowestHp: h.lowestHp, downedMajor: h.downedMajor, insane: h.insane });
           // Everything carried out (pack and Gear) goes into the player's Village Stash, with whatever an Undertaker
           // or the Tome Rite brought home for a hero who fell.
           const line = this.stash.storeLoot(r.owner, carriedHome(h));

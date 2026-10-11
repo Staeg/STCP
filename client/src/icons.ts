@@ -2,6 +2,7 @@
  * The game's stat and keyword icons: little pixel-art SVGs, each with a hover explanation. `iconize` swaps the
  * words in a rules text (ability and item descriptions, event choices) for them.
  */
+import { FORGETTING_RULES, STRESS } from '@stcp/shared';
 
 export type IconId = 'hp' | 'stress' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
   | 'revive' | 'flee' | 'brace';
@@ -43,7 +44,7 @@ const GLYPH = Object.fromEntries(Object.entries(ART).map(([id, rows]) => [id, sv
 
 export const ICON_TIPS: Record<IconId, string> = {
   hp: 'HP: health. At 0 you go down, and die unless an ally gets you back up.',
-  stress: 'Stress (0–100): builds up in the dark, in fights and from horrors. At 100 you get an affliction.',
+  stress: `Stress (0–100): builds up in the dark, in fights and from horrors. ${FORGETTING_RULES} At ${STRESS.insanityAt} you go Insane; at 100 your heart gives out.`,
   speed: 'Speed: seconds between your turns in a fight, and to walk a tunnel. Lower is faster.',
   cooldown: 'Cooldown: after using it, unusable for this many of your own turns.',
   field: 'Also works outside fights: pick it, and it happens when your timer runs out (using up that turn).',

@@ -6,7 +6,7 @@ import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
 import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
-import { EVENTS, type AfflictionId, type EventKind } from '../content/events';
+import { EVENTS, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } from './events';
 import type { ItemCharge } from './gear';
 import { activeItems, canTake, decidersOf, votersIn } from './loot';
@@ -29,6 +29,8 @@ export interface RoomView {
   kind?: RoomKind;
   /** Known corridor ids only. */
   corridors: number[];
+  /** Explored, but you've forgotten some of its paths (sim/mind.ts): going back brings them back. */
+  hazy?: true;
   /** Monsters you last saw here (undefined = never looked). */
   threat?: number;
   /** Loot you last saw here. */
@@ -109,7 +111,7 @@ export interface AllyView {
   dead: boolean;
   /** You saw them escape. */
   extracted: boolean;
-  affliction: AfflictionId | null;
+  insane: boolean;
   /** Only while you can see them. */
   stress?: number;
   /** Their Speed timer (start, end), while you can see them standing free in a room. */
@@ -166,7 +168,7 @@ export interface CombatUnitView {
   choice?: string;
   /** Who that choice is aimed at (a unit id), if anyone. */
   choiceTarget?: string;
-  affliction?: AfflictionId | null;
+  insane?: boolean;
 }
 
 export interface EncounterView {
@@ -259,7 +261,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     allies.push({
       id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, heading: null, seenAt: sighting.time,
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
-      affliction: sighting.affliction ?? null,
+      insane: !!sighting.insane,
       stress: live && inDungeon(h) ? Math.round(h.stress) : undefined,
       ready: live && inDungeon(h) ? h.ready : undefined,
       turn: live && inDungeon(h) && isConscious(h) && h.encounter === null && !h.channel && h.pos.kind === 'room'
@@ -297,6 +299,7 @@ export function buildView(world: World, heroId: string): PlayerView {
       name: knowledge === 'unknown' ? undefined : r.name,
       kind: knowledge === 'unknown' ? undefined : r.kind,
       corridors: r.corridors.filter((cid) => over || knowsCorridor(you, d.corridors[cid])),
+      hazy: !over && knowledge === 'explored' && r.corridors.some((cid) => you.forgotten.includes(cid)) || undefined,
       threat: reveal ? reveal.monsters.length || undefined : you.knownThreat[id],
       loot: reveal ? reveal.items.length + (reveal.gold > 0 ? 1 : 0) || undefined : you.knownLoot[id],
       event: reveal ? reveal.event ?? (reveal.captive ? 'villager' : undefined) : you.knownEvents[id],
@@ -441,7 +444,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
       ready: !!enc.choices[id] || !isConscious(h),
       choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,
       choiceTarget: enc.choices[id]?.target,
-      affliction: h.affliction,
+      insane: h.insane,
     };
   };
   const order = combatOrder(world, enc);

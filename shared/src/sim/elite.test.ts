@@ -135,7 +135,7 @@ describe('Elite Events: effects', () => {
     choose(world, 'h', 'pray');
     run(world, 30);
     expect(o.hp).toBeGreaterThanOrEqual(39);
-    expect(o.stress).toBeLessThanOrEqual(25); // (−1 a second, less a little for the dim start)
+    expect(o.stress).toBeLessThanOrEqual(33); // (−⅔ a second, less a little for the dim start)
     expect(o.light).toBeGreaterThan(30);
     expect(o.light).toBeLessThanOrEqual(LIGHT_MAX);
     expect(world.events[room].done).toBe(false);
@@ -150,13 +150,13 @@ describe('Elite Events: effects', () => {
     expect(world.events[room].by).toBeNull();
   });
 
-  it('Sinful Sacrament: +25 stress to every hero, and the Sorceress is Speed 2s for good', () => {
+  it('Sinful Sacrament: +17 stress to every hero, and the Sorceress is Speed 2s for good', () => {
     const { world, h, o } = withElite('sorceress');
     o.pos = { kind: 'room', room: neighbours(world.dungeon, world.dungeon.entrance)[0] };
     choose(world, 'h', 'partake');
     run(world, ELITE_EVENTS.channel + 0.2);
-    expect(h.stress).toBe(25);
-    expect(o.stress).toBe(25);
+    expect(h.stress).toBe(ELITE_EVENTS.sacramentStress);
+    expect(o.stress).toBe(ELITE_EVENTS.sacramentStress);
     expect(speedOf(h, world.time)).toBe(MIN_SPEED);
     addSpeedMod(h, world.time, 3, null, 'Heavy'); // nothing slows her now
     expect(speedOf(h, world.time + 500)).toBe(MIN_SPEED);
@@ -200,7 +200,7 @@ describe('Elite Events: effects', () => {
     h.stress = 150;
     run(world, 1);
     expect(h.stress).toBeGreaterThanOrEqual(150);
-    expect(h.affliction).toBeNull();
+    expect(h.insane).toBe(false);
   });
 
   it('Artistic Alacrity: each carried consumable is −0.5s Speed', () => {

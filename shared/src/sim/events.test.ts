@@ -5,7 +5,6 @@ import { CLASS_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
-import { addToPile } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { RoomEvent } from './events';
@@ -58,7 +57,7 @@ describe('room events', () => {
     run(world, 5.5);
     expect(h.stress).toBe(0); // it takes a beat
     run(world, 0.6);
-    expect(h.stress).toBe(20);
+    expect(h.stress).toBe(STRESS.chest);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBe(20);
@@ -198,7 +197,7 @@ describe('room events', () => {
     run(world, 9.2);
     expect(world.events[room].done).toBe(true);
     expect(world.objectives.altars).toBe(1);
-    expect(h.stress).toBeLessThanOrEqual(30);
+    expect(h.stress).toBeLessThanOrEqual(50 - STRESS.altarRelief);
   });
 });
 
@@ -221,10 +220,10 @@ describe('class twists', () => {
     expect(world.events[room].done).toBe(true);
   });
 
-  it('Sorceress: faster while Afflicted', () => {
+  it('Sorceress: faster while Insane', () => {
     const { world, h } = withEvent('chest', 'sorceress');
-    h.affliction = 'fearful';
-    expect(speedOf(h, world.time)).toBe(4 + CLASS_RULES.sorceressAfflictedSpeed);
+    h.insane = true;
+    expect(speedOf(h, world.time)).toBe(4 + CLASS_RULES.sorceressInsaneSpeed);
   });
 
   it('Cutthroat: takes the idol without a cave-in', () => {
@@ -287,7 +286,7 @@ describe('class twists', () => {
     expect(h.stress).toBe(0);
   });
 
-  it('Zealot: the well always gives stress and HP, never an affliction', () => {
+  it('Zealot: the well always gives stress and HP, never Insanity', () => {
     for (let i = 0; i < 6; i++) {
       const { world, h, room } = withEvent('well', 'zealot');
       for (let j = 0; j < i; j++) world.rng.float(0, 1); // a different roll each time
@@ -297,7 +296,7 @@ describe('class twists', () => {
       expect(world.events[room].done).toBe(true);
       expect(h.stress).toBe(CLASS_EVENTS.zealotWellStress);
       expect(h.hp).toBe(10 + CLASS_EVENTS.zealotWellHp);
-      expect(h.affliction).toBeNull();
+      expect(h.insane).toBe(false);
     }
   });
 });
@@ -441,47 +440,30 @@ describe('villagers', () => {
   });
 });
 
-describe('stress and afflictions', () => {
-  it('darkness raises stress; 100 means an affliction, the second 100 a heart attack', () => {
+describe('stress and Insanity', () => {
+  it('darkness raises stress; 50 means Insanity, 100 a heart attack', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
     const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
     h.light = 0;
-    h.stress = 95;
-    run(world, 11);
-    expect(h.affliction).not.toBeNull();
-    expect(h.stress).toBeLessThan(70);
+    h.stress = 45;
+    run(world, 2);
+    expect(h.insane).toBe(false);
+    run(world, 14);
+    expect(h.insane).toBe(true);
+    expect(h.downedAt).toBeNull();
     h.stress = 99.9;
     run(world, 0.5);
     expect(h.downedAt).not.toBeNull();
+    expect(h.stress).toBeCloseTo(STRESS.afterHeartAttack, 0);
     expect(world.chronicle.some((c) => c.text.includes('heart gave out'))).toBe(true);
   });
 
-  it('Selfish heroes always vote for themselves and are ignored after 10s', () => {
+  it('the Zealot never goes Insane', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
-    const s = addHero(world, { id: 's', name: 'S', cls: 'warden' });
-    addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
-    s.affliction = 'selfish';
-    addToPile(world, world.dungeon.entrance, 0, ['torch']);
-    step(world, 0.1);
-    const item = world.piles[world.dungeon.entrance].items[0].id;
-    applyIntent(world, 'o', { type: 'vote', item, choice: 'o' });
-    applyIntent(world, 's', { type: 'vote', item, choice: 'o' }); // refused
-    run(world, 2);
-    expect(world.heroes.o.items).toEqual([]);
-    run(world, 9);
-    expect(world.heroes.o.items).toEqual(['torch']);
-  });
-
-  it('Paranoid heroes refuse bandages from others', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalates: false });
-    const p = addHero(world, { id: 'p', name: 'P', cls: 'warden' });
-    const o = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
-    p.affliction = 'paranoid';
-    p.hp = 10;
-    o.items = ['bandage'];
-    applyIntent(world, 'o', { type: 'useItem', index: 0, target: 'p' });
-    expect(p.hp).toBe(10);
-    expect(o.items).toEqual(['bandage']);
+    const z = addHero(world, { id: 'z', name: 'Z', cls: 'zealot' });
+    z.stress = 90;
+    run(world, 1);
+    expect(z.insane).toBe(false);
   });
 });
 

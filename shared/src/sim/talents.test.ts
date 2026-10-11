@@ -21,7 +21,7 @@ function hero(world: World, i: number, spec: Spec, injuries: Injury[] = []) {
   const [cls, talent] = typeof spec === 'string' ? [spec, null] : spec;
   return addHero(world, {
     id: `h${i}`, name: `H${i}`, cls,
-    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talent, injuries, affliction: null },
+    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talent, injuries, insane: false },
   });
 }
 
@@ -239,14 +239,14 @@ describe('Bellwright talents', () => {
 });
 
 describe('Zealot talents', () => {
-  it('Martyr: Take Their Sins moves up to 40 and heals 5', () => {
+  it('Martyr: Take Their Sins moves up to 27 and heals 5', () => {
     const { world, heroes: [z, ally] } = quiet([['zealot', 'martyr'], 'warden']);
     ally.stress = 50;
     ally.hp = 20;
     applyIntent(world, 'h0', { type: 'skill', skill: 'sins', target: 'h1' });
     run(world, CLASSES.zealot.speed + 0.2);
-    expect(ally.stress).toBe(10);
-    expect(z.stress).toBe(40);
+    expect(ally.stress).toBe(50 - 27);
+    expect(z.stress).toBe(27);
     expect(ally.hp).toBe(25);
   });
 
@@ -298,7 +298,7 @@ describe('Challenge Rating', () => {
 
   it('counts the Talents in a Game', async () => {
     const { Game } = await import('./game');
-    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talent, injuries: [], affliction: null });
+    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talent, injuries: [], insane: false });
     const game = new Game(9, [
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('ironOath') },
       { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('sanguine') },

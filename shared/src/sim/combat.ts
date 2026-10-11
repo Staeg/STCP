@@ -8,7 +8,7 @@ import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, STAFF } from '../content/items';
 import { chargesAfterFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
 import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
-import { ELITE_EVENTS } from '../content/events';
+import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { notify } from './notify';
@@ -955,9 +955,6 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   if (h.st.stun) {
     h.st.stun = false;
     events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
-  } else if (h.affliction === 'fearful' && choice.action !== 'flee' && world.rng.chance(0.25)) {
-    events.push({ actor: h.id, kind: 'info', text: `${h.name} panics!` });
-    heroAct(world, enc, h, { action: 'flee' }, events);
   } else {
     heroAct(world, enc, h, choice, events);
   }
@@ -1094,10 +1091,6 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
   };
   const pickAlly = (): Hero | null => {
     const t = c.target ? world.heroes[c.target] : undefined;
-    if (t && t !== h && t.affliction === 'paranoid') {
-      events.push({ actor: t.id, kind: 'info', text: `${t.name} refuses ${h.name}'s help. (Paranoid)` });
-      return null;
-    }
     return t && isConscious(t) && t.encounter === room ? t : null;
   };
 
@@ -1116,7 +1109,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         return;
       }
       flee(world, enc, h);
-      if (!ghost) addStress(h, 5);
+      if (!ghost) addStress(h, STRESS.flee);
       events.push({ actor: h.id, kind: 'flee', text: ghost ? `${h.name} slips away like a ghost.` : `${h.name} flees!` });
     } else {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
@@ -1175,7 +1168,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
       return;
     case 'rally': {
-      const eased = reliefBy(h, 10);
+      const eased = reliefBy(h, CLASS_RULES.rallyStress);
       const shield = ab.power + (staffOf(h) === 'ward' ? STAFF.wardShield : 0);
       for (const a of allies()) {
         a.st.shield = (a.st.shield ?? 0) + ab.power;
@@ -1438,7 +1431,6 @@ function heal(h: Hero, n: number): number {
 export function hitDamage(h: Hero, base: number, world?: World): number {
   let dmg = (base + (h.weapon ? ITEMS[h.weapon].flatDmg ?? 0 : 0)) * damageMult(h, world);
   dmg *= weakMult(h.st);
-  if (h.affliction === 'hopeless') dmg *= 0.7;
   return Math.max(1, Math.round(dmg));
 }
 
@@ -1570,7 +1562,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'acolyte':
       if (rng.chance(0.5)) {
         const t = rng.pick(heroes);
-        const added = addStress(t, 6);
+        const added = addStress(t, STRESS.whisper);
         events.push({
           actor: m.id, kind: 'stress', target: t.id, amount: added,
           text: added > 0 ? `${name} whispers to ${t.name}. (+${added} stress)` : `${name} whispers, but ${t.name} is unshaken.`,
@@ -1806,7 +1798,7 @@ export function downHero(world: World, h: Hero, events: CombatEvent[] | null, en
   }
   const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
   for (const w of witnesses) {
-    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, 15);
+    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, STRESS.allyDown);
   }
 }
 
@@ -1859,7 +1851,7 @@ export function dieOut(world: World, h: Hero) {
   h.encounter = null;
   for (const w of Object.values(world.heroes)) {
     // Mortician: the Undertaker finds a strange peace in it.
-    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, w.cls === 'undertaker' ? -CLASS_RULES.morticianRelief : 25);
+    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, w.cls === 'undertaker' ? -CLASS_RULES.morticianRelief : STRESS.allyDeath);
   }
 }
 
