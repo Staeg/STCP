@@ -11,7 +11,7 @@ import { cooldownIcon, icon, iconize, iconNum } from './icons';
 
 declare const __BUILD__: string;
 /** Built by vite.config.ts: one group per deploy, newest first; `at` is the push time (null = not pushed yet). */
-declare const __PATCH_NOTES__: { at: string | null; sha: string; commits: { sha: string; msg: string }[] }[];
+declare const __PATCH_NOTES__: { at: string | null; sha: string; headlines: string[]; major: string[]; minor: string[]; other: string[] }[];
 
 const root = () => document.getElementById('screen')!;
 
@@ -44,10 +44,13 @@ function ago(iso: string): string {
 
 /** The changes each push brought, opened from the build tag in the corner. */
 function patchNotesHtml(): string {
+  const list = (items: string[], label = '') => items.length
+    ? `${label ? `<div class="patch-kind">${label}</div>` : ''}<ul>${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '';
   const groups = __PATCH_NOTES__.map((g) => `<div class="patch">
     <div class="patch-head">${g.at ? `<span title="${esc(new Date(g.at).toLocaleString())}">${ago(g.at)}</span>` : '<span class="danger">Not pushed yet</span>'}
       <span class="muted small">@ ${g.sha}</span></div>
-    <ul>${g.commits.map((c) => `<li>${esc(c.msg)}</li>`).join('')}</ul></div>`).join('');
+    ${g.headlines.length ? `<div class="patch-headline">${g.headlines.map(esc).join(' · ')}</div>` : ''}
+    ${list(g.major, 'Major')}<div class="minor">${list(g.minor, 'Minor')}</div>${list(g.other)}</div>`).join('');
   return `<div class="patch-notes card wide"><div class="patch-title"><h1>Patch notes</h1><button data-act="patch-notes" class="quiet">Close</button></div>
     <div class="patch-list">${groups || '<p class="muted">No notes in this build.</p>'}</div></div>`;
 }

@@ -14,14 +14,38 @@ const branch = process.env.GITHUB_REF_NAME || git('rev-parse --abbrev-ref HEAD')
 const commit = git('rev-parse --short HEAD');
 const dirty = git('status --porcelain') ? '*' : '';
 
-/** One deploy of the playable build: the commits it shipped since the previous successful deploy. `at` is null for local commits not pushed yet. */
-interface PatchGroup { at: string | null; sha: string; commits: { sha: string; msg: string }[] }
+/**
+ * One deploy of the playable build: what it shipped since the previous successful deploy. `at` is null for local commits not pushed yet.
+ * Commits list their changes as `Headline:` / `Major:` / `Minor:` lines (see CLAUDE.md); untagged commits land in `other` by subject.
+ */
+interface PatchGroup { at: string | null; sha: string; headlines: string[]; major: string[]; minor: string[]; other: string[] }
 
 /** Commits between two revisions, newest first. Commits that only touch Markdown (plans, notes) don't change the game, so they're left out. */
 function commitsBetween(from: string | null, to: string) {
   const range = from ? `${from}..${to}` : to;
-  const out = git(`log --no-merges --format=%h%x1f%s ${range} -- ":/" ":(top,exclude)*.md"`);
-  return out ? out.split('\n').map((l) => { const [sha, msg] = l.split('\x1f'); return { sha, msg }; }) : [];
+  const out = git(`log --no-merges --format=%s%x1f%b%x1e ${range} -- ":/" ":(top,exclude)*.md"`);
+  return out.split('\x1e').map((c) => c.trim()).filter(Boolean).map((c) => {
+    const [msg, body = ''] = c.split('\x1f');
+    return { msg, body };
+  });
+}
+
+/** Sort a push's commits into its patch notes. `Patch: none` hides a commit that doesn't change play (tests, tooling). */
+function patchGroup(at: string | null, sha: string, commits: { msg: string; body: string }[]): PatchGroup {
+  const g: PatchGroup = { at, sha: sha.slice(0, 7), headlines: [], major: [], minor: [], other: [] };
+  for (const { msg, body } of commits) {
+    let tagged = false;
+    for (const line of body.split('\n')) {
+      const m = /^(Headline|Major|Minor|Patch):\s*(.+?)\s*$/i.exec(line.trim());
+      if (!m) continue;
+      tagged = true;
+      const kind = m[1].toLowerCase();
+      if (kind === 'headline') g.headlines.push(m[2]);
+      else if (kind === 'major' || kind === 'minor') g[kind].push(m[2]);
+    }
+    if (!tagged) g.other.push(msg);
+  }
+  return g;
 }
 
 const isAncestor = (sha: string) => {
@@ -61,12 +85,11 @@ async function patchNotes(): Promise<PatchGroup[]> {
   let prev: string | null = complete ? null : pushes.shift()?.head_sha ?? null;
   for (const p of pushes) {
     if (prev === p.head_sha) continue;
-    groups.push({ at: p.created_at, sha: p.head_sha.slice(0, 7), commits: commitsBetween(prev, p.head_sha) });
+    groups.push(patchGroup(p.created_at, p.head_sha, commitsBetween(prev, p.head_sha)));
     prev = p.head_sha;
   }
-  const local = commitsBetween(prev, 'HEAD');
-  if (local.length) groups.push({ at: null, sha: head.slice(0, 7), commits: local });
-  return groups.filter((g) => g.commits.length).reverse().slice(0, 40);
+  groups.push(patchGroup(null, head, commitsBetween(prev, 'HEAD')));
+  return groups.filter((g) => g.headlines.length + g.major.length + g.minor.length + g.other.length).reverse().slice(0, 40);
 }
 
 // CLIENT_PORT / GAME_PORT let a second dev server run alongside the usual 5180/3001.

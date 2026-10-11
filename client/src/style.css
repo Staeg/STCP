@@ -144,6 +144,9 @@ kbd { color: var(--muted); font-family: inherit; }
 .patch { margin-bottom: 14px; }
 .patch-head { color: var(--gold); }
 .patch ul { margin: 4px 0 0; padding-left: 22px; }
+.patch-headline { font-size: 24px; color: var(--light); margin: 2px 0; }
+.patch-kind { color: var(--muted); font-size: 16px; margin-top: 4px; }
+.patch .minor { font-size: 17px; color: var(--muted); }
 
 #banner {
   position: fixed;
