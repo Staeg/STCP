@@ -156,7 +156,7 @@ export class LootUi {
         return `<button class="loot-card take" data-id="${f.id}" data-what="${f.item}" data-take="${f.id}" title="Take it"><kbd>${i + 1}</kbd>${head}</button>`;
       }
       const backers = (choice: string) =>
-        loot.voters.filter((v) => f.votes[v] === choice).map((v) => `<span class="dot" style="background:${colorOf(v)}" title="${esc(nameOf(v))}"></span>`).join('');
+        f.voters.filter((v) => f.votes[v] === choice).map((v) => `<span class="dot" style="background:${colorOf(v)}" title="${esc(nameOf(v))}"></span>`).join('');
       const mine = f.votes[me];
       const hot = keyed?.id === f.id;
       const opt = (choice: string, n: number, label: string, extra = '') => `
@@ -165,7 +165,7 @@ export class LootUi {
         </button>`;
       const opts = f.candidates.map((c, n) => opt(c.id, n, esc(c.id === me ? 'Me' : c.name),
         ` <span class="muted small">${c.wearing !== undefined ? (c.wearing ? `has ${itemName(c.wearing)}` : 'nothing worn') : `${c.free} free`}</span>`));
-      const agreed = loot.voters.every((v) => f.votes[v] && f.votes[v] === f.votes[loot.voters[0]]);
+      const agreed = f.voters.every((v) => f.votes[v] && f.votes[v] === f.votes[f.voters[0]]);
       return `<div class="loot-card ${hot ? 'hot' : ''} ${agreed ? 'agreed' : ''}" data-id="${f.id}" data-what="${f.item}">${head}
         <div class="lc-opts">${opts.join('')}${opt(LEAVE, f.candidates.length, 'Leave it')}</div></div>`;
     };
@@ -173,10 +173,10 @@ export class LootUi {
     let html = '';
     if (shown.length) {
       const cols = shown.length <= 3 ? shown.length : shown.length === 4 ? 2 : 3;
-      const pending = loot.voters.filter((v) => items.some((f) => !f.votes[v])).map(nameOf);
+      const pending = loot.voters.filter((v) => items.some((f) => f.voters.includes(v) && !f.votes[v])).map(nameOf);
       const hint = solo
         ? 'Click what you want to take. Walk on to leave the rest.'
-        : `Everyone here must agree on each one. Walking out takes you out of the vote.${pending.length ? ` Waiting on: ${esc(pending.join(', '))}` : ''}`;
+        : `Everyone still in on an item must agree on it. "Leave it" drops you out of that item's vote; walking out drops you out of all of them.${pending.length ? ` Waiting on: ${esc(pending.join(', '))}` : ''}`;
       html += `<div class="loot-grid ${solo ? 'solo' : 'group'} n${shown.length}" style="--cols:${cols}">${shown.map(card).join('')}</div>
         <div class="lock">${hint}</div>`;
     }

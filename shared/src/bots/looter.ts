@@ -20,14 +20,16 @@ export function botVote(view: PlayerView): Intent | null | undefined {
   for (const f of loot.items) {
     let choice = preferredRecipient(view, f);
     if (view.time - f.startedAt >= BOT_DEFER_AFTER) {
-      const humanVotes = loot.voters.filter((v) => !isBot(v)).map((v) => f.votes[v]).filter((v): v is string => !!v);
+      const humanVotes = f.voters.filter((v) => !isBot(v)).map((v) => f.votes[v]).filter((v): v is string => !!v);
       if (humanVotes.length) {
         choice = majority(humanVotes);
-      } else if (loot.voters.every(isBot)) {
-        const leader = [...loot.voters].sort()[0];
+      } else if (f.voters.every(isBot)) {
+        const leader = [...f.voters].sort()[0];
         if (leader !== me.id && f.votes[leader]) choice = f.votes[leader];
       }
     }
+    // Leaving takes it out of the vote for good, so not while someone's offering it to me.
+    if (choice === LEAVE && Object.values(f.votes).includes(me.id)) choice = me.id;
     if (choice !== f.votes[me.id]) return { type: 'vote', item: f.id, choice };
   }
   return null;

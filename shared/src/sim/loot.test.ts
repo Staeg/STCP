@@ -4,7 +4,7 @@ import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
 import { armored, DEATH_TIMER, spawnGroup } from './combat';
 import { Game } from './game';
-import { activeItems, addToPile, canTake, giveItem, LEAVE, votersIn, wornStat } from './loot';
+import { activeItems, addToPile, canTake, castVote, giveItem, LEAVE, votersIn, wornStat } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, extractHero, step, type World } from './world';
 
@@ -100,7 +100,30 @@ describe('item votes', () => {
     expect(world.heroes.h1.items).toEqual(['bandage']);
   });
 
-  it('"leave it" makes everyone ignore it; it can be claimed back', () => {
+  it('"leave it" takes only you out of the vote on that item; the others settle it alone', () => {
+    const { world, d } = party(2);
+    addToPile(world, d.entrance, 0, ['torch', 'bandage']);
+    step(world, 0.1);
+    const torch = fid(world, d.entrance, 'torch');
+    const bandage = fid(world, d.entrance, 'bandage');
+    applyIntent(world, 'h0', { type: 'vote', item: torch, choice: LEAVE });
+    step(world, 0.1);
+    // h0 no longer sees it as theirs to vote on, but still votes on the bandage.
+    const mine = buildView(world, 'h0').loot!;
+    expect(mine.items.map((f) => f.id)).toEqual([bandage]);
+    expect(mine.ignored).toEqual([{ id: torch, item: 'torch' }]);
+    const theirs = buildView(world, 'h1').loot!.items.find((f) => f.id === torch)!;
+    expect(theirs.voters).toEqual(['h1']);
+    expect(theirs.candidates.map((c) => c.id)).toEqual(['h1']);
+    // Nor can it be handed to them, as if they'd walked out.
+    expect(castVote(world, world.heroes.h1, torch, 'h0')).not.toBeNull();
+    applyIntent(world, 'h1', { type: 'vote', item: torch, choice: 'h1' });
+    step(world, 0.1);
+    expect(world.heroes.h1.items).toContain('torch');
+    expect(buildView(world, 'h1').loot!.items.map((f) => f.id)).toEqual([bandage]);
+  });
+
+  it('"leave it" by everyone leaves it lying; it can be claimed back', () => {
     const { world, d } = party(2);
     addToPile(world, d.entrance, 0, ['torch']);
     step(world, 0.1);
@@ -111,11 +134,8 @@ describe('item votes', () => {
     const loot = buildView(world, 'h0').loot!;
     expect(loot.items).toEqual([]);
     expect(loot.ignored).toEqual([{ id, item: 'torch' }]);
+    // h1 left it too, so h0 claiming it back just takes it.
     applyIntent(world, 'h0', { type: 'claim', item: id });
-    step(world, 0.1);
-    expect(buildView(world, 'h1').loot?.items.map((f) => f.id)).toEqual([id]);
-    applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
-    applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h0' });
     step(world, 0.1);
     expect(world.heroes.h0.items).toEqual(['torch']);
   });

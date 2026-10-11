@@ -21,7 +21,7 @@ export interface FloorItem {
   item: ItemId;
   /** Who last put it on the floor (null: found there). */
   by: string | null;
-  /** voterId → recipient hero id, or LEAVE. */
+  /** voterId → recipient hero id. (Voting LEAVE isn't stored: it takes you out of this item's vote.) */
   votes: Record<string, string>;
   /** When the people now around it first saw it (bots defer, Selfish grace). */
   startedAt: number;
@@ -247,6 +247,11 @@ export function wants(h: Hero, f: FloorItem): boolean {
   return !f.passed.includes(h.id) && canTake(h, f.item);
 }
 
+/** Who has a say on this item: the voters here who haven't passed it by or left it (unless they claimed it back). */
+export function decidersOf(f: FloorItem, voters: Hero[]): Hero[] {
+  return voters.filter((v) => v.id === f.claimedBy || !f.passed.includes(v.id));
+}
+
 /** The floor items up for grabs right now: someone here wants it, or asked for it back. The rest lie ignored. */
 export function activeItems(world: World, room: number, voters = votersIn(world, room)): FloorItem[] {
   const pile = world.piles[room];
@@ -277,17 +282,18 @@ export function tickLoot(world: World) {
     // Every item has its own vote, all at once; each goes as soon as everyone agrees on it.
     for (const f of activeItems(world, room, voters)) {
       if (!pile.items.includes(f)) continue;
-      let deciders = voters;
+      // Only those still in on this item decide: leaving it is like walking out, for this item alone.
+      let deciders = decidersOf(f, voters);
       // Selfish heroes always claim it, and get outvoted by being ignored after a grace period.
-      for (const v of voters) if (v.affliction === 'selfish' && canTake(v, f.item)) f.votes[v.id] = v.id;
+      for (const v of deciders) if (v.affliction === 'selfish' && canTake(v, f.item)) f.votes[v.id] = v.id;
       if (world.time - f.startedAt > STRESS.selfishGrace) {
-        const fair = voters.filter((v) => v.affliction !== 'selfish');
+        const fair = deciders.filter((v) => v.affliction !== 'selfish');
         if (fair.length) deciders = fair;
       }
       const ids = new Set(deciders.map((v) => v.id));
       for (const id of Object.keys(f.votes)) if (!ids.has(id)) delete f.votes[id];
       // A vote for someone who can no longer take it is void.
-      for (const [id, choice] of Object.entries(f.votes)) if (!validChoice(world, room, choice, f.item)) delete f.votes[id];
+      for (const [id, choice] of Object.entries(f.votes)) if (!validChoice(world, room, choice, f)) delete f.votes[id];
       const values = deciders.map((v) => f.votes[v.id]);
       if (values.every((v) => v !== undefined && v === values[0])) resolveItem(world, room, pile, f, values[0]!);
     }
@@ -406,21 +412,16 @@ function splitGold(world: World, room: number, pile: Pile) {
   pile.gold = 0;
 }
 
-function validChoice(world: World, room: number, choice: string, item: ItemId): boolean {
-  if (choice === LEAVE) return true;
+/** Can it go to them? Only to someone here who can carry it and hasn't left it (as if they'd walked out). */
+function validChoice(world: World, room: number, choice: string, f: FloorItem): boolean {
   const h = world.heroes[choice];
-  return !!h && !h.dead && h.pos.kind === 'room' && h.pos.room === room && canTake(h, item);
+  return !!h && !h.dead && h.pos.kind === 'room' && h.pos.room === room && canTake(h, f.item)
+    && (h.id === f.claimedBy || !f.passed.includes(h.id));
 }
 
-/** Everyone agreed: hand it over, or leave it lying (ignored by all of them from now on). */
+/** Everyone still in on it agreed: hand it over. */
 function resolveItem(world: World, room: number, pile: Pile, f: FloorItem, choice: string) {
   f.votes = {};
-  if (choice === LEAVE) {
-    for (const v of votersIn(world, room)) if (!f.passed.includes(v.id)) f.passed.push(v.id);
-    f.claimedBy = null;
-    for (const h of presentIn(world, room)) notify(world, h, `Left the ${ITEMS[f.item].name} behind.`);
-    return;
-  }
   take(world, room, pile, world.heroes[choice], f);
 }
 
@@ -428,20 +429,32 @@ function floorItem(world: World, h: Hero, id: number): FloorItem | undefined {
   return h.pos.kind === 'room' ? world.piles[h.pos.room]?.items.find((f) => f.id === id) : undefined;
 }
 
-/** Vote on who gets a floor item (alone, voting for yourself just picks it up). Returns an error message or null. */
+/**
+ * Vote on who gets a floor item (alone, voting for yourself just picks it up). LEAVE takes you out of this item's
+ * vote, as walking out would: the others settle it without you, and you can still claim it back. Returns an error
+ * message or null.
+ */
 export function castVote(world: World, h: Hero, id: number, choice: string): string | null {
   const f = floorItem(world, h, id);
   if (!f || h.pos.kind !== 'room') return 'Nothing to vote on.';
   const room = h.pos.room;
   if (!votersIn(world, room).includes(h)) return 'You cannot vote right now.';
-  if (!activeItems(world, room).includes(f)) return 'Nobody wants that. Claim it first.';
-  if (!validChoice(world, room, choice, f.item)) return 'They cannot carry it.';
+  if (!activeItems(world, room).includes(f) || !decidersOf(f, [h]).length) return 'You left that. Claim it first.';
   if (h.affliction === 'selfish' && canTake(h, f.item) && choice !== h.id) return 'Mine! (Selfish)';
+  if (choice === LEAVE) {
+    delete f.votes[h.id];
+    if (!f.passed.includes(h.id)) f.passed.push(h.id);
+    if (f.claimedBy === h.id) f.claimedBy = null;
+    const name = ITEMS[f.item].name;
+    for (const x of presentIn(world, room)) notify(world, x, x === h ? `You leave the ${name}.` : `${h.name} leaves the ${name}.`);
+    return null;
+  }
+  if (!validChoice(world, room, choice, f)) return 'They cannot carry it.';
   f.votes[h.id] = choice;
   return null;
 }
 
-/** Pick an ignored item back up off the floor: alone, you just take it; with company, it goes up for grabs again. */
+/** Pick an ignored item back up off the floor: if nobody else here is in on it, you just take it; else you rejoin its vote. */
 export function claimItem(world: World, h: Hero, id: number): string | null {
   if (h.pos.kind !== 'room' || !isConscious(h) || h.encounter !== null) return 'Not now.';
   const room = h.pos.room;
@@ -449,7 +462,8 @@ export function claimItem(world: World, h: Hero, id: number): string | null {
   const f = floorItem(world, h, id);
   if (!pile || !f || world.encounters[room] || monstersIn(world, room).length > 0) return 'Nothing there.';
   f.passed = f.passed.filter((x) => x !== h.id);
-  if (votersIn(world, room).length === 1) {
+  // Nobody else here is still in on it (alone, or they all left it): it's yours.
+  if (decidersOf(f, votersIn(world, room)).length === 1) {
     if (!canTake(h, f.item)) return 'Your pack is full.';
     take(world, room, pile, h, f);
     return null;

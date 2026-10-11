@@ -101,7 +101,7 @@ export function keyedLootItem(view: PlayerView): LootItemView | null {
   const loot = view.loot;
   if (!loot || !loot.voters.includes(view.you.id)) return null;
   const me = view.you.id;
-  const settled = (f: LootItemView) => loot.voters.every((v) => f.votes[v] && f.votes[v] === f.votes[me]);
+  const settled = (f: LootItemView) => f.voters.every((v) => f.votes[v] && f.votes[v] === f.votes[me]);
   const cards = loot.items.slice(0, 6);
   return cards.find((f) => !f.votes[me]) ?? cards.find((f) => !settled(f)) ?? null;
 }

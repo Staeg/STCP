@@ -8,7 +8,7 @@ import type { TalentId } from '../content/talents';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
-import { activeItems, canTake, votersIn } from './loot';
+import { activeItems, canTake, decidersOf, votersIn } from './loot';
 import {
   abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
@@ -81,7 +81,9 @@ export interface LootItemView {
   id: number;
   item: ItemId;
   votes: Record<string, string>;
-  /** Hero ids who can receive it (present, have a free slot; anyone for gear, which swaps). */
+  /** Who has a say on it: the voters here who haven't left it. All of them must agree. */
+  voters: string[];
+  /** Hero ids who can receive it (present, still in on it, have a free slot; anyone for gear, which swaps). */
   candidates: { id: string; name: string; free: number; isBot: boolean; /** Gear: what they wear in that slot now. */ wearing?: ItemId | null }[];
   startedAt: number;
 }
@@ -395,7 +397,8 @@ function lootView(world: World, you: Hero): LootView | null {
   if (!pile) return null;
   const voters = votersIn(world, room);
   const present = Object.values(world.heroes).filter((h) => inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room);
-  const active = activeItems(world, room, voters);
+  // Items you left (or walked past) lie with the passed-over ones for you, even while the others settle them.
+  const active = activeItems(world, room, voters).filter((f) => !voters.includes(you) || decidersOf(f, [you]).length);
   return {
     room,
     gold: pile.gold,
@@ -406,7 +409,8 @@ function lootView(world: World, you: Hero): LootView | null {
         id: f.id,
         item: f.item,
         votes: { ...f.votes },
-        candidates: present.filter((h) => canTake(h, f.item)).map((h) => ({
+        voters: decidersOf(f, voters).map((v) => v.id),
+        candidates: present.filter((h) => canTake(h, f.item) && (h.id === f.claimedBy || !f.passed.includes(h.id))).map((h) => ({
           id: h.id, name: h.name, free: packFree(h.items), isBot: h.isBot,
           wearing: slot ? h[slot] : undefined,
         })),
