@@ -186,6 +186,10 @@ export interface Hero {
   risen: Omit<Risen, 'id' | 'by'> | null;
   /** Called for help (C) this run: only once. */
   called: boolean;
+  /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
+  scryUntil: number;
+  /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
+  restHp: number | null;
 
   // ---- Elite Events (content/events.ts) ----
   /** Lasting effects of the Elite Events this hero carried out (cant: map known · sacrament: Speed 2s · zenith: stress past 100 · alacrity: consumables quicken). */
@@ -456,6 +460,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     immuneUntil: 0,
     risen: null,
     called: false,
+    scryUntil: 0,
+    restHp: null,
     elite: {},
     wanderers: 0,
     legion: [],
@@ -487,7 +493,8 @@ export function step(world: World, dt: number): void {
   const drain = LIGHT_DRAIN * (world.escalation >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
     if (!inDungeon(hero)) continue;
-    hero.lowestHp = Math.min(hero.lowestHp, hero.hp / hero.maxHp);
+    // Lying in the Open Coffin is no wound: it counts the HP they lay down with.
+    hero.lowestHp = Math.min(hero.lowestHp, (hero.restHp ?? hero.hp) / hero.maxHp);
     syncInjuries(hero);
     hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * wornMult(hero, 'lightDrainMult') * dt);
     // Bloodstone Ring: slowly mends while exploring.
@@ -937,10 +944,13 @@ function updateKnowledge(world: World) {
   const heroes = Object.values(world.heroes);
   for (const a of heroes) {
     for (const b of heroes) {
-      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b))) {
+      const scrying = world.time < a.scryUntil;
+      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying)) {
         a.lastKnown[b.id] = {
           pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, insane: b.insane,
         };
+        // Scrying Pool: the room they're in shows too (both ends of a tunnel they're walking).
+        if (scrying) for (const r of b.pos.kind === 'room' ? [b.pos.room] : [b.pos.from, b.pos.to]) scryRoom(world, a, r);
       }
     }
     if (!inDungeon(a)) continue;
@@ -976,6 +986,23 @@ function updateKnowledge(world: World) {
       }
     }
   }
+}
+
+/**
+ * Scrying Pool: a room an ally is in, seen from afar: what's in it (as the scryer's eyes see it), its event and its
+ * chalk, as if standing in it (but not explored: its paths stay unknown).
+ */
+function scryRoom(world: World, a: Hero, room: number) {
+  if (!a.seen.includes(room)) a.seen.push(room);
+  const monsters = perceive(world, a, room, monsterTypes(world, room));
+  a.knownThreat[room] = monsters.length;
+  a.knownLoot[room] = lootCount(world, room, a);
+  if (world.chalk[room]) a.knownChalk[room] = Object.fromEntries(Object.entries(world.chalk[room]).map(([id, cs]) => [id, [...cs]]));
+  const ev = world.events[room];
+  if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
+  else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
+  else delete a.knownEvents[room];
+  a.knownContents[room] = { at: world.time, monsters, ...pileSeen(world, room), event: a.knownEvents[room] };
 }
 
 /** Same room, same corridor, a corridor touching your room, or (if you have light) an adjacent room. */

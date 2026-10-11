@@ -2,18 +2,18 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, SPEED_EVENTS, STRESS,
+  ANVIL_UPGRADES, channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
   type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
 import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor } from './escalation';
-import { addToPile, rollItem, rollResource, seesInDark, takeItem } from './loot';
+import { addToPile, equip, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { goInsane } from './mind';
 import { notify } from './notify';
-import { clothReady, spendCloth } from './gear';
-import { CLOTH } from '../content/items';
+import { clothReady, freshCharge, spendCloth, wornCharge, type ItemCharge } from './gear';
+import { CLOTH, GEAR_SLOTS, GEAR_TYPE_NAMES, ITEMS, itemTier, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
 import { openSecretEarly, openSecretFor } from './secrets';
 import { toll } from './skills';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
@@ -31,6 +31,8 @@ export interface RoomEvent {
   progress: number;
   /** The hero who chose it first and is carrying it out; nobody else can while they are. */
   by: string | null;
+  /** Twin Locks: the second hero, on the other wheel (it only turns while both are at it). */
+  with?: string | null;
   /** Altar: the guardians have been summoned. */
   spawned: boolean;
   /** Altar: whoever woke the guardians picks the Cleanse back up once they're beaten, if still here and standing. */
@@ -206,6 +208,28 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         : c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for ${SPEED_EVENTS.hourglassDuration}s)`));
     case 'clockwork':
       return one(c('wind', `Wind it (Speed ${signed(SPEED_EVENTS.clockworkSpeed)} for the rest of the run)`));
+    case 'locks': {
+      // Two at once: the first takes a wheel and waits; the second takes the other, and only then does it turn.
+      const first = ev.by && ev.by !== h.id ? world.heroes[ev.by] : undefined;
+      const full = first && ev.with && ev.with !== h.id ? 'Both wheels are taken.' : undefined;
+      const label = first ? `Take the other wheel, with ${first.name}` : 'Take hold of a wheel (someone must turn the other)';
+      return one({ id: 'wheel', label: `${label} (${MORE_EVENTS.locksTime}s together)`, disabled: full });
+    }
+    case 'coffin':
+      return one(c('lie', "Lie down (stress to 0, but you're down until someone revives you)",
+        h.stress < 1 ? 'Nothing weighs on you.' : undefined));
+    case 'anvil': {
+      const slots = GEAR_SLOTS.filter((s) => forgeable(h[s]));
+      if (!slots.length) return one(c('forge', 'Reforge your Gear', 'Nothing you wear can be bettered (Rares can’t be).'));
+      return { kind: ev.kind, progress, choices: slots.map((s) => c(`forge-${s}`, `Reforge your ${ITEMS[h[s]!].name} into ${anvilInto(h[s]!)}`)) };
+    }
+    case 'loom': {
+      const worn = loomMends(h);
+      return one(c('weave', worn.length ? `Weave it whole again: ${worn.join(', ')}` : 'Weave',
+        worn.length ? undefined : 'Nothing of yours is worn thin.'));
+    }
+    case 'scrying':
+      return one(c('gaze', `Gaze into it (see every ally, and the room they're in, for ${MORE_EVENTS.scrySecs}s)`));
     // ---- Elite Events: only their own class gets this far ----
     case 'wanderers':
       return one(perk(c('gather', 'Gather them up'), 'warden', 'They will not leave your side until you leave the dungeon.'));
@@ -234,6 +258,50 @@ export function veiledText(cls: ClassId): string {
   return `Maybe ${CLASSES[cls].name} knows what to do with this…`;
 }
 
+/** Smith's Anvil: worn Gear below Rare can be reforged. */
+function forgeable(item: ItemId | null): item is ItemId {
+  return !!item && itemTier(item) < 3;
+}
+
+const RARITY_NAMES = { 1: 'common', 2: 'uncommon', 3: 'rare' } as const;
+
+/** What the anvil makes of it: "a Skinning Knife", "a random rare Staff". */
+function anvilInto(item: ItemId): string {
+  const next = ANVIL_UPGRADES[item];
+  if (next) return `${/^[AEIOU]/.test(ITEMS[next].name) ? 'an' : 'a'} ${ITEMS[next].name}`;
+  const d = ITEMS[item];
+  const kind = d.gearType ? GEAR_TYPE_NAMES[d.gearType] : d.kind;
+  return `a random ${RARITY_NAMES[(itemTier(item) + 1) as 2 | 3]} ${kind}`;
+}
+
+/** The anvil's work: the next piece up, or else a random piece of the same kind one rarity up. */
+function reforged(world: World, item: ItemId): ItemId {
+  const next = ANVIL_UPGRADES[item];
+  if (next) return next;
+  const d = ITEMS[item];
+  const same = (x: ItemId) => (d.gearType ? ITEMS[x].gearType === d.gearType : ITEMS[x].kind === d.kind);
+  const pool = LOOT_TABLE.filter((e) => e.rarity === itemTier(item) + 1 && same(e.item)).map((e) => e.item);
+  return pool.length ? world.rng.pick(pool) : item;
+}
+
+/** Spent: on cooldown, used up this run, or already gone off this fight. */
+function spent(item: ItemId, c: ItemCharge): boolean {
+  return c.cdLeft > 0 || c.usedThisFight || (c.usesLeft ?? Infinity) < (freshCharge(item).usesLeft ?? Infinity);
+}
+
+/** The Loom: what it would make whole again for this hero (Cloth worn or carried, Call for Help, Iron Oath). */
+function loomMends(h: Hero): string[] {
+  const out: string[] = [];
+  for (const slot of GEAR_SLOTS) {
+    const c = wornCharge(h, slot);
+    if (c && spent(h[slot]!, c)) out.push(ITEMS[h[slot]!].name);
+  }
+  for (const p of h.packCharges) if (spent(p.item, p.charge)) out.push(ITEMS[p.item].name);
+  if (h.called) out.push('Call for Help');
+  if (h.talent === 'ironOath' && h.oathUsed) out.push('Iron Oath');
+  return out;
+}
+
 /** "−1s" / "+1s" */
 function signed(seconds: number): string {
   return `${seconds < 0 ? '−' : '+'}${fmtSpeed(Math.abs(seconds))}`;
@@ -246,7 +314,8 @@ function signed(seconds: number): string {
  */
 export function eventTime(world: World, h: Hero, kind: EventKind): number {
   const usual = channelTime(kind, speedOf(h, world.time));
-  if (!Number.isFinite(usual)) return usual;
+  // Twin Locks turn at the pace of two pairs of hands, Swiftwork or not.
+  if (!Number.isFinite(usual) || kind === 'locks') return usual;
   const ch = h.channel;
   if (ch?.kind === 'event') return ch.hasten ? CLOTH.hastenSecs : usual;
   return clothReady(h, 'hasten') ? CLOTH.hastenSecs : usual;
@@ -254,12 +323,14 @@ export function eventTime(world: World, h: Hero, kind: EventKind): number {
 
 export function choiceVerb(kind: EventKind, choice: string): string {
   if (choice === 'channel') return kind === 'altar' ? 'cleansing the altar' : 'picking the lock';
+  if (choice.startsWith('forge')) return 'working at the anvil';
   const verbs: Record<string, string> = {
     take: 'taking the idol', help: 'bandaging the stranger', drink: 'drinking from the well',
     open: 'opening the chest', crawl: 'squeezing into the crawlspace',
     quaff: 'drinking the quicksilver', haul: 'shouldering the satchel', turn: 'turning the hourglass', wind: 'winding the shrine',
     gather: 'gathering the wanderers', read: 'reading the marks', pray: 'praying at the shrine', partake: 'drinking from the chalice',
     raise: 'waking the dead', ring: 'ringing the great bell', sit: 'sitting in silence', rework: 'reworking their bottles',
+    wheel: 'turning a wheel', lie: 'lying down in the coffin', weave: 'working the loom', gaze: 'gazing into the pool',
   };
   return verbs[choice] ?? 'busy';
 }
@@ -293,8 +364,9 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   // Everything else takes time, and only the hero who started it carries it out.
   const ev = world.events[room];
   if (h.channel?.kind === 'event' && h.channel.room === room) return null;
-  ev.by = h.id;
   h.path = [];
+  if (ev.kind === 'locks') return takeWheel(world, ev, h);
+  ev.by = h.id;
   // Hastening Robe: Swiftwork makes short work of it.
   const swift = Number.isFinite(channelTime(ev.kind, speedOf(h, world.time))) ? clothReady(h, 'hasten') : null;
   if (swift) spendCloth(h, swift);
@@ -305,6 +377,26 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
     ? `You start ${verb}… (${Math.ceil(secs)}s; moving away starts it over)`
     : `You start ${verb}. It lasts as long as you stay.`);
   for (const o of othersHere(world, h)) notify(world, o, `${h.name} starts ${verb}.`);
+  return null;
+}
+
+/** Twin Locks: the first hero takes a wheel and waits; the second takes the other, and the door starts to turn. */
+function takeWheel(world: World, ev: RoomEvent, h: Hero): null {
+  h.channel = { kind: 'event', room: ev.room, choice: 'wheel', until: Infinity };
+  const first = ev.by ? world.heroes[ev.by] : undefined;
+  if (!first) {
+    ev.by = h.id;
+    ev.progress = 0;
+    notify(world, h, "You take hold of a wheel. It won't turn alone: someone has to take the other. (Walk away to let go.)");
+    for (const o of othersHere(world, h)) notify(world, o, `${h.name} takes hold of a wheel, waiting for a second pair of hands.`);
+    return null;
+  }
+  ev.with = h.id;
+  ev.progress = 0;
+  const secs = MORE_EVENTS.locksTime;
+  notify(world, h, `You take the other wheel. Together with ${first.name}, it begins to turn… (${secs}s; if either of you stops, it starts over)`);
+  notify(world, first, `${h.name} takes the other wheel. It begins to turn… (${secs}s; if either of you stops, it starts over)`);
+  for (const o of othersHere(world, h)) if (o !== first) notify(world, o, `${h.name} and ${first.name} turn the twin locks together.`);
   return null;
 }
 
@@ -478,6 +570,44 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       notify(world, h, `The gears catch and begin to tick, and your heart keeps time with them. (Speed ${signed(SPEED_EVENTS.clockworkSpeed)})`);
       chronicle(world, `${h.name} wound the Clockwork Shrine.`);
       return;
+    case 'wheel': {
+      const other = ev.with ? world.heroes[ev.with] : undefined;
+      ev.with = null;
+      if (other?.channel?.kind === 'event' && other.channel.room === room) other.channel = null;
+      addToPile(world, room, rng.int(...MORE_EVENTS.locksGold), [rollItem(world, 3), 'relic']);
+      for (const x of [h, ...othersHere(world, h)]) notify(world, x, 'The wheels lock home, and the iron door grinds open.');
+      chronicle(world, `${h.name}${other ? ` and ${other.name}` : ''} opened the Twin Locks.`);
+      return;
+    }
+    case 'lie': {
+      const before = Math.round(h.stress);
+      h.stress = 0;
+      downHero(world, h, null, undefined, true);
+      notify(world, h, `You lie down, and the weight lifts. (−${before} stress${h.insane ? '; you are still Insane' : ''}) Now someone has to get you up.`);
+      for (const o of othersHere(world, h)) notify(world, o, `${h.name} lies down in the coffin and goes still. They won't get up without help.`);
+      chronicle(world, `${h.name} lay down in an Open Coffin.`);
+      return;
+    }
+    case 'weave': {
+      const mended = loomMends(h);
+      for (const slot of GEAR_SLOTS) {
+        const c = wornCharge(h, slot);
+        if (c) Object.assign(c, freshCharge(h[slot]!), { disabled: c.disabled });
+      }
+      for (const p of h.packCharges) p.charge = freshCharge(p.item);
+      h.called = false;
+      h.oathUsed = false;
+      notify(world, h, mended.length
+        ? `The grey thread runs through your things, and they are whole again: ${mended.join(', ')}.`
+        : 'The loom clacks, but nothing of yours needed it.');
+      chronicle(world, `${h.name} worked the Loom.`);
+      return;
+    }
+    case 'gaze':
+      h.scryUntil = world.time + MORE_EVENTS.scrySecs;
+      notify(world, h, `The water clouds, then clears, and there they are, wherever they are. (${MORE_EVENTS.scrySecs}s)`);
+      chronicle(world, `${h.name} looked into the Scrying Pool.`);
+      return;
     // ---- Elite Events ----
     case 'gather': {
       const n = ELITE_EVENTS.wanderers;
@@ -530,6 +660,29 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       chronicle(world, `${h.name} reworked their bottles.`);
       return;
   }
+  if (choice.startsWith('forge-')) forge(world, ev, h, choice.slice('forge-'.length) as GearSlot);
+}
+
+/** Smith's Anvil: the worn piece in that slot comes off the anvil one step better. */
+function forge(world: World, ev: RoomEvent, h: Hero, slot: GearSlot) {
+  const item = h[slot];
+  if (!forgeable(item)) {
+    // Took it off (or swapped it for a Rare) while the coals heated: the anvil waits for the next smith.
+    ev.done = false;
+    ev.progress = 0;
+    world.stats.eventsUsed--;
+    notify(world, h, 'You have nothing on the anvil to reforge.');
+    return;
+  }
+  const into = reforged(world, item);
+  // The old piece is melted down, charge and all; the new one comes out fresh.
+  const keep = h.packCharges.length;
+  equip(h, slot, null);
+  h.packCharges.splice(keep);
+  if (ITEMS[into].auto) h.packCharges.unshift({ item: into, charge: freshCharge(into) });
+  equip(h, slot, into);
+  notify(world, h, `Hammer, quench, hammer. Your ${ITEMS[item].name} comes off the anvil as ${ITEMS[into].name}.`);
+  chronicle(world, `${h.name} reforged a ${ITEMS[item].name} into ${ITEMS[into].name} at a Smith's Anvil.`);
 }
 
 /** Cunning Cant: the whole map, and every secret room opened to this Cutthroat alone until it opens for everyone. */
@@ -595,23 +748,31 @@ function crawlToward(world: World, from: number): number | null {
 export function tickEvents(world: World, dt: number) {
   resumeCleanses(world);
   // A claim lasts only as long as its hero keeps at it (walking off, a fight or going down all end it).
+  const at = (id: string | null | undefined, room: number) => {
+    const ch = id ? world.heroes[id]?.channel : null;
+    return ch?.kind === 'event' && ch.room === room;
+  };
   for (const ev of Object.values(world.events)) {
-    const ch = ev.by ? world.heroes[ev.by]?.channel : null;
-    if (ev.by && !(ch?.kind === 'event' && ch.room === ev.room)) abandon(ev);
+    // Twin Locks: the second pair of hands let go, so it starts over (the first keeps hold of their wheel).
+    if (ev.with && !at(ev.with, ev.room)) letGo(ev);
+    if (ev.by && !at(ev.by, ev.room)) abandon(ev);
   }
   for (const h of Object.values(world.heroes)) {
     const ch = h.channel;
     if (ch?.kind !== 'event') continue;
     const ev = world.events[ch.room];
     if (
-      !ev || ev.done || ev.by !== h.id || !isConscious(h) || h.encounter !== null || h.pos.kind !== 'room' || h.pos.room !== ch.room ||
-      !quiet(world, ch.room)
+      !ev || ev.done || (ev.by !== h.id && ev.with !== h.id) || !isConscious(h) || h.encounter !== null || h.pos.kind !== 'room' ||
+      h.pos.room !== ch.room || !quiet(world, ch.room)
     ) {
       h.channel = null;
       if (ev?.by === h.id) abandon(ev);
+      else if (ev?.with === h.id) letGo(ev);
       continue;
     }
     const kind = ev.kind;
+    // Twin Locks only turn while both wheels are held (counted once, on the first hero's turn).
+    if (kind === 'locks' && (ev.by !== h.id || !ev.with)) continue;
     // Luminous Liturgy never finishes: it blesses every ally each second the Lampbearer keeps praying.
     if (kind === 'liturgy') {
       if (ev.pulse === undefined) {
@@ -665,9 +826,21 @@ function resumeCleanses(world: World) {
 
 /** Stopped before it was done: the work is lost (an altar whose guardians came stays half-cleansed). */
 function abandon(ev: RoomEvent) {
+  // Twin Locks: whoever is on the other wheel keeps hold of it, and waits for someone new.
+  if (ev.with) {
+    ev.by = ev.with;
+    letGo(ev);
+    return;
+  }
   ev.by = null;
   ev.progress = ev.spawned ? 0.5 : 0;
   ev.rung = 0;
+}
+
+/** Twin Locks: the second hero let go, and the door starts over. */
+function letGo(ev: RoomEvent) {
+  ev.with = null;
+  ev.progress = 0;
 }
 
 function completeChannel(world: World, ev: RoomEvent, h: Hero) {

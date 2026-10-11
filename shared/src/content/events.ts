@@ -1,4 +1,5 @@
 import type { ClassId } from './classes';
+import type { ItemId } from './items';
 
 /**
  * The mind under strain (user, 2026-10-11; replaced the four Darkest Dungeon afflictions). Two effects:
@@ -56,6 +57,7 @@ export const STRESS = {
 export type EventKind =
   | 'altar' | 'villager' | 'idol' | 'stranger' | 'well' | 'vault' | 'chest' | 'crawlspace'
   | 'quicksilver' | 'satchel' | 'hourglass' | 'clockwork'
+  | 'locks' | 'coffin' | 'anvil' | 'loom' | 'scrying'
   | EliteEventKind
   /** How an Elite Event looks to every class but its own. */
   | 'veiled';
@@ -123,6 +125,27 @@ export const EVENTS: Record<EventKind, EventDef> = {
   clockwork: {
     kind: 'clockwork', name: 'Clockwork Shrine', glyph: '⚙', weight: 1,
     text: 'A shrine of brass gears, wound down and silent. A crank juts from its side. Winding it would take a while.',
+  },
+  // ---- Twin Locks, Open Coffin, Smith's Anvil, Loom, Scrying Pool (user, 2026-10-11) ----
+  locks: {
+    kind: 'locks', name: 'Twin Locks', glyph: '⚿', weight: 1,
+    text: 'An iron door with a wheel at either end, too far apart for one pair of hands. Both must turn at once.',
+  },
+  coffin: {
+    kind: 'coffin', name: 'Open Coffin', glyph: '⚰', weight: 1,
+    text: 'A plain coffin, lid off, lined with something soft. It looks restful. It looks like it would be hard to get out of alone.',
+  },
+  anvil: {
+    kind: 'anvil', name: "Smith's Anvil", glyph: '⚒', weight: 1,
+    text: 'A forge gone cold beside a scarred anvil, its tools still hung in order. There is heat left in the coals, if you are patient.',
+  },
+  loom: {
+    kind: 'loom', name: 'The Loom', glyph: '⌗', weight: 1,
+    text: 'A loom strung with grey thread that never seems to run out. Whatever is worn thin, it could weave whole again.',
+  },
+  scrying: {
+    kind: 'scrying', name: 'Scrying Pool', glyph: '◎', weight: 1,
+    text: 'A still pool that shows no reflection. Look long enough, and it shows you the others instead.',
   },
   // ---- Elite Events: seeded per hero (see ELITE_EVENTS), not by weight ----
   veiled: {
@@ -223,6 +246,33 @@ export const SPEED_EVENTS = {
   clockworkWork: 20,
 };
 
+/** Twin Locks, Open Coffin, Smith's Anvil, the Loom and the Scrying Pool (user, 2026-10-11). */
+export const MORE_EVENTS = {
+  /** Twin Locks: both wheels must turn together this long; if either hero stops, it starts over. */
+  locksTime: 12,
+  /** Twin Locks: gold behind the door (a rare item and a Relic too). */
+  locksGold: [20, 40] as const,
+  /** Open Coffin: lying down. */
+  coffinTime: 3,
+  /** Smith's Anvil: reforging. */
+  anvilTime: 18,
+  /** Scrying Pool: gazing, then how long you see every ally and the room they're in. */
+  scryTime: 3,
+  scrySecs: 10,
+};
+
+/**
+ * Smith's Anvil: the next piece up of the same kind (user, 2026-10-11). Daggers, Hammers, Leather and Mail climb
+ * their lists; anything else (Staves, Cloth, amulets, rings) becomes a random piece one rarity up, of the same kind.
+ * Rares can't be reforged.
+ */
+export const ANVIL_UPGRADES: Partial<Record<ItemId, ItemId>> = {
+  dirk: 'knife', knife: 'stiletto', stiletto: 'kris', kris: 'misericorde',
+  cudgel: 'sledge', sledge: 'warhammer', warhammer: 'ironmaul', ironmaul: 'bonebreaker',
+  jerkin: 'studded', studded: 'drakehide',
+  ringmail: 'scaleshirt', scaleshirt: 'hauberk', hauberk: 'brigandine', brigandine: 'wardmail',
+};
+
 /**
  * Class twists on events (user, 2026-10-10). Deliberately absent from the class picker: a hero learns theirs at the
  * event itself, where the button wears the class icon and says what's different. (The Undertaker's quick digging and
@@ -254,6 +304,10 @@ export function channelTime(kind: EventKind, speed: number): number {
     case 'uprising':
     case 'zenith':
     case 'alacrity': return ELITE_EVENTS.channel;
+    case 'locks': return MORE_EVENTS.locksTime;
+    case 'coffin': return MORE_EVENTS.coffinTime;
+    case 'anvil': return MORE_EVENTS.anvilTime;
+    case 'scrying': return MORE_EVENTS.scryTime;
     case 'altar': return 18;
     case 'vault': return 24;
     case 'quicksilver':

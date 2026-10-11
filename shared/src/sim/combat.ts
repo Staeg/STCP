@@ -349,6 +349,9 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
     syncInjuries(h);
   }
   h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
+  // Open Coffin: they only lay down, so they get up no worse off than they were.
+  if (h.restHp !== null) h.hp = Math.min(h.maxHp, Math.max(h.hp, h.restHp));
+  h.restHp = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1777,17 +1780,24 @@ export function syncInjuries(h: Hero) {
 
 export const MAJOR_INJURY_LABEL = 'Major Injury';
 
-export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter) {
+/**
+ * `rest`: the Open Coffin (user, 2026-10-11). They lay down on purpose: no injury, nobody is shaken by it, and they
+ * get up with the HP they lay down with (`restHp`).
+ */
+export function downHero(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter, rest = false) {
+  h.restHp = rest ? h.hp : null;
   h.hp = 0;
   h.downedAt = world.time;
-  h.lowestHp = 0;
-  h.downedMajor = true;
-  syncInjuries(h);
+  if (!rest) {
+    h.lowestHp = 0;
+    h.downedMajor = true;
+    syncInjuries(h);
+  }
   world.stats.downs++;
   h.st = {};
   h.channel = null;
   events?.push({ actor: h.id, kind: 'down', target: h.id, text: `${h.name} falls!` });
-  chronicle(world, `${h.name} went down in ${roomName(world, h)}.`);
+  if (!rest) chronicle(world, `${h.name} went down in ${roomName(world, h)}.`);
   // Gravecloth: they'll get up again by themselves (and again, as long as they stay in this room).
   const grave = h.pos.kind === 'room' ? clothReady(h, 'grave') : null;
   if (grave && h.pos.kind === 'room') {
@@ -1796,6 +1806,7 @@ export function downHero(world: World, h: Hero, events: CombatEvent[] | null, en
     h.riseAt = world.time + CLOTH.graveTurns * speedOf(h, world.time);
     events?.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name}'s gravecloth stirs. (getting back up soon)` });
   }
+  if (rest) return;
   const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
   for (const w of witnesses) {
     if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, STRESS.allyDown);

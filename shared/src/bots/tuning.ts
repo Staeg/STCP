@@ -2,6 +2,8 @@
 export const BOTS = {
   /** A Lampbearer bot prays at the Luminous Liturgy for at most this many seconds. */
   liturgyPray: 30,
+  /** Twin Locks: a bot holds a wheel this long for someone to take the other, then gives up. */
+  locksWait: 20,
   /** Least greedy bots start heading home at this time… */
   returnStart: 390,
   /** …and the greediest this much later. */

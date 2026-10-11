@@ -43,6 +43,8 @@ export interface BotMemory {
   sacrament?: boolean;
   barrage?: boolean;
   prayUntil?: number;
+  /** Twin Locks: holding a wheel, waiting for someone to take the other, until this time. */
+  locksUntil?: number;
 }
 
 /** `start`: the clock when the run began (later for a Relic Rite run); the return time shrinks with the run. */

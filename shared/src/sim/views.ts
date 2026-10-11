@@ -361,6 +361,12 @@ function eventView(world: World, you: Hero): EventView | null {
         secondsLeft: finiteOrNull(eventTime(world, h, ev.kind) * (1 - ev.progress)),
       }
     : null;
+  // Twin Locks: one hero waiting on a wheel is an open invitation; two are turning it together.
+  if (worker && ev?.kind === 'locks') {
+    const other = ev.with ? world.heroes[ev.with] : undefined;
+    worker.doing = other ? `turning the wheels with ${other === you ? 'you' : other.name}` : 'holding one wheel, waiting for a second pair of hands';
+    if (!other) worker.secondsLeft = null;
+  }
   return {
     kind: opts.kind, name, glyph: def.glyph, text, choices: opts.choices,
     progress: ev?.kind === 'liturgy' ? undefined : opts.progress, worker, blocked: opts.choices.length === 0 && !opts.forCls,

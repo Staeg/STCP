@@ -12,6 +12,8 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
   const you = view.you;
   if (!ev || ev.blocked || you.pos.kind !== 'room') return undefined;
   const room = you.pos.room;
+  // Twin Locks are decided afresh as people come and go.
+  if (ev.kind === 'locks') return botLocks(view, mem, room);
   // Already decided here (but keep channelling an altar/vault/Elite Event we chose to work on, or praying).
   if (mem.decided.includes(room) && !(mem.channelling === room && (ev.progress !== undefined || ev.kind === 'liturgy'))) return undefined;
   mem.decided.push(room);
@@ -73,6 +75,19 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return view.allies.some((a) => a.live && a.pos.kind === 'room' && a.pos.room === room) || rng.chance(0.6) ? pick('turn') : undefined;
     case 'clockwork':
       return timeLeft > 120 && rng.chance(0.5) ? pick('wind') : undefined;
+    case 'coffin': {
+      // Only with someone standing by to get them up again.
+      const company = view.allies.some((a) => a.live && !a.downed && a.pos.kind === 'room' && a.pos.room === room);
+      return company && you.stress >= 35 && rng.chance(0.6) ? pick('lie') : undefined;
+    }
+    case 'anvil': {
+      const forge = ev.choices.find((c) => c.id.startsWith('forge-') && !c.disabled);
+      return forge && timeLeft > 30 && rng.chance(0.7) ? work(forge.id) : undefined;
+    }
+    case 'loom':
+      return pick('weave');
+    case 'scrying':
+      return rng.chance(0.5) ? pick('gaze') : undefined;
     // ---- Elite Events (only their own class gets choices; the rest see it veiled) ----
     case 'wanderers':
     case 'uprising':
@@ -96,4 +111,34 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Twin Locks: join anyone waiting on a wheel; with company in the room, sometimes take one and wait a while for them
+ * to read it and take the other.
+ */
+function botLocks(view: PlayerView, mem: BotMemory, room: number): Intent | undefined {
+  const ev = view.event!;
+  const w = ev.worker;
+  const turn: Intent = { type: 'event', choice: 'wheel' };
+  if (w?.you) {
+    // Holding a wheel: keep at it while it turns, or while there's still hope someone takes the other.
+    if (w.secondsLeft !== null || view.time < (mem.locksUntil ?? 0)) return turn;
+    mem.channelling = null;
+    return undefined;
+  }
+  const c = ev.choices.find((x) => x.id === 'wheel');
+  if (!c || c.disabled || mem.returnAt - view.time < 20) return undefined;
+  if (w) {
+    // Someone is waiting (or we're already on the other wheel).
+    mem.channelling = room;
+    return turn;
+  }
+  const company = view.allies.some((a) => a.live && !a.downed && a.pos.kind === 'room' && a.pos.room === room);
+  if (!company || mem.decided.includes(room)) return undefined;
+  mem.decided.push(room);
+  if (!mem.rng.chance(0.5)) return undefined;
+  mem.locksUntil = view.time + BOTS.locksWait;
+  mem.channelling = room;
+  return turn;
 }
