@@ -90,7 +90,7 @@ for (let g = 0; g < games; g++) {
       deaths++;
       deathsByEscalation[Math.min(7, Math.floor((h.diedAt ?? COLLAPSE_AT) / ESCALATION_INTERVAL))]++;
       deathsByClass[h.cls] = (deathsByClass[h.cls] ?? 0) + 1;
-      const cause = (h.fate ?? '').startsWith('was buried') ? 'buried' : 'bled out';
+      const cause = (h.fate ?? '').startsWith('was buried') ? 'buried' : 'died';
       const where = (h.diedAt ?? 0) >= EXIT_OPENS_AT && h.pos.kind === 'room' && h.pos.room === w.dungeon.exit ? ' at exit' : '';
       causes[cause + where] = (causes[cause + where] ?? 0) + 1;
     }

@@ -370,6 +370,17 @@ button.quiet { margin-left: auto; background: transparent; }
 .slot-item.armor { border-color: #4a6a8a; }
 .slot-item.amulet, .slot-item.ring { border-color: #6a5a8a; }
 .slot-item.cursed { border-color: #8a2f4a; }
+/* Gear that goes off by itself (Cloth): click to turn it off. Off, the icon greys out and is struck through; the name stays readable. */
+.slot-item.gear.auto { cursor: pointer; padding-right: 40px; text-overflow: ellipsis; }
+.slot-item .charge { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); font-size: 13px; background: #1a140f; padding-left: 2px; }
+.slot-item.auto:hover .charge { display: none; }
+.slot-item .charge.is-ready { color: #7fd17f; }
+.slot-item .charge.is-wait { color: var(--muted); }
+.slot-item .charge.is-spent { color: #b06060; }
+.slot-item .charge.is-off { color: #e0a060; border: 1px solid #e0a060; padding: 0 2px; font-size: 11px; vertical-align: 1px; }
+.slot-item.off { border-style: dashed; }
+.slot-item.off .item-glyph { position: relative; display: inline-block; filter: grayscale(1); opacity: 0.45; }
+.slot-item.off .item-glyph::after { content: ''; position: absolute; left: -2px; right: -2px; top: 50%; border-top: 2px solid #e0a060; transform: rotate(-35deg); }
 .slot-item.valuable { border-color: #7a6a2a; cursor: default; }
 .slot-item .stack { color: var(--gold); font-size: 14px; margin-left: 2px; }
 .pack-row { margin-top: 6px; }

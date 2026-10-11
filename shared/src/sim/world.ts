@@ -148,7 +148,7 @@ export interface Hero {
   /** Escaped through the exit. */
   extracted: boolean;
   extractedAt: number | null;
-  /** How their run ended, for the results screen ("escaped with 84 gold", "bled out in the Crypt"). */
+  /** How their run ended, for the results screen ("escaped with 84 gold", "died in the Crypt"). */
   fate: string | null;
   /** Most recent time this hero walked into the rendezvous (everyone starts there, so only returns count). */
   arrivedAt: number | null;
@@ -857,6 +857,7 @@ function advance(world: World, hero: Hero, dt: number) {
         spendCloth(hero, quick);
         hero.pos.t = 0;
         hero.pos.dur = CLOTH.wayfarerSecs;
+        notify(world, hero, `Your wayfarer's cloak hurries you through the tunnel. (${CLOTH.wayfarerSecs}s)`);
       }
       remaining = 0;
       // Chalk wherever there's a choice of way on: crossroads and two-exit rooms, not dead ends.

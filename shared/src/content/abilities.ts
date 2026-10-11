@@ -96,7 +96,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   sorceress: [
     { id: 'hex', name: 'Hex', cooldown: 0, target: 'enemy', power: 5, desc: '5 dmg and Hexed: Hex deals +100% to it for its next 2 turns. Stacks.' },
     { id: 'pact', name: 'Blood Pact', cooldown: 6, target: 'allEnemies', power: 16, desc: 'Every ally (you too) loses 6 HP (never below 1) and takes 6 stress. 16 dmg to every enemy.' },
-    { id: 'wither', name: 'Wither', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Every enemy deals −50% damage for its next 2 turns.' },
+    { id: 'wither', name: 'Wither', cooldown: 4, target: 'allEnemies', power: 0, desc: 'Every enemy deals −50% damage for its next 2 turns. Stacks: each Wither halves it again.' },
   ],
   undertaker: [
     { id: 'spade', name: 'Spade', cooldown: 0, target: 'enemy', power: 10, desc: '10 dmg, +1 for every enemy your Last Rites has killed this run.' },

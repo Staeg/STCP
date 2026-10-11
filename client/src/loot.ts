@@ -1,11 +1,22 @@
 import {
-  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemId, type LootItemView, type PlayerView,
+  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemCharge, type ItemId, type LootItemView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
 import { digitClaimed, digitKey, keyedLootItem } from './events';
 
 const $ = (id: string) => document.getElementById(id)!;
+
+/** How a piece that goes off by itself stands: a short label for its slot and a sentence for its tooltip. */
+function chargeState(item: ItemId, c: ItemCharge | undefined): { label: string; tip: string; cls: string; off: boolean } {
+  const def = ITEMS[item].cloth;
+  if (c?.disabled) return { label: 'OFF', tip: 'Turned off: it will not go off.', cls: 'is-off', off: true };
+  if (c && c.cdLeft > 0) return { label: `${Math.ceil(c.cdLeft)}s`, tip: `Ready again in ${Math.ceil(c.cdLeft)}s of wearing it.`, cls: 'is-wait', off: false };
+  if (c && c.graveRoom !== null) return { label: 'holding', tip: 'Holding you up in this room until you leave it.', cls: 'is-ready', off: false };
+  if (c && c.usesLeft === 0) return { label: 'spent', tip: 'Spent for this run.', cls: 'is-spent', off: false };
+  if (c && def?.perFight && c.usedThisFight) return { label: 'used', tip: 'Used in this fight.', cls: 'is-wait', off: false };
+  return { label: '●', tip: 'Ready.', cls: 'is-ready', off: false };
+}
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -66,6 +77,12 @@ export class LootUi {
       const gear = (e.target as HTMLElement).closest('[data-gear]') as HTMLElement | null;
       if (gear && (e.target as HTMLElement).closest('.drop')) {
         net.intent({ type: 'unequip', slot: gear.dataset.gear as GearSlot });
+        return;
+      }
+      // Cloth and the like: a click turns it off, another turns it back on.
+      if (gear) {
+        const item = this.net.cur?.you[gear.dataset.gear as GearSlot];
+        if (item && ITEMS[item].auto) net.intent({ type: 'toggleAuto', slot: gear.dataset.gear as GearSlot });
         return;
       }
       const el = (e.target as HTMLElement).closest('[data-slot]') as HTMLElement | null;
@@ -151,7 +168,7 @@ export class LootUi {
       const def = ITEMS[f.item];
       const head = `<div class="lc-glyph item-glyph">${def.glyph}</div>
         <div class="lc-name">${itemName(f.item)}</div>
-        <div class="lc-desc">${iconize(def.desc)}</div>`;
+        <div class="lc-desc">${iconize(def.desc)}</div>${f.charge ? `<div class="lc-charge muted small">${esc(chargeState(f.item, f.charge).tip)}</div>` : ''}`;
       if (solo) {
         return `<button class="loot-card take" data-id="${f.id}" data-what="${f.item}" data-take="${f.id}" title="Take it"><kbd>${i + 1}</kbd>${head}</button>`;
       }
@@ -288,7 +305,9 @@ export class LootUi {
       const key = def.kind === 'consumable' && i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd>` : '';
       const count = s.indices.length > 1 ? `<span class="stack">×${s.indices.length}</span>` : '';
       const wear = slotOf(s.item) ? ' Click to put it on.' : '';
-      slots.push(`<div class="slot-item ${def.kind}${isCursed(s.item) ? ' cursed' : ''}${f.cls}"${f.style} data-pslot="${n}" data-slot="${i}" title="${esc(`${def.name}: ${def.desc}${wear}`)}">
+      const kept = def.auto ? you.packCharges.find((x) => x.item === s.item)?.charge : undefined;
+      const waiting = kept ? ` ${chargeState(s.item, kept).tip}` : '';
+      slots.push(`<div class="slot-item ${def.kind}${isCursed(s.item) ? ' cursed' : ''}${f.cls}"${f.style} data-pslot="${n}" data-slot="${i}" title="${esc(`${def.name}: ${def.desc}${waiting}${wear}`)}">
         ${key}<span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(s.item)}</span>${count}
         <span class="drop" title="Drop ${s.indices.length > 1 ? 'the stack ' : ''}on the floor">✕</span></div>`);
     }
@@ -297,8 +316,10 @@ export class LootUi {
       if (!item) return `<div class="slot-item gear empty" title="No ${slot}"><span class="muted small">No ${slot}</span></div>`;
       const def = ITEMS[item];
       const f = this.flashAttr(slot);
-      return `<div class="slot-item gear ${slot}${isCursed(item) ? ' cursed' : ''}${f.cls}"${f.style} data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}`)}">
-        <span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>
+      const c = def.auto ? chargeState(item, you.charges[slot]) : null;
+      const tip = c ? ` ${c.tip} ${c.off ? 'Click to turn it back on.' : 'Click to turn it off.'}` : '';
+      return `<div class="slot-item gear ${slot}${isCursed(item) ? ' cursed' : ''}${c ? ' auto' : ''}${c?.off ? ' off' : ''}${f.cls}"${f.style} data-gear="${slot}" title="${esc(`${def.name}: ${def.desc}${tip}`)}">
+        <span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>${c ? `<span class="charge ${c.cls}">${c.label}</span>` : ''}
         <span class="drop" title="Take it off and drop it">✕</span></div>`;
     };
     const html = `<div class="gold">⛀ ${you.gold} gold</div>

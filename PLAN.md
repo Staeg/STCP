@@ -412,7 +412,7 @@ Weapons are **Daggers** (damage only, light), **Hammers** (more damage plus flat
 - [x] Catalogue and stats: 6 daggers, 6 hammers (flat damage), 4 leather, 6 mail, per-item Speed, loot weights, migration of old ids.
 - [x] Staves (8): Crook, Censer, Rowan, Warding, Witchwood, Twinned, Evergreen, Hourglass; Wither stacks (×0.5 each).
 - [x] Cloth (8) with per-copy charges (cooldowns tick only while worn), click-to-disable for auto-trigger gear.
-- [ ] Client: type tags, Speed ±, charge pips, disabled look, trigger log lines; bots value gear by class fit.
+- [x] Client: type tags, Speed ±, charge pips, disabled look, trigger log lines; bots value gear by class fit.
 
 ### Later / parking lot
 Deploying to a public host, more classes and enemies, multiple floors, controller support, a real art pass, music. (In-game pings were removed from this list: they break the no-communication rule.)

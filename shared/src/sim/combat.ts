@@ -1847,8 +1847,8 @@ export function tickDowned(world: World) {
 export function dieOut(world: World, h: Hero) {
   h.dead = true;
   h.diedAt = world.time;
-  h.fate = `bled out in ${roomName(world, h)}`;
-  chronicle(world, `${h.name} bled out in ${roomName(world, h)}.`);
+  h.fate = `died in ${roomName(world, h)}`;
+  chronicle(world, `${h.name} died in ${roomName(world, h)}.`);
   dropEverything(world, h);
   dropRisenAllies(world, h);
   const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
