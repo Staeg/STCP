@@ -270,7 +270,7 @@ export const MORE_EVENTS = {
  * last of them to fall drops it.
  */
 export const CROWNED = {
-  procession: ['king', 'lich', 'queen', 'giant'] as EnemyId[],
+  procession: ['king', 'lich', 'queen', 'giant', 'giant', 'giant', 'giant'] as EnemyId[],
   lairs: 3,
 };
 
