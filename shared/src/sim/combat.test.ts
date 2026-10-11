@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { BLEED_OUT, combatOrder, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
+import { DEATH_TIMER, combatOrder, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
 import { Game } from './game';
 import { buildView } from './views';
 import { speedOf } from './speed';
@@ -185,7 +185,7 @@ describe('encounters', () => {
     expect(world.heroes.h0.path).toEqual([d.entrance]);
   });
 
-  it('downed heroes bleed out unless revived; monsters ignore the downed', () => {
+  it('downed heroes die unless revived; monsters ignore the downed', () => {
     const { world, ids, room } = arena(['sorceress'], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
@@ -193,7 +193,7 @@ describe('encounters', () => {
     run(world, 12); // Hex by default; the ghoul hits; hero goes down
     expect(h.downedAt).not.toBeNull();
     expect(world.encounters[room]).toBeUndefined(); // no conscious heroes left → fight ends
-    run(world, BLEED_OUT);
+    run(world, DEATH_TIMER);
     expect(h.dead).toBe(true);
     expect(world.phase).toBe('wiped');
   });

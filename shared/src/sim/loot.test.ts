@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
-import { armored, BLEED_OUT, spawnGroup } from './combat';
+import { armored, DEATH_TIMER, spawnGroup } from './combat';
 import { Game } from './game';
 import { activeItems, addToPile, canTake, giveItem, LEAVE, votersIn, wornStat } from './loot';
 import { buildView } from './views';
@@ -381,7 +381,7 @@ describe('items', () => {
     expect(h.items).toEqual([]);
   });
 
-  it('with nobody left standing, the downed bleed out at once and the run ends', () => {
+  it('with nobody left standing, the downed die at once and the run ends', () => {
     const { world } = party(2);
     world.heroes.h0.dead = true;
     const h1 = world.heroes.h1;
@@ -399,7 +399,7 @@ describe('items', () => {
     h1.gold = 17;
     h1.hp = 0;
     h1.downedAt = world.time;
-    run(world, BLEED_OUT + 0.2);
+    run(world, DEATH_TIMER + 0.2);
     expect(h1.dead).toBe(true);
     // h0 is in the same room, now alone: gets the gold, and the items are there to pick up.
     expect(world.heroes.h0.gold).toBe(17);

@@ -1,5 +1,5 @@
 import {
-  AFFLICTION_RULES, AFFLICTIONS, BLEED_OUT, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
+  AFFLICTION_RULES, AFFLICTIONS, DEATH_TIMER, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
   fieldSkillsOf, skillInfo, TALENTS, skillTarget, skillTargeted, REVIVE_CHANNEL, type FieldSkill, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
@@ -215,8 +215,8 @@ export class Hud {
     else if (you.extracted) this.showBanner(`YOU ESCAPED<br><span style="font-size:24px">with ${you.gold} gold. The others are still inside…</span>`, 0);
     else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
     else if (you.downedAt !== null && !view.encounter) {
-      const left = Math.max(0, BLEED_OUT - (view.time - you.downedAt));
-      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Bleeding out in ${Math.ceil(left)}s — an ally must reach you.${you.called ? '' : ' <kbd>C</kbd> to call for help.'}</span>`, 0);
+      const left = Math.max(0, DEATH_TIMER - (view.time - you.downedAt));
+      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Dying in ${Math.ceil(left)}s — an ally must reach you.${you.called ? '' : ' <kbd>C</kbd> to call for help.'}</span>`, 0);
     } else if (this.persistentBanner) {
       $('banner').hidden = true;
     }

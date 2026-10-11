@@ -8,7 +8,7 @@ import { emptyKit, heroCr, KIT_RULES, kitCr, kitError, rollCr, type Kit, type Lo
 import { Game } from './sim/game';
 import { addHero, createWorld, step } from './sim/world';
 import { canTake } from './sim/loot';
-import { bleedOut, damageMult, spawnGroup } from './sim/combat';
+import { dieOut, damageMult, spawnGroup } from './sim/combat';
 import { speedOf } from './sim/speed';
 import { LobbyManager, type Socket } from './lobby';
 import type { ServerMsg } from './protocol';
@@ -87,7 +87,7 @@ describe('heroes with a kit', () => {
     expect(damageMult(tome) / damageMult(plain)).toBeCloseTo(KIT_RULES.tomeMult);
     tome.gold = 40;
     tome.downedAt = 0;
-    bleedOut(world, tome);
+    dieOut(world, tome);
     expect(tome.legacy).toBe(40);
     expect(world.piles[world.dungeon.entrance]?.corpseGold?.t).toBeUndefined();
   });

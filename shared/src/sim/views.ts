@@ -10,7 +10,7 @@ import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../conte
 import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
 import { activeItems, canTake, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, BLEED_OUT, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -150,7 +150,7 @@ export interface CombatUnitView {
   enemy?: EnemyId;
   downed?: boolean;
   /** Seconds until a downed hero dies. */
-  bleedOut?: number;
+  dying?: number;
   /** Speed: seconds between this unit's turns. */
   speed: number;
   /** Seconds until this unit's next turn (null while down). */
@@ -428,7 +428,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     return {
       id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, stress: Math.round(h.stress), cls: h.cls, color: h.color,
       downed: h.downedAt !== null,
-      bleedOut: h.downedAt !== null ? Math.max(0, BLEED_OUT - (world.time - h.downedAt)) : undefined,
+      dying: h.downedAt !== null ? Math.max(0, DEATH_TIMER - (world.time - h.downedAt)) : undefined,
       speed: speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
       ready: !!enc.choices[id] || !isConscious(h),
       choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,

@@ -14,7 +14,7 @@ import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
 
-export const BLEED_OUT = 36;
+export const DEATH_TIMER = 36;
 export const REVIVE_CHANNEL = 6;
 export const REVIVE_HP_FRACTION = 0.3;
 export const FLEE_CHANCE = 0.5;
@@ -1689,15 +1689,15 @@ function flee(world: World, enc: Encounter, h: Hero) {
   h.heading = null;
 }
 
-/** Bleed-out and death for downed heroes. Called every tick. */
+/** Dying and death for downed heroes. Called every tick. */
 export function tickDowned(world: World) {
   for (const h of Object.values(world.heroes)) {
-    if (inDungeon(h) && h.downedAt !== null && world.time - h.downedAt >= BLEED_OUT) bleedOut(world, h);
+    if (inDungeon(h) && h.downedAt !== null && world.time - h.downedAt >= DEATH_TIMER) dieOut(world, h);
   }
 }
 
 /** A downed hero dies where they lie: their things hit the floor, and anyone watching takes it hard. */
-export function bleedOut(world: World, h: Hero) {
+export function dieOut(world: World, h: Hero) {
   h.dead = true;
   h.diedAt = world.time;
   h.fate = `bled out in ${roomName(world, h)}`;

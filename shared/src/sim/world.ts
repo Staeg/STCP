@@ -13,7 +13,7 @@ import { EVENT_SEEDING, STRESS, type AfflictionId, type EliteEventKind, type Eve
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  bleedOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
+  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
@@ -504,8 +504,8 @@ function checkEnd(world: World) {
     }
     world.phase = 'collapsed';
   } else {
-    // Nobody left standing to get the downed back up: they bleed out now instead of after the wait.
-    if (heroes.every((h) => !inDungeon(h) || h.downedAt !== null)) for (const h of heroes) if (inDungeon(h)) bleedOut(world, h);
+    // Nobody left standing to get the downed back up: they die now instead of after the wait.
+    if (heroes.every((h) => !inDungeon(h) || h.downedAt !== null)) for (const h of heroes) if (inDungeon(h)) dieOut(world, h);
     if (heroes.every((h) => h.dead)) world.phase = 'wiped';
     else if (heroes.every((h) => !inDungeon(h))) world.phase = 'ended';
   }

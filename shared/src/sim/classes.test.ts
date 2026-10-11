@@ -3,7 +3,7 @@ import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { EXIT_OPENS_AT } from '../content/constants';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { bleedOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { dieOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
 import { carriedHome } from './emergency';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
@@ -213,7 +213,7 @@ describe('Undertaker', () => {
     dropEverything(world, c);
     run(world, 0.2);
     const raiser = u.legion.length ? u : u2;
-    bleedOut(world, raiser);
+    dieOut(world, raiser);
     expect(raiser.legion).toHaveLength(0);
     const other = raiser === u ? u2 : u;
     run(world, 0.5);
@@ -390,7 +390,7 @@ describe('reworked kits', () => {
     expect(monsters[0].st.hexed).toBeUndefined();
   });
 
-  it('Wither weakens every enemy; Blood Pact hits every enemy for 16, bleeds every ally (never below 1) and stresses them', () => {
+  it('Wither weakens every enemy; Blood Pact hits every enemy for 16, wounds every ally (never below 1) and stresses them', () => {
     const { world, ids, room, monsters } = arena(['sorceress', 'warden'], ['ghoul', 'ghoul']);
     walkIn(world, ids, room);
     const [sorceress, warden] = ids.map((id) => world.heroes[id]);

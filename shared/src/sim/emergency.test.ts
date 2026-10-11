@@ -3,7 +3,7 @@ import { emergenciesAt, emergencyWarning, type EmergencyId } from '../content/em
 import type { ClassId } from '../content/classes';
 import { Stash } from '../stash';
 import { emptyKit, type Loadout } from '../village';
-import { bleedOut } from './combat';
+import { dieOut } from './combat';
 import { carriedHome, emergencyDone, emergencyProgress } from './emergency';
 import { addHero, createWorld, extractHero, step, type World } from './world';
 
@@ -71,7 +71,7 @@ describe('Emergency progress', () => {
     const ann = hero(w, 'ann', 'warden', 'shadows');
     hero(w, 'bot', 'zealot', null, true);
     w.kills.wight = 3;
-    bleedOut(w, ann);
+    dieOut(w, ann);
     expect(emergencyDone(w, ann)).toBe(true);
     expect(w.heroes.bot.emergency).toBeNull();
   });
@@ -93,7 +93,7 @@ describe('Emergency progress', () => {
     const ann = hero(w, 'ann', 'warden', 'larders');
     ann.items.push('gem', 'tome', 'effigy');
     expect(emergencyProgress(w, ann)?.done).toBe(true);
-    bleedOut(w, ann);
+    dieOut(w, ann);
     expect(emergencyDone(w, ann)).toBe(false);
   });
 
@@ -102,7 +102,7 @@ describe('Emergency progress', () => {
     const ann = hero(w, 'ann', 'warden', 'larders');
     const und = hero(w, 'und', 'undertaker', null, true);
     ann.items.push('gem', 'tome', 'effigy', 'torch');
-    bleedOut(w, ann);
+    dieOut(w, ann);
     step(w, 0.1);
     expect(und.legion.map((r) => r.hero)).toEqual(['ann']);
     expect(emergencyDone(w, ann)).toBe(false);
@@ -116,7 +116,7 @@ describe('Emergency progress', () => {
     const kit = { ...emptyKit(), rites: ['tome' as const] };
     const ann = hero(w, 'ann', 'warden', 'fever', false, kit);
     ann.items.push('bandage', 'salts', 'gem');
-    bleedOut(w, ann);
+    dieOut(w, ann);
     expect(ann.legacyItems.sort()).toEqual(['bandage', 'salts']);
     expect(emergencyDone(w, ann)).toBe(true);
   });

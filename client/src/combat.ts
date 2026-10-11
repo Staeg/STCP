@@ -330,7 +330,7 @@ export class CombatUi {
       .join('');
     const classes = ['cb-unit', u.kind, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
-    const sub = u.downed ? `DOWN · ${Math.ceil(u.bleedOut ?? 0)}s`
+    const sub = u.downed ? `DOWN · ${Math.ceil(u.dying ?? 0)}s`
       : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
       : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
     // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.

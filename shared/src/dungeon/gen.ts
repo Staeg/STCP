@@ -88,7 +88,7 @@ const DIRS = [
 
 const ADJECTIVES = [
   'Flooded', 'Collapsed', 'Silent', 'Rotting', 'Gilded', 'Weeping', 'Hollow', 'Sunken',
-  'Ashen', 'Forgotten', 'Bleeding', 'Echoing', 'Narrow', 'Crooked', 'Drowned', 'Smoldering',
+  'Ashen', 'Forgotten', 'Mournful', 'Echoing', 'Narrow', 'Crooked', 'Drowned', 'Smoldering',
 ];
 const NOUNS = [
   'Ossuary', 'Crypt', 'Cistern', 'Chapel', 'Gallery', 'Vault', 'Larder', 'Barracks', 'Shrine',
