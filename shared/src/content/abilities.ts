@@ -65,6 +65,8 @@ export const CLASS_RULES = {
   /** Toll (out of combat): cooldown in your own turns; allies see you live for this long (seconds). */
   tollCooldown: 4,
   tollReveal: 10,
+  /** Toll: monsters outside fights stop for this long (seconds); those fighting lose their next turn. Great Bell's until 2026-10-11. */
+  tollDaze: 7,
   /** Zealot: +1.5% damage per stress point; Absolution spends stress above this. */
   zealotDmgPerStress: 0.015,
   absolutionFloor: 50,

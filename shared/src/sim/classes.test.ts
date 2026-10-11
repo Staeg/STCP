@@ -287,7 +287,7 @@ describe('Bellwright', () => {
     expect(heroes[1].lastKnown.h0.time).toBe(world.time);
     expect(buildView(world, 'h1').tolls[0].room).toBe(d.entrance);
     expect(world.monsters[ghoul.id].room).toBe(-1); // on its way
-    run(world, 10);
+    run(world, 10 + CLASS_RULES.tollDaze); // they reel from the bell first
     expect(heroes[0].encounter).toBe(d.entrance);
   });
 });

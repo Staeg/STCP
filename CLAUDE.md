@@ -23,5 +23,6 @@ Other Claude sessions often edit this checkout at the same time and touch the sa
 - Kill only dev servers your own session started.
 
 ## Design constraints
+- Global or wide-ranging effects (anything heard or felt across the dungeon, or hitting every hero or monster at once) get a sound effect: pass a `SoundCue` to `notify` and add the cue to `client/src/sound.ts`.
 - Class designs must not add time-consuming mechanisms such as a second controlled token or haggling/trading flows. Prefer passives and one-click actions.
 - Class base Speed stays within 3–7s.

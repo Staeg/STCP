@@ -38,8 +38,8 @@ export const TALENT_RULES = {
   sanguineHeal: 2,
   /** Restless Dead: the risen fight this many turns. */
   restlessTurns: 6,
-  /** Great Bell: monsters outside fights are dazed this long (seconds) by the Toll. */
-  greatBellDaze: 7,
+  /** Great Bell: Clang stacks the Toll gives the Bellwright (its stun became the Toll's own, 2026-10-11). */
+  greatBellClang: 5,
   /** Resonance: Peal also lifts this much stress from, and heals, every ally it hastens. */
   resonanceStress: 3, // 5 until the stress rework (×⅔)
   resonanceHeal: 3,
@@ -52,9 +52,9 @@ export const TALENTS: Record<TalentId, TalentDef> = {
   ironOath: { id: 'ironOath', cls: 'warden', name: 'Iron Oath',
     desc: `Once per run, a blow that would drop you leaves you at 1 HP instead, and nothing can hurt you for ${TALENT_RULES.oathImmune}s.` },
   unyielding: { id: 'unyielding', cls: 'warden', name: 'Unyielding',
-    desc: `Vengeance lasts ${CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns} turns and works out of combat, but its cooldown is ${ABILITIES.warden[1].cooldown + TALENT_RULES.unyieldingCooldown}.` },
+    desc: `Vengeance lasts ${CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns} turns and works out of combat, but its cooldown is ${TALENT_RULES.unyieldingCooldown} longer.` },
   ghostStep: { id: 'ghostStep', cls: 'cutthroat', name: 'Ghost Step',
-    desc: 'Your own Flee always succeeds and costs no stress.' },
+    desc: 'Your own Flee always succeeds, costs no stress, and takes you down a random tunnel, not just the way you came.' },
   openingAct: { id: 'openingAct', cls: 'cutthroat', name: 'Opening Act',
     desc: 'Your first turn in every fight comes after half your Speed.' },
   everflame: { id: 'everflame', cls: 'lampbearer', name: 'Everflame',
@@ -64,15 +64,15 @@ export const TALENTS: Record<TalentId, TalentDef> = {
   sanguine: { id: 'sanguine', cls: 'sorceress', name: 'Sanguine',
     desc: `Whenever you damage a Hexed enemy, heal ${TALENT_RULES.sanguineHeal} per Hex on it.` },
   evilEye: { id: 'evilEye', cls: 'sorceress', name: 'Evil Eye',
-    desc: 'Every enemy starts the fight with a Hex on it when you are there.' },
+    desc: 'Put a Hexed stack on all enemies when joining a fight.' },
   restlessDead: { id: 'restlessDead', cls: 'undertaker', name: 'Restless Dead',
     desc: `The risen fight for ${TALENT_RULES.restlessTurns} turns, and follow you out of the fight into the next one.` },
   pallbearer: { id: 'pallbearer', cls: 'undertaker', name: 'Pallbearer',
-    desc: 'Allies you revive come back at full HP, and going down then costs them no Major Injury.' },
+    desc: 'You always know where Downed allies are. Allies you revive come back at full HP, and going down then costs them no Major Injury.' },
   greatBell: { id: 'greatBell', cls: 'bellwright', name: 'Great Bell',
-    desc: `Your Toll stuns every monster in the dungeon: those fighting lose their next turn; the rest stop for ${TALENT_RULES.greatBellDaze}s and start any fight in that time Stunned.` },
+    desc: `Your Toll gives you ${TALENT_RULES.greatBellClang} Clang stacks.` },
   resonance: { id: 'resonance', cls: 'bellwright', name: 'Resonance',
-    desc: `Peal also lifts ${TALENT_RULES.resonanceStress} stress from every ally it hastens and heals them ${TALENT_RULES.resonanceHeal}.` },
+    desc: `Peal also lifts ${TALENT_RULES.resonanceStress} stress from every ally it hastens and heals them ${TALENT_RULES.resonanceHeal}, and gives you a Clang stack.` },
   martyr: { id: 'martyr', cls: 'zealot', name: 'Martyr',
     desc: `Take Their Sins moves up to ${TALENT_RULES.martyrSins} stress and heals the ally ${TALENT_RULES.martyrHeal}.` },
   penitent: { id: 'penitent', cls: 'zealot', name: 'Penitent',
@@ -106,7 +106,7 @@ export function abilitiesFor(cls: ClassId, talent: TalentId | null | undefined):
       case 'restlessDead:raise':
         return { ...ab, desc: `The last enemy slain in this fight rises on your side at full HP, for ${TALENT_RULES.restlessTurns} of its turns, and follows you into your next fight.` };
       case 'resonance:peal':
-        return { ...ab, desc: `${ab.desc} They also get −${TALENT_RULES.resonanceStress} stress and +${TALENT_RULES.resonanceHeal} HP.` };
+        return { ...ab, desc: `${ab.desc} They also get −${TALENT_RULES.resonanceStress} stress and +${TALENT_RULES.resonanceHeal} HP, and you gain a Clang stack.` };
       case 'martyr:sins':
         return { ...ab, power: TALENT_RULES.martyrSins, desc: `Take up to ${TALENT_RULES.martyrSins} stress off an ally onto yourself, and heal them ${TALENT_RULES.martyrHeal}.` };
       case 'penitent:absolution':

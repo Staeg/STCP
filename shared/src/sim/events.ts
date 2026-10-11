@@ -714,7 +714,7 @@ function rouseTheKing(world: World, h: Hero, from: number) {
     if (!o.seen.includes(room)) o.seen.push(room);
     notify(world, o, o === h
       ? `Far away, something answers. The Dead King's procession sets out from ${where} for the exit. Stop it, and his treasure is yours.`
-      : `${h.name} has woken the Dead King! His procession sets out from ${where} for the exit, carrying his treasure.`);
+      : `${h.name} has woken the Dead King! His procession sets out from ${where} for the exit, carrying his treasure.`, 'king');
   }
   chronicle(world, `${h.name} woke the Dead King. His procession set out from ${where}.`);
   if (someoneIn(room)) for (const o of Object.values(world.heroes)) if (inDungeon(o) && o.pos.kind === 'room' && o.pos.room === room) onHeroInRoom(world, o, room);

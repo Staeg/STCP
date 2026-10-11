@@ -19,7 +19,7 @@ import {
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
 import { CLOTH, slotOf } from '../content/items';
-import { notify } from './notify';
+import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
@@ -143,7 +143,7 @@ export interface Hero {
   /** Carried gold. Only extracted gold counts. */
   gold: number;
   /** Short notices for this player ("+12 gold"), newest last. */
-  messages: { time: number; text: string }[];
+  messages: { time: number; text: string; sound?: SoundCue }[];
   /** Loot count per room as of when this hero last saw it. */
   knownLoot: Record<number, number>;
   /** Collapsed corridors this hero has found out about. */
@@ -945,7 +945,10 @@ function updateKnowledge(world: World) {
   for (const a of heroes) {
     for (const b of heroes) {
       const scrying = world.time < a.scryUntil;
-      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying)) {
+      // Pallbearer: the Undertaker always knows where the Downed lie.
+      const pallbearer = a.talent === 'pallbearer' && inDungeon(b) && b.downedAt !== null;
+      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying || pallbearer)) {
+        if (pallbearer && b.pos.kind === 'room' && !a.seen.includes(b.pos.room)) a.seen.push(b.pos.room);
         a.lastKnown[b.id] = {
           pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, insane: b.insane,
         };

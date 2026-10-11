@@ -287,7 +287,7 @@ function cutsOff(world: World, cid: number): boolean {
 }
 
 /**
- * Great Bell: every monster in the dungeon reels. Those fighting lose their next turn; the rest stop where they
+ * The Toll: every monster in the dungeon reels. Those fighting lose their next turn; the rest stop where they
  * are for a while, and any fight they start in that time, they start Stunned.
  */
 export function dazeAll(world: World, seconds: number) {

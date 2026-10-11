@@ -69,11 +69,11 @@ export function callForHelp(world: World, h: Hero): string | null {
     o.lastKnown[h.id] = {
       pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: h.downedAt !== null, dead: false, insane: h.insane,
     };
-    notify(world, o, `${h.name} calls for help from ${where}!`);
+    notify(world, o, `${h.name} calls for help from ${where}!`, 'call');
   }
   world.calls.push(call);
   chronicle(world, `${h.name} called for help from ${where}${call.heard.length ? '' : ', and nobody heard'}.`);
-  notify(world, h, 'You call for help. Something else heard it too.');
+  notify(world, h, 'You call for help. Something else heard it too.', 'call');
   summon(world, room);
   return null;
 }

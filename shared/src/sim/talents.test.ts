@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { STRESS } from '../content/events';
+import { CLASS_RULES } from '../content/abilities';
 import { CLASSES, type ClassId } from '../content/classes';
 import { CR_RULES, type EnemyId } from '../content/enemies';
 import { TALENT_RULES, type TalentId } from '../content/talents';
@@ -212,18 +213,37 @@ describe('Undertaker talents', () => {
     expect(ally.hp).toBe(ally.maxHp);
     expect(ally.downedMajor).toBe(false);
   });
+
+  it('Pallbearer: the Undertaker knows where the Downed lie, however far', () => {
+    const { world, heroes: [u, ally] } = quiet([['undertaker', 'pallbearer'], 'warden']);
+    const far = world.dungeon.rooms.find((r) => r.kind === 'normal' && !neighbours(world.dungeon, world.dungeon.entrance).includes(r.id))!.id;
+    ally.pos = { kind: 'room', room: far };
+    downHero(world, ally, null);
+    step(world, 0.1);
+    expect(u.lastKnown.h1?.downed).toBe(true);
+    expect(u.lastKnown.h1?.pos).toEqual({ kind: 'room', room: far });
+    expect(u.seen).toContain(far);
+  });
 });
 
 describe('Bellwright talents', () => {
-  it('Great Bell: the Toll stuns monsters in fights and dazes the rest', () => {
-    const { world, d, room, monsters } = arena(['warden', ['bellwright', 'greatBell']], ['ghoul']);
+  it('the Toll stuns monsters in fights and dazes the rest', () => {
+    const { world, d, room, monsters } = arena(['warden', 'bellwright'], ['ghoul']);
     walkIn(world, ['h0'], room);
     const far = d.rooms.find((r) => r.id !== room && r.id !== d.entrance && !neighbours(d, d.entrance).includes(r.id))!.id;
     const [loner] = spawnGroup(world, far, ['crawler'], 0);
     applyIntent(world, 'h1', { type: 'skill', skill: 'toll' });
     for (let i = 0; i < 80 && !world.tolls.length; i++) step(world, 0.1);
     expect(monsters[0].st.stun).toBe(true);
-    expect(loner.dazedUntil).toBeCloseTo(world.time + TALENT_RULES.greatBellDaze, 0);
+    expect(loner.dazedUntil).toBeCloseTo(world.time + CLASS_RULES.tollDaze, 0);
+    expect(world.heroes.h1.st.clang).toBeUndefined();
+  });
+
+  it('Great Bell: the Toll gives the Bellwright 5 Clang stacks', () => {
+    const { world, heroes: [h] } = quiet([['bellwright', 'greatBell']]);
+    applyIntent(world, 'h0', { type: 'skill', skill: 'toll' });
+    for (let i = 0; i < 80 && !world.tolls.length; i++) step(world, 0.1);
+    expect(h.st.clang?.stacks).toBe(TALENT_RULES.greatBellClang);
   });
 
   it('Resonance: Peal also heals and calms the allies it hastens', () => {
@@ -235,6 +255,7 @@ describe('Bellwright talents', () => {
     untilTurn(world, room, 'h0');
     const heal = world.encounters[room].events.find((e) => e.actor === 'h0' && e.kind === 'heal' && e.target === 'h1');
     expect(heal?.amount).toBe(TALENT_RULES.resonanceHeal);
+    expect(world.heroes.h0.st.clang?.stacks).toBe(1);
   });
 });
 

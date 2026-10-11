@@ -27,7 +27,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   undertaker: { id: 'undertaker', name: 'Undertaker', role: 'Executions & the dead', color: '#8fa39a', maxHp: 54, speed: 6,
     blurb: 'Digs through rubble in one turn. Raises each fallen ally once: walk them out and their Village keeps what they carry.' },
   bellwright: { id: 'bellwright', name: 'Bellwright', role: 'Tempo & the call', color: '#d98a3a', maxHp: 63, speed: 7,
-    blurb: 'Out of combat, Toll: every ally hears where you are, and so do the monsters.' },
+    blurb: 'Out of combat, Toll: every ally hears where you are, every monster reels, and the ones next door come.' },
   zealot: { id: 'zealot', name: 'Zealot', role: 'Stress as fuel', color: '#e6dcc4', maxHp: 36, speed: 4,
     blurb: 'Never goes Insane, and no heart attacks; stress makes you hit harder.' },
   alchemist: { id: 'alchemist', name: 'Alchemist', role: 'Brews & poisons', color: '#5fc46a', maxHp: 45, speed: 5,

@@ -2,7 +2,7 @@ import { CLASS_RULES, abilityById } from '../content/abilities';
 import { TALENT_RULES } from '../content/talents';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { abilitiesOf, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
+import { abilitiesOf, addClang, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
 import { dazeAll, lureToward } from './escalation';
 import { giveItem, hasSpace } from './loot';
 import { buffLength, cooldownFor, healBy, reliefBy, ward } from './gear';
@@ -21,7 +21,7 @@ type FieldTarget = 'none' | 'any' | 'other';
 
 /** Display name, who it can be aimed at, and what it does out of a fight. */
 export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string }> = {
-  toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Monsters next door come to the bell.` },
+  toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s. Monsters next door come to the bell.` },
   sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
   elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
   mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Poison.` },
@@ -38,7 +38,7 @@ export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
 
 /** Name and text of a skill for this hero (Talents change some numbers). */
 export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
-  if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: every monster is stunned.` } : FIELD_SKILLS.toll;
+  if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: you gain ${TALENT_RULES.greatBellClang} Clang stacks.` } : FIELD_SKILLS.toll;
   const ab = abilitiesOf(h).find((a) => a.id === skill);
   if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
   if (skill === 'sins' && h.talent === 'martyr') return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
@@ -153,14 +153,14 @@ export function toll(world: World, h: Hero) {
   for (const o of Object.values(world.heroes)) {
     if (!inDungeon(o)) continue;
     if (!o.seen.includes(room)) o.seen.push(room);
-    notify(world, o, o === h ? 'You ring the bell. Everyone heard that, and so did the dark.' : `A bell tolls from ${where}: ${h.name}.`);
+    notify(world, o, o === h ? 'You ring the bell. Everyone heard that, and so did the dark.' : `A bell tolls from ${where}: ${h.name}.`, 'toll');
   }
   lureToward(world, room);
-  // Great Bell: the whole dungeon reels from it.
-  if (h.talent === 'greatBell') {
-    dazeAll(world, TALENT_RULES.greatBellDaze);
-    for (const o of Object.values(world.heroes)) if (inDungeon(o)) notify(world, o, 'The great bell shakes the dungeon. Every monster reels.');
-  }
+  // The whole dungeon reels from it (Great Bell's until 2026-10-11).
+  dazeAll(world, CLASS_RULES.tollDaze);
+  for (const o of Object.values(world.heroes)) if (inDungeon(o)) notify(world, o, 'The bell shakes the dungeon. Every monster reels.');
+  // Great Bell: the ringing quickens the ringer.
+  if (h.talent === 'greatBell') addClang(h, TALENT_RULES.greatBellClang);
 }
 
 /** Is `h` being heard right now (a toll in the last few seconds)? Allies then see them as if in sight. */

@@ -70,7 +70,7 @@ export interface Monster {
   maxHp: number;
   dmgMult: number;
   st: Statuses;
-  /** Great Bell: stopped in its tracks until this game time; a fight it starts before then, it starts Stunned. */
+  /** The Toll: stopped in its tracks until this game time; a fight it starts before then, it starts Stunned. */
   dazedUntil?: number;
   /** A Zombie back on its feet: killing it again adds nothing to the room's bounty. */
   again?: boolean;
@@ -407,6 +407,11 @@ function unnoticed(world: World, room: number): boolean {
   return true;
 }
 
+/** The Bellwright gains Clang stacks (−1s Speed each); the timer starts over for all of them. */
+export function addClang(h: Hero, stacks: number) {
+  h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + stacks, turns: buffLength(h, CLASS_RULES.clangTurns) };
+}
+
 /** Talents that act when a hero walks into a fight. */
 function onEnlist(world: World, enc: Encounter, h: Hero) {
   if (!isConscious(h)) return;
@@ -567,7 +572,7 @@ function startTimers(world: World, enc: Encounter) {
   for (const m of monstersIn(world, enc.room)) {
     if (enc.next[m.id] !== undefined) continue;
     enc.next[m.id] = at(world.time + monsterSpeed(enc, m));
-    // Great Bell: still reeling from the Toll.
+    // Still reeling from the Toll.
     if ((m.dazedUntil ?? 0) > world.time) m.st.stun = true;
   }
   if (enc.risen) enc.next[enc.risen.id] ??= at(world.time + risenSpeed(world, enc.risen));
@@ -1333,7 +1338,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} reels from the din. (+${delay}s)` });
       }
       // The ringing quickens the ringer: one more stack, and the timer starts over.
-      h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + 1, turns: buffLength(h, CLASS_RULES.clangTurns) };
+      addClang(h, 1);
       return;
     }
     case 'peal':
@@ -1347,7 +1352,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
           if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
         }
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${h.talent === 'resonance' ? `, −${TALENT_RULES.resonanceStress} stress` : ''})` });
+      // Resonance: the peal rings on in the Bellwright too.
+      if (h.talent === 'resonance') addClang(h, 1);
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${h.talent === 'resonance' ? `, −${TALENT_RULES.resonanceStress} stress, +1 Clang` : ''})` });
       return;
     case 'knell': {
       const dmg = knellDamage(ab.power, othersIn(world, enc, h).length);
@@ -1861,7 +1868,8 @@ function flee(world: World, enc: Encounter, h: Hero) {
   leftRoom(h);
   const d = world.dungeon;
   const from = enc.room;
-  let to = h.prevRoom;
+  // Ghost Step: slip out by any tunnel, not just the one you came in by.
+  let to = h.talent === 'ghostStep' ? null : h.prevRoom;
   if (to === null || !corridorBetween(d, from, to)) to = world.rng.pick(neighbours(d, from));
   const c = corridorBetween(d, from, to)!;
   h.pos = { kind: 'corridor', corridor: c.id, from, to, t: 0, dur: speedOf(h, world.time) };

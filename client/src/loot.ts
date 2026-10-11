@@ -3,6 +3,7 @@ import {
 } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
+import { beep } from './sound';
 import { digitClaimed, digitKey, keyedLootItem } from './events';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -346,6 +347,7 @@ export class LootUi {
       if (m.time < this.feedSince || m.time < view.time - 4 || this.shown.has(key)) continue;
       this.shown.add(key);
       this.toast(m.text);
+      if (m.sound) beep(m.sound);
     }
     if (this.shown.size > 200) this.shown = new Set([...this.shown].slice(-50));
   }
