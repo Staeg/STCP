@@ -208,7 +208,10 @@ export class LootUi {
     panel.style.setProperty('--card-w', solo ? '190px' : '230px');
     // Sit just above the action bar, however tall it has grown (wrapped notes, a channel bar).
     const bar = $('actions').getBoundingClientRect();
-    panel.style.bottom = bar.height ? `${Math.max(158, Math.ceil(window.innerHeight - bar.top) + 6)}px` : '';
+    const bottom = bar.height ? Math.max(158, Math.ceil(window.innerHeight - bar.top) + 6) : 0;
+    panel.style.bottom = bottom ? `${bottom}px` : '';
+    // Raised above a tall bar, the CSS max-height alone would push the panel's top off screen.
+    panel.style.maxHeight = bottom ? `calc(100vh - ${bottom + 42}px)` : '';
     if (html !== this.lastVoteHtml) {
       this.noteGone(new Set(items.map((f) => f.id)));
       panel.innerHTML = html;
