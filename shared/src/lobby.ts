@@ -1,3 +1,4 @@
+import { GEAR_SLOTS } from './content/items';
 import { Stash } from './stash';
 import { heroCr, isHealthy, loadoutOf, type Character } from './village';
 import { Rng } from './rng';
@@ -203,6 +204,13 @@ export class Lobby {
     for (let i = 0; i < this.speed; i++) this.game.tick(SERVER_TICK);
     if (this.game.world.phase !== 'running' && !this.banked) {
       this.banked = true;
+      // The Codex: what every player's hero came across (even in fast-forwarded games: it's only knowledge).
+      for (const r of this.roster) {
+        const h = this.game.world.heroes[r.heroId];
+        // ...plus whatever they ended up carrying.
+        if (h) this.stash.recordCodex(r.owner, { ...h.codex, items: [...h.codex.items, ...h.items, ...GEAR_SLOTS.flatMap((s) => h[s] ?? [])] });
+      }
+      if (this.speed !== 1) for (const m of this.members) if (m.ws) send(m.ws, { t: 'village', village: this.stash.village(m.name) });
       // Fast-forwarded (debug) games don't count toward anyone's career.
       if (this.speed === 1) {
         for (const m of this.members) {

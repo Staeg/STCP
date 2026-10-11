@@ -19,7 +19,8 @@ import {
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import { CLOTH, ITEMS, pluralName, slotOf } from '../content/items';
+import { CLOTH, GEAR_SLOTS, ITEMS, pluralName, slotOf } from '../content/items';
+import { emptyCodex, type Codex } from '../content/codex';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
@@ -191,6 +192,8 @@ export interface Hero {
   scryUntil: number;
   /** Foredoom (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
   foredoom: boolean;
+  /** What this hero has come across this run (items, monsters, events), for their player's Codex in the Village. */
+  codex: Codex;
   /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
   restHp: number | null;
 
@@ -469,6 +472,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     called: false,
     scryUntil: 0,
     foredoom: false,
+    codex: emptyCodex(),
     restHp: null,
     elite: {},
     wanderers: 0,
@@ -781,6 +785,21 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
 }
 
 /** Loot in a room worth this hero's notice: gold, and items they don't ignore. */
+/** The Codex: what's truly in the room this hero stands in (monsters, loot, the event) and what they carry. */
+function noteCodex(world: World, a: Hero, room: number) {
+  const c = a.codex;
+  const add = <T>(list: T[], x: T | null | undefined) => {
+    if (x != null && !list.includes(x)) list.push(x);
+  };
+  for (const m of monstersIn(world, room)) add(c.enemies, m.type);
+  for (const f of world.piles[room]?.items ?? []) add(c.items, f.item);
+  for (const it of a.items) add(c.items, it);
+  for (const s of GEAR_SLOTS) add(c.items, a[s]);
+  const ev = world.events[room];
+  add(c.events, ev?.kind);
+  if (villagerHere(world, room)) add(c.events, 'villager');
+}
+
 /** A hero's memory of a room: what was in it when they last looked. A room seen only from next door holds just what showed from there. */
 export interface RoomSighting {
   at: number;
@@ -1009,6 +1028,7 @@ function updateKnowledge(world: World) {
       else if (ev && !ev.done) a.knownEvents[room] = ev.kind;
       else delete a.knownEvents[room];
       a.knownContents[room] = { at: world.time, monsters: monsterTypes(world, room), ...pileSeen(world, room), event: a.knownEvents[room] };
+      noteCodex(world, a, room);
       if (a.cls === 'cutthroat') {
         for (const n of neighbours(world.dungeon, room)) {
           a.knownLoot[n] = lootCount(world, n, a);

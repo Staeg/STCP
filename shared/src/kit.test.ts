@@ -171,6 +171,8 @@ describe('the lobby and the Stash', () => {
     mgr.tick();
     const v = stash.village('Ann');
     expect(v.items.sort()).toEqual(['bandage', 'stiletto']);
+    // The Codex remembers what the hero came across (here, what they carried).
+    expect(v.codex.items).toEqual(expect.arrayContaining(['stiletto', 'gem', 'tome']));
     // The Relic Rite costs just 1 (user, 2026-10-11).
     expect(v.resources).toEqual({ effigy: 0, gem: 1, tome: 1, relic: 4 });
     expect(v.report.some((l) => l.startsWith('Into the Village Stash'))).toBe(true);

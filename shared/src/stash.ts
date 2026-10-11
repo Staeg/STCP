@@ -2,6 +2,7 @@ import { titleFor, type CareerStats, type LeaderboardEntry } from './content/tit
 import { CLASSES, type ClassId } from './content/classes';
 import type { TalentId } from './content/talents';
 import { Rng } from './rng';
+import { emptyCodex, mergeCodex, type Codex } from './content/codex';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
 import { isResource, ITEMS, migrateItemId, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
@@ -48,6 +49,8 @@ interface Record_ extends CareerStats {
   sight?: Sight;
   /** What the last Village action did ("The Blacksmith forged a Rusty Dirk."). */
   notice?: string;
+  /** Everything this player's heroes have come across (Armory, Bestiary, Archive; since 2026-10-11). */
+  codex?: Codex;
 }
 
 /** A use of a building's service: on a Character (Elder), a Stash item (Blacksmith), or a pick (Seer). */
@@ -86,6 +89,8 @@ export interface VillageView {
   /** Gold the Village pays after each run. */
   upkeep: number;
   notice: string | null;
+  /** The Armory, Bestiary and Archive: what this player has come across in their runs. */
+  codex: Codex;
 }
 
 /** The Stash lists consumables first, then weapons, armor, amulets, rings. */
@@ -192,7 +197,16 @@ export class Stash {
       wellbeing: this.wellbeingOf(r), offered: r.fate ? [] : emergenciesAt(this.wellbeingOf(r)), emergency: r.fate ? null : (r.emergency ?? null),
       fate: r.fate ?? null,
       buildings: this.buildingsOf(r), used: [...(r.used ?? [])], sight: { ...r.sight }, upkeep: upkeepOf(this.buildingsOf(r)), notice: r.notice ?? null,
+      codex: structuredClone(r.codex ?? emptyCodex()),
     };
+  }
+
+  /** A run's finds go into the player's Codex (true if anything was new). */
+  recordCodex(name: string, found: Partial<Codex>): boolean {
+    const { r } = this.villageOf(name);
+    const added = mergeCodex((r.codex ??= emptyCodex()), found);
+    if (added) this.save();
+    return added;
   }
 
   private buildingsOf(r: Record_): Buildings {

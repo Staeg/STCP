@@ -4,6 +4,7 @@ import {
   type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
   type ServiceId, type TalentId, type VillageView,
 } from '@stcp/shared';
+import { codexHtml, type CodexTab } from './codex';
 import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleRite, villageHtml } from './village';
 import type { Net } from './net';
 import { SOLO } from './local';
@@ -67,6 +68,8 @@ export class Screens {
   private patchNotes = false;
   /** A Village service waiting for its target (a Stash piece, or what the Seer should look for). */
   private picking: ServiceId | null = null;
+  /** The Armory, Bestiary or Archive, open over the Village. */
+  private codexTab: CodexTab | null = null;
 
   constructor(private net: Net) {
     root().addEventListener('pointerdown', () => (this.pressing = true));
@@ -91,6 +94,7 @@ export class Screens {
     }
     el.hidden = false;
     const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
+      : this.net.villageOpen && this.net.village && this.codexTab ? codexHtml(this.net.village, this.codexTab)
       : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby, this.picking, emergencyHtml(this.net.village, lobby), this.net.village.fate ? fateHtml(this.net.village) : null)
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
     const html = `${body}${this.patchNotes ? patchNotesHtml() : ''}<button class="build-tag" data-act="patch-notes" title="Branch @ commit this build came from. Click for patch notes.">${esc(__BUILD__)}</button>`;
@@ -267,6 +271,14 @@ export class Screens {
       case 'village-close':
         net.villageOpen = false;
         this.picking = null;
+        this.codexTab = null;
+        break;
+      case 'codex':
+        this.codexTab = btn.dataset.tab as CodexTab;
+        this.picking = null;
+        break;
+      case 'codex-close':
+        this.codexTab = null;
         break;
       case 'build':
         net.send({ t: 'build', building: btn.dataset.building as BuildingId });

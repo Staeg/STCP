@@ -32,3 +32,4 @@ export type { SoundCue } from './sim/notify';
 export * from './content/forge';
 export * from './content/legends';
 export * from './sim/legends';
+export * from './content/codex';
