@@ -4,7 +4,8 @@ import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../
 import type { EmergencyId } from '../content/emergencies';
 import { forceRoster, seedEmergencies } from './emergency';
 import type { TalentId } from '../content/talents';
-import { injuredMaxHp, KIT_RULES, RITES, VILLAGE_RULES, type Injury, type Loadout } from '../village';
+import { injuredMaxHp, KIT_RULES, RITES, sightMatches, VILLAGE_RULES, type Injury, type Loadout, type Sight } from '../village';
+import { GEAR_KIND_PLURALS } from '../content/forge';
 import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
 import { clearRubble, tickEscalation, type Pack } from './escalation';
@@ -18,7 +19,7 @@ import {
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import { CLOTH, ITEMS, slotOf } from '../content/items';
+import { CLOTH, ITEMS, pluralName, slotOf } from '../content/items';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
@@ -485,8 +486,28 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
   for (const r of rites) notify(world, hero, `${RITES[r].name}: ${RITES[r].desc}`);
   startTimer(world, hero);
   explore(world, hero, d.entrance);
+  if (loadout?.sight) seerReveal(world, hero, loadout.sight);
   updateKnowledge(world);
   return hero;
+}
+
+/**
+ * The Village Seer (user, 2026-10-11): every room where what they foresaw lies at the start goes on the hero's map,
+ * its loot showing (as glimpsed from next door: no events, no paths).
+ */
+function seerReveal(world: World, h: Hero, sight: Sight) {
+  let rooms = 0;
+  for (const [key, pile] of Object.entries(world.piles)) {
+    const room = Number(key);
+    if (!pile.items.some((f) => sightMatches(sight, f.item))) continue;
+    rooms++;
+    if (!h.seen.includes(room)) h.seen.push(room);
+    h.knownLoot[room] = lootCount(world, room, h);
+    h.knownContents[room] = { at: world.time, monsters: monsterTypes(world, room), ...pileSeen(world, room), glimpsed: true };
+  }
+  const what = [sight.consumable && pluralName(sight.consumable), sight.resource && pluralName(sight.resource), sight.gear && GEAR_KIND_PLURALS[sight.gear]]
+    .filter(Boolean).join(', ');
+  notify(world, h, rooms ? `The Seer's vision: ${what} in ${rooms} room${rooms === 1 ? '' : 's'}, marked on your map.` : `The Seer looked for ${what}, and saw none.`);
 }
 
 export function step(world: World, dt: number): void {

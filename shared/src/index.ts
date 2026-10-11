@@ -29,3 +29,4 @@ export * from './village';
 export * from './content/emergencies';
 export * from './sim/emergency';
 export type { SoundCue } from './sim/notify';
+export * from './content/forge';

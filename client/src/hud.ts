@@ -332,7 +332,7 @@ function injuriesHtml(injuries: Injury[]): string {
     minor && `${minor > 1 ? `${minor}× ` : ''}${INJURY_NAMES.minor}: −${VILLAGE_RULES.minorHpLoss * 100}% max HP${minor > 1 ? ' each' : ''}.`,
     major && `${major > 1 ? `${major}× ` : ''}${INJURY_NAMES.major}: −${VILLAGE_RULES.majorHpLoss * 100}% max HP and Speed +${fmtSpeed(VILLAGE_RULES.majorSpeed)}${major > 1 ? ' each' : ''}.`,
   ].filter(Boolean).join(' ');
-  const tip = `${lines} They last until treated in the Village.`;
+  const tip = `${lines} They last until an Elder in the Village heals them.`;
   const drops = injuries.map((i) => (i === 'major' ? DROP(false) + DROP(true) : DROP(false))).join('');
   return `<span class="injury-drops" title="${escape(tip)}">${drops}</span>`;
 }

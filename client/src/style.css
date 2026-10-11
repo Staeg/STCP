@@ -656,20 +656,65 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .tier-2 { color: #5aa8ff; }
 .tier-3 { color: #c07cff; }
 
-/* ---- The Village (M12) ---- */
-.card.village { width: 1500px; }
-.v-purse { font-size: 28px; white-space: nowrap; }
-.v-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-@media (max-width: 900px) { .v-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.v-card { border: 1px solid #2a2018; border-top: 4px solid var(--cls); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; line-height: 1.15; }
-.v-card .class-name { color: var(--cls); font-size: 26px; line-height: 1; }
-.v-card .class-sprite { width: 48px; height: 48px; image-rendering: pixelated; }
-.v-pick { display: block; width: 100%; text-align: left; margin-top: 4px; font-size: 17px; line-height: 1.1; }
-.v-option { text-decoration: underline dotted; cursor: help; }
-.v-wounds { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
-.v-treat { text-align: left; font-size: 17px; }
-.v-treat.minor { border-color: #a07a30; }
-.v-treat.major { border-color: var(--danger); }
+/* ---- The Village (M12; one-screen layout 2026-10-11) ---- */
+#screen:has(.village) { padding: 10px; }
+.card.village {
+  width: 1900px; height: 100%; padding: 8px 14px; display: grid; gap: 6px;
+  grid-template-rows: auto auto minmax(0, 1fr); font-size: 17px; line-height: 1.1;
+}
+.card.village button { font-size: 16px; padding: 1px 6px; }
+.card.village button.mini { font-size: 15px; padding: 0 5px; }
+.vv-head { display: flex; align-items: baseline; gap: 18px; min-width: 0; }
+.vv-head h1 { font-size: 34px; margin: 0; }
+.vv-stat { font-size: 21px; white-space: nowrap; }
+.vv-notice { color: var(--gold); border-left: 3px solid var(--gold); padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card.village button.vv-back { margin-left: auto; font-size: 20px; padding: 2px 16px; }
+.vv-top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.vv-top > :only-child { grid-column: 1 / -1; }
+.vv-em { display: flex; gap: 6px; align-items: stretch; min-width: 0; }
+.vv-em .vv-wb { display: flex; flex-direction: column; justify-content: center; white-space: nowrap; padding-right: 4px; }
+.vv-em .em-card { flex: 1 1 0; min-width: 0; padding: 3px 6px; line-height: 1.05; }
+.vv-em .em-card .small { font-size: 15px; }
+.vv-report { font-size: 15px; line-height: 1.15; padding: 3px 8px; border-left: 3px solid var(--gold); background: #1a140f; overflow: auto; max-height: 4.8em; }
+.vv-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 10px; min-height: 0; }
+.vv-chars { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px; min-height: 0; }
+.vc {
+  border: 1px solid #2a2018; border-top: 3px solid var(--cls); padding: 4px 6px; min-height: 0; overflow: hidden;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 6px; row-gap: 3px; align-content: start;
+}
+.vc.coming { background: #2a2016; box-shadow: inset 0 0 0 1px var(--cls); }
+.vc-sprite { width: 40px; height: 40px; image-rendering: pixelated; grid-row: 1; }
+.vc-body { min-width: 0; }
+.vc-name { color: var(--cls); font-size: 21px; line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vc-meta { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.vc-growth, .vc-wounds { grid-column: 1 / -1; }
+.vc-pick { display: flex; flex-direction: column; gap: 3px; }
+.card.village .vc-pick button { text-align: left; display: flex; flex-direction: column; padding: 2px 5px; border-color: var(--gold); }
+.vc-desc { font-size: 14px; line-height: 1.1; color: var(--text); margin-top: 1px; }
+.vc-wounds { display: flex; flex-wrap: wrap; gap: 3px; align-content: flex-start; }
+.chip { font-size: 14px; padding: 0 4px; border: 1px solid #3a2e24; line-height: 1.3; }
+.card.village button.chip { font-size: 14px; padding: 0 4px; border-color: currentColor; }
+.vv-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+.vv-res { display: flex; align-items: center; gap: 6px; }
+.vv-buildings { display: flex; flex-direction: column; gap: 4px; }
+.vb { border: 1px solid #2a2018; padding: 3px 6px; }
+.vb.unbuilt { border-style: dashed; }
+.vb-head { display: flex; align-items: baseline; gap: 6px; }
+.vb-name { font-size: 19px; color: var(--gold); }
+.vb.unbuilt .vb-name { color: var(--muted); }
+.vb-acts { margin-left: auto; display: flex; gap: 4px; }
+.vb-services { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.vs { font-size: 15px; padding: 0 5px; border: 1px solid #3a2e24; }
+.vs.locked { color: #5a4c3a; border-style: dashed; cursor: help; }
+.vs.used { color: var(--muted); cursor: help; }
+span.vs.ready { color: var(--text); cursor: help; }
+.card.village button.vs.ready { font-size: 15px; padding: 0 5px; border-color: var(--gold); }
+.card.village button.vs.sel { background: #4a3820; }
+.vb-picks { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.vb-note { font-size: 15px; color: var(--muted); margin-top: 2px; }
+.vv-stash { border: 1px solid #2a2018; padding: 3px 6px; display: flex; flex-direction: column; gap: 3px; min-height: 0; overflow: auto; flex: 1; }
+.vv-sub { display: flex; gap: 6px; align-items: baseline; }
+.card.village .stash-item.target { border-color: var(--gold); color: var(--gold); }
 .v-report, .results-report { margin-top: 10px; padding: 6px 10px; border-left: 3px solid var(--gold); background: #1a140f; }
 .talent-star { color: var(--gold); }
 .injury.minor { color: #d9a64a; }
@@ -683,15 +728,12 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .cr-help .tier { color: var(--gold); }
 
 /* ---- The Village Stash and the kit (user 2026-10-10) ---- */
-.v-stash { display: grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap: 12px; margin-top: 12px; }
-@media (max-width: 900px) { .v-stash { grid-template-columns: 1fr; } }
-.v-stash > div { border: 1px solid #2a2018; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 18px; line-height: 1.15; }
-.kit-slots { display: flex; flex-direction: column; gap: 4px; }
-.rite-list { display: flex; flex-wrap: nowrap; gap: 6px; }
-.stash-list { display: flex; flex-wrap: wrap; gap: 4px; }
-.kit-slot { text-align: left; font-size: 17px; padding: 2px 6px; border: 1px dashed #3a2e24; }
-.kit-slot.full { border: 1px solid var(--gold); }
-.stash-item { font-size: 17px; padding: 2px 6px; }
+.kit-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+.stash-list { display: flex; flex-wrap: wrap; gap: 3px; }
+.kit-slot { text-align: left; font-size: 15px; padding: 1px 5px; border: 1px dashed #3a2e24; color: #5a4c3a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.village button.kit-slot { font-size: 15px; padding: 1px 5px; }
+.kit-slot.full { border: 1px solid var(--gold); color: var(--text); }
+.card.village .stash-item { font-size: 15px; padding: 0 5px; }
 .rite { display: flex; align-items: center; gap: 3px; padding: 3px 8px; font-size: 17px; line-height: 1; cursor: help; }
 .rite.on { border-color: var(--gold); background: #2a1f10; }
 .rite-glyph { font-size: 22px; }
@@ -715,3 +757,11 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .wb-pips { color: var(--gold); letter-spacing: 2px; cursor: help; }
 .em-tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #1f2a36; cursor: help; }
 .em-tag.personal { background: #33291a; }
+
+/* The Village on narrow windows (phones): stack and scroll. */
+@media (max-width: 900px), (max-height: 560px) {
+  .card.village { height: auto; grid-template-rows: none; }
+  .vv-top, .vv-main { grid-template-columns: minmax(0, 1fr); }
+  .vv-chars { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
+  .vv-head { flex-wrap: wrap; }
+}

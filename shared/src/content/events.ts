@@ -7,7 +7,7 @@ import type { ItemId } from './items';
  * - **Forgetting** (linear): whenever a known path drops out of a hero's sight, they forget it with a chance of
  *   Stress %. A room whose every path is forgotten is forgotten too.
  * - **Insanity** (binary): at `STRESS.insanityAt` a hero goes Insane for the rest of the run (and it follows a Village
- *   Character home until treated). Insane heroes hallucinate monsters in rooms they discover and misjudge how many
+ *   Character home until an Elder cures it). Insane heroes hallucinate monsters in rooms they discover and misjudge how many
  *   monsters a room holds. The Zealot never goes Insane; the Sorceress is faster for it.
  */
 export const INSANITY = {

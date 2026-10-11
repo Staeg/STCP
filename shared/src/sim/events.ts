@@ -2,10 +2,11 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  ANVIL_UPGRADES, channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
+  channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
   type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
+import { anvilInto, forgeable, reforged } from '../content/forge';
 import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor, makePack } from './escalation';
@@ -14,7 +15,7 @@ import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, seesInDar
 import { goInsane } from './mind';
 import { notify } from './notify';
 import { clothReady, freshCharge, spendCloth, wornCharge, type ItemCharge } from './gear';
-import { CLOTH, GEAR_SLOTS, GEAR_TYPE_NAMES, ITEMS, itemTier, LOOT_TABLE, type GearSlot, type ItemId } from '../content/items';
+import { CLOTH, GEAR_SLOTS, ITEMS, type GearSlot, type ItemId } from '../content/items';
 import { openSecretEarly, openSecretFor } from './secrets';
 import { toll } from './skills';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
@@ -265,31 +266,6 @@ export function veiledText(cls: ClassId): string {
 }
 
 /** Smith's Anvil: worn Gear below Rare can be reforged. */
-function forgeable(item: ItemId | null): item is ItemId {
-  return !!item && itemTier(item) < 3;
-}
-
-const RARITY_NAMES = { 1: 'common', 2: 'uncommon', 3: 'rare' } as const;
-
-/** What the anvil makes of it: "a Skinning Knife", "a random rare Staff". */
-function anvilInto(item: ItemId): string {
-  const next = ANVIL_UPGRADES[item];
-  if (next) return `${/^[AEIOU]/.test(ITEMS[next].name) ? 'an' : 'a'} ${ITEMS[next].name}`;
-  const d = ITEMS[item];
-  const kind = d.gearType ? GEAR_TYPE_NAMES[d.gearType] : d.kind;
-  return `a random ${RARITY_NAMES[(itemTier(item) + 1) as 2 | 3]} ${kind}`;
-}
-
-/** The anvil's work: the next piece up, or else a random piece of the same kind one rarity up. */
-function reforged(world: World, item: ItemId): ItemId {
-  const next = ANVIL_UPGRADES[item];
-  if (next) return next;
-  const d = ITEMS[item];
-  const same = (x: ItemId) => (d.gearType ? ITEMS[x].gearType === d.gearType : ITEMS[x].kind === d.kind);
-  const pool = LOOT_TABLE.filter((e) => e.rarity === itemTier(item) + 1 && same(e.item)).map((e) => e.item);
-  return pool.length ? world.rng.pick(pool) : item;
-}
-
 /** Spent: on cooldown, used up this run, or already gone off this fight. */
 function spent(item: ItemId, c: ItemCharge): boolean {
   return c.cdLeft > 0 || c.usedThisFight || (c.usesLeft ?? Infinity) < (freshCharge(item).usesLeft ?? Infinity);
@@ -733,7 +709,7 @@ function forge(world: World, ev: RoomEvent, h: Hero, slot: GearSlot) {
     notify(world, h, 'You have nothing on the anvil to reforge.');
     return;
   }
-  const into = reforged(world, item);
+  const into = reforged(world.rng, item);
   // The old piece is melted down, charge and all; the new one comes out fresh.
   const keep = h.packCharges.length;
   equip(h, slot, null);

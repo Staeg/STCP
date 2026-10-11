@@ -1,9 +1,10 @@
 import {
-  abilitiesFor, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, itemTier, ITEMS, KIT_RULES, pluralName, kitCr, RESOURCE_IDS, RITES,
-  slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
-  type Character, type EmergencyId, type FateChoice, type GearSlot, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId, type TalentId, type Treatment, type VillageView,
+  abilitiesFor, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
+  ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
+  type BuildingId, type Character, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
+  type ServiceId, type TalentId, type VillageView,
 } from '@stcp/shared';
-import { itemName } from './loot';
+import { addToKit, PICKED, removeFromKit, toggleRite, villageHtml } from './village';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
@@ -64,6 +65,8 @@ export class Screens {
   private crHelp = false;
   /** The patch notes panel (opened from the build tag) is showing. */
   private patchNotes = false;
+  /** A Village service waiting for its target (a Stash piece, or what the Seer should look for). */
+  private picking: ServiceId | null = null;
 
   constructor(private net: Net) {
     root().addEventListener('pointerdown', () => (this.pressing = true));
@@ -88,7 +91,7 @@ export class Screens {
     }
     el.hidden = false;
     const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
-      : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby)
+      : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby, this.picking, emergencyHtml(this.net.village, lobby), this.net.village.fate ? fateHtml(this.net.village) : null)
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
     const html = `${body}${this.patchNotes ? patchNotesHtml() : ''}<button class="build-tag" data-act="patch-notes" title="Branch @ commit this build came from. Click for patch notes.">${esc(__BUILD__)}</button>`;
     if (html !== this.rendered && !this.pressing) {
@@ -269,6 +272,34 @@ export class Screens {
         break;
       case 'village-close':
         net.villageOpen = false;
+        this.picking = null;
+        break;
+      case 'build':
+        net.send({ t: 'build', building: btn.dataset.building as BuildingId });
+        break;
+      case 'demolish': {
+        const b = BUILDINGS[btn.dataset.building as BuildingId];
+        const level = net.village?.buildings[b.id] ?? 0;
+        if (confirm(`Tear down the ${LEVEL_NAMES[level]} ${b.name}? Its Resources are lost.`)) net.send({ t: 'demolish', building: b.id });
+        break;
+      }
+      case 'service': {
+        const s = btn.dataset.service as ServiceId;
+        const d = btn.dataset;
+        // Gear and the Seer's picks come from a second click; the first just starts picking (or stops).
+        if (PICKED.includes(s) && !d.item && !d.pick) {
+          this.picking = this.picking === s ? null : s;
+          this.update();
+          break;
+        }
+        this.picking = null;
+        net.send({ t: 'service', req: { service: s, ...(d.char ? { charId: d.char } : {}), ...(d.injury ? { injury: d.injury as Injury } : {}),
+          ...(d.item ? { item: d.item as ItemId } : {}), ...(d.pick ? { pick: d.pick } : {}) } });
+        break;
+      }
+      case 'pick-cancel':
+        this.picking = null;
+        this.update();
         break;
       case 'patch-notes':
         this.patchNotes = !this.patchNotes;
@@ -280,9 +311,6 @@ export class Screens {
         break;
       case 'talent':
         net.send({ t: 'chooseTalent', charId: btn.dataset.char!, talent: btn.dataset.talent as TalentId });
-        break;
-      case 'treat':
-        net.send({ t: 'treat', charId: btn.dataset.char!, what: btn.dataset.what as Treatment });
         break;
       case 'emergency':
         net.send({ t: 'chooseEmergency', id: btn.dataset.id as EmergencyId });
@@ -346,10 +374,11 @@ const KIND_HELP = 'Party-wide: whatever anyone in the run does counts, even if y
 /** The Village screen's Wellbeing and the two Emergencies to pick from. */
 function emergencyHtml(v: VillageView, lobby: LobbyView | null): string {
   const kit = v.kit;
-  return `<div class="em-box">
-    <div>Wellbeing ${wellbeingPips(v.wellbeing)} <span class="muted small">· do the Emergency for +1, fail it for −1 · ${WELLBEING.win} wins, ${WELLBEING.lose} loses</span></div>
-    <div class="muted small">${v.emergency ? 'This run’s Emergency:' : 'Choose this run’s Emergency:'} <span title="${esc(KIND_HELP)}">(?)</span></div>
-    <div class="em-row">${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr: lobby?.cr, rites: kit.rites }))).join('')}</div>
+  return `<div class="vv-em">
+    <div class="vv-wb" title="${esc(`Do the Emergency for +1 Wellbeing, fail it for −1. ${WELLBEING.win} wins, ${WELLBEING.lose} loses.
+${KIND_HELP}`)}">
+      <span>Wellbeing ${wellbeingPips(v.wellbeing)}</span><span class="${v.emergency ? 'muted' : 'danger'} small">${v.emergency ? 'Emergency:' : 'Pick an Emergency:'}</span></div>
+    ${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr: lobby?.cr, rites: kit.rites }))).join('')}
   </div>`;
 }
 
@@ -389,61 +418,6 @@ function characterLine(c: Character): string {
 function villageBadge(v: VillageView | null): string {
   const talents = v?.characters.filter(talentPending).length ?? 0;
   return talents ? ` <span class="gold">(★ ${talents})</span>` : '';
-}
-
-/** The Village: the purse, and every Character with their XP, Talent, wounds and what treating them costs. */
-function villageHtml(v: VillageView, lobby: LobbyView | null): string {
-  const bringing = lobby?.members.find((m) => m.id === lobby.youId)?.cls;
-  const cards = v.characters.map((c) => {
-    const cls = CLASSES[c.cls];
-    const hp = injuredMaxHp(c.cls, c.injuries);
-    const majors = c.injuries.filter((i) => i === 'major').length;
-    const pips = Array.from({ length: VILLAGE_RULES.xpForTalent }, (_, i) => (i < c.xp ? '●' : '○')).join('');
-    let talent: string;
-    if (c.talent) {
-      talent = `<div class="v-talent"><span class="talent-star">★ ${esc(TALENTS[c.talent].name)}</span><br><span class="small">${esc(TALENTS[c.talent].desc)}</span></div>`;
-    } else if (talentPending(c)) {
-      talent = `<div class="v-talent"><div class="gold">Choose a Talent:</div>${talentsFor(c.cls).map((t) =>
-        `<button class="v-pick" data-act="talent" data-char="${c.id}" data-talent="${t}"><b>${esc(TALENTS[t].name)}</b><br><span class="small">${esc(TALENTS[t].desc)}</span></button>`).join('')}</div>`;
-    } else {
-      talent = `<div class="v-talent muted small">At ${VILLAGE_RULES.xpForTalent} XP, a Talent: ${talentsFor(c.cls).map((t) =>
-        `<span class="v-option" title="${esc(TALENTS[t].desc)}">${esc(TALENTS[t].name)}</span>`).join(' or ')}</div>`;
-    }
-    const treat = (what: Treatment, label: string) => {
-      const cost = VILLAGE_RULES.cost[what];
-      return `<button class="v-treat ${what === 'minor' ? 'minor' : 'major'}" data-act="treat" data-char="${c.id}" data-what="${what}" ${v.purse < cost ? 'disabled' : ''}>${label} · treat for ${cost}g</button>`;
-    };
-    const wounds = [
-      ...c.injuries.map((i) => treat(i, INJURY_NAMES[i])),
-      ...(c.insane ? [treat('insanity', 'Insanity')] : []),
-    ];
-    return `<div class="v-card" style="--cls:${cls.color}">
-      <div class="class-head">
-        <div>
-          <div class="class-name">${esc(c.name)}</div>
-          <div class="muted">${cls.name}${bringing === c.cls ? ' · <span class="gold">coming along</span>' : ''}</div>
-          <div class="class-stats">${iconNum('hp', hp)}${hp < cls.maxHp ? `<span class="muted">/${cls.maxHp}</span>` : ''} ${iconNum('speed', `${cls.speed + majors * VILLAGE_RULES.majorSpeed}s`)}</div>
-        </div>
-        <img class="class-sprite" src="${spriteUrl(c.cls, cls.color)}" alt="">
-      </div>
-      <div>XP <span class="gold">${pips}</span> <span class="muted small">· ${c.survived} run${c.survived === 1 ? '' : 's'} survived</span></div>
-      ${talent}
-      <div class="v-wounds">${wounds.length ? wounds.join('') : '<span class="ok small">Fit and well</span>'}</div>
-    </div>`;
-  }).join('');
-  const report = v.report.length ? `<div class="v-report"><div class="muted small">After the last run</div>${v.report.map((l) => `<div>${esc(l)}</div>`).join('')}</div>` : '';
-  return `<div class="card wide village">
-    <div class="lobby-head">
-      <div><h1>The Village</h1><div class="muted small">Each run a Character survives earns 1 XP; ${VILLAGE_RULES.xpForTalent} XP earns a Talent. Wounds and Insanity follow them home. Death sends a raw recruit in their place.</div></div>
-      <div class="v-purse">Purse <span class="gold">${v.purse} gold</span></div>
-    </div>
-    ${report}
-    ${v.fate ? fateHtml(v) : emergencyHtml(v, lobby)}
-    <div class="v-grid">${cards}</div>
-    ${stashHtml(v, lobby)}
-    <div class="row muted small">Talents, Gear brought along and Effigy Rites raise the Challenge Rating: more gold, but stranger monsters more often, and tougher ones from CR ${CR_RULES.lowCr}. The ? by the CR in the lobby explains it all.</div>
-    <div class="row"><button class="primary" data-act="village-close">Back</button></div>
-  </div>`;
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -496,92 +470,4 @@ function kitBadge(kit: Kit): string {
   const parts = items.map((it) => `<span title="${esc(ITEMS[it].name)}">${ITEMS[it].glyph}</span>`);
   parts.push(...kit.rites.map((r) => `<span class="rite-tag" title="${esc(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`));
   return parts.length ? `<span class="kit-badge">${parts.join('')}</span>` : '';
-}
-
-/** How many of `item` the kit already takes. */
-function inKit(kit: Kit, item: ItemId): number {
-  return Object.values(kit.gear).filter((x) => x === item).length + kit.consumables.filter((x) => x === item).length;
-}
-
-/** Gear goes on its slot (replacing what was chosen there); a consumable takes a free place. */
-function addToKit(kit: Kit, item: ItemId) {
-  const slot = slotOf(item);
-  if (slot) kit.gear[slot] = item;
-  else if (kit.consumables.length < KIT_RULES.consumables) kit.consumables.push(item);
-}
-
-/** `slot` is a Gear slot, or "c0"/"c1" for a consumable place. */
-function removeFromKit(kit: Kit, slot: string) {
-  if (slot.startsWith('c')) kit.consumables.splice(Number(slot.slice(1)), 1);
-  else delete kit.gear[slot as GearSlot];
-}
-
-function toggleRite(kit: Kit, r: ResourceId) {
-  kit.rites = kit.rites.includes(r) ? kit.rites.filter((x) => x !== r) : [...kit.rites, r];
-  // The Gem Rite forbids consumables: taking it leaves them at home.
-  if (kit.rites.includes('gem')) kit.consumables = [];
-}
-
-const SLOT_NAMES: Record<GearSlot, string> = { weapon: 'Weapon', armor: 'Armor', amulet: 'Amulet', ring: 'Ring' };
-
-/** The Village Stash: what's in it, what goes into the next run, and the Rites Resources can power. */
-function stashHtml(v: VillageView, lobby: LobbyView | null): string {
-  const kit = v.kit;
-  const locked = lobby?.state === 'game';
-  const dis = locked ? 'disabled' : '';
-  const gearCr = (it: ItemId) => `+${(itemTier(it) * KIT_RULES.crPerGearLevel).toFixed(1)} CR`;
-  // The kit: four Gear slots and the free consumable places.
-  const gear = GEAR_SLOTS.map((s) => {
-    const it = kit.gear[s];
-    return it
-      ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">${gearCr(it)}</span></button>`
-      : `<div class="kit-slot muted">${SLOT_NAMES[s]}: none</div>`;
-  });
-  const gem = kit.rites.includes('gem');
-  const cons = gem ? ['<div class="kit-slot muted">Consumables: none (Gem Rite)</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
-    const it = kit.consumables[i];
-    return it
-      ? `<button class="kit-slot full" data-act="kit-remove" data-slot="c${i}" ${dis} title="${esc(ITEMS[it].desc)} Click to leave it at home.">${ITEMS[it].glyph} ${itemName(it)} <span class="muted small">free</span></button>`
-      : '<div class="kit-slot muted">Consumable: none</div>';
-  });
-  const cr = kitCr(kit);
-  // The Stash, one button per kind of item, with how many are left to take.
-  const counts = new Map<ItemId, number>();
-  for (const it of v.items) counts.set(it, (counts.get(it) ?? 0) + 1);
-  const stash = [...counts].map(([it, n]) => {
-    const left = n - inKit(kit, it);
-    const isCons = ITEMS[it].kind === 'consumable';
-    const full = isCons && (gem || kit.consumables.length >= KIT_RULES.consumables);
-    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
-    const count = n > 1 ? ` <span class="muted">×${left}/${n}</span>` : left <= 0 ? ' <span class="muted">(packed)</span>' : '';
-    return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${locked || left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
-  }).join('');
-  const rites = RESOURCE_IDS.map((r) => {
-    const have = v.resources[r] ?? 0;
-    const on = kit.rites.includes(r);
-    const can = on || have >= KIT_RULES.riteCost;
-    // A small tile per Rite (glyph and count); the full effect is on hover.
-    const status = on ? 'Active next run. Click to cancel.' : can ? 'Click to perform it next run.' : `Needs ${KIT_RULES.riteCost}.`;
-    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${status}`;
-    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${locked || !can ? 'disabled' : ''} title="${esc(tip)}">
-      <span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}</span>
-    </button>`;
-  }).join('');
-  return `<div class="v-stash">
-    <div class="v-kit">
-      <div class="gold">Taking into the next run${cr ? ` <span class="muted">· CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''}</div>
-      <div class="muted small">Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1 · uncommon 2 · rare 3). Up to ${KIT_RULES.consumables} consumables, free. If your Character dies, what they took is lost.</div>
-      <div class="kit-slots">${gear.join('')}${cons.join('')}</div>
-    </div>
-    <div class="v-stash-items">
-      <div class="gold">Village Stash</div>
-      <div class="muted small">Everything your Characters carry out of the dungeon ends up here.</div>
-      <div class="stash-list">${stash || '<span class="muted">Empty. Bring something home.</span>'}</div>
-    </div>
-    <div class="v-rites">
-      <div class="gold">Resources and Rites</div>
-      <div class="muted small">Spend ${KIT_RULES.riteCost} of a Resource for an effect on your next run only. They're spent when it starts.</div>
-      <div class="rite-list">${rites}</div>
-    </div>
-  </div>`;
 }

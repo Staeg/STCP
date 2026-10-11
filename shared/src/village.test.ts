@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CLASS_IDS, CLASSES } from './content/classes';
 import { Stash } from './stash';
-import { applyRun, injuredMaxHp, VILLAGE_RULES, type Character } from './village';
+import { applyRun, BUILDINGS, injuredMaxHp, upkeepOf, VILLAGE_RULES, type Character } from './village';
+import { isGear, ITEMS, itemTier, type ItemId } from './content/items';
+import { gearKind } from './content/forge';
+import { addHero, createWorld } from './sim/world';
+import { addToPile } from './sim/loot';
 
 const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [], insane: false });
 const ok = { escaped: true, lowestHp: 1, downedMajor: false, insane: false };
@@ -59,24 +63,6 @@ describe('Stash villages', () => {
     expect(stash.village('ann').characters).toEqual(v.characters);
   });
 
-  it('spends the purse on treatment, and refuses when it is short', () => {
-    const stash = new Stash(null);
-    const c = stash.characterFor('Ann', 'sorceress');
-    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.1, insane: true });
-    expect(stash.treat('Ann', c.id, 'major')).toMatch(/costs 100/);
-    stash.recordRun('Ann', true, 250);
-    expect(stash.purse('Ann')).toBe(250);
-    expect(stash.treat('Ann', c.id, 'minor')).toMatch(/nothing like that/);
-    expect(stash.treat('Ann', c.id, 'major')).toBeNull();
-    expect(stash.treat('Ann', c.id, 'insanity')).toBeNull();
-    expect(stash.purse('Ann')).toBe(50);
-    const after = stash.characterFor('Ann', 'sorceress');
-    expect(after.injuries).toEqual([]);
-    expect(after.insane).toBe(false);
-    // The lifetime total (titles, Hall of Fortune) is untouched by spending.
-    expect(stash.get('Ann')).toBe(250);
-  });
-
   it('only lets an earned Talent of the right class be chosen', () => {
     const stash = new Stash(null);
     const c = stash.characterFor('Ann', 'warden');
@@ -117,5 +103,108 @@ describe('Stash migration', () => {
     expect(old).toContain('"witch"');
     const loaded = new Stash({ load: () => old, save: () => {} });
     expect(loaded.village('Ada').characters.map((c) => c.cls).sort()).toEqual([...CLASS_IDS].sort());
+  });
+});
+
+/** A Stash with plenty of every Resource. */
+function rich(n = 20) {
+  const stash = new Stash(null);
+  stash.storeLoot('Ann', [...Array(n).fill('effigy'), ...Array(n).fill('gem'), ...Array(n).fill('tome'), ...Array(n).fill('relic')] as ItemId[]);
+  return stash;
+}
+
+describe('Village buildings', () => {
+  it('cost Resources to build, add upkeep per level, and come down for free', () => {
+    const stash = new Stash(null);
+    expect(stash.build('Ann', 'elder')).toMatch(/needs 3 Effigies/);
+    stash.storeLoot('Ann', ['effigy', 'effigy', 'effigy', 'effigy']);
+    expect(stash.build('Ann', 'elder')).toBeNull();
+    let v = stash.village('Ann');
+    expect(v.buildings.elder).toBe(1);
+    expect(v.resources.effigy).toBe(1);
+    expect(v.upkeep).toBe(BUILDINGS.elder.levels[0].upkeep);
+    expect(stash.demolish('Ann', 'elder')).toBeNull();
+    v = stash.village('Ann');
+    expect(v.buildings.elder).toBe(0);
+    expect(v.resources.effigy).toBe(1); // nothing back
+    expect(upkeepOf({ blacksmith: 3, seer: 3, elder: 3 })).toBe(140);
+  });
+
+  it('upkeep comes out of the purse after the haul; short, levels fall at random until it can be paid', () => {
+    const stash = rich();
+    for (let i = 0; i < 3; i++) for (const b of ['blacksmith', 'seer', 'elder'] as const) expect(stash.build('Ann', b)).toBeNull();
+    expect(stash.village('Ann').upkeep).toBe(140);
+    stash.recordRun('Ann', true, 200);
+    stash.payUpkeep('Ann');
+    expect(stash.purse('Ann')).toBe(60);
+    // Next run brings nothing home: 60 gold can't keep 140 a run going.
+    stash.recordRun('Ann', false, 0);
+    const lines = stash.payUpkeep('Ann');
+    const v = stash.village('Ann');
+    expect(v.upkeep).toBeLessThanOrEqual(60);
+    expect(stash.purse('Ann')).toBe(60 - v.upkeep);
+    expect(lines.filter((l) => /closed/.test(l)).length).toBeGreaterThan(0);
+    // The lifetime total is untouched by upkeep.
+    expect(stash.get('Ann')).toBe(200);
+  });
+
+  it('Elder: heals an Injury, cures Insanity, teaches XP for a Relic; each once before a run', () => {
+    const stash = rich();
+    for (let i = 0; i < 3; i++) stash.build('Ann', 'elder');
+    const c = stash.characterFor('Ann', 'sorceress');
+    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.4, downedMajor: true, insane: true });
+    expect(stash.characterFor('Ann', 'sorceress').injuries.sort()).toEqual(['major', 'minor']);
+    expect(stash.useService('Ann', { service: 'heal', charId: c.id, injury: 'major' })).toBeNull();
+    expect(stash.useService('Ann', { service: 'heal', charId: c.id, injury: 'minor' })).toMatch(/once before each run/);
+    expect(stash.useService('Ann', { service: 'cure', charId: c.id })).toBeNull();
+    const relics = stash.village('Ann').resources.relic;
+    expect(stash.useService('Ann', { service: 'train', charId: c.id })).toBeNull();
+    const after = stash.characterFor('Ann', 'sorceress');
+    expect(after.injuries).toEqual(['minor']);
+    expect(after.insane).toBe(false);
+    expect(after.xp).toBe(2); // 1 for surviving, 1 taught
+    expect(stash.village('Ann').resources.relic).toBe(relics - 1);
+    // A new run (with the gold to keep the Elder), and the Elder is ready again.
+    stash.recordRun('Ann', true, 100);
+    stash.payUpkeep('Ann');
+    expect(stash.useService('Ann', { service: 'heal', charId: c.id })).toBeNull();
+    expect(stash.characterFor('Ann', 'sorceress').injuries).toEqual([]);
+  });
+
+  it('Blacksmith: forges a common piece, rerolls within type and rarity, and betters one for a Relic', () => {
+    const stash = rich();
+    for (let i = 0; i < 3; i++) stash.build('Ann', 'blacksmith');
+    expect(stash.useService('Ann', { service: 'forge' })).toBeNull();
+    const [made] = stash.village('Ann').items;
+    expect(isGear(made)).toBe(true);
+    expect(itemTier(made)).toBe(1);
+    stash.storeLoot('Ann', ['ringmail', 'censer']);
+    expect(stash.useService('Ann', { service: 'reroll', item: 'ringmail' })).toBeNull();
+    const after = stash.village('Ann').items;
+    expect(after).not.toContain('ringmail');
+    const rolled = after.find((x) => x !== made && x !== 'censer' && gearKind(x) === 'mail')!;
+    expect(itemTier(rolled)).toBe(1);
+    expect(stash.useService('Ann', { service: 'upgrade', item: 'censer' })).toBeNull();
+    const up = stash.village('Ann').items.find((x) => gearKind(x) === 'staff')!;
+    expect(itemTier(up)).toBe(2);
+  });
+
+  it('Seer: what was foreseen shows on the map at the start of the next run', () => {
+    const stash = rich();
+    for (let i = 0; i < 2; i++) stash.build('Ann', 'seer');
+    expect(stash.useService('Ann', { service: 'seeConsumable', pick: 'salts' })).toBeNull();
+    expect(stash.useService('Ann', { service: 'seeResource', pick: 'gem' })).toBeNull();
+    const sight = stash.takeSight('Ann');
+    expect(sight).toEqual({ consumable: 'salts', resource: 'gem' });
+    expect(stash.takeSight('Ann')).toBeUndefined();
+    const world = createWorld(7, { monsters: false, loot: false });
+    const far = world.dungeon.rooms.filter((r) => r.kind === 'normal').map((r) => r.id).slice(-2);
+    addToPile(world, far[0], 0, ['salts']);
+    addToPile(world, far[1], 0, ['torch']);
+    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talent: null, injuries: [], insane: false, sight } });
+    expect(h.seen).toContain(far[0]);
+    expect(h.knownContents[far[0]].items).toContain('salts');
+    expect(h.knownContents[far[1]]?.items ?? []).not.toContain('torch');
+    expect(ITEMS.salts.kind).toBe('consumable');
   });
 });

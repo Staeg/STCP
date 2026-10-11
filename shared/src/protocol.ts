@@ -8,9 +8,9 @@ import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 import { TALENTS, type TalentId } from './content/talents';
-import type { FateChoice, VillageView, Treatment } from './stash';
+import type { FateChoice, ServiceRequest, VillageView } from './stash';
 import { EMERGENCIES, type EmergencyId } from './content/emergencies';
-import { emptyKit, type Character, type Kit } from './village';
+import { BUILDINGS, emptyKit, SERVICES, type BuildingId, type Character, type Kit, type ServiceId } from './village';
 import { GEAR_SLOTS, RESOURCE_IDS, type ResourceId } from './content/items';
 
 export type LobbyState = 'lobby' | 'game';
@@ -60,10 +60,14 @@ export type ClientMsg =
   | { t: 'start' }
   | { t: 'toLobby' }
   | { t: 'intent'; intent: Intent }
-  /** The Village (keyed by your name): ask for it, pick an earned Talent, or pay to treat a Character. */
+  /** The Village (keyed by your name): ask for it, pick an earned Talent. */
   | { t: 'village' }
   | { t: 'chooseTalent'; charId: string; talent: TalentId }
-  | { t: 'treat'; charId: string; what: Treatment }
+  /** Build a building's next level, or tear its top level down. */
+  | { t: 'build'; building: BuildingId }
+  | { t: 'demolish'; building: BuildingId }
+  /** Use a building's service (once between runs). */
+  | { t: 'service'; req: ServiceRequest }
   /** Choose the Gear, consumables and Rites to take from your Village Stash into the next run. */
   | { t: 'setKit'; kit: Kit }
   /** Pick the Village's Emergency for the next run (one of the two of its Wellbeing). */
@@ -139,10 +143,27 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return str(msg.charId, 16) && typeof msg.talent === 'string' && msg.talent in TALENTS
         ? { t: 'chooseTalent', charId: msg.charId as string, talent: msg.talent as TalentId }
         : null;
-    case 'treat':
-      return str(msg.charId, 16) && (msg.what === 'minor' || msg.what === 'major' || msg.what === 'insanity')
-        ? { t: 'treat', charId: msg.charId as string, what: msg.what }
-        : null;
+    case 'build':
+    case 'demolish':
+      return typeof msg.building === 'string' && msg.building in BUILDINGS ? { t: msg.t, building: msg.building as BuildingId } : null;
+    case 'service': {
+      const r = msg.req as Record<string, unknown> | undefined;
+      if (!r || typeof r !== 'object' || typeof r.service !== 'string' || !(r.service in SERVICES)) return null;
+      if (r.charId !== undefined && !str(r.charId, 16)) return null;
+      if (r.injury !== undefined && r.injury !== 'minor' && r.injury !== 'major') return null;
+      if (r.item !== undefined && !(typeof r.item === 'string' && r.item in ITEMS)) return null;
+      if (r.pick !== undefined && !str(r.pick, 32)) return null;
+      return {
+        t: 'service',
+        req: {
+          service: r.service as ServiceId,
+          ...(r.charId !== undefined ? { charId: r.charId as string } : {}),
+          ...(r.injury !== undefined ? { injury: r.injury as 'minor' | 'major' } : {}),
+          ...(r.item !== undefined ? { item: r.item as ItemId } : {}),
+          ...(r.pick !== undefined ? { pick: r.pick as string } : {}),
+        },
+      };
+    }
     case 'chooseEmergency':
       return typeof msg.id === 'string' && msg.id in EMERGENCIES ? { t: 'chooseEmergency', id: msg.id as EmergencyId } : null;
     case 'chooseFate':

@@ -116,7 +116,7 @@ export class Lobby {
     const slots: PlayerSlot[] = this.members.map((m) => {
       const c = this.stash.characterFor(m.name, m.cls!);
       // What they chose in the Village leaves the Stash now (Rites spend their Resources).
-      const loadout = { ...loadoutOf(m.name, c), kit: this.stash.takeKit(m.name), emergency: this.stash.emergencyOf(m.name) };
+      const loadout = { ...loadoutOf(m.name, c), kit: this.stash.takeKit(m.name), emergency: this.stash.emergencyOf(m.name), sight: this.stash.takeSight(m.name) };
       return { id: m.id, name: `${c.name} (${m.name})`, cls: m.cls!, isBot: false, loadout };
     });
     this.roster = slots.map((s) => ({ heroId: s.id, owner: s.loadout!.owner, charId: s.loadout!.charId }));
@@ -220,6 +220,8 @@ export class Lobby {
           if (line) this.stash.addReport(r.owner, line);
           // The Emergency: +1 Wellbeing if done, −1 if not.
           if (h.emergency) this.stash.settleEmergency(r.owner, h.emergency, emergencyDone(this.game.world, h));
+          // The buildings' upkeep comes out of the purse, haul included.
+          this.stash.payUpkeep(r.owner);
         }
         for (const m of this.members) if (m.ws) send(m.ws, { t: 'village', village: this.stash.village(m.name) });
       }
@@ -260,12 +262,16 @@ export class LobbyManager {
         send(ws, { t: 'village', village: this.stash.village(name) });
         return;
       case 'chooseTalent':
-      case 'treat':
+      case 'build':
+      case 'demolish':
+      case 'service':
       case 'setKit':
       case 'chooseEmergency':
       case 'chooseFate': {
         const busy = found?.lobby.state === 'game' ? 'Not while your expedition is underway.' : null;
-        const problem = msg.t === 'treat' ? this.stash.treat(name, msg.charId, msg.what)
+        const problem = msg.t === 'build' ? (busy ?? this.stash.build(name, msg.building))
+          : msg.t === 'demolish' ? (busy ?? this.stash.demolish(name, msg.building))
+          : msg.t === 'service' ? (busy ?? this.stash.useService(name, msg.req))
           : msg.t === 'chooseEmergency' ? (busy ?? this.stash.chooseEmergency(name, msg.id))
           : msg.t === 'chooseFate' ? (busy ?? this.stash.chooseFate(name, msg.choice))
           : msg.t === 'setKit' ? (found?.lobby.state === 'game' ? 'Not while your expedition is underway.' : this.stash.setKit(name, msg.kit))
