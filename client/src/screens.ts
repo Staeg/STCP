@@ -1,10 +1,10 @@
 import {
   abilitiesFor, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
   ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
-  type BuildingId, type Character, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
+  type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
   type ServiceId, type TalentId, type VillageView,
 } from '@stcp/shared';
-import { addToKit, PICKED, removeFromKit, toggleRite, villageHtml } from './village';
+import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleRite, villageHtml } from './village';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
@@ -109,9 +109,9 @@ export class Screens {
     return true;
   }
 
-  /** Grow the class-card text to the largest size where every card still fits its grid cell, so the lobby fills the window without scrolling. */
+  /** Grow the selected class card's text to the largest size where it still fits, so the lobby fills the window without scrolling. */
   private fitClasses() {
-    const grid = root().querySelector<HTMLElement>('.classes');
+    const grid = root().querySelector<HTMLElement>('.class-focus');
     if (!grid) return;
     const cards = [...grid.querySelectorAll<HTMLElement>('.class-card')];
     const fits = () => cards.every((c) => c.scrollHeight <= c.clientHeight + 1 && c.scrollWidth <= c.clientWidth + 1);
@@ -120,7 +120,7 @@ export class Screens {
     grid.style.setProperty('--fs', `${min}px`);
     // Too small a window (phones) to fit legibly: keep the minimum size and let just the grid scroll.
     if (!fits()) return grid.classList.add('scroll');
-    let lo = min, hi = 28;
+    let lo = min, hi = 32;
     while (hi - lo > 0.25) {
       const mid = (lo + hi) / 2;
       grid.style.setProperty('--fs', `${mid}px`);
@@ -175,35 +175,26 @@ export class Screens {
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
-        ${kitBadge(m.kit)}
-        ${m.emergency ? `<span class="em-tag ${EMERGENCIES[m.emergency].kind}" title="${esc(EMERGENCIES[m.emergency].desc)}">⚑ ${esc(EMERGENCIES[m.emergency].name)}</span>` : ''}
-        <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span></span>
+        <span class="slot-meta"><span class="muted">${cls?.name ?? 'choosing…'}</span> · <span class="${m.ready ? 'ok' : 'muted'}">${m.connected ? (m.ready ? 'READY' : 'not ready') : 'disconnected'}</span>${kitBadge(m.kit)}
+          ${m.emergency ? `<span class="em-tag ${EMERGENCIES[m.emergency].kind}" title="${esc(EMERGENCIES[m.emergency].desc)}">⚑ ${esc(EMERGENCIES[m.emergency].name)}</span>` : ''}</span>
       </li>`);
     }
-    // Classes can be shared; the card just says who else picked it.
+    // Classes can be shared; each row says who else picked it. Only your class gets the full card.
     const village = this.net.village;
-    const cards = CLASS_IDS.map((id) => {
+    const rows = CLASS_IDS.map((id) => {
       const c = CLASSES[id];
-      const mine = you.cls === id;
       const ch = village?.characters.find((x) => x.cls === id);
-      const hp = ch ? injuredMaxHp(id, ch.injuries) : c.maxHp;
-      const majors = ch?.injuries.filter((i) => i === 'major').length ?? 0;
       const others = [...lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId).map((m) => m.name), ...lobby.bots.filter((b) => b.cls === id).map((b) => `${b.name} (bot)`)];
-      return `<button class="class-card ${mine ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}">
-        <div class="class-head">
-          <div>
-            <div class="class-name">${c.name}</div>
-            <div class="muted">${c.role}</div>
-            <div class="class-stats">${iconNum('hp', hp)} ${iconNum('speed', `${c.speed + majors * VILLAGE_RULES.majorSpeed}s`)}</div>
-          </div>
-          <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
-        </div>
-        ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
-        <div class="blurb">${iconize(c.blurb)}</div>
-        <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
-        ${others.length ? `<div class="muted">also: ${others.map(esc).join(', ')}</div>` : ''}
+      const hurt = ch && (ch.injuries.length || ch.insane);
+      return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
+        <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
+        <span class="cr-name">${c.name}${ch?.talent ? ' <span class="talent-star">★</span>' : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
+        <span class="cr-abs">${abilitiesFor(id, ch?.talent).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
+        ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
+    const focus = you.cls ? classCard(you.cls, village?.characters.find((x) => x.cls === you.cls))
+      : '<div class="class-card empty"><div class="class-name muted">Pick a class</div><div class="muted">Click one on the left.</div></div>';
     // Solo: no one to wait for, so Descend readies you up itself.
     // Ready and Descend stay greyed out until the Village's Emergency is chosen.
     const canReady = !!you.cls && !!you.emergency;
@@ -211,20 +202,23 @@ export class Screens {
     const whyNot = !you.cls ? 'Pick a class first.' : !you.emergency ? 'Choose your Emergency first.' : '';
     const link = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
     return `<div class="card wide lobby">
-      ${SOLO ? '' : `<div class="lobby-head">
-        <div><div class="muted">Lobby code</div><div class="code-big">${lobby.code}</div></div>
-        <div class="muted small">Share the code, or this link:<br><a href="${link}">${esc(link)}</a></div>
-      </div>`}
-      <ul class="slots">${slots.join('')}</ul>
-      <div class="cr-line">
-        <button class="help-btn ${this.crHelp ? 'on' : ''}" data-act="cr-help" title="How Challenge Rating and the monsters work">?</button>
-        Challenge Rating <b>${lobby.cr}</b>${crOdds(lobby.cr)}
-        · <span class="muted">gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}</span>
-        ${lobby.relic ? `· <span class="danger" title="${esc(RITES.relic.desc)}">♛ Relic Rite: the run starts at Escalation ${KIT_RULES.relicEscalation}</span>` : ''}
+      <div class="lb-head">
+        ${SOLO ? '' : `<div class="lb-code" title="Share the code, or the link"><div class="code-big">${lobby.code}</div><a class="small" href="${link}">${esc(link.replace(/^https?:\/\//, ''))}</a></div>`}
+        <ul class="slots">${slots.join('')}</ul>
+        <div class="cr-corner">
+          ${lobby.relic ? `<span class="danger" title="${esc(`${RITES.relic.desc} The run starts at Escalation ${KIT_RULES.relicEscalation}.`)}">♛</span>` : ''}
+          <button class="cr-btn ${this.crHelp ? 'on' : ''}" data-act="cr-help" title="Challenge Rating${esc(crOddsText(lobby.cr))}, gold ×${(1 + CR_RULES.goldPerCr * lobby.cr).toFixed(2)}. Click for how it and the monsters work.">CR <b>${lobby.cr}</b></button>
+        </div>
       </div>
       ${this.crHelp ? crHelpHtml(lobby.cr) : ''}
-      ${village ? lobbyEmergencyHtml(village, lobby.cr, you.kit) : ''}
-      <div class="classes">${cards}</div>
+      <div class="lb-main">
+        <div class="class-list">${rows}</div>
+        <div class="class-focus">${focus}</div>
+        <div class="lb-side">
+          ${village ? lobbyEmergencyHtml(village, lobby.cr, you.kit) : ''}
+          ${village ? loadoutHtml(village) : ''}
+        </div>
+      </div>
       <div class="row">
         <label>Name <input id="name-input" maxlength="16" value="${esc(you.name)}"></label>
         ${SOLO ? '' : `<button data-act="ready" ${you.ready || canReady ? '' : `disabled title="${whyNot}"`}>${you.ready ? 'Not ready' : 'Ready'}</button>`}
@@ -359,6 +353,26 @@ function wellbeingPips(w: number): string {
   return `<span class="wb-pips" title="Wellbeing ${w}: at ${WELLBEING.win} you win, at ${WELLBEING.lose} you lose.">${Array.from({ length: WELLBEING.max }, (_, i) => (i < w ? '●' : '○')).join('')}</span>`;
 }
 
+/** The full card for the class you picked: stats, your Character, perk and abilities. */
+function classCard(id: ClassId, ch: Character | undefined): string {
+  const c = CLASSES[id];
+  const hp = ch ? injuredMaxHp(id, ch.injuries) : c.maxHp;
+  const majors = ch?.injuries.filter((i) => i === 'major').length ?? 0;
+  return `<div class="class-card selected" style="--cls:${c.color}">
+    <div class="class-head">
+      <div>
+        <div class="class-name">${c.name}</div>
+        <div class="muted">${c.role}</div>
+        <div class="class-stats">${iconNum('hp', hp)} ${iconNum('speed', `${c.speed + majors * VILLAGE_RULES.majorSpeed}s`)}</div>
+      </div>
+      <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
+    </div>
+    ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
+    <div class="blurb">${iconize(c.blurb)}</div>
+    <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
+  </div>`;
+}
+
 /** One Emergency as a pickable card, with its kind and any warning. */
 function emergencyCard(id: EmergencyId, chosen: boolean, warning: string | null, act = true): string {
   const e = EMERGENCIES[id];
@@ -371,22 +385,25 @@ function emergencyCard(id: EmergencyId, chosen: boolean, warning: string | null,
 
 const KIND_HELP = 'Party-wide: whatever anyone in the run does counts, even if your hero dies. Personal: your own hero has to carry it out (or an Undertaker for them), and what has to come out can’t go in.';
 
-/** The Village screen's Wellbeing and the two Emergencies to pick from. */
+/** The Village screen's Wellbeing and the two Emergencies to pick from, by name (hover for the rest). */
 function emergencyHtml(v: VillageView, lobby: LobbyView | null): string {
-  const kit = v.kit;
-  return `<div class="vv-em">
-    <div class="vv-wb" title="${esc(`Do the Emergency for +1 Wellbeing, fail it for −1. ${WELLBEING.win} wins, ${WELLBEING.lose} loses.
-${KIND_HELP}`)}">
-      <span>Wellbeing ${wellbeingPips(v.wellbeing)}</span><span class="${v.emergency ? 'muted' : 'danger'} small">${v.emergency ? 'Emergency:' : 'Pick an Emergency:'}</span></div>
-    ${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr: lobby?.cr, rites: kit.rites }))).join('')}
+  const chips = v.offered.map((id) => {
+    const e = EMERGENCIES[id];
+    const warning = emergencyWarning(id, { cr: lobby?.cr, rites: v.kit.rites });
+    const tip = `${e.name} (${KIND_NAMES[e.kind]}): ${e.desc}${warning ? `\n⚠ ${warning}` : ''}`;
+    return `<button class="em-chip ${e.kind} ${v.emergency === id ? 'selected' : ''}" data-act="emergency" data-id="${id}" title="${esc(tip)}">⚑ ${esc(e.name)}${warning ? ' <span class="danger">⚠</span>' : ''}</button>`;
+  }).join('');
+  return `<div class="vv-em" title="${esc(`Do the Emergency for +1 Wellbeing, fail it for −1. ${WELLBEING.win} wins, ${WELLBEING.lose} loses.\n${KIND_HELP}`)}">
+    <span>Wellbeing ${wellbeingPips(v.wellbeing)}</span><span class="${v.emergency ? 'muted' : 'danger'} small">${v.emergency ? 'Emergency:' : 'Pick an Emergency:'}</span>${chips}
   </div>`;
 }
 
 /** The lobby: your Emergency, or a prompt to choose one right here. */
 function lobbyEmergencyHtml(v: VillageView, cr: number, kit: Kit): string {
-  if (v.fate) return `<div class="em-box danger">Your Village’s story is over. Open the Village to go on.</div>`;
-  return `<div class="em-box">
-    <div>Village Wellbeing ${wellbeingPips(v.wellbeing)} · ${v.emergency ? 'your Emergency:' : '<span class="danger">choose your Emergency before you ready up:</span>'} <span class="muted small" title="${esc(KIND_HELP)}">(?)</span></div>
+  if (v.fate) return `<div class="lb-panel em-box danger">Your Village’s story is over. Open the Village to go on.</div>`;
+  return `<div class="lb-panel">
+    <div class="vv-sub"><span class="gold">Emergency</span>${v.emergency ? '' : ' <span class="danger small">choose one to ready up</span>'}
+      <span class="muted small" title="${esc(KIND_HELP)}">(?)</span><span class="lb-wb">Wellbeing ${wellbeingPips(v.wellbeing)}</span></div>
     <div class="em-row">${v.offered.map((id) => emergencyCard(id, v.emergency === id, emergencyWarning(id, { cr, rites: kit.rites }))).join('')}</div>
   </div>`;
 }
@@ -458,10 +475,10 @@ function crHelpHtml(cr: number): string {
 }
 
 /** " (70% CR 3, else CR 2)" when the combined CR has a fraction. */
-function crOdds(cr: number): string {
+function crOddsText(cr: number): string {
   const base = Math.floor(cr);
   const frac = Math.round((cr - base) * 100);
-  return frac ? ` <span class="muted">(${frac}% CR ${base + 1}, else CR ${base})</span>` : '';
+  return frac ? ` ${cr} (${frac}% CR ${base + 1}, else CR ${base})` : ` ${cr}`;
 }
 
 /** The glyphs of what a lobby member is bringing from their Stash, hover for names. */

@@ -75,7 +75,7 @@ export interface BuildingDef {
 export const SERVICES: Record<ServiceId, { name: string; desc: string; relic?: true }> = {
   forge: { name: 'Forge', desc: 'Make a random common piece of Gear for the Stash.' },
   reroll: { name: 'Reforge', desc: 'Turn a piece of Gear in the Stash into another of the same type and rarity.' },
-  upgrade: { name: 'Masterwork', desc: 'Better a piece of Gear in the Stash as the Smith’s Anvil does (a rarity up).', relic: true },
+  upgrade: { name: 'Masterwork', desc: 'Better a piece of Gear in the Stash: the next piece up of its kind (a rarity up).', relic: true },
   seeConsumable: { name: 'Read the Smoke', desc: 'Pick a consumable: next run, every room where one lies at the start shows on your map.' },
   seeResource: { name: 'Read the Bones', desc: 'Pick a Resource: next run, every room where one lies at the start shows on your map.' },
   seeGear: { name: 'Read the Stars', desc: 'Pick a type of Gear: next run, every room where a piece lies at the start shows on your map.', relic: true },

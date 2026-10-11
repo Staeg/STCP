@@ -59,7 +59,7 @@ export function villageHtml(v: VillageView, lobby: LobbyView | null, picking: Se
     <div class="vv-main">
       <div class="vv-chars">${v.characters.map((c) => characterCard(v, c, lobby)).join('')}</div>
       <div class="vv-side">
-        ${resourcesHtml(v, locked)}
+        ${resourcesHtml(v)}
         <div class="vv-buildings">${BUILDING_IDS.map((id) => buildingHtml(v, id, picking, locked)).join('')}</div>
         ${stashHtml(v, picking, locked)}
       </div>
@@ -77,16 +77,18 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
   const cure = serviceState(v, 'cure') === 'ready';
   const train = serviceState(v, 'train') === 'ready' && !relicShort(v, 'train');
   let growth: string;
+  // Talents show by name (hover for what they do), except when one is waiting to be chosen.
   if (c.talent) {
-    growth = `<div class="talent-star">★ ${esc(TALENTS[c.talent].name)}</div><div class="vc-desc">${esc(TALENTS[c.talent].desc)}</div>`;
+    growth = `<span class="talent-star" title="${esc(TALENTS[c.talent].desc)}">★ ${esc(TALENTS[c.talent].name)}</span>`;
   } else if (talentPending(c)) {
     growth = `<div class="vc-pick">${talentsFor(c.cls).map((t) =>
       `<button data-act="talent" data-char="${c.id}" data-talent="${t}"><span class="gold">★ ${esc(TALENTS[t].name)}</span><span class="vc-desc">${esc(TALENTS[t].desc)}</span></button>`).join('')}</div>`;
   } else {
     const pips = Array.from({ length: VILLAGE_RULES.xpForTalent }, (_, i) => (i < c.xp ? '●' : '○')).join('');
-    const options = talentsFor(c.cls).map((t) => `<div class="vc-desc"><span class="muted">${esc(TALENTS[t].name)}:</span> ${esc(TALENTS[t].desc)}</div>`).join('');
-    growth = `<div>XP <span class="gold">${pips}</span> <span class="muted small">Talent at ${VILLAGE_RULES.xpForTalent}:</span>${
-      train ? ` <button class="mini" data-act="service" data-service="train" data-char="${c.id}" title="Elder: ${esc(SERVICES.train.desc)} Costs a Relic.">+1 ♛</button>` : ''}</div>${options}`;
+    const options = talentsFor(c.cls).map((t) => `<span class="chip" title="${esc(TALENTS[t].desc)}">${esc(TALENTS[t].name)}</span>`).join('');
+    growth = `<div>XP <span class="gold">${pips}</span>${
+      train ? ` <button class="mini" data-act="service" data-service="train" data-char="${c.id}" title="Elder: ${esc(SERVICES.train.desc)} Costs a Relic.">+1 ♛</button>` : ''}</div>
+      <div class="vc-talents"><span class="muted small" title="A Talent at ${VILLAGE_RULES.xpForTalent} XP: one of these.">Talent at ${VILLAGE_RULES.xpForTalent}:</span>${options}</div>`;
   }
   const wounds = [
     ...c.injuries.map((i) => heal
@@ -108,18 +110,28 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
   </div>`;
 }
 
-/** Resources: counts, and a click on one performs (or cancels) its Rite for the next run. */
-function resourcesHtml(v: VillageView, locked: boolean): string {
+/** Resources: counts (hover for their Rite, which is performed from the New Run screen's loadout). */
+function resourcesHtml(v: VillageView): string {
   const tiles = RESOURCE_IDS.map((r) => {
+    const have = v.resources[r] ?? 0;
+    const on = v.kit.rites.includes(r);
+    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${on ? 'Performed next run.' : 'Perform it from the New Run screen.'}`;
+    return `<span class="rite ${on ? 'on' : ''}" title="${esc(tip)}"><span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}${on ? ' ✦' : ''}</span></span>`;
+  }).join('');
+  return `<div class="vv-res"><span class="muted" title="Resources build buildings; ${KIT_RULES.riteCost} of one power a Rite for your next run.">Resources</span>${tiles}</div>`;
+}
+
+/** Rite toggles for the New Run loadout: a click performs (or cancels) one for the next run. */
+function ritesHtml(v: VillageView): string {
+  return RESOURCE_IDS.map((r) => {
     const have = v.resources[r] ?? 0;
     const on = v.kit.rites.includes(r);
     const can = on || have >= KIT_RULES.riteCost;
     const status = on ? 'Performed next run. Click to cancel.' : can ? 'Click to perform it next run.' : `Needs ${KIT_RULES.riteCost}.`;
     const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${status}`;
-    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${locked || !can ? 'disabled' : ''} title="${esc(tip)}">
+    return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${can ? '' : 'disabled'} title="${esc(tip)}">
       <span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}${on ? ' ✦' : ''}</span></button>`;
   }).join('');
-  return `<div class="vv-res"><span class="muted" title="Resources build buildings; ${KIT_RULES.riteCost} of one power a Rite for your next run (click it).">Resources</span>${tiles}</div>`;
 }
 
 /** One building: level pips, upkeep, build/tear down, and its three services. */
@@ -131,7 +143,7 @@ function buildingHtml(v: VillageView, id: BuildingId, picking: ServiceId | null,
   const affordable = next && (Object.entries(next.cost) as [ResourceId, number][]).every(([r, n]) => (v.resources[r] ?? 0) >= n);
   const pips = def.levels.map((_, i) => (i < level ? '●' : '○')).join('');
   const build = next
-    ? `<button class="mini" data-act="build" data-building="${id}" ${locked || !affordable ? 'disabled' : ''} title="Build a ${LEVEL_NAMES[level + 1]} ${def.name}: ${esc(costText(next.cost))}, then +${next.upkeep}g upkeep a run. Adds ${SERVICES[next.service].name}.">▲ ${LEVEL_NAMES[level + 1]} ${costText(next.cost)} · +${next.upkeep}g</button>`
+    ? `<button class="mini" data-act="build" data-building="${id}" ${locked || !affordable ? 'disabled' : ''} title="Build a ${LEVEL_NAMES[level + 1]} ${def.name}: ${esc(costText(next.cost))}, then ${next.upkeep}g more upkeep a run. Adds ${SERVICES[next.service].name}.">▲ ${LEVEL_NAMES[level + 1]} ${costText(next.cost)} · −${next.upkeep}g</button>`
     : '';
   const tear = level ? `<button class="mini quiet-x" data-act="demolish" data-building="${id}" ${locked ? 'disabled' : ''} title="Tear down the ${LEVEL_NAMES[level]} level (free; its Resources are lost).">✕</button>` : '';
   const services = def.levels.map((l, i) => serviceButton(v, l.service, i + 1, picking, locked)).join('');
@@ -144,7 +156,7 @@ function buildingHtml(v: VillageView, id: BuildingId, picking: ServiceId | null,
   }
   return `<div class="vb ${level ? '' : 'unbuilt'}">
     <div class="vb-head"><span class="vb-name">${def.glyph} ${def.name}</span> <span class="gold" title="${LEVEL_NAMES[level]}">${pips}</span>
-      <span class="muted small">${level ? `${LEVEL_NAMES[level]} · ${upkeep}g/run` : 'not built'}</span><span class="vb-acts">${build}${tear}</span></div>
+      <span class="muted small">${level ? `${LEVEL_NAMES[level]} · −${upkeep}g/run` : 'not built'}</span><span class="vb-acts">${build}${tear}</span></div>
     <div class="vb-services">${services}</div>${extra}
   </div>`;
 }
@@ -173,49 +185,70 @@ function seerPicks(s: ServiceId): string {
 
 const SLOT_NAMES: Record<GearSlot, string> = { weapon: 'Weapon', armor: 'Armor', amulet: 'Amulet', ring: 'Ring' };
 
-/** The kit for the next run (Gear slots, free consumables) and the Stash to fill it from. */
-function stashHtml(v: VillageView, picking: ServiceId | null, locked: boolean): string {
+/**
+ * The Stash. In the Village it's to look at, or to pick a piece for the Blacksmith;
+ * on the New Run screen (`packing`) a click packs a piece into the loadout.
+ */
+function stashListHtml(v: VillageView, picking: ServiceId | null, locked: boolean, packing: boolean): string {
   const kit = v.kit;
-  const dis = locked ? 'disabled' : '';
-  const gearCr = (it: ItemId) => `+${(itemTier(it) * KIT_RULES.crPerGearLevel).toFixed(1)} CR`;
+  const gem = kit.rites.includes('gem');
+  // Picking for the Blacksmith: Gear that can take the work lights up; everything else waits.
+  const smith = !packing && (picking === 'reroll' || picking === 'upgrade') ? picking : null;
+  const counts = new Map<ItemId, number>();
+  for (const it of v.items) counts.set(it, (counts.get(it) ?? 0) + 1);
+  const stash = [...counts].map(([it, n]) => {
+    const left = n - inKit(kit, it);
+    if (smith) {
+      const ok = smith === 'reroll' ? isGear(it) && rerollPool(it).length > 0 : forgeable(it);
+      const what = smith === 'reroll' ? 'another of its type and rarity' : anvilInto(it);
+      return `<button class="stash-item ${ok ? 'target' : ''}" data-act="service" data-service="${smith}" data-item="${it}" ${ok && !locked ? '' : 'disabled'} title="${esc(ok ? `${SERVICES[smith].name}: into ${what}.` : 'The Blacksmith can’t work this.')}">${ITEMS[it].glyph} ${itemName(it)}${n > 1 ? ` <span class="muted">×${n}</span>` : ''}</button>`;
+    }
+    const count = n > 1 ? ` <span class="muted">×${left}/${n}</span>` : left <= 0 ? ' <span class="muted">(packed)</span>' : '';
+    if (!packing) return `<span class="stash-item" title="${esc(ITEMS[it].desc)}">${ITEMS[it].glyph} ${itemName(it)}${count}</span>`;
+    const isCons = ITEMS[it].kind === 'consumable';
+    const full = isCons && (gem || kit.consumables.length >= KIT_RULES.consumables);
+    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
+    return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
+  }).join('');
+  return `<div class="stash-list">${stash || '<span class="muted">Empty. Bring something home.</span>'}</div>`;
+}
+
+const gearCr = (it: ItemId) => `+${(itemTier(it) * KIT_RULES.crPerGearLevel).toFixed(1)} CR`;
+
+/** The Village's Stash panel. */
+function stashHtml(v: VillageView, picking: ServiceId | null, locked: boolean): string {
+  const smith = picking === 'reroll' || picking === 'upgrade' ? picking : null;
+  return `<div class="vv-stash">
+    <div class="vv-sub">${smith ? `<span class="gold">${SERVICES[smith].name}: pick a piece</span> <button class="mini" data-act="pick-cancel">cancel</button>` : '<span class="gold">Stash</span> <span class="muted small">(pack your loadout on the New Run screen)</span>'}</div>
+    ${stashListHtml(v, picking, locked, false)}
+  </div>`;
+}
+
+/** The New Run screen's loadout: Gear slots, free consumables, Rites, and the Stash to fill it from. */
+export function loadoutHtml(v: VillageView): string {
+  const kit = v.kit;
   const gem = kit.rites.includes('gem');
   const slots = [
     ...GEAR_SLOTS.map((s) => {
       const it = kit.gear[s];
       return it
-        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" ${dis} title="${esc(`${ITEMS[it].desc} ${gearCr(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
+        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" title="${esc(`${ITEMS[it].desc} ${gearCr(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
         : `<div class="kit-slot">${SLOT_NAMES[s]}</div>`;
     }),
     ...(gem ? ['<div class="kit-slot" title="The Gem Rite forbids consumables.">no consumables</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
       const it = kit.consumables[i];
       return it
-        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="c${i}" ${dis} title="${esc(`${ITEMS[it].desc} Free. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
+        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="c${i}" title="${esc(`${ITEMS[it].desc} Free. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
         : '<div class="kit-slot">Consumable</div>';
     })),
   ];
   const cr = kitCr(kit);
-  // Picking for the Blacksmith: Gear that can take the work lights up; everything else waits.
-  const smith = picking === 'reroll' || picking === 'upgrade' ? picking : null;
-  const counts = new Map<ItemId, number>();
-  for (const it of v.items) counts.set(it, (counts.get(it) ?? 0) + 1);
-  const stash = [...counts].map(([it, n]) => {
-    const left = n - inKit(kit, it);
-    const count = n > 1 ? ` <span class="muted">×${left}/${n}</span>` : left <= 0 ? ' <span class="muted">(packed)</span>' : '';
-    if (smith) {
-      const ok = smith === 'reroll' ? isGear(it) && rerollPool(it).length > 0 : forgeable(it);
-      const what = smith === 'reroll' ? 'another of its type and rarity' : anvilInto(it);
-      return `<button class="stash-item ${ok ? 'target' : ''}" data-act="service" data-service="${smith}" data-item="${it}" ${ok && !locked ? '' : 'disabled'} title="${esc(ok ? `${SERVICES[smith].name}: into ${what}.` : 'The Blacksmith can’t work this.')}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
-    }
-    const isCons = ITEMS[it].kind === 'consumable';
-    const full = isCons && (gem || kit.consumables.length >= KIT_RULES.consumables);
-    const why = left <= 0 ? 'All of them are packed.' : isCons && gem ? 'The Gem Rite forbids consumables.' : full ? `Only ${KIT_RULES.consumables} consumables.` : isCons ? 'Click to pack it (free).' : `Click to wear it (${gearCr(it)}).`;
-    return `<button class="stash-item" data-act="kit-add" data-item="${it}" ${locked || left <= 0 || full ? 'disabled' : ''} title="${esc(`${ITEMS[it].desc} ${why}`)}">${ITEMS[it].glyph} ${itemName(it)}${count}</button>`;
-  }).join('');
-  return `<div class="vv-stash">
-    <div class="vv-sub"><span class="gold">Next run</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3). Up to ${KIT_RULES.consumables} consumables, free. If your Character dies, what they took is lost.">(?)</span></div>
+  return `<div class="lb-panel loadout">
+    <div class="vv-sub"><span class="gold">Loadout</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3). Up to ${KIT_RULES.consumables} consumables, free. ${KIT_RULES.riteCost} of a Resource performs its Rite. If your Character dies, what they took is lost.">(?)</span>
+      <span class="lb-rites">${ritesHtml(v)}</span></div>
     <div class="kit-slots">${slots.join('')}</div>
-    <div class="vv-sub">${smith ? `<span class="gold">${SERVICES[smith].name}: pick a piece</span> <button class="mini" data-act="pick-cancel">cancel</button>` : '<span class="gold">Stash</span>'}</div>
-    <div class="stash-list">${stash || '<span class="muted">Empty. Bring something home.</span>'}</div>
+    <div class="vv-sub"><span class="gold">Stash</span></div>
+    ${stashListHtml(v, null, false, true)}
   </div>`;
 }
 
