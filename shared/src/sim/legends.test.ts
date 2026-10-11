@@ -72,6 +72,7 @@ describe('Legendary abilities', () => {
     h.pos = { kind: 'room', room };
     onHeroInRoom(world, h, room);
     expect(world.monsters[giant.id]).toBeUndefined();
+    expect(world.encounters[room].log).toContain('The Bone Giant dies as faint laughter echoes.');
     expect(world.monsters[ghoul.id]).toBeDefined();
     expect(world.monsters[king.id]).toBeDefined();
     expect(h.promise).toBe(false);
@@ -127,15 +128,15 @@ describe('Legendary abilities', () => {
     expect(h.st.shield).toBe(6 * LEGEND_RULES.bastionPerBlock);
   });
 
-  it('Arise: a dead ally in your room lives again at full HP', () => {
+  it('Forgive: a dead ally in your room lives again at full HP', () => {
     const { world, d } = party(['warden', 'zealot']);
     const [h, t] = [world.heroes.h0, world.heroes.h1];
     equip(h, 'armor', 'pilgrim');
     downHero(world, t, null);
     dieOut(world, t);
     expect(t.dead).toBe(true);
-    expect(checkSkill(world, h, 'arise', t.id)).toBeNull();
-    useSkill(world, h, 'arise', t.id);
+    expect(checkSkill(world, h, 'forgive', t.id)).toBeNull();
+    useSkill(world, h, 'forgive', t.id);
     expect(t.dead).toBe(false);
     expect(t.downedAt).toBeNull();
     expect(t.hp).toBe(t.maxHp);

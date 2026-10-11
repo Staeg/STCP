@@ -3,7 +3,7 @@
  * piece adds to its wearer's stats like any other and gives them an active ability of its own, with a cooldown in
  * their own turns. Brought in from the Village, a Legendary adds a whole CR (`KIT_RULES.legendaryCr`).
  */
-export type LegendId = 'promise' | 'quake' | 'unmake' | 'redeem' | 'bastion' | 'arise' | 'howl' | 'waystep';
+export type LegendId = 'promise' | 'quake' | 'unmake' | 'redeem' | 'bastion' | 'forgive' | 'howl' | 'waystep';
 
 /**
  * none: nothing to aim · ally: a conscious hero with you (in your fight, or your room out of one), you included ·
@@ -44,7 +44,7 @@ export const LEGENDS: Record<LegendId, LegendDef> = {
     desc: 'An ally with you (or you) is healed in full and their stress drops to 0, but their light goes out (0).' },
   bastion: { id: 'bastion', name: 'Bastion', cooldown: 6, combat: true, field: true, target: 'none',
     desc: `Gain Shield equal to ${LEGEND_RULES.bastionPerBlock}× your Block.` },
-  arise: { id: 'arise', name: 'Arise', cooldown: 10, combat: true, field: true, target: 'fallen',
+  forgive: { id: 'forgive', name: 'Forgive', cooldown: 10, combat: true, field: true, target: 'fallen',
     desc: 'A downed or dead ally in your room comes back to life at full HP.' },
   howl: { id: 'howl', name: 'Howl', cooldown: 6, combat: true, field: true, target: 'none',
     desc: `A wolf comes to fight at your side and follows you from fight to fight (up to ${LEGEND_RULES.maxWolves}). Its bites cost their target 1 Block until the fight ends.` },

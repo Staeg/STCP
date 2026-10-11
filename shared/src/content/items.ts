@@ -245,7 +245,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   hollowrod: legendary('hollowrod', 'weapon', 'staff', "Magister Ilya's Hollow Rod", 'unmake', '', { speed: 0.5 }),
   daystar: legendary('daystar', 'armor', 'leather', "Day Star's Embrace", 'redeem', blockNote(3), { block: 3, speed: -0.5 }),
   durance: legendary('durance', 'armor', 'mail', "Tal's Durance", 'bastion', blockNote(6), { block: 6, speed: 0.5 }),
-  pilgrim: legendary('pilgrim', 'armor', 'cloth', 'Gray Shroud of the Pilgrim', 'arise', '', { speed: -1 }),
+  pilgrim: legendary('pilgrim', 'armor', 'cloth', 'Gray Shroud of the Pilgrim', 'forgive', '', { speed: -1 }),
   fenrir: legendary('fenrir', 'amulet', null, "Fenrir's Tooth", 'howl', '+20 max HP.', { maxHp: 20 }),
   silva: legendary('silva', 'ring', null, 'Signet of Saint Silva', 'waystep', '', { speed: -0.5 }),
 };

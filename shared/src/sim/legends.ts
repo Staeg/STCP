@@ -143,9 +143,9 @@ export function useLegend(world: World, h: Hero, id: LegendId, target: string | 
       tell(`${events ? `${h.name} sets their` : 'You set your'} feet like a wall. (+${shield} Shield)`, 'status', h.id);
       return;
     }
-    case 'arise': {
+    case 'forgive': {
       const t = pick();
-      if (t) arise(world, h, t, tell);
+      if (t) forgive(world, h, t, tell);
       return;
     }
     case 'howl': {
@@ -205,8 +205,8 @@ function unmake(world: World, h: Hero, room: number) {
   chronicle(world, `${h.name} unmade ${where} (${what}).`);
 }
 
-/** Arise: a downed ally gets up whole; a dead one lives again, at full HP (with nothing: their things lie where they fell). */
-function arise(world: World, h: Hero, t: Hero, tell: (text: string, kind?: CombatEvent['kind'], who?: string, amount?: number) => void) {
+/** Forgive: a downed ally gets up whole; a dead one lives again, at full HP (with nothing: their things lie where they fell). */
+function forgive(world: World, h: Hero, t: Hero, tell: (text: string, kind?: CombatEvent['kind'], who?: string, amount?: number) => void) {
   const where = bodyRoom(t);
   if (!t.dead) {
     reviveHero(t, 1, world, h);
@@ -257,7 +257,10 @@ export function keepPromise(world: World, enc: Encounter, h: Hero) {
   const top = Math.max(...foes.map((m) => ENEMIES[m.type].tier));
   const m = world.rng.pick(foes.filter((x) => ENEMIES[x.type].tier === top));
   h.promise = false;
-  const events: CombatEvent[] = [{ actor: h.id, kind: 'info', text: `${h.name}'s Promise is kept: death takes the ${ENEMIES[m.type].name}.` }];
+  const events: CombatEvent[] = [];
   applyMonsterDamage(world, m, m.hp, events);
+  // Its death, told the Promise's way.
+  const death = events.find((e) => e.kind === 'death' && e.target === m.id);
+  if (death) death.text = `The ${ENEMIES[m.type].name} dies as faint laughter echoes.`;
   record(world, enc, events);
 }
