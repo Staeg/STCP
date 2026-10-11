@@ -200,6 +200,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'claim' && id(i.item)) return { t: 'intent', intent: { type: 'claim', item: i.item as number } };
       if (i.type === 'drop' && slot(i.index)) return { t: 'intent', intent: { type: 'drop', index: i.index as number } };
       if (i.type === 'unequip' && (i.slot === 'weapon' || i.slot === 'armor' || i.slot === 'amulet' || i.slot === 'ring')) return { t: 'intent', intent: { type: 'unequip', slot: i.slot } };
+      if (i.type === 'toggleAuto' && (i.slot === 'weapon' || i.slot === 'armor' || i.slot === 'amulet' || i.slot === 'ring')) return { t: 'intent', intent: { type: 'toggleAuto', slot: i.slot } };
       if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
         return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };
       }

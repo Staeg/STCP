@@ -5,8 +5,8 @@ import {
 } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
-import { ITEMS, LOOT, STAFF } from '../content/items';
-import { buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
+import { CLOTH, ITEMS, LOOT, STAFF } from '../content/items';
+import { chargesAfterFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
 import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS } from '../content/events';
 import { maybeHitVillager } from './events';
@@ -339,6 +339,7 @@ export function armored(h: Hero, dmg: number): number {
 
 export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World, by?: Hero) {
   h.downedAt = null;
+  h.riseAt = null;
   if (world) world.stats.revives++;
   if (world) chronicle(world, by ? `${by.name} got ${h.name} back on their feet.` : `${h.name} got back up.`);
   // Pallbearer: the Undertaker brings them back whole, and spares them the lasting wound of going down.
@@ -359,6 +360,7 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
   if (monstersIn(world, room).length === 0) return;
   let enc = world.encounters[room];
   if (!enc) {
+    if (unnoticed(world, room)) return;
     enc = { room, startedAt: world.time, heroes: [], next: {}, choices: {}, events: [], seq: 0, log: [], history: [], fought: [] };
     world.encounters[room] = enc;
     world.stats.fights++;
@@ -378,6 +380,22 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     onEnlist(world, enc, hero);
   }
   startTimers(world, enc);
+}
+
+/**
+ * Softstep Cloak: if everyone standing in this room is (or can now go) unnoticed, no fight starts. Cloaks only go
+ * off when that spares the whole room; with anyone else noticed, the fight starts and the cloaked are drawn in.
+ */
+function unnoticed(world: World, room: number): boolean {
+  const here = Object.values(world.heroes).filter((h) => isConscious(h) && h.pos.kind === 'room' && h.pos.room === room);
+  if (!here.length || !here.every((h) => h.unnoticedIn === room || clothReady(h, 'softstep'))) return false;
+  for (const h of here) {
+    if (h.unnoticedIn === room) continue;
+    spendCloth(h, clothReady(h, 'softstep')!);
+    h.unnoticedIn = room;
+    notify(world, h, 'Your softstep cloak hushes you: the monsters here have not noticed you.');
+  }
+  return true;
 }
 
 /** Talents that act when a hero walks into a fight. */
@@ -418,6 +436,7 @@ function keepRisen(enc: Encounter, h: Hero) {
 
 function enlist(enc: Encounter, h: Hero) {
   if (enc.heroes.includes(h.id)) return;
+  h.unnoticedIn = null;
   enc.heroes.push(h.id);
   if (enc.fought && !enc.fought.includes(h.id)) enc.fought.push(h.id);
   h.encounter = enc.room;
@@ -440,6 +459,7 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
  */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
+  chargesAfterFight(h);
   h.cdClock = 0;
   const { poison, acid, hexed, weak, vengeance, dodge, clang, doom } = h.st;
   h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom }).filter(([, v]) => v !== undefined));
@@ -1622,6 +1642,13 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });
     return null;
   }
+  // Gossamer Shroud: the first attack in a fight passes through it.
+  const shroud = clothReady(t, 'gossamer');
+  if (shroud) {
+    spendCloth(t, shroud);
+    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name}, but strikes only gossamer.` });
+    return null;
+  }
   let dmg = base * m.dmgMult;
   dmg *= weakMult(m.st);
   if (t.light <= 0) dmg *= 1.25;
@@ -1630,6 +1657,12 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   // Stalwart: the Warden takes less while standing nearest the enemy.
   if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
   if (t.st.brace) dmg *= 0.7;
+  // Patchwork Coat: the first blow in a fight is halved.
+  const patch = clothReady(t, 'patchwork');
+  if (patch) {
+    spendCloth(t, patch);
+    dmg *= CLOTH.patchworkMult;
+  }
   dmg = armored(t, Math.max(1, Math.round(dmg))) + doomOf(t);
   if (t.st.shield) {
     const absorbed = Math.min(t.st.shield, dmg);
@@ -1676,10 +1709,52 @@ export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent
     events?.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} refuses to fall! (Iron Oath: untouchable for ${TALENT_RULES.oathImmune}s)` });
     chronicle(world, `${h.name} kept their Iron Oath and stayed standing in ${roomName(world, h)}.`);
   }
+  if (h.hp <= 0 && blinkAway(world, h, events, enc)) return true;
   h.lowestHp = Math.min(h.lowestHp, Math.max(0, h.hp) / h.maxHp);
   syncInjuries(h);
   if (h.hp <= 0) downHero(world, h, events, enc);
+  else penitence(world, h, events);
   return true;
+}
+
+/** Blinkcloth Mantle: instead of going down, slip out at 1 HP into a random room next door. Returns true if it did. */
+function blinkAway(world: World, h: Hero, events: CombatEvent[] | null, enc?: Encounter): boolean {
+  const c = clothReady(h, 'blink');
+  if (!c || h.pos.kind !== 'room') return false;
+  const from = h.pos.room;
+  const ways = neighbours(world.dungeon, from).filter((n) => !world.collapsed.includes(corridorBetween(world.dungeon, from, n)!.id));
+  if (!ways.length) return false;
+  spendCloth(h, c);
+  const to = world.rng.pick(ways);
+  h.hp = 1;
+  h.lowestHp = Math.min(h.lowestHp, 1 / h.maxHp);
+  syncInjuries(h);
+  addStress(h, CLOTH.blinkStress);
+  events?.push({ actor: h.id, kind: 'flee', target: h.id, text: `${h.name} slips away in a flicker of blinkcloth!` });
+  const fight = enc ?? (h.encounter !== null ? world.encounters[h.encounter] : undefined);
+  if (fight) leaveEncounter(world, fight, h);
+  h.channel = null;
+  h.pos = { kind: 'room', room: to };
+  h.prevRoom = from;
+  h.path = [];
+  h.heading = null;
+  leftRoom(h);
+  if (!h.seen.includes(to)) h.seen.push(to);
+  notify(world, h, `Your blinkcloth flings you into ${theRoom(world.dungeon.rooms[to].name)}. (+${CLOTH.blinkStress} stress)`);
+  chronicle(world, `${h.name}'s blinkcloth snatched them out of ${theRoom(world.dungeon.rooms[from].name)}.`);
+  onHeroInRoom(world, h, to);
+  return true;
+}
+
+/** Penitent's Sackcloth: dropping low mends you a little. */
+function penitence(world: World, h: Hero, events: CombatEvent[] | null) {
+  if (h.hp >= h.maxHp * CLOTH.penitentBelow) return;
+  const c = clothReady(h, 'penitent');
+  if (!c) return;
+  spendCloth(h, c);
+  const healed = heal(h, CLOTH.penitentHeal);
+  if (events) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name}'s sackcloth answers their pain. (+${healed})` });
+  else notify(world, h, `Your sackcloth answers your pain. (+${healed})`);
 }
 
 /** The injuries this run has dealt so far: below half HP a Minor, below a quarter a Major instead, and going down one more Major. */
@@ -1721,6 +1796,14 @@ export function downHero(world: World, h: Hero, events: CombatEvent[] | null, en
   h.channel = null;
   events?.push({ actor: h.id, kind: 'down', target: h.id, text: `${h.name} falls!` });
   chronicle(world, `${h.name} went down in ${roomName(world, h)}.`);
+  // Gravecloth: they'll get up again by themselves (and again, as long as they stay in this room).
+  const grave = h.pos.kind === 'room' ? clothReady(h, 'grave') : null;
+  if (grave && h.pos.kind === 'room') {
+    if (grave.graveRoom !== h.pos.room) spendCloth(h, grave);
+    grave.graveRoom = h.pos.room;
+    h.riseAt = world.time + CLOTH.graveTurns * speedOf(h, world.time);
+    events?.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name}'s gravecloth stirs. (getting back up soon)` });
+  }
   const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
   for (const w of witnesses) {
     if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, 15);
@@ -1733,6 +1816,7 @@ function sameRoom(a: Hero, b: Hero) {
 
 function flee(world: World, enc: Encounter, h: Hero) {
   leaveEncounter(world, enc, h);
+  leftRoom(h);
   const d = world.dungeon;
   const from = enc.room;
   let to = h.prevRoom;
@@ -1746,6 +1830,15 @@ function flee(world: World, enc: Encounter, h: Hero) {
 /** Dying and death for downed heroes. Called every tick. */
 export function tickDowned(world: World) {
   for (const h of Object.values(world.heroes)) {
+    if (inDungeon(h) && h.downedAt !== null && h.riseAt !== null && world.time >= h.riseAt && !h.dead) {
+      reviveHero(h, CLOTH.graveHp, world);
+      notify(world, h, 'Your gravecloth drags you back to your feet.');
+      const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+      if (enc) say(world, enc, `${h.name} rises again in their gravecloth.`);
+      // The fight may have ended with them down; the monsters are still there.
+      else if (h.pos.kind === 'room') onHeroInRoom(world, h, h.pos.room);
+      continue;
+    }
     if (inDungeon(h) && h.downedAt !== null && world.time - h.downedAt >= DEATH_TIMER) dieOut(world, h);
   }
 }

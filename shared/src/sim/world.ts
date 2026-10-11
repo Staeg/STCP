@@ -17,8 +17,9 @@ import {
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import { slotOf } from '../content/items';
+import { CLOTH, slotOf } from '../content/items';
 import { notify } from './notify';
+import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
@@ -86,7 +87,7 @@ export interface Hero {
     | { kind: 'revive'; target: string; until: number }
     | { kind: 'dig'; corridor: number; until: number }
     /** Carrying out an event choice in `room`; progress lives on the event itself. */
-    | { kind: 'event'; room: number; choice: string; until: number }
+    | { kind: 'event'; room: number; choice: string; until: number; /** Hastening Robe: done in CLOTH.hastenSecs. */ hasten?: boolean }
     | null;
   /** Broken by stress (see content/events.ts). */
   affliction: AfflictionId | null;
@@ -122,6 +123,14 @@ export interface Hero {
   armor: ItemId | null;
   amulet: ItemId | null;
   ring: ItemId | null;
+  /** Worn pieces that go off by themselves (Cloth): each one's own charge, by slot. */
+  charges: Partial<Record<GearSlot, ItemCharge>>;
+  /** The same for such pieces in the pack (oldest first per kind). */
+  packCharges: { item: ItemId; charge: ItemCharge }[];
+  /** Softstep Cloak: the room this hero walked into unnoticed (no fight for them there until an ally starts one). */
+  unnoticedIn: number | null;
+  /** Gravecloth: a downed hero gets back up by themself at this game time. */
+  riseAt: number | null;
   /** Carried gold. Only extracted gold counts. */
   gold: number;
   /** Short notices for this player ("+12 gold"), newest last. */
@@ -278,6 +287,8 @@ export type Intent =
   | { type: 'drop'; index: number }
   /** Take off a weapon, armor, amulet or ring and put it on the floor. */
   | { type: 'unequip'; slot: GearSlot }
+  /** Turn a worn piece that goes off by itself (Cloth) off or on. */
+  | { type: 'toggleAuto'; slot: GearSlot }
   | { type: 'useItem'; index: number; target?: string }
   /** Leave the dungeon through the open exit, on your own, now. */
   | { type: 'extract' }
@@ -383,6 +394,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     armor: null,
     amulet: null,
     ring: null,
+    charges: {},
+    packCharges: [],
+    unnoticedIn: null,
+    riseAt: null,
     gold: 0,
     messages: [],
     knownLoot: {},
@@ -476,6 +491,7 @@ export function step(world: World, dt: number): void {
       hero.queuedItem = null;
     }
     if (hero.cls === 'alchemist') tickBrew(world, hero);
+    tickCharges(hero, dt);
   }
   tickDowned(world);
   tickRisings(world);
@@ -504,8 +520,9 @@ function checkEnd(world: World) {
     }
     world.phase = 'collapsed';
   } else {
-    // Nobody left standing to get the downed back up: they die now instead of after the wait.
-    if (heroes.every((h) => !inDungeon(h) || h.downedAt !== null)) for (const h of heroes) if (inDungeon(h)) dieOut(world, h);
+    // Nobody left standing to get the downed back up: they die now instead of after the wait (a Gravecloth about
+    // to get its wearer up counts as someone).
+    if (heroes.every((h) => !inDungeon(h) || (h.downedAt !== null && h.riseAt === null))) for (const h of heroes) if (inDungeon(h)) dieOut(world, h);
     if (heroes.every((h) => h.dead)) world.phase = 'wiped';
     else if (heroes.every((h) => !inDungeon(h))) world.phase = 'ended';
   }
@@ -611,6 +628,11 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     case 'unequip':
       unequip(world, hero, intent.slot);
       return;
+    case 'toggleAuto': {
+      const err = toggleAuto(hero, intent.slot);
+      if (err) notify(world, hero, err);
+      return;
+    }
     case 'useItem': {
       // Gear from the pack goes on at once, like taking it off.
       if (hero.items[intent.index] && slotOf(hero.items[intent.index])) {
@@ -828,6 +850,14 @@ function advance(world: World, hero: Hero, dt: number) {
       const t = Math.min(dur, Math.max(0, world.time - hero.turnStart));
       hero.pos = { kind: 'corridor', corridor: c.id, from: pos.room, to: next, t, dur };
       hero.prevRoom = pos.room;
+      leftRoom(hero);
+      // Wayfarer's Cloak: this tunnel goes by in a moment.
+      const quick = clothReady(hero, 'wayfarer');
+      if (quick) {
+        spendCloth(hero, quick);
+        hero.pos.t = 0;
+        hero.pos.dur = CLOTH.wayfarerSecs;
+      }
       remaining = 0;
       // Chalk wherever there's a choice of way on: crossroads and two-exit rooms, not dead ends.
       // Marks pile up: a new way out adds one, it never rubs out the old ones.

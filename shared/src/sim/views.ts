@@ -6,8 +6,9 @@ import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
 import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
-import { channelTime, EVENTS, type AfflictionId, type EventKind } from '../content/events';
-import { choiceVerb, eventChoices, veiledText, type EventChoice } from './events';
+import { EVENTS, type AfflictionId, type EventKind } from '../content/events';
+import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } from './events';
+import type { ItemCharge } from './gear';
 import { activeItems, canTake, decidersOf, votersIn } from './loot';
 import {
   abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
@@ -86,6 +87,8 @@ export interface LootItemView {
   /** Hero ids who can receive it (present, still in on it, have a free slot; anyone for gear, which swaps). */
   candidates: { id: string; name: string; free: number; isBot: boolean; /** Gear: what they wear in that slot now. */ wearing?: ItemId | null }[];
   startedAt: number;
+  /** Cloth that has been worn before: its charge (cooldown left, uses left). */
+  charge?: ItemCharge;
 }
 
 export interface AllyView {
@@ -352,7 +355,7 @@ function eventView(world: World, you: Hero): EventView | null {
     ? {
         id: h.id, name: h.name, you: h === you, doing: choiceVerb(ev.kind, ch.choice),
         // Luminous Liturgy has no end: null.
-        secondsLeft: finiteOrNull(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress)),
+        secondsLeft: finiteOrNull(eventTime(world, h, ev.kind) * (1 - ev.progress)),
       }
     : null;
   return {
@@ -415,6 +418,7 @@ function lootView(world: World, you: Hero): LootView | null {
           wearing: slot ? h[slot] : undefined,
         })),
         startedAt: f.startedAt,
+        ...(f.charge ? { charge: { ...f.charge } } : {}),
       };
     }),
     ignored: pile.items.filter((f) => !active.includes(f)).map((f) => ({ id: f.id, item: f.item })),

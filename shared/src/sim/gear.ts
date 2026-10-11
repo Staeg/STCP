@@ -1,4 +1,4 @@
-import { ITEMS, STAFF, type StaffEffect } from '../content/items';
+import { ITEMS, STAFF, type ClothEffect, type GearSlot, type ItemId, type StaffEffect } from '../content/items';
 import type { Statuses } from './combat';
 import type { Hero } from './world';
 
@@ -60,4 +60,95 @@ export function witchwoodMult(st: Statuses): number {
   if (debuffed(st)) return STAFF.witchMult;
   delete st.witchwood;
   return 1;
+}
+
+// ---------------------------------------------------------------------------
+// Cloth charges (user 2026-10-11): each copy keeps its own cooldown and uses, wherever it goes (worn, in a pack,
+// on the floor), so a spent piece stays spent when it changes hands. Cooldowns only run while it's worn.
+
+export interface ItemCharge {
+  /** Seconds of cooldown left (counted down only while worn). */
+  cdLeft: number;
+  /** Uses left this run (null: no limit). */
+  usesLeft: number | null;
+  /** Once-a-fight pieces: already went off in this fight. */
+  usedThisFight: boolean;
+  /** Gravecloth: the room it has been holding the wearer up in (until they leave it). */
+  graveRoom: number | null;
+  /** Turned off by its wearer: it never goes off and spends nothing. */
+  disabled: boolean;
+}
+
+/** Does this piece keep a charge (anything that goes off by itself)? */
+export function chargeable(item: ItemId): boolean {
+  return !!ITEMS[item].auto;
+}
+
+export function freshCharge(item: ItemId): ItemCharge {
+  return { cdLeft: 0, usesLeft: ITEMS[item].cloth?.usesPerRun ?? null, usedThisFight: false, graveRoom: null, disabled: false };
+}
+
+/** The charge of a piece in the hero's pack (the first of that kind), taken out; a fresh one if none was kept. */
+export function pullPackCharge(h: Hero, item: ItemId): ItemCharge {
+  const i = h.packCharges.findIndex((c) => c.item === item);
+  if (i < 0) return freshCharge(item);
+  return h.packCharges.splice(i, 1)[0].charge;
+}
+
+/** Called by `equip`: the charge follows the piece into the slot, and the old piece's into the pack. */
+export function moveCharges(h: Hero, slot: GearSlot, item: ItemId | null, old: ItemId | null) {
+  if (old && chargeable(old)) h.packCharges.push({ item: old, charge: h.charges[slot] ?? freshCharge(old) });
+  delete h.charges[slot];
+  if (item && chargeable(item)) h.charges[slot] = pullPackCharge(h, item);
+}
+
+/** The worn armor's charge, if it's this Cloth and ready to go off. */
+export function clothReady(h: Hero, effect: ClothEffect): ItemCharge | null {
+  const def = h.armor ? ITEMS[h.armor].cloth : undefined;
+  if (!def || def.effect !== effect) return null;
+  const c = wornCharge(h, 'armor')!;
+  if (c.disabled) return null;
+  if (effect === 'grave' && c.graveRoom !== null && h.pos.kind === 'room' && c.graveRoom === h.pos.room) return c;
+  if (c.cdLeft > 0 || c.usesLeft === 0 || (def.perFight && c.usedThisFight)) return null;
+  return c;
+}
+
+/** The charge of what's worn in this slot (put on without `equip`, as kits and tests do: a fresh one). */
+export function wornCharge(h: Hero, slot: GearSlot): ItemCharge | null {
+  const item = h[slot];
+  if (!item || !chargeable(item)) return null;
+  return (h.charges[slot] ??= freshCharge(item));
+}
+
+/** It went off: start its cooldown, use one up. */
+export function spendCloth(h: Hero, c: ItemCharge) {
+  const def = ITEMS[h.armor!].cloth!;
+  c.cdLeft = def.cooldown ?? 0;
+  if (c.usesLeft !== null) c.usesLeft = Math.max(0, c.usesLeft - 1);
+  if (def.perFight) c.usedThisFight = true;
+}
+
+/** Worn cooldowns run down (pack and floor copies wait). */
+export function tickCharges(h: Hero, dt: number) {
+  for (const c of Object.values(h.charges)) if (c && c.cdLeft > 0) c.cdLeft = Math.max(0, c.cdLeft - dt);
+}
+
+/** A fight this hero was in is over: once-a-fight pieces are ready for the next. */
+export function chargesAfterFight(h: Hero) {
+  for (const c of Object.values(h.charges)) if (c) c.usedThisFight = false;
+}
+
+/** The hero walked out of a room: Softstep's cover and Gravecloth's hold on that room end. */
+export function leftRoom(h: Hero) {
+  h.unnoticedIn = null;
+  const c = h.charges.armor;
+  if (c) c.graveRoom = null;
+}
+
+/** Turn an auto-trigger piece off or on (click). Returns an error, or null. */
+export function toggleAuto(h: Hero, slot: GearSlot): string | null {
+  const c = wornCharge(h, slot);
+  if (!c) return 'Nothing there goes off by itself.';
+  c.disabled = !c.disabled;
+  return null;
 }

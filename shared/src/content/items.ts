@@ -7,7 +7,8 @@ export type ItemId =
   | 'cudgel' | 'sledge' | 'warhammer' | 'ironmaul' | 'bonebreaker' | 'giantmaul'
   | 'crook' | 'censer' | 'rowan' | 'wardstaff' | 'witchwood' | 'twinned' | 'evergreen' | 'hourglass'
   | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
-  | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark';
+  | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark'
+  | 'patchwork' | 'hastening' | 'wayfarer' | 'sackcloth' | 'gravecloth' | 'softstep' | 'blinkcloth' | 'gossamer';
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
 export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
@@ -42,6 +43,12 @@ export interface ItemDef {
   flatDmg?: number;
   /** Staves: what it does for the one who carries it (numbers in STAFF). */
   staff?: StaffEffect;
+  /** Cloth: what sets it off and how often it can (numbers in CLOTH). Its charge belongs to the copy. */
+  cloth?: ClothDef;
+  /** Goes off by itself while worn; clicking the worn piece turns it off and on again. */
+  auto?: true;
+  /** Cloth with a drawback while worn (like cursed amulets and rings, but no quicker for it). */
+  cursed?: true;
   /** Armor: subtracted from every hit you take (never below 1). */
   armor?: number;
   /** Seconds added to your Speed while you wear it (negative = faster: cursed amulets and rings, a few light rares). */
@@ -104,6 +111,39 @@ const staff = (id: ItemId, name: string, effect: StaffEffect, text: string, spee
   id, name, kind: 'weapon', gearType: 'staff', glyph: GLYPHS.staff, target: 'self', combat: false, field: false, staff: effect, speed,
   desc: `Staff: ${text}${speedNote(speed)}`,
 });
+
+/**
+ * Cloth (user 2026-10-11): no protection, but something that goes off by itself while worn, limited by a cooldown
+ * (seconds, counted only while worn), uses per run, or once a fight. Each copy keeps its own charge.
+ */
+export type ClothEffect = 'patchwork' | 'hasten' | 'wayfarer' | 'penitent' | 'grave' | 'softstep' | 'blink' | 'gossamer';
+export interface ClothDef {
+  effect: ClothEffect;
+  /** Seconds before it can go off again (counted only while worn). */
+  cooldown?: number;
+  /** Times it can go off in a run (this copy). */
+  usesPerRun?: number;
+  /** Once in each fight. */
+  perFight?: boolean;
+}
+export const CLOTH = {
+  patchworkMult: 0.5,
+  hastenSecs: 3,
+  wayfarerSecs: 1,
+  penitentBelow: 0.3,
+  penitentHeal: 15,
+  graveTurns: 2,
+  graveHp: 0.25,
+  blinkStress: 20,
+};
+const cloth = (id: ItemId, name: string, def: ClothDef, text: string, extra: Partial<ItemDef> = {}): ItemDef => {
+  const limit = def.perFight ? 'Once a fight.' : def.cooldown ? `Every ${def.cooldown}s worn.` : def.usesPerRun ? `${def.usesPerRun === 1 ? 'Once' : `${def.usesPerRun}×`} a run.` : '';
+  const speed = extra.speed ?? 0;
+  return {
+    id, name, kind: 'armor', gearType: 'cloth', glyph: GLYPHS.cloth, target: 'self', combat: false, field: false, cloth: def, auto: true, speed, ...extra,
+    desc: `Cloth: ${text} ${limit}${speedNote(speed)} Click it while worn to turn it off or on.`,
+  };
+};
 
 const armor = (type: 'leather' | 'mail', id: ItemId, name: string, value: number, speed: number): ItemDef => ({
   id, name, kind: 'armor', gearType: type, glyph: GLYPHS[type], target: 'self', combat: false, field: false, armor: value, speed,
@@ -172,6 +212,18 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   brigandine: armor('mail', 'brigandine', 'Brigandine', 4, 1),
   wardmail: armor('mail', 'wardmail', 'Warded Mail', 4, 0.5),
   bulwark: armor('mail', 'bulwark', 'Bulwark Plate', 5, 1),
+  patchwork: cloth('patchwork', 'Patchwork Coat', { effect: 'patchwork', perFight: true }, 'the first blow you take in a fight is halved (before armor and Shield).'),
+  hastening: cloth('hastening', 'Hastening Robe', { effect: 'hasten', cooldown: 60 }, `Swiftwork: the next event you start is done in ${CLOTH.hastenSecs}s, however long it usually takes.`),
+  wayfarer: cloth('wayfarer', "Wayfarer's Cloak", { effect: 'wayfarer', cooldown: 12 }, `the next tunnel you set out on takes ${CLOTH.wayfarerSecs}s.`),
+  sackcloth: cloth('sackcloth', "Penitent's Sackcloth", { effect: 'penitent', cooldown: 120 },
+    `Cursed: +25% stress taken. Dropping below ${CLOTH.penitentBelow * 100}% HP heals you ${CLOTH.penitentHeal}.`, { cursed: true, stressMult: 1.25 }),
+  gravecloth: cloth('gravecloth', 'Gravecloth', { effect: 'grave', usesPerRun: 1 },
+    `Cursed: −8 max HP. When you go down, you get back up by yourself after ${CLOTH.graveTurns} of your turns at ${CLOTH.graveHp * 100}% HP, and again each time you fall in that room, until you leave it.`, { cursed: true, maxHp: -8 }),
+  softstep: cloth('softstep', 'Softstep Cloak', { effect: 'softstep', cooldown: 90 },
+    'Unnoticed: walking in on monsters, or monsters wandering in on you, starts no fight for you. If an ally starts one there, you are drawn in.'),
+  blinkcloth: cloth('blinkcloth', 'Blinkcloth Mantle', { effect: 'blink', usesPerRun: 1 },
+    `Slip: instead of going down, you leave at 1 HP for a random room next door (+${CLOTH.blinkStress} stress).`),
+  gossamer: cloth('gossamer', 'Gossamer Shroud', { effect: 'gossamer', perFight: true }, 'the first attack aimed at you in a fight misses.', { speed: -0.5 }),
 };
 
 /** Weapons and armor from before gear types (2026-10-11): stashes and kits load them as the new piece of the same rarity. */
@@ -225,9 +277,9 @@ export function slotOf(item: ItemId): GearSlot | null {
   return k === 'consumable' || k === 'resource' ? null : k;
 }
 
-/** Cursed amulets and rings: they hurt you, and quicken you. */
+/** Cursed amulets and rings (they hurt you, and quicken you), and cursed Cloth (a drawback while worn). */
 export function isCursed(item: ItemId): boolean {
-  return isJewel(item) && (ITEMS[item].speed ?? 0) < 0;
+  return (isJewel(item) && (ITEMS[item].speed ?? 0) < 0) || !!ITEMS[item].cursed;
 }
 
 /** Pack slots these items fill: consumables one each, resources in stacks of STACK_SIZE. */
@@ -290,7 +342,8 @@ export function gearGain(item: ItemId, current: ItemId | null, fit?: GearFit): n
     if (!id) return 0;
     const d = ITEMS[id];
     const staff = d.staff && fit?.support ? itemTier(id) * 1.5 : 0;
-    return staff + (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? (d.speed ?? 0) * speedWeight : 0);
+    const cloth = d.cloth ? itemTier(id) - (d.cursed ? 0.5 : 0) : 0;
+    return staff + cloth + (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? (d.speed ?? 0) * speedWeight : 0);
   };
   return value(item) - value(current);
 }
@@ -319,9 +372,9 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
     3: ['misericorde', 'whisperblade', 'bonebreaker', 'giantmaul', 'twinned', 'evergreen', 'hourglass'],
   }),
   ...gearLoot('armor', {
-    1: ['jerkin', 'ringmail', 'scaleshirt'],
-    2: ['studded', 'hauberk', 'brigandine'],
-    3: ['drakehide', 'shadowskin', 'wardmail', 'bulwark'],
+    1: ['jerkin', 'ringmail', 'scaleshirt', 'patchwork'],
+    2: ['studded', 'hauberk', 'brigandine', 'hastening', 'wayfarer', 'sackcloth'],
+    3: ['drakehide', 'shadowskin', 'wardmail', 'bulwark', 'gravecloth', 'softstep', 'blinkcloth', 'gossamer'],
   }),
 ];
 

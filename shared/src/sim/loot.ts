@@ -7,7 +7,7 @@ import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
 import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
-import { healBy, reliefBy, ward } from './gear';
+import { chargeable, healBy, moveCharges, pullPackCharge, reliefBy, ward, type ItemCharge } from './gear';
 import { STRESS } from '../content/events';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
 
@@ -32,6 +32,8 @@ export interface FloorItem {
   passed: string[];
   /** Someone asked for it back: it's up for grabs again while they're here. */
   claimedBy: string | null;
+  /** A piece that goes off by itself (Cloth) keeps its charge on the floor (none yet: a fresh one). */
+  charge?: ItemCharge;
 }
 
 export interface Pile {
@@ -120,9 +122,12 @@ export function addToPile(world: World, room: number, gold: number, items: ItemI
   // Found gold is worth more at higher Challenge Rating.
   pile.gold += droppedBy === null ? crGold(world, gold) : gold;
   if (droppedBy === null) items = items.slice(0, Math.max(0, LOOT.maxDrops - pile.items.length));
+  const dropper = droppedBy ? world.heroes[droppedBy] : undefined;
   for (const item of items) {
     pile.items.push({
       id: world.nextId++, item, by: droppedBy, votes: {}, startedAt: world.time, seen: [], passed: droppedBy ? [droppedBy] : [], claimedBy: null,
+      // What a hero puts down takes its charge with it (out of their pack's).
+      ...(dropper && chargeable(item) ? { charge: pullPackCharge(dropper, item) } : {}),
     });
   }
 }
@@ -178,6 +183,7 @@ export function wornMult(h: Hero, key: WornNumber): number {
 /** Put something on (or take it off, with null). Max HP follows the amulet or ring. Returns what was there. */
 export function equip(h: Hero, slot: GearSlot, item: ItemId | null): ItemId | null {
   const old = h[slot];
+  moveCharges(h, slot, item, old);
   const hpOf = (id: ItemId | null) => (id ? ITEMS[id].maxHp ?? 0 : 0);
   const delta = hpOf(item) - hpOf(old);
   h[slot] = item;
@@ -392,6 +398,7 @@ export function risenAllyEscapes(world: World, u: Hero, dead: Hero) {
 /** Give a floor item to a hero; gear it replaced that won't fit in their pack goes back on the floor as theirs. */
 function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
   pile.items.splice(pile.items.indexOf(f), 1);
+  if (f.charge) h.packCharges.push({ item: f.item, charge: f.charge });
   const def = ITEMS[f.item];
   const verb = putsOn(h, f.item) ? ['put on', 'puts on'] : ['take', 'takes'];
   const old = giveItem(h, f.item);

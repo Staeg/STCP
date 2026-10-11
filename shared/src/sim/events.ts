@@ -11,6 +11,8 @@ import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monster
 import { collapseCorridor } from './escalation';
 import { addToPile, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { notify } from './notify';
+import { clothReady, spendCloth } from './gear';
+import { CLOTH } from '../content/items';
 import { openSecretEarly, openSecretFor } from './secrets';
 import { toll } from './skills';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
@@ -148,7 +150,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   if (!quiet(world, room)) return { kind: ev.kind, choices: [] };
   // First come, first served: once someone has started, it's theirs.
   const taken = ev.by && ev.by !== h.id ? `${world.heroes[ev.by]?.name ?? 'Someone'} is already doing it.` : undefined;
-  const secs = Math.ceil(channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress));
+  const secs = Math.ceil(eventTime(world, h, ev.kind) * (1 - ev.progress));
   const c = (id: string, label: string, disabled?: string): EventChoice => ({ id, label: `${label} (${secs}s)`, disabled: taken ?? disabled });
   /** The same choice, done this hero's class's way. */
   const perk = (choice: EventChoice, cls: ClassId, text: string): EventChoice => ({ ...choice, perk: { cls, text } });
@@ -237,6 +239,18 @@ function signed(seconds: number): string {
 }
 
 /** "cleansing the altar" etc., for the event panel and for onlookers' notifications. */
+/**
+ * How long this event takes this hero: its usual time, or CLOTH.hastenSecs with a Hastening Robe (already working
+ * on it with Swiftwork, or about to start with the robe ready).
+ */
+export function eventTime(world: World, h: Hero, kind: EventKind): number {
+  const usual = channelTime(kind, speedOf(h, world.time));
+  if (!Number.isFinite(usual)) return usual;
+  const ch = h.channel;
+  if (ch?.kind === 'event') return ch.hasten ? CLOTH.hastenSecs : usual;
+  return clothReady(h, 'hasten') ? CLOTH.hastenSecs : usual;
+}
+
 export function choiceVerb(kind: EventKind, choice: string): string {
   if (choice === 'channel') return kind === 'altar' ? 'cleansing the altar' : 'picking the lock';
   const verbs: Record<string, string> = {
@@ -280,9 +294,12 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   if (h.channel?.kind === 'event' && h.channel.room === room) return null;
   ev.by = h.id;
   h.path = [];
-  h.channel = { kind: 'event', room, choice: choiceId, until: Infinity };
+  // Hastening Robe: Swiftwork makes short work of it.
+  const swift = Number.isFinite(channelTime(ev.kind, speedOf(h, world.time))) ? clothReady(h, 'hasten') : null;
+  if (swift) spendCloth(h, swift);
+  h.channel = { kind: 'event', room, choice: choiceId, until: Infinity, ...(swift ? { hasten: true } : {}) };
   const verb = choiceVerb(ev.kind, choiceId);
-  const secs = channelTime(ev.kind, speedOf(h, world.time)) * (1 - ev.progress);
+  const secs = eventTime(world, h, ev.kind) * (1 - ev.progress);
   notify(world, h, Number.isFinite(secs)
     ? `You start ${verb}… (${Math.ceil(secs)}s; moving away starts it over)`
     : `You start ${verb}. It lasts as long as you stay.`);
@@ -604,7 +621,7 @@ export function tickEvents(world: World, dt: number) {
       for (; ev.pulse >= 1; ev.pulse -= 1) bless(world);
       continue;
     }
-    ev.progress = Math.min(1, ev.progress + dt / channelTime(kind, speedOf(h, world.time)));
+    ev.progress = Math.min(1, ev.progress + dt / eventTime(world, h, kind));
     // Booming Barrage: a Toll every so often while the bell swings.
     if (kind === 'barrage') {
       const due = Math.floor((ev.progress * ELITE_EVENTS.barrageTime) / ELITE_EVENTS.barrageEvery + 1e-9);

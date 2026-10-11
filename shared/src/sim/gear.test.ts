@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { neighbours } from '../dungeon/gen';
 import { botUseItem, botVote } from '../bots/looter';
-import { armored, damageMult, hitDamage, spawnGroup, weakMult } from './combat';
-import { witchwoodMult } from './gear';
+import { armored, damageMult, hitDamage, hurtHero, onHeroInRoom, spawnGroup, weakMult } from './combat';
+import { clothReady, spendCloth, witchwoodMult } from './gear';
+import { eventTime } from './events';
+import { wornMult } from './loot';
 import { useSkill } from './skills';
 import { CLASS_RULES, abilityById } from '../content/abilities';
-import type { EnemyId } from '../content/enemies';
+import { ENEMIES, type EnemyId } from '../content/enemies';
 import { STRESS } from '../content/events';
 import { speedOf } from './speed';
-import { isArms, ITEMS, LOOT_TABLE, STAFF } from '../content/items';
+import { CLOTH, isArms, ITEMS, LOOT_TABLE, STAFF } from '../content/items';
 import { Stash } from '../stash';
 import { addToPile, LEAVE } from './loot';
 import { buildView } from './views';
@@ -228,8 +230,8 @@ describe('gear types', () => {
   it('no two pieces share a rarity and an effect', () => {
     const seen = new Set<string>();
     for (const e of LOOT_TABLE.filter((x) => isArms(x.item))) {
-      const { kind, dmgPct, flatDmg, armor, speed, staff } = ITEMS[e.item];
-      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, armor, speed, staff]);
+      const { kind, dmgPct, flatDmg, armor, speed, staff, cloth } = ITEMS[e.item];
+      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, armor, speed, staff, cloth?.effect]);
       expect(seen.has(key), e.item).toBe(false);
       seen.add(key);
     }
@@ -362,5 +364,153 @@ describe('staves', () => {
     delete m.st.weak;
     expect(witchwoodMult(m.st)).toBe(1);
     expect(m.st.witchwood).toBeUndefined();
+  });
+});
+
+describe('cloth', () => {
+  function arena(classes: ClassId[], enemies: EnemyId[] = []) {
+    const world = createWorld(777, { monsters: false, loot: false });
+    const d = world.dungeon;
+    classes.forEach((cls, i) => addHero(world, { id: `h${i}`, name: `H${i}`, cls }));
+    const room = neighbours(d, d.entrance)[0];
+    const monsters = spawnGroup(world, room, enemies, 0);
+    for (const m of monsters) m.hp = m.maxHp = 999;
+    return { world, d, room, monsters };
+  }
+  function walk(world: World, id: string, room: number) {
+    applyIntent(world, id, { type: 'goto', room });
+    for (let i = 0; i < 150 && !(world.heroes[id].pos.kind === 'room' && world.heroes[id].pos.room === room); i++) step(world, 0.1);
+  }
+
+  it('a copy keeps its charge when it changes hands: a spent Blinkcloth stays spent', () => {
+    const { world, d } = arena(['warden', 'cutthroat']);
+    const [a, b] = [world.heroes.h0, world.heroes.h1];
+    a.armor = 'blinkcloth';
+    spendCloth(a, clothReady(a, 'blink')!);
+    expect(clothReady(a, 'blink')).toBeNull();
+    applyIntent(world, 'h0', { type: 'unequip', slot: 'armor' });
+    const f = world.piles[d.entrance].items[0];
+    expect(f.charge?.usesLeft).toBe(0);
+    applyIntent(world, 'h1', { type: 'claim', item: f.id });
+    expect(b.armor).toBe('blinkcloth');
+    expect(clothReady(b, 'blink')).toBeNull();
+  });
+
+  it('cooldowns only run while worn; a disabled piece never goes off', () => {
+    const { world } = arena(['warden']);
+    const h = world.heroes.h0;
+    h.armor = 'wayfarer';
+    spendCloth(h, clothReady(h, 'wayfarer')!);
+    h.items = ['jerkin'];
+    applyIntent(world, 'h0', { type: 'useItem', index: 0 }); // puts on the jerkin; the cloak goes in the pack
+    expect(h.armor).toBe('jerkin');
+    run(world, 30);
+    expect(h.packCharges[0].charge.cdLeft).toBe(12);
+    applyIntent(world, 'h0', { type: 'useItem', index: h.items.indexOf('wayfarer') });
+    expect(h.armor).toBe('wayfarer');
+    run(world, 12.2);
+    expect(clothReady(h, 'wayfarer')).not.toBeNull();
+    applyIntent(world, 'h0', { type: 'toggleAuto', slot: 'armor' });
+    expect(clothReady(h, 'wayfarer')).toBeNull();
+    applyIntent(world, 'h0', { type: 'toggleAuto', slot: 'armor' });
+    expect(clothReady(h, 'wayfarer')).not.toBeNull();
+  });
+
+  it("Wayfarer's Cloak: the next tunnel takes 1s", () => {
+    const { world, room } = arena(['bellwright']);
+    const h = world.heroes.h0;
+    h.armor = 'wayfarer';
+    applyIntent(world, 'h0', { type: 'goto', room });
+    run(world, 0.3);
+    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(CLOTH.wayfarerSecs);
+    run(world, 1.2);
+    expect(h.pos).toEqual({ kind: 'room', room });
+  });
+
+  it('Hastening Robe: an event takes 3s', () => {
+    const { world } = arena(['warden']);
+    const h = world.heroes.h0;
+    h.armor = 'hastening';
+    expect(eventTime(world, h, 'altar')).toBe(CLOTH.hastenSecs);
+    spendCloth(h, clothReady(h, 'hasten')!);
+    expect(eventTime(world, h, 'altar')).toBe(18);
+  });
+
+  it('Softstep: walking in on monsters starts no fight, until an ally walks in; it hides you from wanderers too', () => {
+    const { world, room } = arena(['cutthroat', 'warden'], ['ghoul']);
+    const [s, w] = [world.heroes.h0, world.heroes.h1];
+    s.armor = 'softstep';
+    walk(world, 'h0', room);
+    expect(s.encounter).toBeNull();
+    expect(world.encounters[room]).toBeUndefined();
+    expect(s.unnoticedIn).toBe(room);
+    walk(world, 'h1', room);
+    expect(w.encounter).toBe(room);
+    expect(s.encounter).toBe(room);
+
+    const quiet = arena(['cutthroat'], []);
+    const q = quiet.world.heroes.h0;
+    q.armor = 'softstep';
+    const here = quiet.d.entrance;
+    spawnGroup(quiet.world, here, ['ghoul'], 0); // a pack wanders in
+    onHeroInRoom(quiet.world, q, here);
+    expect(q.encounter).toBeNull();
+  });
+
+  it('Blinkcloth: instead of going down, out at 1 HP to a room next door (+20 stress)', () => {
+    const { world, room } = arena(['cutthroat'], ['ghoul']);
+    const h = world.heroes.h0;
+    h.armor = 'blinkcloth';
+    walk(world, 'h0', room);
+    expect(h.encounter).toBe(room);
+    const stress = h.stress;
+    hurtHero(world, h, 999, null, world.encounters[room]);
+    expect(h.downedAt).toBeNull();
+    expect(h.hp).toBe(1);
+    expect(h.encounter).toBeNull();
+    expect(h.pos.kind === 'room' && h.pos.room !== room && neighbours(world.dungeon, room).includes(h.pos.room)).toBe(true);
+    expect(h.stress).toBeGreaterThanOrEqual(stress + CLOTH.blinkStress);
+  });
+
+  it('Gravecloth: gets you back up, again and again in that room, but not once you have left it', () => {
+    const { world, d } = arena(['warden']);
+    const h = world.heroes.h0;
+    h.armor = 'gravecloth';
+    const fall = () => hurtHero(world, h, 999, null);
+    fall();
+    expect(h.downedAt).not.toBeNull();
+    run(world, 2 * speedOf(h, world.time) + 0.2);
+    expect(h.downedAt).toBeNull();
+    expect(h.hp).toBe(Math.ceil(h.maxHp * CLOTH.graveHp));
+    fall();
+    run(world, 2 * speedOf(h, world.time) + 0.2);
+    expect(h.downedAt).toBeNull();
+    walk(world, 'h0', neighbours(d, d.entrance)[0]);
+    fall();
+    expect(h.riseAt).toBeNull();
+  });
+
+  it("Patchwork halves the first blow of a fight; Gossamer makes the first attack miss; Penitent's Sackcloth heals below 30%", () => {
+    const { world } = arena(['warden']);
+    const h = world.heroes.h0;
+    h.armor = 'sackcloth';
+    expect(wornMult(h, 'stressMult')).toBe(1.25);
+    const low = Math.floor(h.maxHp * 0.3) - 2; // below 30% (going below half also costs a Minor Injury's max HP)
+    h.hp = low + 4;
+    hurtHero(world, h, 4, null);
+    expect(h.hp).toBe(Math.min(h.maxHp, low + CLOTH.penitentHeal));
+    expect(clothReady(h, 'penitent')).toBeNull();
+
+    for (const [armor, expectHit] of [['gossamer', false], ['patchwork', true]] as const) {
+      const a = arena(['warden'], ['ghoul']);
+      const w = a.world.heroes.h0;
+      w.armor = armor;
+      walk(a.world, 'h0', a.room);
+      const hp = w.hp;
+      for (let i = 0; i < 100 && !a.monsters[0].st.acted; i++) step(a.world, 0.1);
+      expect(w.hp < hp, armor).toBe(expectHit);
+      if (armor === 'patchwork') expect(hp - w.hp).toBeLessThan(ENEMIES.ghoul.dmg);
+      expect(clothReady(w, armor === 'gossamer' ? 'gossamer' : 'patchwork')).toBeNull();
+    }
   });
 });
