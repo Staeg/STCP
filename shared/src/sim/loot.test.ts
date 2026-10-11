@@ -233,13 +233,13 @@ describe('picking up alone', () => {
   it('gear no rarer than yours goes in the pack', () => {
     const { world, d } = party(1);
     const h = world.heroes.h0;
-    h.weapon = 'emberaxe'; // tier 3
-    addToPile(world, d.entrance, 0, ['runeblade', 'hatchet']);
+    h.weapon = 'bonebreaker'; // tier 3
+    addToPile(world, d.entrance, 0, ['misericorde', 'knife']);
     step(world, 0.1);
     for (const f of buildView(world, 'h0').loot!.items) applyIntent(world, 'h0', { type: 'vote', item: f.id, choice: 'h0' });
     step(world, 0.1);
-    expect(h.weapon).toBe('emberaxe');
-    expect(h.items).toEqual(['runeblade', 'hatchet']);
+    expect(h.weapon).toBe('bonebreaker');
+    expect(h.items).toEqual(['misericorde', 'knife']);
   });
 });
 
@@ -283,7 +283,7 @@ describe('items', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
     h.ring = 'quickblood';
-    h.armor = 'chainshirt';
+    h.armor = 'studded';
     expect(armored(h, 5)).toBe(4); // 5 − 2 armor + 1
     h.ring = 'thorns';
     expect(wornStat(h, 'thorns')).toBe(2);
@@ -459,12 +459,12 @@ describe('gear tiers', () => {
   it('a lower-tier piece needs room in the pack; a rarer one can always be taken', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
-    h.weapon = 'shortsword'; // tier 1
+    h.weapon = 'dirk'; // tier 1
     h.items = Array(14).fill('torch');
-    expect(canTake(h, 'hatchet')).toBe(false); // same tier
-    expect(canTake(h, 'runeblade')).toBe(true); // rarer: goes on
+    expect(canTake(h, 'knife')).toBe(false); // same tier
+    expect(canTake(h, 'misericorde')).toBe(true); // rarer: goes on
     expect(canTake(h, 'jerkin')).toBe(true); // empty slot
     h.items = [];
-    expect(canTake(h, 'hatchet')).toBe(true);
+    expect(canTake(h, 'knife')).toBe(true);
   });
 });

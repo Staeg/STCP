@@ -136,7 +136,7 @@ describe('Wellbeing in the Village', () => {
 
   it('wins at 6 and loses at 0; then Reset keeps the Village, Start Over doesn’t', () => {
     const s = new Stash(null);
-    s.storeLoot('Ann', ['mace', 'gem']);
+    s.storeLoot('Ann', ['stiletto', 'gem']);
     s.settleEmergency('Ann', 'patrol', true);
     s.settleEmergency('Ann', 'tithe', true);
     expect(s.settleEmergency('Ann', 'exodus', true)).toContain('The Village prospers. You have won!');
@@ -144,7 +144,7 @@ describe('Wellbeing in the Village', () => {
     expect(s.village('Ann').wellbeing).toBe(6);
     expect(s.chooseEmergency('Ann', 'liches')).toMatch(/over/);
     expect(s.chooseFate('Ann', 'reset')).toBeNull();
-    expect(s.village('Ann')).toMatchObject({ wellbeing: 3, fate: null, items: ['mace'] });
+    expect(s.village('Ann')).toMatchObject({ wellbeing: 3, fate: null, items: ['stiletto'] });
 
     for (const id of ['patrol', 'fever', 'lamps'] as const) s.settleEmergency('Ann', id, false);
     expect(s.village('Ann').fate).toBe('lost');

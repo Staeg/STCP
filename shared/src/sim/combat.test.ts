@@ -76,10 +76,10 @@ describe('encounters', () => {
   });
 
   it('ties go to heroes before monsters, and to the leftmost hero (equal Speed: join order) before the rightmost', () => {
-    // Cutthroat in a weapon and armor: 3 + 0.5 + 0.5 = 4, same as the Sorceress and the Acolyte.
+    // Cutthroat in a Hammer and Mail: 3 + 0.5 + 0.5 = 4, same as the Sorceress and the Acolyte.
     const { world, ids, room, monsters } = arena(['cutthroat', 'sorceress'], ['acolyte']);
-    world.heroes.h0.weapon = 'shortsword';
-    world.heroes.h0.armor = 'jerkin';
+    world.heroes.h0.weapon = 'cudgel';
+    world.heroes.h0.armor = 'ringmail';
     monsters[0].hp = 999;
     walkIn(world, ids, room);
     const enc = world.encounters[room];
@@ -283,8 +283,8 @@ describe('Speed', () => {
     const world = createWorld(777, { monsters: false, loot: false, escalates: false });
     const d = world.dungeon;
     const h = addHero(world, { id: 'h', name: 'H', cls: 'lampbearer' });
-    h.weapon = 'mace';
-    h.armor = 'cuirass';
+    h.weapon = 'warhammer';
+    h.armor = 'hauberk';
     h.amulet = 'coin';
     h.items = ['bandage', 'gem'];
     expect(buildView(world, 'h').you.maxHp).toBe(45);
@@ -294,7 +294,7 @@ describe('Speed', () => {
     run(world, 5.2);
     applyIntent(world, 'h', { type: 'goto', room: next });
     step(world, 0.1);
-    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6); // 5 + 0.5 + 0.5; blessed amulets and pack items weigh nothing
+    expect(h.pos.kind === 'corridor' && h.pos.dur).toBe(6); // 5 + 0.5 + 0.5 (heavy gear); blessed amulets and pack items weigh nothing
     run(world, 5.5);
     expect(h.pos.kind).toBe('corridor');
     run(world, 0.3);

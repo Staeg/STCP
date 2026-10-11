@@ -3,7 +3,7 @@ import { CLASSES, type ClassId } from './content/classes';
 import type { TalentId } from './content/talents';
 import { Rng } from './rng';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
-import { isResource, ITEMS, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
+import { isResource, ITEMS, migrateItemId, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
   applyRun, chooseTalent, emptyKit, foundVillage, KIT_RULES, kitError, newCharacter, VILLAGE_RULES, type Character, type Injury, type Kit, type RunOutcome,
 } from './village';
@@ -87,6 +87,10 @@ export class Stash {
         this.data[key] = typeof v === 'number' ? { name: key, gold: v, runs: 0, escapes: 0, best: v } : v;
         // Before M12 gold was for bragging only: what was banked becomes the purse.
         this.data[key].purse ??= this.data[key].gold;
+        // Gear types (2026-10-11): the old weapons and armor become the new piece of the same rarity.
+        const r = this.data[key];
+        if (r.items) r.items = r.items.map(migrateItemId);
+        if (r.kit) for (const s of Object.keys(r.kit.gear) as (keyof Kit['gear'])[]) r.kit.gear[s] = migrateItemId(r.kit.gear[s]!);
       }
     } catch {
       // Unreadable stash: start empty.

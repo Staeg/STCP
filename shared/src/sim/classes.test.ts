@@ -103,7 +103,7 @@ describe('monster armor', () => {
   it("a risen keeps its kind's armor, and a Risen ally's armor counts", () => {
     const { world, ids, room, monsters } = arena(['undertaker', 'warden'], ['ghoul']);
     const [u, w] = ids.map((id) => world.heroes[id]);
-    w.armor = 'chainshirt';
+    w.armor = 'studded';
     w.dead = true;
     dropEverything(world, w);
     run(world, 0.2);
@@ -116,7 +116,7 @@ describe('monster armor', () => {
     const base = Math.round(ENEMIES.ghoul.dmg * ghoul.dmgMult);
     expect(hits().find((e) => e.target === 'rb')?.amount).toBe(Math.max(1, base - 3));
     // The Warden's Chain Shirt came back on when they were Raised, and it counts.
-    expect(w.armor).toBe('chainshirt');
+    expect(w.armor).toBe('studded');
     const rb = enc.legion!.find((r) => r.id === 'rb')!;
     rb.hp = 0;
     delete enc.next.rb;
@@ -297,7 +297,7 @@ describe('Zealot', () => {
     const { world, heroes } = quiet(['zealot']);
     const z = heroes[0];
     z.stress = 50;
-    z.weapon = 'shortsword';
+    z.weapon = 'dirk';
     expect(damageMult(z)).toBeCloseTo(1.1 * (1 + 50 * CLASS_RULES.zealotDmgPerStress));
     z.stress = 100;
     run(world, 1);

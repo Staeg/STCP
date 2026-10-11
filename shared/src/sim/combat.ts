@@ -1366,12 +1366,17 @@ function heal(h: Hero, n: number): number {
   return h.hp - before;
 }
 
-/** Hero damages a monster. Returns true if it connected. */
-function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
-  let dmg = base * damageMult(h, world);
+/** A direct hit's damage before the target's defences. Hammers add a flat bonus first, then the percentages apply. */
+export function hitDamage(h: Hero, base: number, world?: World): number {
+  let dmg = (base + (h.weapon ? ITEMS[h.weapon].flatDmg ?? 0 : 0)) * damageMult(h, world);
   if (h.st.weak) dmg *= 0.5;
   if (h.affliction === 'hopeless') dmg *= 0.7;
-  dmg = monsterTakes(m, Math.max(1, Math.round(dmg)));
+  return Math.max(1, Math.round(dmg));
+}
+
+/** Hero damages a monster. Returns true if it connected. */
+function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
+  let dmg = monsterTakes(m, hitDamage(h, base, world));
   if (m.st.shield) {
     const absorbed = Math.min(m.st.shield, dmg);
     m.st.shield -= absorbed;

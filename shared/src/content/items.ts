@@ -3,8 +3,16 @@ export type ItemId =
   | 'coin' | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
   | 'catseye' | 'bloodstone' | 'thorns' | 'quickblood' | 'ashen'
   | 'effigy' | 'gem' | 'tome' | 'relic'
-  | 'shortsword' | 'hatchet' | 'mace' | 'spear' | 'runeblade' | 'emberaxe'
-  | 'jerkin' | 'leathercoat' | 'chainshirt' | 'brigandine' | 'cuirass' | 'wardmail';
+  | 'dirk' | 'knife' | 'stiletto' | 'kris' | 'misericorde' | 'whisperblade'
+  | 'cudgel' | 'sledge' | 'warhammer' | 'ironmaul' | 'bonebreaker' | 'giantmaul'
+  | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
+  | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark';
+
+/** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
+export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
+export const GEAR_TYPE_NAMES: Record<GearType, string> = {
+  dagger: 'Dagger', hammer: 'Hammer', staff: 'Staff', leather: 'Leather', mail: 'Mail', cloth: 'Cloth',
+};
 
 /** Worn things go in their own slot (one of each), not the pack. */
 export type GearSlot = 'weapon' | 'armor' | 'amulet' | 'ring';
@@ -25,11 +33,15 @@ export interface ItemDef {
   combat: boolean;
   /** Usable while exploring. */
   field: boolean;
+  /** Weapons and armor: which kind of weapon or armor it is. */
+  gearType?: GearType;
   /** Weapons: fraction added to all damage you deal (0.1 = +10%). */
   dmgPct?: number;
+  /** Hammers: added to every direct hit you deal, before `dmgPct` (not to Poison ticks). */
+  flatDmg?: number;
   /** Armor: subtracted from every hit you take (never below 1). */
   armor?: number;
-  /** Seconds added to your Speed while you wear it (negative = faster: only cursed amulets and rings). */
+  /** Seconds added to your Speed while you wear it (negative = faster: cursed amulets and rings, a few light rares). */
   speed?: number;
   // ---- Amulets and rings, while worn ----
   /** Added to max HP. */
@@ -50,20 +62,28 @@ export interface ItemDef {
   seeDim?: boolean;
 }
 
-/** Seconds of Speed that worn weapons and armor cost. */
-export const GEAR_SPEED = { weapon: 0.5, armor: 0.5 };
-
 /** The pack: this many slots; Effigies, Gems, Tomes and Relics stack up to STACK_SIZE in one. */
 export const INVENTORY_SLOTS = 14;
 export const STACK_SIZE = 3;
 /** Only the first this-many consumables (which always sort to the top of the pack) get number keys. */
 export const HOTKEY_ITEMS = 4;
 
-const weapon = (id: ItemId, name: string, glyph: string, dmgPct: number): ItemDef => ({
-  id, name, kind: 'weapon', glyph, desc: `Weapon: +${Math.round(dmgPct * 100)}% damage dealt. +${GEAR_SPEED.weapon}s Speed.`, target: 'self', combat: false, field: false, dmgPct, speed: GEAR_SPEED.weapon,
+/** " +0.5s Speed." / " −0.5s Speed (faster)." / "" */
+const speedNote = (speed: number) => (speed > 0 ? ` +${speed}s Speed.` : speed < 0 ? ` −${-speed}s Speed (faster).` : '');
+const pct = (f: number) => `+${Math.round(f * 100)}%`;
+const GLYPHS: Record<GearType, string> = { dagger: '🗡', hammer: '⚒', staff: '⚚', leather: '▥', mail: '▦', cloth: '≋' };
+
+const dagger = (id: ItemId, name: string, dmgPct: number, speed = 0): ItemDef => ({
+  id, name, kind: 'weapon', gearType: 'dagger', glyph: GLYPHS.dagger, target: 'self', combat: false, field: false, dmgPct, speed,
+  desc: `Dagger: ${pct(dmgPct)} damage dealt.${speedNote(speed)}`,
 });
-const armor = (id: ItemId, name: string, glyph: string, value: number): ItemDef => ({
-  id, name, kind: 'armor', glyph, desc: `Armor: −${value} damage from every hit (min 1). +${GEAR_SPEED.armor}s Speed.`, target: 'self', combat: false, field: false, armor: value, speed: GEAR_SPEED.armor,
+const hammer = (id: ItemId, name: string, flatDmg: number, dmgPct: number, speed: number): ItemDef => ({
+  id, name, kind: 'weapon', gearType: 'hammer', glyph: GLYPHS.hammer, target: 'self', combat: false, field: false, dmgPct, flatDmg, speed,
+  desc: `Hammer: +${flatDmg} to every hit, then ${pct(dmgPct)} damage dealt.${speedNote(speed)}`,
+});
+const armor = (type: 'leather' | 'mail', id: ItemId, name: string, value: number, speed: number): ItemDef => ({
+  id, name, kind: 'armor', gearType: type, glyph: GLYPHS[type], target: 'self', combat: false, field: false, armor: value, speed,
+  desc: `${GEAR_TYPE_NAMES[type]}: −${value} damage from every hit (min 1).${speedNote(speed)}`,
 });
 
 const jewel = (id: ItemId, kind: 'amulet' | 'ring', name: string, glyph: string, effect: string, stats: Partial<ItemDef>): ItemDef => ({
@@ -97,19 +117,41 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   gem: resource('gem', 'Gem', '◆', 'CR −0.5, but you can’t pick up or use consumables.'),
   tome: resource('tome', 'Tome', '▯', '−20% damage and HP, but your gold comes home even if you die.'),
   relic: resource('relic', 'Relic', '♛', 'the whole run starts at Escalation 5.'),
-  shortsword: weapon('shortsword', 'Rusty Shortsword', '🗡', 0.1),
-  hatchet: weapon('hatchet', 'Hatchet', '🪓', 0.1),
-  mace: weapon('mace', 'Flanged Mace', '⚒', 0.2),
-  spear: weapon('spear', 'Hunting Spear', '↟', 0.2),
-  runeblade: weapon('runeblade', 'Runed Blade', '⚔', 0.35),
-  emberaxe: weapon('emberaxe', 'Ember Axe', '⚚', 0.35),
-  jerkin: armor('jerkin', 'Padded Jerkin', '▤', 1),
-  leathercoat: armor('leathercoat', 'Leather Coat', '▥', 1),
-  chainshirt: armor('chainshirt', 'Chain Shirt', '▦', 2),
-  brigandine: armor('brigandine', 'Brigandine', '▧', 2),
-  cuirass: armor('cuirass', 'Plate Cuirass', '▣', 3),
-  wardmail: armor('wardmail', 'Warded Mail', '◘', 3),
+  // Gear types (user 2026-10-11): no two pieces share a rarity and an effect.
+  dirk: dagger('dirk', 'Rusty Dirk', 0.1),
+  knife: dagger('knife', 'Skinning Knife', 0.15),
+  stiletto: dagger('stiletto', 'Stiletto', 0.2),
+  kris: dagger('kris', 'Kris', 0.25),
+  misericorde: dagger('misericorde', 'Misericorde', 0.35),
+  whisperblade: dagger('whisperblade', 'Whisperblade', 0.1, -0.5),
+  cudgel: hammer('cudgel', 'Cudgel', 1, 0.2, 0.5),
+  sledge: hammer('sledge', 'Sledge', 2, 0.3, 1),
+  warhammer: hammer('warhammer', 'Warhammer', 2, 0.35, 0.5),
+  ironmaul: hammer('ironmaul', 'Iron Maul', 3, 0.5, 1),
+  bonebreaker: hammer('bonebreaker', 'Bonebreaker', 3, 0.5, 0.5),
+  giantmaul: hammer('giantmaul', "Giant's Maul", 5, 0.75, 1),
+  jerkin: armor('leather', 'jerkin', 'Padded Jerkin', 1, 0),
+  studded: armor('leather', 'studded', 'Studded Leather', 2, 0),
+  drakehide: armor('leather', 'drakehide', 'Drakehide', 3, 0),
+  shadowskin: armor('leather', 'shadowskin', 'Shadowskin', 1, -0.5),
+  ringmail: armor('mail', 'ringmail', 'Ring Mail', 2, 0.5),
+  scaleshirt: armor('mail', 'scaleshirt', 'Scale Shirt', 3, 1),
+  hauberk: armor('mail', 'hauberk', 'Chain Hauberk', 3, 0.5),
+  brigandine: armor('mail', 'brigandine', 'Brigandine', 4, 1),
+  wardmail: armor('mail', 'wardmail', 'Warded Mail', 4, 0.5),
+  bulwark: armor('mail', 'bulwark', 'Bulwark Plate', 5, 1),
 };
+
+/** Weapons and armor from before gear types (2026-10-11): stashes and kits load them as the new piece of the same rarity. */
+export const OLD_GEAR_IDS: Record<string, ItemId> = {
+  shortsword: 'dirk', hatchet: 'knife', mace: 'stiletto', spear: 'kris', runeblade: 'misericorde', emberaxe: 'misericorde',
+  leathercoat: 'jerkin', chainshirt: 'studded', cuirass: 'drakehide',
+};
+
+/** An id as saved before gear types, read as today's. */
+export function migrateItemId(id: string): ItemId {
+  return OLD_GEAR_IDS[id] ?? (id as ItemId);
+}
 
 /**
  * Gear (user 2026-10-10): weapons, armor, amulets and rings, everything worn in a slot of its own. Brought in from
@@ -204,7 +246,11 @@ export function packRank(item: ItemId): number {
 
 /** How much better `item` is than what's in that slot now (0 or less = not an upgrade). */
 export function gearGain(item: ItemId, current: ItemId | null): number {
-  const value = (id: ItemId | null) => (id ? (ITEMS[id].dmgPct ?? 0) * 10 + (ITEMS[id].armor ?? 0) : 0);
+  const value = (id: ItemId | null) => {
+    if (!id) return 0;
+    const d = ITEMS[id];
+    return (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? d.speed ?? 0 : 0);
+  };
   return value(item) - value(current);
 }
 
@@ -226,19 +272,26 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
   { item: 'fever', weight: 0.5, rarity: 2 },
   { item: 'quickblood', weight: 0.5, rarity: 2 },
   { item: 'ashen', weight: 0.5, rarity: 2 },
-  { item: 'shortsword', weight: 1.5, rarity: 1 },
-  { item: 'hatchet', weight: 1.5, rarity: 1 },
-  { item: 'jerkin', weight: 1.5, rarity: 1 },
-  { item: 'leathercoat', weight: 1.5, rarity: 1 },
-  { item: 'mace', weight: 1, rarity: 2 },
-  { item: 'spear', weight: 1, rarity: 2 },
-  { item: 'chainshirt', weight: 1, rarity: 2 },
-  { item: 'brigandine', weight: 1, rarity: 2 },
-  { item: 'runeblade', weight: 0.5, rarity: 3 },
-  { item: 'emberaxe', weight: 0.5, rarity: 3 },
-  { item: 'cuirass', weight: 0.5, rarity: 3 },
-  { item: 'wardmail', weight: 0.5, rarity: 3 },
+  ...gearLoot('weapon', {
+    1: ['dirk', 'knife', 'cudgel', 'sledge'],
+    2: ['stiletto', 'kris', 'warhammer', 'ironmaul'],
+    3: ['misericorde', 'whisperblade', 'bonebreaker', 'giantmaul'],
+  }),
+  ...gearLoot('armor', {
+    1: ['jerkin', 'ringmail', 'scaleshirt'],
+    2: ['studded', 'hauberk', 'brigandine'],
+    3: ['drakehide', 'shadowskin', 'wardmail', 'bulwark'],
+  }),
 ];
+
+/**
+ * Each slot finds about as much gear of each rarity as it did with 2 pieces per rarity (weights 1.5 / 1 / 0.5 each),
+ * shared evenly by however many pieces that rarity has now.
+ */
+function gearLoot(_slot: 'weapon' | 'armor', tiers: Record<1 | 2 | 3, ItemId[]>): { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] {
+  const total = { 1: 3, 2: 2, 3: 1 } as const;
+  return ([1, 2, 3] as const).flatMap((r) => tiers[r].map((item) => ({ item, weight: total[r] / tiers[r].length, rarity: r })));
+}
 
 /** Resources, rolled apart from the loot table: Effigies are common, Tomes rare; Relics are only ever found in lairs. */
 export const RESOURCE_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] = [

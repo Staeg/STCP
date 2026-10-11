@@ -21,9 +21,9 @@ const full = { effigy: 5, gem: 5, tome: 5, relic: 5 };
 
 describe('the kit and Challenge Rating', () => {
   it('Gear adds 0.1 CR per level, an Effigy Rite +1 and a Gem Rite −0.5; consumables are free', () => {
-    expect(kitCr({ gear: { weapon: 'shortsword', armor: 'cuirass', ring: 'catseye' }, consumables: ['bandage', 'torch'], rites: [] })).toBe(0.7);
+    expect(kitCr({ gear: { weapon: 'dirk', armor: 'drakehide', ring: 'catseye' }, consumables: ['bandage', 'torch'], rites: [] })).toBe(0.7);
     expect(kitCr({ gear: {}, consumables: [], rites: ['effigy', 'gem'] })).toBe(0.5);
-    expect(heroCr('ironOath', { gear: { weapon: 'mace' }, consumables: [], rites: [] })).toBe(1.2);
+    expect(heroCr('ironOath', { gear: { weapon: 'stiletto' }, consumables: [], rites: [] })).toBe(1.2);
   });
 
   it('a fractional CR is the chance of the next one up', () => {
@@ -36,10 +36,10 @@ describe('the kit and Challenge Rating', () => {
   });
 
   it('checks the kit against the Stash: slots, at most 2 consumables, 5 Resources per Rite', () => {
-    const stash = ['bandage', 'bandage', 'torch', 'mace', 'locket'] as const;
-    expect(kitError({ gear: { weapon: 'mace', amulet: 'locket' }, consumables: ['bandage', 'bandage'], rites: ['relic'] }, stash, full)).toBeNull();
-    expect(kitError({ gear: { armor: 'mace' }, consumables: [], rites: [] }, stash, full)).toMatch(/isn't worn there/);
-    expect(kitError({ gear: { weapon: 'runeblade' }, consumables: [], rites: [] }, stash, full)).toMatch(/no Runed Blade/);
+    const stash = ['bandage', 'bandage', 'torch', 'stiletto', 'locket'] as const;
+    expect(kitError({ gear: { weapon: 'stiletto', amulet: 'locket' }, consumables: ['bandage', 'bandage'], rites: ['relic'] }, stash, full)).toBeNull();
+    expect(kitError({ gear: { armor: 'stiletto' }, consumables: [], rites: [] }, stash, full)).toMatch(/isn't worn there/);
+    expect(kitError({ gear: { weapon: 'misericorde' }, consumables: [], rites: [] }, stash, full)).toMatch(/no Misericorde/);
     expect(kitError({ gear: {}, consumables: ['bandage', 'bandage', 'torch'], rites: [] }, stash, full)).toMatch(/At most 2/);
     expect(kitError({ gear: {}, consumables: ['torch', 'torch'], rites: [] }, stash, full)).toMatch(/no more Torch/);
     expect(kitError({ gear: {}, consumables: [], rites: ['tome'] }, stash, { ...full, tome: 4 })).toMatch(/needs 5 Tomes/);
@@ -49,14 +49,14 @@ describe('the kit and Challenge Rating', () => {
 describe('the Village Stash', () => {
   it('keeps what was carried out (Resources counted, not sold), and the kit leaves it when a run starts', () => {
     const stash = new Stash(null);
-    stash.storeLoot('Ann', ['bandage', 'mace', 'effigy', 'effigy', 'effigy', 'effigy', 'effigy', 'gem']);
+    stash.storeLoot('Ann', ['bandage', 'stiletto', 'effigy', 'effigy', 'effigy', 'effigy', 'effigy', 'gem']);
     let v = stash.village('Ann');
-    expect(v.items).toEqual(['bandage', 'mace']);
+    expect(v.items).toEqual(['bandage', 'stiletto']);
     expect(v.resources).toEqual({ effigy: 5, gem: 1, tome: 0, relic: 0 });
-    expect(stash.setKit('Ann', { gear: { weapon: 'mace' }, consumables: ['bandage'], rites: ['effigy'] })).toBeNull();
+    expect(stash.setKit('Ann', { gear: { weapon: 'stiletto' }, consumables: ['bandage'], rites: ['effigy'] })).toBeNull();
     expect(stash.setKit('Ann', { gear: {}, consumables: [], rites: ['gem'] })).toMatch(/needs 5 Gems/);
     const kit = stash.takeKit('Ann');
-    expect(kit).toEqual({ gear: { weapon: 'mace' }, consumables: ['bandage'], rites: ['effigy'] });
+    expect(kit).toEqual({ gear: { weapon: 'stiletto' }, consumables: ['bandage'], rites: ['effigy'] });
     v = stash.village('Ann');
     expect(v.items).toEqual([]);
     expect(v.resources.effigy).toBe(0);
@@ -67,8 +67,8 @@ describe('the Village Stash', () => {
 describe('heroes with a kit', () => {
   it('wear the Gear and carry the consumables they brought', () => {
     const world = quiet();
-    const h = addHero(world, { id: 'h', name: 'H', cls: 'warden', loadout: loadout({ gear: { weapon: 'mace', amulet: 'locket' }, consumables: ['bandage', 'torch'] }) });
-    expect(h.weapon).toBe('mace');
+    const h = addHero(world, { id: 'h', name: 'H', cls: 'warden', loadout: loadout({ gear: { weapon: 'stiletto', amulet: 'locket' }, consumables: ['bandage', 'torch'] }) });
+    expect(h.weapon).toBe('stiletto');
     expect(h.amulet).toBe('locket');
     expect(h.items).toEqual(['bandage', 'torch']);
     expect(h.hp).toBe(h.maxHp);
@@ -98,7 +98,7 @@ describe('heroes with a kit', () => {
     const h = addHero(world, { id: 'g', name: 'G', cls: 'warden', loadout: loadout({ consumables: ['bandage'], rites: ['gem'] }) });
     expect(h.items).toEqual([]);
     expect(canTake(h, 'torch')).toBe(false);
-    expect(canTake(h, 'mace')).toBe(true);
+    expect(canTake(h, 'stiletto')).toBe(true);
   });
 
   it('CR has no cap: +25% HP and damage to T0/T1 from CR 3, +25% to all from CR 6, then +5% per CR', () => {
@@ -128,7 +128,7 @@ describe('heroes with a kit', () => {
   it('the Game rolls the combined CR', () => {
     const crs = new Set<number>();
     for (let seed = 1; seed < 40; seed++) {
-      const g = new Game(seed, [{ id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: { ...loadout({ gear: { weapon: 'runeblade', armor: 'cuirass' } }), talent: 'ironOath' } }], { monsters: false });
+      const g = new Game(seed, [{ id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: { ...loadout({ gear: { weapon: 'misericorde', armor: 'drakehide' } }), talent: 'ironOath' } }], { monsters: false });
       crs.add(g.world.cr);
     }
     expect(crs).toEqual(new Set([1, 2])); // 1.6
@@ -138,8 +138,8 @@ describe('heroes with a kit', () => {
 describe('the lobby and the Stash', () => {
   it('takes the kit in at the start and brings everything carried out home', () => {
     const stash = new Stash(null);
-    stash.storeLoot('Ann', ['mace', 'bandage', 'relic', 'relic', 'relic', 'relic', 'relic']);
-    expect(stash.setKit('Ann', { gear: { weapon: 'mace' }, consumables: ['bandage'], rites: ['relic'] })).toBeNull();
+    stash.storeLoot('Ann', ['stiletto', 'bandage', 'relic', 'relic', 'relic', 'relic', 'relic']);
+    expect(stash.setKit('Ann', { gear: { weapon: 'stiletto' }, consumables: ['bandage'], rites: ['relic'] })).toBeNull();
     const mgr = new LobbyManager(stash);
     const sent: ServerMsg[] = [];
     const ws: Socket = { OPEN: 1, readyState: 1, send: (d) => sent.push(JSON.parse(d)), close: () => {} };
@@ -157,7 +157,7 @@ describe('the lobby and the Stash', () => {
     const w = lobby.game.world;
     expect(w.startTime).toBe(EXIT_OPENS_AT);
     const you = Object.values(w.heroes).find((h) => !h.isBot)!;
-    expect(you.weapon).toBe('mace');
+    expect(you.weapon).toBe('stiletto');
     you.items.push('gem', 'tome');
     for (const h of Object.values(w.heroes)) {
       h.extracted = true;
@@ -166,7 +166,7 @@ describe('the lobby and the Stash', () => {
     step(w, 0.1);
     mgr.tick();
     const v = stash.village('Ann');
-    expect(v.items.sort()).toEqual(['bandage', 'mace']);
+    expect(v.items.sort()).toEqual(['bandage', 'stiletto']);
     expect(v.resources).toEqual({ effigy: 0, gem: 1, tome: 1, relic: 0 });
     expect(v.report.some((l) => l.startsWith('Into the Village Stash'))).toBe(true);
     // Tainted Wells: no Altars were cleansed.
