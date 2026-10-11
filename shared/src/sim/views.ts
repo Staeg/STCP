@@ -9,7 +9,7 @@ import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { EVENTS, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } from './events';
 import type { ItemCharge } from './gear';
-import { activeItems, canTake, decidersOf, votersIn } from './loot';
+import { activeItems, canTake, decidersOf, goldFor, pileGold, votersIn } from './loot';
 import {
   abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
@@ -70,7 +70,10 @@ export interface EventView {
 
 export interface LootView {
   room: number;
+  /** Loose gold lying here (it splits itself among whoever has room). */
   gold: number;
+  /** Of that, what you could take a share of: 0 if your pack is full or you put it all down yourself. */
+  yourGold: number;
   /** Hero ids that must agree on who gets what. */
   voters: string[];
   /** Up for grabs, side by side, each with its own vote (at most LOOT.maxDrops of them, as a rule). */
@@ -383,7 +386,7 @@ function revealRoom(world: World, room: number): RoomReveal {
   return {
     monsters: Object.values(world.monsters).filter((m) => m.room === room).map((m) => m.type),
     items: pile ? pile.items.map((f) => f.item) : [],
-    gold: pile?.gold ?? 0,
+    gold: pileGold(pile),
     event: ev && !ev.done ? ev.kind : undefined,
     captive: Object.values(world.villagers).some((v) => v.room === room && (v.state === 'captive' || v.state === 'waiting')) || undefined,
   };
@@ -413,7 +416,8 @@ function lootView(world: World, you: Hero): LootView | null {
   const active = activeItems(world, room, voters).filter((f) => !voters.includes(you) || decidersOf(f, [you]).length);
   return {
     room,
-    gold: pile.gold,
+    gold: pileGold(pile),
+    yourGold: goldFor(you, pile),
     voters: voters.map((v) => v.id),
     items: active.map((f) => {
       const slot = slotOf(f.item);
@@ -423,7 +427,7 @@ function lootView(world: World, you: Hero): LootView | null {
         votes: { ...f.votes },
         voters: decidersOf(f, voters).map((v) => v.id),
         candidates: present.filter((h) => canTake(h, f.item) && (h.id === f.claimedBy || !f.passed.includes(h.id))).map((h) => ({
-          id: h.id, name: h.name, free: packFree(h.items), isBot: h.isBot,
+          id: h.id, name: h.name, free: packFree(h.items, h.gold), isBot: h.isBot,
           wearing: slot ? h[slot] : undefined,
         })),
         startedAt: f.startedAt,

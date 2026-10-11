@@ -383,6 +383,7 @@ button.quiet { margin-left: auto; background: transparent; }
 .slot-item.off .item-glyph { position: relative; display: inline-block; filter: grayscale(1); opacity: 0.45; }
 .slot-item.off .item-glyph::after { content: ''; position: absolute; left: -2px; right: -2px; top: 50%; border-top: 2px solid #e0a060; transform: rotate(-35deg); }
 .slot-item.valuable { border-color: #7a6a2a; cursor: default; }
+.slot-item.goldstack { border-color: #a08a2a; cursor: default; color: var(--gold); }
 .slot-item .stack { color: var(--gold); font-size: 14px; margin-left: 2px; }
 .pack-row { margin-top: 6px; }
 .cursed-name { color: #e0607e; }

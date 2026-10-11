@@ -3,6 +3,7 @@ export type ItemId =
   | 'coin' | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
   | 'catseye' | 'bloodstone' | 'thorns' | 'quickblood' | 'ashen'
   | 'effigy' | 'gem' | 'tome' | 'relic'
+  | 'satchel'
   | 'dirk' | 'knife' | 'stiletto' | 'kris' | 'misericorde' | 'whisperblade'
   | 'cudgel' | 'sledge' | 'warhammer' | 'ironmaul' | 'bonebreaker' | 'giantmaul'
   | 'crook' | 'censer' | 'rowan' | 'wardstaff' | 'witchwood' | 'twinned' | 'evergreen' | 'hourglass'
@@ -26,8 +27,13 @@ export type ItemTarget = 'self' | 'ally' | 'downed' | 'enemies';
 export interface ItemDef {
   id: ItemId;
   name: string;
-  /** resource: Effigies, Gems, Tomes and Relics, carried home to the Village (they stack in the pack). */
-  kind: 'consumable' | 'resource' | GearSlot;
+  /**
+   * resource: Effigies, Gems, Tomes and Relics, carried home to the Village (they stack in the pack). valuable: worth
+   * `value` gold (× the CR's gold bonus) if carried out.
+   */
+  kind: 'consumable' | 'resource' | 'valuable' | GearSlot;
+  /** Valuables: gold it's worth once carried out of the dungeon. */
+  value?: number;
   glyph: string;
   desc: string;
   target: ItemTarget;
@@ -75,6 +81,8 @@ export interface ItemDef {
 /** The pack: this many slots; Effigies, Gems, Tomes and Relics stack up to STACK_SIZE in one. */
 export const INVENTORY_SLOTS = 14;
 export const STACK_SIZE = 3;
+/** Carried gold fills pack slots too, this much to a slot (user, 2026-10-11). */
+export const GOLD_PER_SLOT = 50;
 /** Only the first this-many consumables (which always sort to the top of the pack) get number keys. */
 export const HOTKEY_ITEMS = 4;
 
@@ -181,6 +189,9 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   gem: resource('gem', 'Gem', '◆', 'CR −0.5, but you can’t pick up or use consumables.'),
   tome: resource('tome', 'Tome', '▯', '−20% damage and HP, but your gold comes home even if you die.'),
   relic: resource('relic', 'Relic', '♛', 'the whole run starts at Escalation 5.'),
+  // Valuables: gold once carried out (they slow you while carried: put one down to run).
+  satchel: { id: 'satchel', name: "Courier's Satchel", kind: 'valuable', glyph: '⚖', value: 150, speed: 1.5, target: 'self', combat: false, field: false,
+    desc: 'Valuable: worth 150 gold if you carry it out. +1.5s Speed while you carry it.' },
   // Gear types (user 2026-10-11): no two pieces share a rarity and an effect.
   dirk: dagger('dirk', 'Rusty Dirk', 0.1),
   knife: dagger('knife', 'Skinning Knife', 0.15),
@@ -274,7 +285,7 @@ export function isJewel(item: ItemId): boolean {
 /** The slot it's worn in, or null for pack items. */
 export function slotOf(item: ItemId): GearSlot | null {
   const k = ITEMS[item].kind;
-  return k === 'consumable' || k === 'resource' ? null : k;
+  return k === 'consumable' || k === 'resource' || k === 'valuable' ? null : k;
 }
 
 /** Cursed amulets and rings (they hurt you, and quicken you), and cursed Cloth (a drawback while worn). */
@@ -282,10 +293,15 @@ export function isCursed(item: ItemId): boolean {
   return (isJewel(item) && (ITEMS[item].speed ?? 0) < 0) || !!ITEMS[item].cursed;
 }
 
-/** Pack slots these items fill: consumables one each, resources in stacks of STACK_SIZE. */
-export function packSlotsUsed(items: readonly ItemId[]): number {
+/** Pack slots this much gold fills. */
+export function goldSlots(gold: number): number {
+  return Math.ceil(Math.max(0, gold) / GOLD_PER_SLOT);
+}
+
+/** Pack slots these items (and this much gold) fill: consumables one each, resources in stacks of STACK_SIZE. */
+export function packSlotsUsed(items: readonly ItemId[], gold = 0): number {
   const stacks = new Map<ItemId, number>();
-  let n = 0;
+  let n = goldSlots(gold);
   for (const it of items) {
     if (ITEMS[it].kind === 'resource') stacks.set(it, (stacks.get(it) ?? 0) + 1);
     else n++;
@@ -295,9 +311,21 @@ export function packSlotsUsed(items: readonly ItemId[]): number {
 }
 
 /** Could one more of this go in the pack (a free slot, or room on a stack of the same)? */
-export function packFits(items: readonly ItemId[], item: ItemId): boolean {
+export function packFits(items: readonly ItemId[], item: ItemId, gold = 0): boolean {
   if (ITEMS[item].kind === 'resource' && items.filter((x) => x === item).length % STACK_SIZE !== 0) return true;
-  return packSlotsUsed(items) < INVENTORY_SLOTS;
+  return packSlotsUsed(items, gold) < INVENTORY_SLOTS;
+}
+
+/** How much more gold fits: the rest of a part-filled gold slot, plus GOLD_PER_SLOT per free slot. */
+export function goldRoom(items: readonly ItemId[], gold: number): number {
+  return Math.max(0, (INVENTORY_SLOTS - packSlotsUsed(items)) * GOLD_PER_SLOT - gold);
+}
+
+/** Carried gold as it's drawn in the pack: full slots of GOLD_PER_SLOT, the odd remainder last. */
+export function goldStacks(gold: number): number[] {
+  const out: number[] = [];
+  for (let left = gold; left > 0; left -= GOLD_PER_SLOT) out.push(Math.min(GOLD_PER_SLOT, left));
+  return out;
 }
 
 /**
@@ -315,8 +343,8 @@ export function packSlots(items: readonly ItemId[]): { item: ItemId; indices: nu
 }
 
 /** Free pack slots. */
-export function packFree(items: readonly ItemId[]): number {
-  return INVENTORY_SLOTS - packSlotsUsed(items);
+export function packFree(items: readonly ItemId[], gold = 0): number {
+  return INVENTORY_SLOTS - packSlotsUsed(items, gold);
 }
 
 /**
@@ -325,6 +353,7 @@ export function packFree(items: readonly ItemId[]): number {
  */
 export function packRank(item: ItemId): number {
   if (isResource(item)) return 2 + RESOURCE_IDS.indexOf(item);
+  if (ITEMS[item].kind === 'valuable') return 1.5;
   return isGear(item) ? 1 : 0;
 }
 

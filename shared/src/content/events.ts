@@ -241,9 +241,6 @@ export const SPEED_EVENTS = {
   /** Quicksilver: faster for the rest of the run, but frailer. (−1.5 from 2026-10-10 to 2026-10-11: too strong.) */
   quicksilverSpeed: -1,
   quicksilverMaxHp: -6,
-  /** Courier's Satchel: gold for the hero who hauls it, who is slower for the rest of the run. */
-  satchelGold: 100, // 45 until 2026-10-10
-  satchelSpeed: 1,
   /** Hourglass: everyone in the room is faster for a while. */
   hourglassSpeed: -1.5,
   hourglassDuration: 90,

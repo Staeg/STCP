@@ -6,7 +6,8 @@ import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
 import { buildView } from './views';
-import { addHero, applyIntent, createWorld, step, type World } from './world';
+import { addHero, applyIntent, createWorld, extractHero, step, type World } from './world';
+import { dropItem } from './loot';
 import type { RoomEvent } from './events';
 import { speedOf } from './speed';
 
@@ -133,12 +134,19 @@ describe('room events', () => {
     expect(speedOf(h, world.time)).toBe(4);
   });
 
-  it("courier's satchel: gold for the one who hauls it, who is slower from then on", () => {
+  it("courier's satchel: a Valuable that slows you while carried and is worth 150 gold once out", () => {
     const { world, h } = withEvent('satchel', 'cutthroat');
     choose(world, 'h', 'haul');
     run(world, 3.1);
-    expect(h.gold).toBe(100);
-    expect(speedOf(h, world.time)).toBe(4);
+    expect(h.items).toContain('satchel');
+    expect(speedOf(h, world.time)).toBe(4.5);
+    // Put down, it stops slowing you.
+    dropItem(world, h, h.items.indexOf('satchel'));
+    expect(speedOf(h, world.time)).toBe(3);
+    h.items.push('satchel');
+    extractHero(world, h);
+    expect(h.gold).toBe(150);
+    expect(h.items).not.toContain('satchel');
   });
 
   it('hourglass: everyone in the room is faster for a while', () => {

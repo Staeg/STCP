@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
+  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -41,6 +41,24 @@ export interface Pile {
   items: FloorItem[];
   /** Gold the dead dropped, by whose it was: an Undertaker who Raises them gives it back; anyone else just splits it. */
   corpseGold?: Record<string, number>;
+  /** Gold a hero put down (user, 2026-10-11): split among everyone else present, never back to them. */
+  dropped?: { by: string; gold: number }[];
+}
+
+/** All the loose gold in a pile (what's split, and what someone put down). */
+export function pileGold(pile: Pile | undefined): number {
+  return (pile?.gold ?? 0) + (pile?.dropped ?? []).reduce((s, d) => s + d.gold, 0);
+}
+
+/** Gold here this hero could take a share of: theirs to split, not dropped by them, and room in the pack for it. */
+export function goldFor(h: Hero, pile: Pile | undefined): number {
+  if (!pile || goldRoom(h.items, h.gold) <= 0) return 0;
+  return pile.gold + (pile.dropped ?? []).filter((d) => d.by !== h.id).reduce((s, d) => s + d.gold, 0);
+}
+
+/** A pile with nothing left in it. */
+function emptyPile(pile: Pile): boolean {
+  return pile.gold === 0 && !pile.corpseGold && !pile.dropped && pile.items.length === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +176,7 @@ export function floorFull(world: World, room: number): boolean {
 
 /** Room in the pack: a free slot, or (given a resource) room on a stack of the same. */
 export function hasSpace(h: Hero, item?: ItemId): boolean {
-  return item ? packFits(h.items, item) : packSlotsUsed(h.items) < INVENTORY_SLOTS;
+  return item ? packFits(h.items, item, h.gold) : packSlotsUsed(h.items, h.gold) < INVENTORY_SLOTS;
 }
 
 /**
@@ -296,7 +314,7 @@ export function tickLoot(world: World) {
     if (voters.length === 0) continue;
 
     if (pile.corpseGold) claimCorpseGold(pile);
-    if (pile.gold > 0) splitGold(world, room, pile);
+    if (pile.gold > 0 || pile.dropped) splitGold(world, room, pile);
     for (const f of pile.items) {
       if (f.seen.length === 0) f.startedAt = world.time;
       for (const v of voters) if (!f.seen.includes(v.id)) f.seen.push(v.id);
@@ -314,7 +332,7 @@ export function tickLoot(world: World) {
       const values = deciders.map((v) => f.votes[v.id]);
       if (values.every((v) => v !== undefined && v === values[0])) resolveItem(world, room, pile, f, values[0]!);
     }
-    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0) delete world.piles[room];
+    if (emptyPile(pile)) delete world.piles[room];
   }
 }
 
@@ -375,7 +393,7 @@ function raiseAlly(world: World, u: Hero, dead: Hero, room: number) {
       delete pile.corpseGold[dead.id];
       if (Object.keys(pile.corpseGold).length === 0) delete pile.corpseGold;
     }
-    if (pile.gold === 0 && !pile.corpseGold && pile.items.length === 0) delete world.piles[room];
+    if (emptyPile(pile)) delete world.piles[room];
   }
   u.legion.push({ hero: dead.id, hp: dead.maxHp, maxHp: dead.maxHp, dmgMult: 1, turns: 1, permanent: true });
   chronicle(world, `${u.name} raised ${dead.name} from the dead.`);
@@ -419,15 +437,59 @@ function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
 
 function splitGold(world: World, room: number, pile: Pile) {
   const present = presentIn(world, room);
-  const share = Math.floor(pile.gold / present.length);
-  let remainder = pile.gold - share * present.length;
-  for (const h of world.rng.shuffle(present)) {
-    let amount = share + (remainder-- > 0 ? 1 : 0);
-    amount = Math.round(amount * wornMult(h, 'goldMult'));
-    h.gold += amount;
-    notify(world, h, present.length > 1 ? `+${amount} gold (split ${present.length} ways)` : `+${amount} gold`);
+  const before = pileGold(pile);
+  const got = new Map<Hero, number>();
+  pile.gold = shareGold(world, pile.gold, present, got);
+  if (pile.dropped) {
+    for (const d of pile.dropped) d.gold = shareGold(world, d.gold, present.filter((h) => h.id !== d.by), got);
+    pile.dropped = pile.dropped.filter((d) => d.gold > 0);
+    if (!pile.dropped.length) delete pile.dropped;
   }
-  pile.gold = 0;
+  for (const [h, amount] of got) notify(world, h, present.length > 1 ? `+${amount} gold (split ${present.length} ways)` : `+${amount} gold`);
+  // Only when something moved: a full pack doesn't nag every tick.
+  const left = pileGold(pile);
+  if (left > 0 && left < before) {
+    for (const h of present) if (goldRoom(h.items, h.gold) <= 0 && isConscious(h)) notify(world, h, `Your pack is full: ${left} gold stays on the floor.`);
+  }
+}
+
+/**
+ * Gold carried takes pack space (user, 2026-10-11): hand `gold` out evenly among `heroes`, each up to what their pack
+ * holds, passing the full ones' shares on to the rest. Returns what nobody could carry.
+ */
+function shareGold(world: World, gold: number, heroes: Hero[], got: Map<Hero, number>): number {
+  let left = gold;
+  let open = world.rng.shuffle(heroes.filter((h) => goldRoom(h.items, h.gold) > 0));
+  while (left > 0 && open.length) {
+    const each = Math.floor(left / open.length);
+    let extra = left - each * open.length;
+    for (const h of open) {
+      const want = each + (extra-- > 0 ? 1 : 0);
+      if (want <= 0) continue;
+      const mult = wornMult(h, 'goldMult');
+      const full = Math.round(want * mult);
+      const gain = Math.min(goldRoom(h.items, h.gold), full);
+      h.gold += gain;
+      left -= gain >= full ? want : Math.min(want, Math.ceil(gain / mult));
+      got.set(h, (got.get(h) ?? 0) + gain);
+    }
+    open = open.filter((h) => goldRoom(h.items, h.gold) > 0);
+  }
+  return left;
+}
+
+/** Put down a slot's worth of gold (up to GOLD_PER_SLOT): the others here split it; it never comes back to you. */
+export function dropGold(world: World, h: Hero, amount: number): string | null {
+  if (h.pos.kind !== 'room' || h.encounter !== null) return 'Not now.';
+  const n = Math.min(Math.floor(amount), GOLD_PER_SLOT, h.gold);
+  if (n <= 0) return 'You have no gold.';
+  h.gold -= n;
+  const pile = (world.piles[h.pos.room] ??= { gold: 0, items: [] });
+  const mine = pile.dropped?.find((d) => d.by === h.id);
+  if (mine) mine.gold += n;
+  else (pile.dropped ??= []).push({ by: h.id, gold: n });
+  notify(world, h, `You put down ${n} gold.`);
+  return null;
 }
 
 /** Can it go to them? Only to someone here who can carry it and hasn't left it (as if they'd walked out). */

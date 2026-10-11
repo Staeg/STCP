@@ -31,6 +31,11 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
     const cost = id ? ITEMS[id].speed : undefined;
     if (cost) parts.push({ label: ITEMS[id!].name, amount: cost });
   }
+  // Valuables weigh you down while you carry them.
+  for (const id of h.items) {
+    const cost = ITEMS[id].kind === 'valuable' ? ITEMS[id].speed : undefined;
+    if (cost) parts.push({ label: ITEMS[id].name, amount: cost });
+  }
   for (const m of h.speedMods ?? []) {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }

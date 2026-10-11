@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemCharge, type ItemId, type LootItemView, type PlayerView,
+  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, goldStacks, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemCharge, type ItemId, type LootItemView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
@@ -86,6 +86,12 @@ export class LootUi {
         if (item && ITEMS[item].auto) net.intent({ type: 'toggleAuto', slot: gear.dataset.gear as GearSlot });
         return;
       }
+      // Gold: ✕ puts that slot's gold down for the others here.
+      const gold = (e.target as HTMLElement).closest('[data-gold]') as HTMLElement | null;
+      if (gold) {
+        if ((e.target as HTMLElement).closest('.drop')) net.intent({ type: 'dropGold', amount: Number(gold.dataset.gold) });
+        return;
+      }
       const el = (e.target as HTMLElement).closest('[data-slot]') as HTMLElement | null;
       if (!el) return;
       const slot = Number(el.dataset.slot);
@@ -148,7 +154,7 @@ export class LootUi {
     const panel = $('loot');
     const items = loot?.items ?? [];
     const ignored = loot?.ignored ?? [];
-    if (!loot || view.encounter || view.results || (items.length === 0 && ignored.length === 0)) {
+    if (!loot || view.encounter || view.results || (items.length === 0 && ignored.length === 0 && loot.gold === 0)) {
       if (!panel.hidden) {
         this.noteGone(new Set());
         panel.innerHTML = '';
@@ -197,6 +203,11 @@ export class LootUi {
         : `Everyone still in on an item must agree on it. "Leave it" drops you out of that item's vote; walking out drops you out of all of them.${pending.length ? ` Waiting on: ${esc(pending.join(', '))}` : ''}`;
       html += `<div class="loot-grid ${solo ? 'solo' : 'group'} n${shown.length}" style="--cols:${cols}">${shown.map(card).join('')}</div>
         <div class="lock">${hint}</div>`;
+    }
+    // Gold left lying: nobody here has room (or it's what you put down for the others).
+    if (loot.gold > 0) {
+      const why = loot.yourGold > 0 ? '' : goldRoom(view.you.items, view.you.gold) <= 0 ? ': no room in your pack (drop something to take it)' : ': you put it down, for the others';
+      html += `<div class="abandoned muted">⛀ ${loot.gold} gold lies here${why}.</div>`;
     }
     const rest = [...items.slice(MAX_CARDS), ...ignored];
     if (rest.length) {
@@ -296,9 +307,17 @@ export class LootUi {
     const you = view.you;
     // Pack: consumables first (the first few have number keys), then carried Gear, then stacked resources, then empty slots.
     const drawn = packSlots(you.items);
+    // Gold fills slots too, 50 to a slot, after everything else.
+    const coins = goldStacks(you.gold);
     const slots = [];
     for (let n = 0; n < INVENTORY_SLOTS; n++) {
       const s = drawn[n];
+      const g = s ? undefined : coins[n - drawn.length];
+      if (g !== undefined) {
+        slots.push(`<div class="slot-item goldstack" data-gold="${g}" title="${esc(`${g} gold. Gold takes a pack slot per ${GOLD_PER_SLOT}. ✕ puts it down: the others here split it, and it won't come back to you.`)}">
+          <span class="item-glyph">⛀</span><span class="item-name">${g} gold</span><span class="drop" title="Put it down for the others">✕</span></div>`);
+        continue;
+      }
       if (!s) {
         slots.push('<div class="slot-item empty"></div>');
         continue;

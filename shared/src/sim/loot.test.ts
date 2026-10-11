@@ -34,6 +34,43 @@ describe('gold', () => {
     expect(world.piles[d.entrance]).toBeUndefined();
   });
 
+  it('takes pack space (50 a slot): a full pack passes its share on, and what nobody can carry stays', () => {
+    const { world, d } = party(2);
+    const [a, b] = [world.heroes.h0, world.heroes.h1];
+    a.items = Array(INVENTORY_SLOTS - 1).fill('torch');
+    a.gold = 30; // one slot, 20 more fit
+    b.items = Array(INVENTORY_SLOTS - 2).fill('torch'); // 100 fit
+    addToPile(world, d.entrance, 200, []);
+    step(world, 0.1);
+    expect(a.gold).toBe(50);
+    expect(b.gold).toBe(100);
+    expect(world.piles[d.entrance].gold).toBe(80);
+    expect(packSlotsUsed(a.items, a.gold)).toBe(INVENTORY_SLOTS);
+    // Make room and it comes to you.
+    b.items.pop();
+    step(world, 0.1);
+    expect(b.gold).toBe(150);
+    expect(world.piles[d.entrance].gold).toBe(30);
+  });
+
+  it('dropped gold is split among the others, never back to whoever put it down', () => {
+    const { world, d } = party(2);
+    const [a, b] = [world.heroes.h0, world.heroes.h1];
+    a.gold = 120;
+    applyIntent(world, 'h0', { type: 'dropGold', amount: 20 });
+    expect(a.gold).toBe(100);
+    step(world, 0.1);
+    expect(b.gold).toBe(20);
+    expect(a.gold).toBe(100);
+    // Alone, it just lies there for you.
+    b.pos = { kind: 'room', room: neighbours(d, d.entrance)[0] };
+    applyIntent(world, 'h0', { type: 'dropGold', amount: 50 });
+    step(world, 0.1);
+    expect(a.gold).toBe(50);
+    expect(buildView(world, 'h0').loot?.gold).toBe(50);
+    expect(buildView(world, 'h0').loot?.yourGold).toBe(0);
+  });
+
   it('Lucky Coin adds 10% to your share', () => {
     const { world, d } = party(1);
     world.heroes.h0.amulet = 'coin';

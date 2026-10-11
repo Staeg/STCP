@@ -10,7 +10,7 @@ import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor, makePack } from './escalation';
 import { hopsFrom } from './call';
-import { addToPile, equip, rollItem, rollResource, seesInDark, takeItem } from './loot';
+import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { goInsane } from './mind';
 import { notify } from './notify';
 import { clothReady, freshCharge, spendCloth, wornCharge, type ItemCharge } from './gear';
@@ -18,7 +18,7 @@ import { CLOTH, GEAR_SLOTS, GEAR_TYPE_NAMES, ITEMS, itemTier, LOOT_TABLE, type G
 import { openSecretEarly, openSecretFor } from './secrets';
 import { toll } from './skills';
 import { addSpeedMod, fmtSpeed, speedOf } from './speed';
-import { chronicle, crGold, explore, type Hero, type World } from './world';
+import { chronicle, explore, type Hero, type World } from './world';
 
 /** Before this Escalation the Crawlspace leads into a secret room; from it on, toward the exit. */
 const CRAWL_TO_EXIT_ESCALATION = 5;
@@ -203,7 +203,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       return one(c('quaff', `Drink it (Speed ${signed(s)} for the rest of the run, ${SPEED_EVENTS.quicksilverMaxHp} max HP)`));
     }
     case 'satchel':
-      return one(c('haul', `Haul it (+${SPEED_EVENTS.satchelGold} gold for you alone, Speed ${signed(SPEED_EVENTS.satchelSpeed)} for the rest of the run)`));
+      return one(c('haul', `Take it (worth ${ITEMS.satchel.value} gold if you carry it out; Speed ${signed(ITEMS.satchel.speed!)} while you do)`,
+        hasSpace(h, 'satchel') ? undefined : 'Your pack is full.'));
     case 'hourglass':
       return one(h.cls === 'bellwright'
         ? perk(c('turn', `Turn it over (everyone here: Speed ${signed(SPEED_EVENTS.hourglassSpeed)} for the rest of the run)`), 'bellwright',
@@ -573,10 +574,11 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'haul':
-      h.gold += crGold(world, SPEED_EVENTS.satchelGold);
-      addSpeedMod(h, world.time, SPEED_EVENTS.satchelSpeed, null, "Courier's Satchel");
-      notify(world, h, `+${crGold(world, SPEED_EVENTS.satchelGold)} gold, all yours. Your shoulders ache already. (Speed ${signed(SPEED_EVENTS.satchelSpeed)})`);
-      chronicle(world, `${h.name} took the dead courier's satchel (+${crGold(world, SPEED_EVENTS.satchelGold)} gold).`);
+      // A Valuable (user, 2026-10-11; was gold and a lasting Speed cost): heavy while carried, gold once out.
+      if (hasSpace(h, 'satchel')) giveItem(h, 'satchel');
+      else addToPile(world, room, 0, ['satchel']);
+      notify(world, h, `You shoulder the satchel. Your legs ache already. (Speed ${signed(ITEMS.satchel.speed!)} while you carry it)`);
+      chronicle(world, `${h.name} took the dead courier's satchel.`);
       return;
     case 'turn': {
       const party = [h, ...othersHere(world, h).filter(isConscious)];

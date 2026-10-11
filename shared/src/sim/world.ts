@@ -18,13 +18,13 @@ import {
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import { CLOTH, slotOf } from '../content/items';
+import { CLOTH, ITEMS, slotOf } from '../content/items';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
 import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
 import {
-  activeItems, castVote, claimItem, equipFromPack, giveItem, wants, dropItem, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
+  activeItems, castVote, claimItem, equipFromPack, giveItem, wants, dropGold, dropItem, goldFor, pileGold, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
 
 export type HeroPos =
@@ -300,6 +300,8 @@ export type Intent =
   /** Bring an ignored floor item back up for grabs (alone: just take it). */
   | { type: 'claim'; item: number }
   | { type: 'drop'; index: number }
+  /** Put down one slot of gold (this much, at most GOLD_PER_SLOT): the others here split it. */
+  | { type: 'dropGold'; amount: number }
   /** Take off a weapon, armor, amulet or ring and put it on the floor. */
   | { type: 'unequip'; slot: GearSlot }
   /** Turn a worn piece that goes off by itself (Cloth) off or on. */
@@ -594,6 +596,9 @@ export function extractHero(world: World, h: Hero) {
   h.extractedAt = world.time;
   h.path = [];
   h.channel = null;
+  // Valuables carried out turn into gold (found gold: worth more at higher CR).
+  for (const it of h.items.filter((x) => ITEMS[x].kind === 'valuable')) h.gold += crGold(world, ITEMS[it].value ?? 0);
+  h.items = h.items.filter((x) => ITEMS[x].kind !== 'valuable');
   h.fate = `escaped with ${h.gold} gold`;
   chronicle(world, `${h.name} escaped with ${h.gold} gold.`);
   // Mortician: the allies this Undertaker Raised walk out with them, and what they carry goes to their Villages.
@@ -648,6 +653,11 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     case 'drop':
       dropItem(world, hero, intent.index);
       return;
+    case 'dropGold': {
+      const err = dropGold(world, hero, intent.amount);
+      if (err) notify(world, hero, err);
+      return;
+    }
     case 'unequip':
       unequip(world, hero, intent.slot);
       return;
@@ -763,12 +773,12 @@ function monsterTypes(world: World, room: number): EnemyId[] {
 
 function pileSeen(world: World, room: number): { items: ItemId[]; gold: number } {
   const p = world.piles[room];
-  return { items: p ? p.items.map((f) => f.item) : [], gold: p?.gold ?? 0 };
+  return { items: p ? p.items.map((f) => f.item) : [], gold: pileGold(p) };
 }
 
 function lootCount(world: World, room: number, h: Hero): number {
   const p = world.piles[room];
-  return p ? p.items.filter((f) => wants(h, f)).length + (p.gold > 0 ? 1 : 0) : 0;
+  return p ? p.items.filter((f) => wants(h, f)).length + (goldFor(h, p) > 0 ? 1 : 0) : 0;
 }
 
 function sameRoom(a: Hero, b: Hero) {

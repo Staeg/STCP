@@ -229,6 +229,8 @@ export class Stash {
     r.items ??= [];
     for (const it of carried) {
       if (isResource(it)) res[it]++;
+      // Valuables are sold on the way home.
+      else if (ITEMS[it].kind === 'valuable') r.purse = (r.purse ?? 0) + (ITEMS[it].value ?? 0);
       else r.items.push(it);
     }
     r.items.sort((a, b) => STASH_ORDER(a) - STASH_ORDER(b) || ITEMS[a].name.localeCompare(ITEMS[b].name));
