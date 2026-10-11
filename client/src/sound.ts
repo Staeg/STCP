@@ -3,8 +3,11 @@ import type { SoundCue } from '@stcp/shared';
 /** Tiny generated cues (no audio assets). */
 let ctx: AudioContext | null = null;
 
-/** One note: `freq` Hz (gliding to `to` if given), starting `at` seconds from now, fading out over `len`. */
-function tone(freq: number, at: number, len: number, opts: { type?: OscillatorType; vol?: number; to?: number } = {}) {
+/**
+ * One note: `freq` Hz (gliding to `to` if given), starting `at` seconds from now, swelling in over `attack`
+ * and fading out by `len`. `lp` darkens it through a lowpass filter at that many Hz.
+ */
+function tone(freq: number, at: number, len: number, opts: { type?: OscillatorType; vol?: number; to?: number; attack?: number; lp?: number } = {}) {
   const o = ctx!.createOscillator();
   const g = ctx!.createGain();
   o.type = opts.type ?? 'square';
@@ -12,9 +15,15 @@ function tone(freq: number, at: number, len: number, opts: { type?: OscillatorTy
   o.frequency.setValueAtTime(freq, t);
   if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, t + len);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(opts.vol ?? 0.06, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(opts.vol ?? 0.06, t + (opts.attack ?? 0.02));
   g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-  o.connect(g).connect(ctx!.destination);
+  if (opts.lp) {
+    const f = ctx!.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = opts.lp;
+    o.connect(f).connect(g);
+  } else o.connect(g);
+  g.connect(ctx!.destination);
   o.start(t);
   o.stop(t + len + 0.01);
 }
@@ -40,9 +49,17 @@ export function beep(kind: 'escalate' | 'alarm' | SoundCue) {
         tone(330, 0.38, 0.45, { type: 'sawtooth', vol: 0.04, to: 620 });
         break;
       case 'king':
-        // A dirge: three falling low notes over a drone.
-        tone(55, 0, 2.4, { type: 'sawtooth', vol: 0.03 });
-        [98, 92.5, 73.4].forEach((f, i) => tone(f, i * 0.5, i === 2 ? 1.4 : 0.48, { type: 'square', vol: 0.05 }));
+        // A funeral march: a dark, beating drone swells under four heavy strikes, a tritone creeps in beneath them,
+        // and it all sinks into a long falling groan.
+        tone(41.2, 0, 7, { type: 'sawtooth', vol: 0.06, attack: 1.5, lp: 300 });
+        tone(41.7, 0, 7, { type: 'sawtooth', vol: 0.06, attack: 1.5, lp: 300 });
+        tone(58.3, 2, 5, { type: 'sawtooth', vol: 0.035, attack: 1.5, lp: 400 });
+        [82.4, 82.4, 87.3, 77.8].forEach((f, i) => {
+          tone(f, i * 0.85, 0.75, { vol: 0.06, lp: 900 });
+          tone(f / 2, i * 0.85, 0.3, { type: 'sine', vol: 0.1 });
+        });
+        tone(61.7, 3.4, 3.6, { vol: 0.06, lp: 700 });
+        tone(220, 3.4, 3.6, { type: 'sawtooth', vol: 0.03, to: 55, attack: 0.8, lp: 600 });
         break;
     }
   } catch {
