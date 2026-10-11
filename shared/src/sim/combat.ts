@@ -6,7 +6,7 @@ import {
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, STAFF } from '../content/items';
-import { chargesAfterFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
+import { chargesForFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
 import { applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
@@ -337,6 +337,12 @@ export function takeSins(zealot: Hero, t: Hero, max: number): number {
  * Armor: flat reduction on any damage this hero takes, from any source. A hit always does at least 1.
  * A Quickblood Ring then adds to it.
  */
+/** Thorn Ring: what a monster that lands a blow on this hero takes back (0 without one). */
+export function thornsOf(h: Hero): number {
+  const bonus = wornStat(h, 'thorns');
+  return bonus > 0 ? bonus + (h.armor ? ITEMS[h.armor].armor ?? 0 : 0) : 0;
+}
+
 export function armored(h: Hero, dmg: number): number {
   if (dmg <= 0) return dmg;
   const reduced = h.armor ? Math.max(1, dmg - (ITEMS[h.armor].armor ?? 0)) : dmg;
@@ -450,6 +456,8 @@ function keepRisen(enc: Encounter, h: Hero) {
 
 function enlist(enc: Encounter, h: Hero) {
   if (enc.heroes.includes(h.id)) return;
+  // A new fight: once-a-fight pieces are ready again (not on leaving one, or Blinkcloth's slip would rearm it).
+  chargesForFight(h);
   h.unnoticedIn = null;
   enc.heroes.push(h.id);
   if (enc.fought && !enc.fought.includes(h.id)) enc.fought.push(h.id);
@@ -473,7 +481,6 @@ function leaveEncounter(world: World, enc: Encounter, h: Hero) {
  */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
-  chargesAfterFight(h);
   h.cdClock = 0;
   const { poison, acid, hexed, weak, vengeance, dodge, clang, doom } = h.st;
   h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom }).filter(([, v]) => v !== undefined));
@@ -1721,8 +1728,8 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
     applyMonsterDamage(world, m, back, events);
   }
-  // Thorn Ring: a blow that lands costs the attacker.
-  const thorns = wornStat(t, 'thorns');
+  // Thorn Ring: a blow that lands costs the attacker its bonus plus the wearer's armor.
+  const thorns = thornsOf(t);
   if (thorns > 0 && dmg > 0 && world.monsters[m.id] && m.hp > 0) {
     const back = monsterTakes(world, m, thorns);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Thorns! ${name} takes ${back}.` });

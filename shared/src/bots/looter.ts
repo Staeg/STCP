@@ -94,7 +94,7 @@ export function botUseItem(view: PlayerView): Intent | null {
   const skill = botSkill(view);
   if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
-  // Put on anything in the pack that beats what's worn (it went in the pack for being no rarer).
+  // Put on anything in the pack that beats what's worn (pickups only go on into an empty slot).
   const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!], me.cls) > 0);
   if (better >= 0) return { type: 'useItem', index: better };
   // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).

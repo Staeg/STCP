@@ -48,7 +48,7 @@ describe('equipping gear', () => {
     expect(h.items).toHaveLength(4);
   });
 
-  it('a rarer piece goes on; the old one goes in the pack', () => {
+  it('even a rarer piece goes in the pack, not on', () => {
     const { world, d } = party(['warden', 'sorceress']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
@@ -59,22 +59,20 @@ describe('equipping gear', () => {
     applyIntent(world, 'h0', { type: 'vote', item: loot.items[0].id, choice: 'h0' });
     applyIntent(world, 'h1', { type: 'vote', item: loot.items[0].id, choice: 'h0' });
     step(world, 0.1);
-    expect(h.armor).toBe('drakehide');
-    expect(h.items).toEqual(['jerkin']);
+    expect(h.armor).toBe('jerkin');
+    expect(h.items).toEqual(['drakehide']);
     expect(world.piles[d.entrance]).toBeUndefined();
   });
 
-  it('with a full pack, the old piece goes on the floor instead', () => {
+  it('with a full pack, even a rarer piece stays on the floor', () => {
     const { world, d } = party(['warden']);
     const h = world.heroes.h0;
     h.armor = 'jerkin';
     h.items = Array(14).fill('torch');
     addToPile(world, d.entrance, 0, ['drakehide']);
     takeAll(world);
-    expect(h.armor).toBe('drakehide');
-    const loot = buildView(world, 'h0').loot!;
-    expect(loot.items).toEqual([]);
-    expect(loot.ignored.map((f) => f.item)).toEqual(['jerkin']);
+    expect(h.armor).toBe('jerkin');
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['drakehide']);
   });
 
   it('no rarer than what you wear, it goes in the pack (after consumables, before resources)', () => {
@@ -309,7 +307,7 @@ describe('staves', () => {
     expect(l.world.heroes.h0.cooldowns.mend).toBeUndefined();
   });
 
-  it("Shepherd's Crook heals 50% more; Censer Staff eases 50% more stress", () => {
+  it("Shepherd's Crook heals twice as much; Censer Staff eases twice the stress", () => {
     const { world, ids, room } = arena(['lampbearer', 'warden'], ['ghoul']);
     const [l, w] = [world.heroes.h0, world.heroes.h1];
     l.weapon = 'crook';
@@ -318,14 +316,14 @@ describe('staves', () => {
     walkIn(world, ids, room);
     const hp = w.hp;
     act(world, room, 'a2', 'h1');
-    expect(w.hp - hp).toBe(Math.round(abilityById('mend')!.power * 1.5));
+    expect(w.hp - hp).toBe(Math.round(abilityById('mend')!.power * STAFF.healMult));
     l.weapon = 'censer';
     const base = STRESS.basePerSec;
     STRESS.basePerSec = 0;
     w.stress = 50;
     act(world, room, 'a1', 'h1');
     STRESS.basePerSec = base;
-    expect(w.stress).toBeCloseTo(50 - Math.round(abilityById('vigil')!.power * 1.5), 0);
+    expect(w.stress).toBeCloseTo(50 - Math.round(abilityById('vigil')!.power * STAFF.reliefMult), 0);
   });
 
   it('Evergreen doubles the buffs you place', () => {
@@ -382,18 +380,18 @@ describe('cloth', () => {
     for (let i = 0; i < 150 && !(world.heroes[id].pos.kind === 'room' && world.heroes[id].pos.room === room); i++) step(world, 0.1);
   }
 
-  it('a copy keeps its charge when it changes hands: a spent Blinkcloth stays spent', () => {
+  it('a copy keeps its charge when it changes hands: a spent Gravecloth stays spent', () => {
     const { world, d } = arena(['warden', 'cutthroat']);
     const [a, b] = [world.heroes.h0, world.heroes.h1];
-    a.armor = 'blinkcloth';
-    spendCloth(a, clothReady(a, 'blink')!);
-    expect(clothReady(a, 'blink')).toBeNull();
+    a.armor = 'gravecloth';
+    spendCloth(a, clothReady(a, 'grave')!);
+    expect(clothReady(a, 'grave')).toBeNull();
     applyIntent(world, 'h0', { type: 'unequip', slot: 'armor' });
     const f = world.piles[d.entrance].items[0];
     expect(f.charge?.usesLeft).toBe(0);
     applyIntent(world, 'h1', { type: 'claim', item: f.id });
-    expect(b.armor).toBe('blinkcloth');
-    expect(clothReady(b, 'blink')).toBeNull();
+    expect(b.armor).toBe('gravecloth');
+    expect(clothReady(b, 'grave')).toBeNull();
   });
 
   it('cooldowns only run while worn; a disabled piece never goes off', () => {
@@ -457,7 +455,7 @@ describe('cloth', () => {
     expect(q.encounter).toBeNull();
   });
 
-  it('Blinkcloth: instead of going down, out at 1 HP to a room next door (+20 stress)', () => {
+  it('Blinkcloth: instead of going down, out at 1 HP to a room next door, once a fight', () => {
     const { world, room } = arena(['cutthroat'], ['ghoul']);
     const h = world.heroes.h0;
     h.armor = 'blinkcloth';
@@ -470,6 +468,11 @@ describe('cloth', () => {
     expect(h.encounter).toBeNull();
     expect(h.pos.kind === 'room' && h.pos.room !== room && neighbours(world.dungeon, room).includes(h.pos.room)).toBe(true);
     expect(h.stress).toBeGreaterThanOrEqual(stress + CLOTH.blinkStress);
+    // Spent until the next fight it joins (leaving the old one doesn't rearm it).
+    expect(clothReady(h, 'blink')).toBeNull();
+    walk(world, 'h0', room);
+    expect(h.encounter).toBe(room);
+    expect(clothReady(h, 'blink')).not.toBeNull();
   });
 
   it('Gravecloth: gets you back up, again and again in that room, but not once you have left it', () => {

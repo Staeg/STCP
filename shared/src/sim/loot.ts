@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, itemTier, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
+  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, ITEMS, LOOT, LOOT_TABLE, packFits, packRank, packSlots, packSlotsUsed, INVENTORY_SLOTS, slotOf, RESOURCE_TABLE,
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
@@ -180,17 +180,15 @@ export function hasSpace(h: Hero, item?: ItemId): boolean {
 }
 
 /**
- * Gear picked up goes on if its slot is empty or it's a higher rarity than what's worn there (user 2026-10-11).
- * Otherwise it goes in the pack, like anything else.
+ * Gear picked up goes on only if its slot is empty; otherwise it goes in the pack, whatever its rarity, to be put on
+ * from there (user 2026-10-11).
  */
 export function putsOn(h: Hero, item: ItemId): boolean {
   const slot = slotOf(item);
-  if (!slot) return false;
-  const worn = h[slot];
-  return !worn || itemTier(item) > itemTier(worn);
+  return !!slot && !h[slot];
 }
 
-/** Gear that goes on can always be taken (what it replaces goes in the pack, or on the floor); the rest needs room. */
+/** Gear that goes on (into an empty slot) can always be taken; the rest needs room. */
 export function canTake(h: Hero, item: ItemId): boolean {
   // Gem Rite: no consumables at all.
   if (h.rites.includes('gem') && ITEMS[item].kind === 'consumable') return false;
@@ -202,7 +200,7 @@ export function wornDefs(h: Hero): ItemDef[] {
   return GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x).map((x) => ITEMS[x]);
 }
 
-type WornNumber = 'maxHp' | 'hurt' | 'thorns' | 'regen' | 'stressMult' | 'goldMult' | 'lightDrainMult';
+type WornNumber = 'maxHp' | 'hurt' | 'thorns' | 'regen' | 'stressMult' | 'lightDrainMult';
 
 /** A worn bonus that adds up (Thorn Ring's damage back, Bloodstone's regen…). */
 export function wornStat(h: Hero, key: WornNumber): number {
@@ -230,20 +228,11 @@ export function equip(h: Hero, slot: GearSlot, item: ItemId | null): ItemId | nu
   return old;
 }
 
-/**
- * Gear goes on (see `putsOn`) or in the pack; what it replaces goes in the pack too. Returns that replaced piece if
- * the pack had no room for it (the caller puts it on the floor).
- */
-export function giveItem(h: Hero, item: ItemId): ItemId | null {
+/** Gear goes on if its slot is empty (see `putsOn`); everything else goes in the pack. */
+export function giveItem(h: Hero, item: ItemId) {
   const slot = slotOf(item);
-  if (slot && putsOn(h, item)) {
-    const old = equip(h, slot, item);
-    if (!old || !hasSpace(h, old)) return old;
-    stow(h, old);
-    return null;
-  }
-  stow(h, item);
-  return null;
+  if (slot && putsOn(h, item)) equip(h, slot, item);
+  else stow(h, item);
 }
 
 /** Into the pack. Consumables always sit at the top (the first few get number keys), then Gear; resources stack below. */
@@ -385,8 +374,7 @@ function raiseAlly(world: World, u: Hero, dead: Hero, room: number) {
     for (const f of pile.items.filter((x) => x.by === dead.id)) {
       if (!canTake(dead, f.item)) continue;
       pile.items.splice(pile.items.indexOf(f), 1);
-      const old = giveItem(dead, f.item);
-      if (old) addToPile(world, room, 0, [old], dead.id);
+      giveItem(dead, f.item);
     }
     dead.gold += pile.corpseGold?.[dead.id] ?? 0;
     if (pile.corpseGold) {
@@ -423,16 +411,14 @@ export function risenAllyEscapes(world: World, u: Hero, dead: Hero) {
   chronicle(world, `${u.name} brought the risen ${dead.name} out, and what they carried home to their Village.`);
 }
 
-/** Give a floor item to a hero; gear it replaced that won't fit in their pack goes back on the floor as theirs. */
+/** Give a floor item to a hero. */
 function take(world: World, room: number, pile: Pile, h: Hero, f: FloorItem) {
   pile.items.splice(pile.items.indexOf(f), 1);
   if (f.charge) h.packCharges.push({ item: f.item, charge: f.charge });
   const def = ITEMS[f.item];
   const verb = putsOn(h, f.item) ? ['put on', 'puts on'] : ['take', 'takes'];
-  const old = giveItem(h, f.item);
+  giveItem(h, f.item);
   for (const x of presentIn(world, room)) notify(world, x, x === h ? `You ${verb[0]} the ${def.name}.` : `${h.name} ${verb[1]} the ${def.name}.`);
-  // The piece it replaced goes on the floor, up for grabs like any other find (but not for them).
-  if (old) addToPile(world, room, 0, [old], h.id);
 }
 
 function splitGold(world: World, room: number, pile: Pile) {
@@ -466,11 +452,9 @@ function shareGold(world: World, gold: number, heroes: Hero[], got: Map<Hero, nu
     for (const h of open) {
       const want = each + (extra-- > 0 ? 1 : 0);
       if (want <= 0) continue;
-      const mult = wornMult(h, 'goldMult');
-      const full = Math.round(want * mult);
-      const gain = Math.min(goldRoom(h.items, h.gold), full);
+      const gain = Math.min(goldRoom(h.items, h.gold), want);
       h.gold += gain;
-      left -= gain >= full ? want : Math.min(want, Math.ceil(gain / mult));
+      left -= gain;
       got.set(h, (got.get(h) ?? 0) + gain);
     }
     open = open.filter((h) => goldRoom(h.items, h.gold) > 0);
@@ -714,7 +698,7 @@ export function useItemInField(world: World, h: Hero, index: number, targetId?: 
   return null;
 }
 
-/** Cat's-Eye lets you see through dimness. */
+/** Cat's-Eye lets you see through dimness (and keeps you from forgetting paths). */
 export function seesInDark(h: Hero): boolean {
   return wornDefs(h).some((d) => d.seeDim);
 }

@@ -21,7 +21,7 @@ const full = { effigy: 5, gem: 5, tome: 5, relic: 5 };
 
 describe('the kit and Challenge Rating', () => {
   it('Gear adds 0.1 CR per level, an Effigy Rite +1 and a Gem Rite −0.5; consumables are free', () => {
-    expect(kitCr({ gear: { weapon: 'dirk', armor: 'drakehide', ring: 'catseye' }, consumables: ['bandage', 'torch'], rites: [] })).toBe(0.7);
+    expect(kitCr({ gear: { weapon: 'dirk', armor: 'drakehide', ring: 'catseye' }, consumables: ['bandage', 'torch'], rites: [] })).toBe(0.6);
     expect(kitCr({ gear: {}, consumables: [], rites: ['effigy', 'gem'] })).toBe(0.5);
     expect(heroCr('ironOath', { gear: { weapon: 'stiletto' }, consumables: [], rites: [] })).toBe(1.2);
   });
@@ -72,7 +72,7 @@ describe('heroes with a kit', () => {
     expect(h.amulet).toBe('locket');
     expect(h.items).toEqual(['bandage', 'torch']);
     expect(h.hp).toBe(h.maxHp);
-    expect(h.maxHp).toBe(CLASSES.warden.maxHp + 8);
+    expect(h.maxHp).toBe(CLASSES.warden.maxHp + 20);
   });
 
   it('Effigy: +20% damage and HP, 1s faster. Tome: −20%, and their gold goes home if they die', () => {

@@ -36,7 +36,8 @@ export function tickForgetting(world: World) {
   for (const h of Object.values(world.heroes)) {
     if (h.dead || h.extracted) continue;
     const now = pathsInSight(world, h);
-    const chance = Math.min(1, h.stress / 100);
+    // Cat's-Eye: nothing slips the wearer's mind.
+    const chance = seesInDark(h) ? 0 : Math.min(1, h.stress / 100);
     const lost: number[] = [];
     for (const cid of h.inSight) {
       if (now.includes(cid)) continue;

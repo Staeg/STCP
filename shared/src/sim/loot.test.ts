@@ -3,9 +3,9 @@ import { COLLAPSE_AT } from '../content/constants';
 import { STRESS } from '../content/events';
 import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
-import { armored, DEATH_TIMER, spawnGroup } from './combat';
+import { armored, DEATH_TIMER, spawnGroup, thornsOf } from './combat';
 import { Game } from './game';
-import { activeItems, addToPile, canTake, castVote, giveItem, LEAVE, votersIn, wornStat } from './loot';
+import { activeItems, addToPile, canTake, castVote, giveItem, LEAVE, votersIn } from './loot';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, extractHero, step, type World } from './world';
 
@@ -69,14 +69,6 @@ describe('gold', () => {
     expect(a.gold).toBe(50);
     expect(buildView(world, 'h0').loot?.gold).toBe(50);
     expect(buildView(world, 'h0').loot?.yourGold).toBe(0);
-  });
-
-  it('Lucky Coin adds 10% to your share', () => {
-    const { world, d } = party(1);
-    world.heroes.h0.amulet = 'coin';
-    addToPile(world, d.entrance, 20, []);
-    step(world, 0.1);
-    expect(world.heroes.h0.gold).toBe(22);
   });
 });
 
@@ -322,9 +314,13 @@ describe('items', () => {
     const h = world.heroes.h0;
     h.ring = 'quickblood';
     h.armor = 'studded';
-    expect(armored(h, 5)).toBe(4); // 5 − 2 armor + 1
+    expect(armored(h, 5)).toBe(5); // 5 − 2 armor + 2
     h.ring = 'thorns';
-    expect(wornStat(h, 'thorns')).toBe(2);
+    expect(thornsOf(h)).toBe(3); // 2 armor + 1
+    h.armor = null;
+    expect(thornsOf(h)).toBe(1);
+    h.ring = null;
+    expect(thornsOf(h)).toBe(0);
   });
 
   it('relics are only ever found in lairs', () => {
@@ -419,7 +415,7 @@ describe('items', () => {
     step(world, 0.1);
     expect(h.amulet).toBe('locket');
     expect(h.items).toEqual([]);
-    expect(h.maxHp).toBe(base + 8);
+    expect(h.maxHp).toBe(base + 20);
     applyIntent(world, 'h0', { type: 'unequip', slot: 'amulet' });
     expect(h.amulet).toBeNull();
     expect(h.maxHp).toBe(base);
@@ -494,13 +490,13 @@ describe('bot games with loot', () => {
 });
 
 describe('gear tiers', () => {
-  it('a lower-tier piece needs room in the pack; a rarer one can always be taken', () => {
+  it('gear needs room in the pack, whatever its rarity, unless its slot is empty', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
     h.weapon = 'dirk'; // tier 1
     h.items = Array(14).fill('torch');
     expect(canTake(h, 'knife')).toBe(false); // same tier
-    expect(canTake(h, 'misericorde')).toBe(true); // rarer: goes on
+    expect(canTake(h, 'misericorde')).toBe(false); // rarer: still the pack
     expect(canTake(h, 'jerkin')).toBe(true); // empty slot
     h.items = [];
     expect(canTake(h, 'knife')).toBe(true);

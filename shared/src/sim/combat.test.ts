@@ -285,7 +285,7 @@ describe('Speed', () => {
     const h = addHero(world, { id: 'h', name: 'H', cls: 'lampbearer' });
     h.weapon = 'warhammer';
     h.armor = 'hauberk';
-    h.amulet = 'coin';
+    h.amulet = 'ward';
     h.items = ['bandage', 'gem'];
     expect(buildView(world, 'h').you.maxHp).toBe(45);
     expect(speedOf({ ...h, ring: 'quickblood' }, 0)).toBe(5);

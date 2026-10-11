@@ -133,8 +133,8 @@ export function tickCharges(h: Hero, dt: number) {
   for (const c of Object.values(h.charges)) if (c && c.cdLeft > 0) c.cdLeft = Math.max(0, c.cdLeft - dt);
 }
 
-/** A fight this hero was in is over: once-a-fight pieces are ready for the next. */
-export function chargesAfterFight(h: Hero) {
+/** This hero joins a fight: once-a-fight pieces are ready for it. */
+export function chargesForFight(h: Hero) {
   for (const c of Object.values(h.charges)) if (c) c.usedThisFight = false;
 }
 

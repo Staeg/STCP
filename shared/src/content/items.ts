@@ -1,6 +1,6 @@
 export type ItemId =
   | 'bandage' | 'torch' | 'tonic' | 'firebomb' | 'salts'
-  | 'coin' | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
+  | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
   | 'catseye' | 'bloodstone' | 'thorns' | 'quickblood' | 'ashen'
   | 'effigy' | 'gem' | 'tome' | 'relic'
   | 'satchel'
@@ -64,17 +64,15 @@ export interface ItemDef {
   maxHp?: number;
   /** Multiplies stress you take. */
   stressMult?: number;
-  /** Multiplies your gold shares. */
-  goldMult?: number;
   /** Multiplies how fast your torch burns down. */
   lightDrainMult?: number;
   /** Added to every hit you take (after armor). */
   hurt?: number;
-  /** Damage a monster takes back when it hits you. */
+  /** Damage a monster takes back when it hits you, on top of your armor's reduction. */
   thorns?: number;
   /** Seconds per HP regained while exploring. */
   regen?: number;
-  /** Being Dim no longer hides neighbouring rooms. */
+  /** Being Dim no longer hides neighbouring rooms, and you never forget paths. */
   seeDim?: boolean;
 }
 
@@ -107,8 +105,8 @@ const hammer = (id: ItemId, name: string, flatDmg: number, dmgPct: number, speed
  */
 export type StaffEffect = 'heal' | 'relief' | 'linger' | 'ward' | 'witch' | 'twin' | 'evergreen' | 'hourglass';
 export const STAFF = {
-  healMult: 1.5,
-  reliefMult: 1.5,
+  healMult: 2,
+  reliefMult: 2,
   lingerTurns: 1,
   wardShield: 2,
   witchMult: 1.15,
@@ -173,17 +171,16 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },
   salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed ally at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
   // Amulets and rings: blessed ones only help; cursed ones hurt you but quicken your step.
-  locket: jewel('locket', 'amulet', 'Iron Locket', '♡', '+8 max HP.', { maxHp: 8 }),
-  ward: jewel('ward', 'amulet', 'Ward Charm', '☥', '−25% stress taken.', { stressMult: 0.75 }),
-  coin: jewel('coin', 'amulet', 'Lucky Coin', '◉', '+10% on every gold share.', { goldMult: 1.1 }),
-  ember: jewel('ember', 'amulet', 'Ember Pendant', '♨', 'Your torch burns 40% slower.', { lightDrainMult: 0.6 }),
+  locket: jewel('locket', 'amulet', 'Iron Locket', '♡', '+20 max HP.', { maxHp: 20 }),
+  ward: jewel('ward', 'amulet', 'Ward Charm', '☥', '−67% stress taken.', { stressMult: 0.33 }),
+  ember: jewel('ember', 'amulet', 'Ember Pendant', '♨', 'Your torch never burns down.', { lightDrainMult: 0 }),
   harefoot: jewel('harefoot', 'amulet', "Hare's Foot", '⚘', 'Cursed: −10 max HP.', { maxHp: -10, speed: -1 }),
-  fever: jewel('fever', 'amulet', 'Fever Charm', '♆', 'Cursed: +50% stress taken.', { stressMult: 1.5, speed: -1 }),
-  catseye: jewel('catseye', 'ring', "Cat's-Eye", '◈', 'Being Dim no longer hides neighbouring rooms or adds stress.', { seeDim: true }),
-  bloodstone: jewel('bloodstone', 'ring', 'Bloodstone Ring', '◍', 'Regain 1 HP every 6s while exploring.', { regen: 6 }),
-  thorns: jewel('thorns', 'ring', 'Thorn Ring', '✣', 'Monsters that hit you take 2 damage back.', { thorns: 2 }),
-  quickblood: jewel('quickblood', 'ring', 'Quickblood Ring', '◌', 'Cursed: +1 damage from every hit you take.', { hurt: 1, speed: -1 }),
-  ashen: jewel('ashen', 'ring', 'Ashen Band', '○', 'Cursed: your torch burns 60% faster.', { lightDrainMult: 1.6, speed: -0.75 }),
+  fever: jewel('fever', 'amulet', 'Fever Charm', '♆', 'Cursed: +67% stress taken.', { stressMult: 1.67, speed: -1 }),
+  catseye: jewel('catseye', 'ring', "Cat's-Eye", '◈', 'You never forget paths, and being Dim no longer hides neighbouring rooms or adds stress.', { seeDim: true }),
+  bloodstone: jewel('bloodstone', 'ring', 'Bloodstone Ring', '◍', 'Regain 1 HP every 4s while exploring.', { regen: 4 }),
+  thorns: jewel('thorns', 'ring', 'Thorn Ring', '✣', 'Monsters that hit you take your armor + 1 damage back.', { thorns: 1 }),
+  quickblood: jewel('quickblood', 'ring', 'Quickblood Ring', '◌', 'Cursed: +2 damage from every hit you take.', { hurt: 2, speed: -1 }),
+  ashen: jewel('ashen', 'ring', 'Ashen Band', '○', 'Cursed: your torch burns 150% faster.', { lightDrainMult: 2.5, speed: -1 }),
   // Resources (user 2026-10-10): worth nothing down here; carried home, they power Village Rites (village.ts RITES).
   effigy: resource('effigy', 'Effigy', '♙', 'CR +1; +20% damage and HP, −1s Speed.'),
   gem: resource('gem', 'Gem', '◆', 'CR −0.5, but you can’t pick up or use consumables.'),
@@ -230,17 +227,19 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     `Cursed: +25% stress taken. Dropping below ${CLOTH.penitentBelow * 100}% HP heals you ${CLOTH.penitentHeal}.`, { cursed: true, stressMult: 1.25 }),
   gravecloth: cloth('gravecloth', 'Gravecloth', { effect: 'grave', usesPerRun: 1 },
     `Cursed: −8 max HP. When you go down, you get back up by yourself after ${CLOTH.graveTurns} of your turns at ${CLOTH.graveHp * 100}% HP, and again each time you fall in that room, until you leave it.`, { cursed: true, maxHp: -8 }),
-  softstep: cloth('softstep', 'Softstep Cloak', { effect: 'softstep', cooldown: 90 },
+  softstep: cloth('softstep', 'Softstep Cloak', { effect: 'softstep', cooldown: 60 },
     'Unnoticed: walking in on monsters, or monsters wandering in on you, starts no fight for you. If an ally starts one there, you are drawn in.'),
-  blinkcloth: cloth('blinkcloth', 'Blinkcloth Mantle', { effect: 'blink', usesPerRun: 1 },
+  blinkcloth: cloth('blinkcloth', 'Blinkcloth Mantle', { effect: 'blink', perFight: true },
     `Slip: instead of going down, you leave at 1 HP for a random room next door (+${CLOTH.blinkStress} stress).`),
   gossamer: cloth('gossamer', 'Gossamer Shroud', { effect: 'gossamer', perFight: true }, 'the first attack aimed at you in a fight misses.', { speed: -0.5 }),
 };
 
-/** Weapons and armor from before gear types (2026-10-11): stashes and kits load them as the new piece of the same rarity. */
+/** Gear that no longer exists (weapons and armor from before gear types, Lucky Coin): stashes and kits load it as this. */
 export const OLD_GEAR_IDS: Record<string, ItemId> = {
   shortsword: 'dirk', hatchet: 'knife', mace: 'stiletto', spear: 'kris', runeblade: 'misericorde', emberaxe: 'misericorde',
   leathercoat: 'jerkin', chainshirt: 'studded', cuirass: 'drakehide',
+  // Lucky Coin, removed 2026-10-11: loads as the other plain amulet bonus.
+  coin: 'locket',
 };
 
 /** An id as saved before gear types, read as today's. */
@@ -384,17 +383,17 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
   { item: 'tonic', weight: 3, rarity: 1 },
   { item: 'firebomb', weight: 3, rarity: 2 },
   { item: 'salts', weight: 2, rarity: 2 },
-  { item: 'coin', weight: 0.6, rarity: 3 },
-  { item: 'locket', weight: 0.6, rarity: 3 },
-  { item: 'ward', weight: 0.6, rarity: 3 },
-  { item: 'ember', weight: 0.6, rarity: 3 },
-  { item: 'catseye', weight: 0.6, rarity: 3 },
-  { item: 'bloodstone', weight: 0.6, rarity: 3 },
-  { item: 'thorns', weight: 0.6, rarity: 3 },
-  { item: 'harefoot', weight: 0.5, rarity: 2 },
-  { item: 'fever', weight: 0.5, rarity: 2 },
-  { item: 'quickblood', weight: 0.5, rarity: 2 },
-  { item: 'ashen', weight: 0.5, rarity: 2 },
+  // Amulets and rings (user 2026-10-11): the cursed ones (they quicken you) are rare, the blessed uncommon.
+  { item: 'locket', weight: 0.6, rarity: 2 },
+  { item: 'ward', weight: 0.6, rarity: 2 },
+  { item: 'ember', weight: 0.6, rarity: 2 },
+  { item: 'catseye', weight: 0.6, rarity: 2 },
+  { item: 'bloodstone', weight: 0.6, rarity: 2 },
+  { item: 'thorns', weight: 0.6, rarity: 2 },
+  { item: 'harefoot', weight: 0.5, rarity: 3 },
+  { item: 'fever', weight: 0.5, rarity: 3 },
+  { item: 'quickblood', weight: 0.5, rarity: 3 },
+  { item: 'ashen', weight: 0.5, rarity: 3 },
   ...gearLoot('weapon', {
     1: ['dirk', 'knife', 'cudgel', 'sledge', 'crook', 'censer'],
     2: ['stiletto', 'kris', 'warhammer', 'ironmaul', 'rowan', 'wardstaff', 'witchwood'],

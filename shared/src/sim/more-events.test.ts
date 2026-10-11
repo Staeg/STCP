@@ -144,14 +144,14 @@ describe("Smith's Anvil", () => {
   it('anything without a next piece becomes a random piece of its kind, one rarity up', () => {
     const { world, h } = withEvent('anvil');
     equip(h, 'weapon', 'censer');
-    equip(h, 'amulet', 'harefoot'); // cursed, uncommon
+    equip(h, 'amulet', 'locket'); // uncommon
     const maxHp = h.maxHp;
     expect(buildView(world, 'h').event!.choices.map((c) => c.label).join(' ')).toMatch(/random uncommon Staff.*random rare amulet/);
     choose(world, 'h', 'forge-amulet');
     run(world, MORE_EVENTS.anvilTime + 0.5);
     expect(ITEMS[h.amulet!].kind).toBe('amulet');
     expect(itemTier(h.amulet!)).toBe(3);
-    expect(h.maxHp).toBe(maxHp + 10 + (ITEMS[h.amulet!].maxHp ?? 0)); // the Hare's Foot's −10 is gone
+    expect(h.maxHp).toBe(maxHp - 20 + (ITEMS[h.amulet!].maxHp ?? 0)); // the Locket's +20 is gone
     expect(h.weapon).toBe('censer'); // only the one chosen
   });
 
