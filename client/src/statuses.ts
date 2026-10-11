@@ -20,7 +20,7 @@ export function statusIcons(st: Statuses, time: number): string[] {
       `Acid ×${st.acid.stacks}: takes +${st.acid.stacks * 2} from every hit, Poison included. One stack fades in ${rounds(st.acid.turns)}; another Flask adds one and starts it over.`),
     st.hexed && sym(`⛧${st.hexed.length > 1 ? `×${st.hexed.length}` : ''}`,
       `Hexed ×${st.hexed.length}: Hex deals +${st.hexed.length * 100}% to it (${st.hexed.map((n) => rounds(n)).join('; ')}).`),
-    st.block && iconNum('shield', st.block, `Shield ${st.block}: soaks up the next ${st.block} damage taken, then is gone.`),
+    st.shield && iconNum('shield', st.shield, `Shield ${st.shield}: soaks up the next ${st.shield} damage from blows. Lasts until the end of your next fight.`),
     st.weak && sym('↓', `Weakened: deals 50% less damage (${rounds(st.weak)}).`),
     st.vengeance && sym('⚔', `Vengeance: whoever attacks them takes the full blow back (${st.vengeance === 1 ? 'until their next turn' : `${st.vengeance} more turns of theirs`}).`),
     st.doom && sym(`☠${st.doom > 1 ? `×${st.doom}` : ''}`,

@@ -259,7 +259,7 @@ describe('Bellwright', () => {
   it('timed statuses outlast the fight and tick in the field; Poison keeps hurting', () => {
     const { world, ids } = arena(['bellwright'], ['ghoul']);
     const h = world.heroes[ids[0]];
-    h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: 1, stun: true, block: 5 };
+    h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: 1, stun: true, shield: 5 };
     h.cooldowns = {};
     const hp = h.hp;
     fieldTurn(world, h);

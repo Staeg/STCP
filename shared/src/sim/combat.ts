@@ -30,7 +30,8 @@ export interface Statuses {
   acid?: { stacks: number; turns: number };
   /** Hexed: one entry per stack, each the turns it has left. Every stack adds CLASS_RULES.hexedBonus to Hex's damage. */
   hexed?: number[];
-  block?: number;
+  /** Shield (was Block): soaks up this much damage from blows. Can be gained out of combat; gone when a fight you are in ends. */
+  shield?: number;
   /** Deals half damage; turns remaining. */
   weak?: number;
   /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
@@ -945,15 +946,15 @@ function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]):
     if (m.st.weak) dmg *= 0.5;
     if (h.light <= 0) dmg *= 1.25;
     dmg = armored(h, Math.max(1, Math.round(dmg))) + doomOf(h);
-    if (h.st.block) {
-      const absorbed = Math.min(h.st.block, dmg);
-      h.st.block -= absorbed;
+    if (h.st.shield) {
+      const absorbed = Math.min(h.st.shield, dmg);
+      h.st.shield -= absorbed;
       dmg -= absorbed;
-      if (h.st.block <= 0) delete h.st.block;
+      if (h.st.shield <= 0) delete h.st.shield;
     }
     events.push({
       actor: m.id, kind: 'damage', target: h.id, amount: dmg,
-      text: dmg > 0 ? `The Lich's cold presence sears ${h.name} for ${dmg}.` : `The Lich's cold presence washes over ${h.name}, but it's blocked.`,
+      text: dmg > 0 ? `The Lich's cold presence sears ${h.name} for ${dmg}.` : `The Lich's cold presence washes over ${h.name}, but their Shield soaks it up.`,
     });
     applyHeroDamage(world, enc, h, dmg, events);
   }
@@ -1133,7 +1134,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     case 'rally':
       for (const a of allies()) {
-        a.st.block = (a.st.block ?? 0) + ab.power;
+        a.st.shield = (a.st.shield ?? 0) + ab.power;
         addStress(a, -10);
       }
       events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${ab.power} Shield, −10 stress)` });
@@ -1371,9 +1372,9 @@ function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: numb
   if (h.st.weak) dmg *= 0.5;
   if (h.affliction === 'hopeless') dmg *= 0.7;
   dmg = monsterTakes(m, Math.max(1, Math.round(dmg)));
-  if (m.st.block) {
-    const absorbed = Math.min(m.st.block, dmg);
-    m.st.block -= absorbed;
+  if (m.st.shield) {
+    const absorbed = Math.min(m.st.shield, dmg);
+    m.st.shield -= absorbed;
     dmg -= absorbed;
   }
   events.push({
@@ -1577,15 +1578,15 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
   if (t.st.brace) dmg *= 0.7;
   dmg = armored(t, Math.max(1, Math.round(dmg))) + doomOf(t);
-  if (t.st.block) {
-    const absorbed = Math.min(t.st.block, dmg);
-    t.st.block -= absorbed;
+  if (t.st.shield) {
+    const absorbed = Math.min(t.st.shield, dmg);
+    t.st.shield -= absorbed;
     dmg -= absorbed;
-    if (t.st.block <= 0) delete t.st.block;
+    if (t.st.shield <= 0) delete t.st.shield;
   }
   events.push({
     actor: m.id, kind: 'damage', target: t.id, amount: dmg,
-    text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but it's blocked.`,
+    text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but their Shield soaks it up.`,
   });
   applyHeroDamage(world, enc, t, dmg, events);
   if (returned > 0 && world.monsters[m.id]) {
