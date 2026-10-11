@@ -50,7 +50,7 @@ function patchNotesHtml(): string {
     <div class="patch-head">${g.at ? `<span title="${esc(new Date(g.at).toLocaleString())}">${ago(g.at)}</span>` : '<span class="danger">Not pushed yet</span>'}
       <span class="muted small">@ ${g.sha}</span></div>
     ${g.headlines.length ? `<div class="patch-headline">${g.headlines.map(esc).join(' · ')}</div>` : ''}
-    ${list(g.major, 'Major')}<div class="minor">${list(g.minor, 'Minor')}</div>${list(g.other)}</div>`).join('');
+    ${list(g.major, 'Major')}<div class="minor">${list(g.minor, 'Minor')}</div>${list(g.other, g.major.length + g.minor.length ? 'Other' : '')}</div>`).join('');
   return `<div class="patch-notes card wide"><div class="patch-title"><h1>Patch notes</h1><button data-act="patch-notes" class="quiet">Close</button></div>
     <div class="patch-list">${groups || '<p class="muted">No notes in this build.</p>'}</div></div>`;
 }

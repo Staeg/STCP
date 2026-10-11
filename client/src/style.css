@@ -135,9 +135,9 @@ kbd { color: var(--muted); font-family: inherit; }
   padding: 0;
 }
 .build-tag:hover { background: none; opacity: 1; color: var(--gold); }
-.patch-notes {
+.patch-notes.card {
   position: fixed; z-index: 30; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  max-height: calc(100% - 48px); display: flex; flex-direction: column;
+  max-height: calc(100% - 48px); display: flex; flex-direction: column; background: #16120f;
 }
 .patch-title { display: flex; align-items: center; margin-bottom: 8px; }
 .patch-list { overflow-y: auto; user-select: text; }
