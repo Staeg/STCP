@@ -4,7 +4,7 @@ import { CROWNED, MORE_EVENTS, STRESS } from '../content/events';
 import { ENEMIES, KING_RULES, type EnemyId } from '../content/enemies';
 import { ITEMS, itemTier, LOOT } from '../content/items';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { monsterArmor, monsterSpeed, onHeroInRoom, spawnGroup } from './combat';
+import { monsterBlock, monsterSpeed, onHeroInRoom, spawnGroup } from './combat';
 import { wornCharge } from './gear';
 import { equip } from './loot';
 import { buildView } from './views';
@@ -248,9 +248,9 @@ describe('the Dead King', () => {
 
   it('wears 3 armor for every other monster still standing beside him', () => {
     const { world, king, rest } = court(['ghoul', 'ghoul']);
-    expect(monsterArmor(world, king)).toBe(2 * KING_RULES.armorPerCourtier);
+    expect(monsterBlock(world, king)).toBe(2 * KING_RULES.blockPerCourtier);
     delete world.monsters[rest[0].id];
-    expect(monsterArmor(world, king)).toBe(KING_RULES.armorPerCourtier);
+    expect(monsterBlock(world, king)).toBe(KING_RULES.blockPerCourtier);
   });
 
   it('takes turns between Kneel (every hero Stunned) and Charge (every monster quicker, a blow to the nearest)', () => {

@@ -6,6 +6,7 @@ import { Rng } from '../rng';
 import { buildView } from './views';
 import { isConscious } from './combat';
 import { addHero, applyIntent, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
+import { rouseTheKing } from './events';
 
 export interface PlayerSlot {
   id: string;
@@ -38,6 +39,9 @@ export class Game {
       addHero(this.world, slot);
       if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919, this.world.startTime));
     });
+    // Relic Rite: it also wakes the Dead King as the run begins (Crowned in Dread; user, 2026-10-11).
+    const ritualist = slots.find((s) => s.loadout?.kit?.rites.includes('relic'));
+    if (ritualist && opts.monsters !== false) rouseTheKing(this.world, this.world.heroes[ritualist.id], this.world.dungeon.exit, true);
   }
 
   /** Hand a hero over to a bot (e.g. a player left mid-run). */

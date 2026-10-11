@@ -19,8 +19,8 @@ export interface EnemyDef {
   speed: number;
   /** Base damage of its main attack (scaled by Escalation). */
   dmg: number;
-  /** Flat reduction on any damage it takes, from any source (a hit always does at least 1), as hero armor. */
-  armor: number;
+  /** Block: flat reduction on any damage it takes, from any source (a hit always does at least 1), as a hero's. */
+  block: number;
   undead: boolean;
   /** Never more than one to a room. */
   onePerRoom?: boolean;
@@ -35,23 +35,23 @@ export interface EnemyDef {
 
 export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- T0 ----
-  ghoul: { id: 'ghoul', name: 'Ghoul', tier: 0, maxHp: 14, speed: 5, dmg: 4, armor: 0, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to the nearest hero.' },
-  crawler: { id: 'crawler', name: 'Crawler', tier: 0, maxHp: 8, speed: 3, dmg: 2, armor: 0, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Poison to a random hero.' },
-  acolyte: { id: 'acolyte', name: 'Acolyte', tier: 0, maxHp: 11, speed: 4, dmg: 3, armor: 0, undead: false, glyph: '♆', desc: 'Whisper: +4 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
+  ghoul: { id: 'ghoul', name: 'Ghoul', tier: 0, maxHp: 14, speed: 5, dmg: 4, block: 0, undead: true, glyph: '☠', desc: 'Claw: 4 dmg to the nearest hero.' },
+  crawler: { id: 'crawler', name: 'Crawler', tier: 0, maxHp: 8, speed: 3, dmg: 2, block: 0, undead: false, glyph: '✷', desc: 'Fast. Bite: 2 dmg + Poison to a random hero.' },
+  acolyte: { id: 'acolyte', name: 'Acolyte', tier: 0, maxHp: 11, speed: 4, dmg: 3, block: 0, undead: false, glyph: '♆', desc: 'Whisper: +4 stress to a random hero, or Curse: 3 dmg to the farthest hero.' },
   // ---- T1 ----
-  wight: { id: 'wight', name: 'Lantern Wight', tier: 1, maxHp: 16, speed: 5, dmg: 3, armor: 0, undead: true, glyph: '♰', desc: 'Snuff: 3 dmg and −15 light to the nearest hero.' },
-  zombie: { id: 'zombie', name: 'Zombie', tier: 1, maxHp: 10, speed: 5, dmg: 3, armor: 0, undead: true, glyph: '⚰',
+  wight: { id: 'wight', name: 'Lantern Wight', tier: 1, maxHp: 16, speed: 5, dmg: 3, block: 0, undead: true, glyph: '♰', desc: 'Snuff: 3 dmg and −15 light to the nearest hero.' },
+  zombie: { id: 'zombie', name: 'Zombie', tier: 1, maxHp: 10, speed: 5, dmg: 3, block: 0, undead: true, glyph: '⚰',
     desc: 'Claw: 3 dmg to the nearest hero. Gets back up 12s after it dies, where it fell, unless an Undertaker raises it.' },
   // ---- T2 ----
-  giant: { id: 'giant', name: 'Bone Giant', tier: 2, maxHp: 34, speed: 8, dmg: 7, armor: 3, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes. Armor 3: every hit on it does 3 less (at least 1).' },
-  queen: { id: 'queen', name: 'Forsaken Queen', tier: 2, maxHp: 32, speed: 6, dmg: 4, armor: 0, undead: false, glyph: '♛', onePerRoom: true, needsCompany: true,
+  giant: { id: 'giant', name: 'Bone Giant', tier: 2, maxHp: 34, speed: 8, dmg: 7, block: 3, undead: true, glyph: '♜', desc: 'Slow. Slam: 7 dmg to the two nearest heroes. Block 3: every hit on it does 3 less (at least 1).' },
+  queen: { id: 'queen', name: 'Forsaken Queen', tier: 2, maxHp: 32, speed: 6, dmg: 4, block: 0, undead: false, glyph: '♛', onePerRoom: true, needsCompany: true,
     desc: 'Hymn: every other monster heals 4 and acts 2s sooner. Alone, Dirge: +5 stress to every hero.' },
   // ---- T3 ----
-  lich: { id: 'lich', name: 'Lich', tier: 3, maxHp: 30, speed: 6, dmg: 3, armor: 0, undead: true, glyph: '♚', onePerRoom: true,
+  lich: { id: 'lich', name: 'Lich', tier: 3, maxHp: 30, speed: 6, dmg: 3, block: 0, undead: true, glyph: '♚', onePerRoom: true,
     desc: 'Aura: every hero takes 3 dmg before each of their turns. Once a fight it raises a slain monster whole; otherwise Doom: every hero in the fight gains a stack of +1 dmg taken from everything. Stacks hold while a Lich stands in their fight, then fade one per turn of theirs, even after the fight.' },
   // ---- T4: only with Crowned in Dread (user, 2026-10-11) ----
-  king: { id: 'king', name: 'Dead King', tier: 4, maxHp: 100, speed: 10, dmg: 10, armor: 0, undead: true, glyph: '♔', onePerRoom: true, eventOnly: true,
-    desc: 'Very slow. Armor 3 for every other monster still standing in the fight. Takes turns between Kneel (every hero in the fight is Stunned) and Charge (10 dmg to the nearest hero; every monster in the fight is 1s faster until it ends), starting with either.' },
+  king: { id: 'king', name: 'Dead King', tier: 4, maxHp: 100, speed: 10, dmg: 10, block: 0, undead: true, glyph: '♔', onePerRoom: true, eventOnly: true,
+    desc: 'Very slow. Block 3 for every other monster still standing in the fight. Takes turns between Kneel (every hero in the fight is Stunned) and Charge (10 dmg to the nearest hero; every monster in the fight is 1s faster until it ends), starting with either.' },
 };
 
 export const TIERS: RosterTier[] = [0, 1, 2, 3];
@@ -60,8 +60,8 @@ for (const e of Object.values(ENEMIES)) if (!e.eventOnly && e.tier !== 4) UNITS_
 
 /** The Dead King (T4). */
 export const KING_RULES = {
-  /** Armor for every other monster still standing in his fight. */
-  armorPerCourtier: 3,
+  /** Block for every other monster still standing in his fight. */
+  blockPerCourtier: 3,
   /** Charge: every monster in the fight is this much faster (seconds) until it ends; each Charge adds more. */
   chargeHaste: 1,
   /** No monster gets quicker than this. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { neighbours } from '../dungeon/gen';
 import { botUseItem, botVote } from '../bots/looter';
-import { armored, damageMult, hitDamage, hurtHero, onHeroInRoom, spawnGroup, weakMult } from './combat';
+import { afterBlock, damageMult, hitDamage, hurtHero, onHeroInRoom, spawnGroup, weakMult } from './combat';
 import { clothReady, spendCloth, witchwoodMult } from './gear';
 import { eventTime } from './events';
 import { wornMult } from './loot';
@@ -159,11 +159,11 @@ describe('gear in combat', () => {
     expect(damageMult(h)).toBe(1);
     h.weapon = 'misericorde';
     expect(damageMult(h)).toBeCloseTo(1.35);
-    expect(armored(h, 5)).toBe(5);
+    expect(afterBlock(h, 5)).toBe(5);
     h.armor = 'studded';
-    expect(armored(h, 5)).toBe(3);
-    expect(armored(h, 2)).toBe(1);
-    expect(armored(h, 0)).toBe(0);
+    expect(afterBlock(h, 5)).toBe(3);
+    expect(afterBlock(h, 2)).toBe(1);
+    expect(afterBlock(h, 0)).toBe(0);
   });
 
   it('applies in a real fight', () => {
@@ -228,8 +228,8 @@ describe('gear types', () => {
   it('no two pieces share a rarity and an effect', () => {
     const seen = new Set<string>();
     for (const e of LOOT_TABLE.filter((x) => isArms(x.item))) {
-      const { kind, dmgPct, flatDmg, armor, speed, staff, cloth } = ITEMS[e.item];
-      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, armor, speed, staff, cloth?.effect]);
+      const { kind, dmgPct, flatDmg, block, speed, staff, cloth } = ITEMS[e.item];
+      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, block, speed, staff, cloth?.effect]);
       expect(seen.has(key), e.item).toBe(false);
       seen.add(key);
     }

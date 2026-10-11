@@ -1,6 +1,6 @@
 import {
   BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, itemTier, KIT_RULES, kitCr, LEVEL_NAMES,
-  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, forgeable, anvilInto,
+  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, forgeable, anvilInto,
   type BuildingId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
@@ -115,10 +115,10 @@ function resourcesHtml(v: VillageView): string {
   const tiles = RESOURCE_IDS.map((r) => {
     const have = v.resources[r] ?? 0;
     const on = v.kit.rites.includes(r);
-    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${on ? 'Performed next run.' : 'Perform it from the New Run screen.'}`;
+    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${riteCost(r)}): ${RITES[r].desc}\n${on ? 'Performed next run.' : 'Perform it from the New Run screen.'}`;
     return `<span class="rite ${on ? 'on' : ''}" title="${esc(tip)}"><span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}${on ? ' ✦' : ''}</span></span>`;
   }).join('');
-  return `<div class="vv-res"><span class="muted" title="Resources build buildings; ${KIT_RULES.riteCost} of one power a Rite for your next run.">Resources</span>${tiles}</div>`;
+  return `<div class="vv-res"><span class="muted" title="Resources build buildings; ${KIT_RULES.riteCost} of one (1 Relic) power a Rite for your next run.">Resources</span>${tiles}</div>`;
 }
 
 /** Rite toggles for the New Run loadout: a click performs (or cancels) one for the next run. */
@@ -126,9 +126,9 @@ function ritesHtml(v: VillageView): string {
   return RESOURCE_IDS.map((r) => {
     const have = v.resources[r] ?? 0;
     const on = v.kit.rites.includes(r);
-    const can = on || have >= KIT_RULES.riteCost;
-    const status = on ? 'Performed next run. Click to cancel.' : can ? 'Click to perform it next run.' : `Needs ${KIT_RULES.riteCost}.`;
-    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${KIT_RULES.riteCost}): ${RITES[r].desc}\n${status}`;
+    const can = on || have >= riteCost(r);
+    const status = on ? 'Performed next run. Click to cancel.' : can ? 'Click to perform it next run.' : `Needs ${riteCost(r)}.`;
+    const tip = `${pluralName(r)}: ${have}\n${RITES[r].name} (${riteCost(r)}): ${RITES[r].desc}\n${status}`;
     return `<button class="rite ${on ? 'on' : ''}" data-act="rite" data-rite="${r}" ${can ? '' : 'disabled'} title="${esc(tip)}">
       <span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}${on ? ' ✦' : ''}</span></button>`;
   }).join('');
@@ -244,7 +244,7 @@ export function loadoutHtml(v: VillageView): string {
   ];
   const cr = kitCr(kit);
   return `<div class="lb-panel loadout">
-    <div class="vv-sub"><span class="gold">Loadout</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3). Up to ${KIT_RULES.consumables} consumables, free. ${KIT_RULES.riteCost} of a Resource performs its Rite. If your Character dies, what they took is lost.">(?)</span>
+    <div class="vv-sub"><span class="gold">Loadout</span>${cr ? ` <span class="muted">CR ${cr > 0 ? '+' : ''}${cr}</span>` : ''} <span class="muted small" title="Gear adds ${KIT_RULES.crPerGearLevel} CR per level (common 1, uncommon 2, rare 3). Up to ${KIT_RULES.consumables} consumables, free. ${KIT_RULES.riteCost} of a Resource (1 Relic) performs its Rite. If your Character dies, what they took is lost.">(?)</span>
       <span class="lb-rites">${ritesHtml(v)}</span></div>
     <div class="kit-slots">${slots.join('')}</div>
     <div class="vv-sub"><span class="gold">Stash</span></div>

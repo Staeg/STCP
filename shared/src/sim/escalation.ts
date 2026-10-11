@@ -1,7 +1,7 @@
 import { EXIT_OPENS_AT, escalationAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { armored, crUnits, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { afterBlock, crUnits, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { hopsFrom } from './call';
 import { notify } from './notify';
 import { openDueSecrets } from './secrets';
@@ -235,7 +235,7 @@ export function collapseCorridor(world: World, cid: number, reason = 'A tunnel c
       explore(world, h, back);
       h.knownCollapsed.push(cid);
       notify(world, h, 'The tunnel caves in around you!');
-      hurtHero(world, h, armored(h, 4), null);
+      hurtHero(world, h, afterBlock(h, 4), null);
       chronicle(world, `${h.name} was caught in a cave-in.`);
       onHeroInRoom(world, h, back);
     }

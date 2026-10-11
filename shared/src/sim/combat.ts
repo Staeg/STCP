@@ -27,8 +27,10 @@ export interface Statuses {
   stun?: boolean;
   /** Each Poison runs on its own: `rounds` = turns of poison left for that one. */
   poison?: Poison[];
-  /** Acid: takes CLASS_RULES.acidBonus more from every hit per stack. `turns` = own turns until one stack fades. */
+  /** Acid: −CLASS_RULES.acidBonus Block per stack. `turns` = own turns until one stack fades. */
   acid?: { stacks: number; turns: number };
+  /** Monster: wolf bites this fight, each −1 Block (gone when the fight ends, like every monster status). */
+  sunder?: number;
   /** Hexed: one entry per stack, each the turns it has left. Every stack adds CLASS_RULES.hexedBonus to Hex's damage. */
   hexed?: number[];
   /** Shield (was Block): soaks up this much damage from blows. Can be gained out of combat; gone when a fight you are in ends. */
@@ -333,20 +335,24 @@ export function takeSins(zealot: Hero, t: Hero, max: number): number {
   return moved;
 }
 
-/**
- * Armor: flat reduction on any damage this hero takes, from any source. A hit always does at least 1.
- * A Quickblood Ring then adds to it.
- */
+/** A hero's Block: what everything they wear adds up to (armour, a Quickblood Ring's −2…). Can be negative. */
+export function heroBlock(h: Hero): number {
+  return wornStat(h, 'block');
+}
+
 /** Thorn Ring: what a monster that lands a blow on this hero takes back (0 without one). */
 export function thornsOf(h: Hero): number {
   const bonus = wornStat(h, 'thorns');
-  return bonus > 0 ? bonus + (h.armor ? ITEMS[h.armor].armor ?? 0 : 0) : 0;
+  return bonus > 0 ? bonus + Math.max(0, heroBlock(h)) : 0;
 }
 
-export function armored(h: Hero, dmg: number): number {
+/**
+ * Block: a flat reduction on any damage this hero takes, from any source. A hit always does at least 1; negative
+ * Block (a Quickblood Ring) adds to every hit.
+ */
+export function afterBlock(h: Hero, dmg: number): number {
   if (dmg <= 0) return dmg;
-  const reduced = h.armor ? Math.max(1, dmg - (ITEMS[h.armor].armor ?? 0)) : dmg;
-  return reduced + wornStat(h, 'hurt');
+  return Math.max(1, dmg - heroBlock(h));
 }
 
 export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World, by?: Hero) {
@@ -827,7 +833,7 @@ function endLingering(world: World, enc: Encounter, id: string) {
 
 /**
  * Poison and status timers, at the end of a unit's own turn. Every Poison ticks on its own (its own damage,
- * its own countdown); `adjust` turns each tick into the damage actually taken (armor, acid). Stops if the unit dies.
+ * its own countdown); `adjust` turns each tick into the damage actually taken (Block, Acid). Stops if the unit dies.
  */
 function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) => number, hurt: (n: number) => boolean, events: CombatEvent[]) {
   for (const b of [...(st.poison ?? [])]) {
@@ -886,7 +892,7 @@ export function fieldTurnStart(h: Hero) {
 export function fieldTurnEnd(world: World, h: Hero) {
   if (!isConscious(h)) return;
   const events: CombatEvent[] = [];
-  endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + doomOf(h), (n) => {
+  endOfTurn(h.st, h.name, h.id, (n) => afterBlock(h, n) + doomOf(h), (n) => {
     if (hurtHero(world, h, n, null)) notify(world, h, `You take ${n} poison damage.`);
     return isConscious(h);
   }, events);
@@ -944,25 +950,27 @@ export function monsterSpeed(enc: Encounter | undefined, m: Monster): number {
   return haste ? Math.max(Math.min(base, KING_RULES.speedFloor), base - haste) : base;
 }
 
-/** A monster's armor right now: the Dead King's grows with every other monster still standing beside him. */
-export function monsterArmor(world: World, m: Monster): number {
-  const base = ENEMIES[m.type].armor;
-  if (m.type !== 'king' || m.room < 0) return base;
-  return base + KING_RULES.armorPerCourtier * monstersIn(world, m.room).filter((o) => o !== m).length;
+/**
+ * A monster's Block right now: its kind's, plus the Dead King's 3 for every other monster still standing beside
+ * him, minus 2 per stack of Acid and 1 per wolf bite this fight (`sunder`). Can go below 0.
+ */
+export function monsterBlock(world: World, m: Monster): number {
+  let block = ENEMIES[m.type].block - (m.st.acid?.stacks ?? 0) * CLASS_RULES.acidBonus - (m.st.sunder ?? 0);
+  if (m.type === 'king' && m.room >= 0) block += KING_RULES.blockPerCourtier * monstersIn(world, m.room).filter((o) => o !== m).length;
+  return block;
 }
 
-/** What a monster actually takes from a hit of `dmg`: its armor takes some off (at least 1 gets through), then Acid adds to it. */
+/** What a monster actually takes from a hit of `dmg`: its Block takes some off (at least 1 gets through) or, below 0, adds to it. */
 function monsterTakes(world: World, m: Monster, dmg: number): number {
-  const reduced = dmg > 0 ? Math.max(1, dmg - monsterArmor(world, m)) : dmg;
-  const acid = m.st.acid ? reduced + m.st.acid.stacks * CLASS_RULES.acidBonus : reduced;
-  return Math.round(acid * witchwoodMult(m.st));
+  const taken = dmg > 0 ? Math.max(1, dmg - monsterBlock(world, m)) : dmg;
+  return Math.round(taken * witchwoodMult(m.st));
 }
 
-/** What a risen takes from a blow: a Risen ally's own armor counts, a risen monster's its kind's. */
+/** What a risen takes from a blow: a Risen ally's own Block counts, a risen monster's its kind's. */
 function risenTakes(world: World, r: Risen, dmg: number): number {
   const ally = r.hero ? world.heroes[r.hero] : undefined;
-  if (ally) return armored(ally, dmg);
-  return Math.max(1, dmg - ENEMIES[r.type!].armor);
+  if (ally) return afterBlock(ally, dmg);
+  return Math.max(1, dmg - ENEMIES[r.type!].block);
 }
 
 function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) {
@@ -994,7 +1002,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     heroAct(world, enc, h, choice, events);
   }
   if (isConscious(h) && h.encounter === enc.room) {
-    endOfTurn(h.st, h.name, h.id, (n) => armored(h, n) + doomOf(h), (n) => {
+    endOfTurn(h.st, h.name, h.id, (n) => afterBlock(h, n) + doomOf(h), (n) => {
       applyHeroDamage(world, enc, h, n, events);
       return isConscious(h);
     }, events);
@@ -1004,7 +1012,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
 }
 
 /**
- * The Lich's aura: before a hero acts, every Lich in the fight hurts them. It can't be dodged or braced; armor
+ * The Lich's aura: before a hero acts, every Lich in the fight hurts them. It can't be dodged or braced; Block
  * takes from it as usual, and darkness, Weak and Doom change it like any blow. Returns false if it took them down.
  */
 function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]): boolean {
@@ -1013,7 +1021,7 @@ function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]):
     let dmg = ENEMIES.lich.dmg * m.dmgMult;
     dmg *= weakMult(m.st);
     if (h.light <= 0) dmg *= 1.25;
-    dmg = armored(h, Math.max(1, Math.round(dmg))) + doomOf(h);
+    dmg = afterBlock(h, Math.max(1, Math.round(dmg))) + doomOf(h);
     if (h.st.shield) {
       const absorbed = Math.min(h.st.shield, dmg);
       h.st.shield -= absorbed;
@@ -1289,7 +1297,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     case 'pact': {
       for (const a of allies()) {
-        const cost = Math.min(a.hp - 1, armored(a, CLASS_RULES.pactCost));
+        const cost = Math.min(a.hp - 1, afterBlock(a, CLASS_RULES.pactCost));
         if (cost > 0) {
           a.hp -= cost;
           events.push({ actor: h.id, kind: 'damage', target: a.id, amount: cost, text: a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.` });
@@ -1711,7 +1719,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     spendCloth(t, patch);
     dmg *= CLOTH.patchworkMult;
   }
-  dmg = armored(t, Math.max(1, Math.round(dmg))) + doomOf(t);
+  dmg = afterBlock(t, Math.max(1, Math.round(dmg))) + doomOf(t);
   if (t.st.shield) {
     const absorbed = Math.min(t.st.shield, dmg);
     t.st.shield -= absorbed;
@@ -1728,7 +1736,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
     applyMonsterDamage(world, m, back, events);
   }
-  // Thorn Ring: a blow that lands costs the attacker its bonus plus the wearer's armor.
+  // Thorn Ring: a blow that lands costs the attacker its bonus plus the wearer's Block.
   const thorns = thornsOf(t);
   if (thorns > 0 && dmg > 0 && world.monsters[m.id] && m.hp > 0) {
     const back = monsterTakes(world, m, thorns);

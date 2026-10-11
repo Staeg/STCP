@@ -189,7 +189,7 @@ export class Screens {
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <span class="cr-name">${c.name}${ch?.talent ? ' <span class="talent-star">★</span>' : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
-        <span class="cr-abs">${abilitiesFor(id, ch?.talent).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
+        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${abilitiesFor(id, ch?.talent).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
         ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
@@ -368,7 +368,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
       <img class="class-sprite" src="${spriteUrl(id, c.color)}" alt="">
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
-    <div class="blurb">${iconize(c.blurb)}</div>
+    <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
     <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
   </div>`;
 }

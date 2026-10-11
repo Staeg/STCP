@@ -5,7 +5,7 @@ import { Rng } from './rng';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
 import { isResource, ITEMS, migrateItemId, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
-  applyRun, BUILDING_IDS, BUILDINGS, chooseTalent, emptyKit, foundVillage, INJURY_NAMES, KIT_RULES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
+  applyRun, BUILDING_IDS, BUILDINGS, chooseTalent, riteCost, emptyKit, foundVillage, INJURY_NAMES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
   SERVICE_RELICS, serviceHome, SERVICES, talentPending, upkeepOf, VILLAGE_RULES,
   type BuildingId, type Buildings, type Character, type Injury, type Kit, type RunOutcome, type ServiceId, type Sight,
 } from './village';
@@ -237,8 +237,8 @@ export class Stash {
     const out = emptyKit();
     for (const [slot, it] of Object.entries(kit.gear)) if (it && take(it)) out.gear[slot as keyof Kit['gear']] = it;
     out.rites = kit.rites.filter((x) => {
-      if (res[x] < KIT_RULES.riteCost) return false;
-      res[x] -= KIT_RULES.riteCost;
+      if (res[x] < riteCost(x)) return false;
+      res[x] -= riteCost(x);
       return true;
     });
     // The Gem Rite forbids consumables, and the Emergency what it needs carried out: they stay in the Stash.

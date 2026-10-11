@@ -156,6 +156,8 @@ describe('the lobby and the Stash', () => {
     const lobby = (mgr as unknown as { lobbies: Map<string, { game: Game }> }).lobbies.values().next().value!;
     const w = lobby.game.world;
     expect(w.startTime).toBe(EXIT_OPENS_AT);
+    // ...and the Dead King is already on the march.
+    expect(Object.values(w.monsters).filter((m) => m.procession).map((m) => m.type)).toContain('king');
     const you = Object.values(w.heroes).find((h) => !h.isBot)!;
     expect(you.weapon).toBe('stiletto');
     you.items.push('gem', 'tome');
@@ -167,7 +169,8 @@ describe('the lobby and the Stash', () => {
     mgr.tick();
     const v = stash.village('Ann');
     expect(v.items.sort()).toEqual(['bandage', 'stiletto']);
-    expect(v.resources).toEqual({ effigy: 0, gem: 1, tome: 1, relic: 0 });
+    // The Relic Rite costs just 1 (user, 2026-10-11).
+    expect(v.resources).toEqual({ effigy: 0, gem: 1, tome: 1, relic: 4 });
     expect(v.report.some((l) => l.startsWith('Into the Village Stash'))).toBe(true);
     // Tainted Wells: no Altars were cleansed.
     expect(v.report).toContain('Tainted Wells: failed. Wellbeing 3 → 2.');

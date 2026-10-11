@@ -55,8 +55,8 @@ export interface ItemDef {
   auto?: true;
   /** Cloth with a drawback while worn (like cursed amulets and rings, but no quicker for it). */
   cursed?: true;
-  /** Armor: subtracted from every hit you take (never below 1). */
-  armor?: number;
+  /** Block: subtracted from every hit you take (never below 1). Negative (cursed rings) adds to every hit. */
+  block?: number;
   /** Seconds added to your Speed while you wear it (negative = faster: cursed amulets and rings, a few light rares). */
   speed?: number;
   // ---- Amulets and rings, while worn ----
@@ -66,9 +66,7 @@ export interface ItemDef {
   stressMult?: number;
   /** Multiplies how fast your torch burns down. */
   lightDrainMult?: number;
-  /** Added to every hit you take (after armor). */
-  hurt?: number;
-  /** Damage a monster takes back when it hits you, on top of your armor's reduction. */
+  /** Damage a monster takes back when it hits you, on top of your Block. */
   thorns?: number;
   /** Seconds per HP regained while exploring. */
   regen?: number;
@@ -151,17 +149,21 @@ const cloth = (id: ItemId, name: string, def: ClothDef, text: string, extra: Par
   };
 };
 
-const armor = (type: 'leather' | 'mail', id: ItemId, name: string, value: number, speed: number): ItemDef => ({
-  id, name, kind: 'armor', gearType: type, glyph: GLYPHS[type], target: 'self', combat: false, field: false, armor: value, speed,
-  desc: `${GEAR_TYPE_NAMES[type]}: −${value} damage from every hit (min 1).${speedNote(speed)}`,
+/** Block, as item text: "+3 Block (every hit you take does 3 less, min 1)." */
+export const blockNote = (block: number) =>
+  block >= 0 ? `+${block} Block (every hit you take does ${block} less, min 1).` : `−${-block} Block (every hit you take does ${-block} more).`;
+
+const armor = (type: 'leather' | 'mail', id: ItemId, name: string, block: number, speed: number): ItemDef => ({
+  id, name, kind: 'armor', gearType: type, glyph: GLYPHS[type], target: 'self', combat: false, field: false, block, speed,
+  desc: `${GEAR_TYPE_NAMES[type]}: ${blockNote(block)}${speedNote(speed)}`,
 });
 
 const jewel = (id: ItemId, kind: 'amulet' | 'ring', name: string, glyph: string, effect: string, stats: Partial<ItemDef>): ItemDef => ({
   id, name, kind, glyph, target: 'self', combat: false, field: false, ...stats,
   desc: `${kind === 'amulet' ? 'Amulet' : 'Ring'}: ${effect}${stats.speed ? ` −${-stats.speed}s Speed (faster).` : ''}`,
 });
-const resource = (id: ItemId, name: string, glyph: string, rite: string): ItemDef => ({
-  id, name, kind: 'resource', glyph, desc: `Resource: carry it home to your Village Stash. 5 power a Rite for your next run: ${rite} Stacks to ${STACK_SIZE}.`, target: 'self', combat: false, field: false,
+const resource = (id: ItemId, name: string, glyph: string, rite: string, cost = '5 power'): ItemDef => ({
+  id, name, kind: 'resource', glyph, desc: `Resource: carry it home to your Village Stash. ${cost} a Rite for your next run: ${rite} Stacks to ${STACK_SIZE}.`, target: 'self', combat: false, field: false,
 });
 
 export const ITEMS: Record<ItemId, ItemDef> = {
@@ -178,14 +180,14 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   fever: jewel('fever', 'amulet', 'Fever Charm', '♆', 'Cursed: +67% stress taken.', { stressMult: 1.67, speed: -1 }),
   catseye: jewel('catseye', 'ring', "Cat's-Eye", '◈', 'You never forget paths, and being Dim no longer hides neighbouring rooms or adds stress.', { seeDim: true }),
   bloodstone: jewel('bloodstone', 'ring', 'Bloodstone Ring', '◍', 'Regain 1 HP every 4s while exploring.', { regen: 4 }),
-  thorns: jewel('thorns', 'ring', 'Thorn Ring', '✣', 'Monsters that hit you take your armor + 1 damage back.', { thorns: 1 }),
-  quickblood: jewel('quickblood', 'ring', 'Quickblood Ring', '◌', 'Cursed: +2 damage from every hit you take.', { hurt: 2, speed: -1 }),
+  thorns: jewel('thorns', 'ring', 'Thorn Ring', '✣', 'Monsters that hit you take your Block + 1 damage back.', { thorns: 1 }),
+  quickblood: jewel('quickblood', 'ring', 'Quickblood Ring', '◌', `Cursed: ${blockNote(-2)}`, { block: -2, speed: -1 }),
   ashen: jewel('ashen', 'ring', 'Ashen Band', '○', 'Cursed: your torch burns 150% faster.', { lightDrainMult: 2.5, speed: -1 }),
   // Resources (user 2026-10-10): worth nothing down here; carried home, they power Village Rites (village.ts RITES).
   effigy: resource('effigy', 'Effigy', '♙', 'CR +1; +20% damage and HP, −1s Speed.'),
   gem: resource('gem', 'Gem', '◆', 'CR −0.5, but you can’t pick up or use consumables.'),
   tome: resource('tome', 'Tome', '▯', '−20% damage and HP, but your gold comes home even if you die.'),
-  relic: resource('relic', 'Relic', '♛', 'the whole run starts at Escalation 5.'),
+  relic: resource('relic', 'Relic', '♛', 'the whole run starts at Escalation 5, and the Dead King wakes.', 'One powers'),
   // Valuables: gold once carried out (they slow you while carried: put one down to run).
   satchel: { id: 'satchel', name: "Courier's Satchel", kind: 'valuable', glyph: '⚖', value: 150, speed: 1.5, target: 'self', combat: false, field: false,
     desc: 'Valuable: worth 150 gold if you carry it out. +1.5s Speed while you carry it.' },
@@ -215,12 +217,12 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   drakehide: armor('leather', 'drakehide', 'Drakehide', 3, 0),
   shadowskin: armor('leather', 'shadowskin', 'Shadowskin', 1, -0.5),
   ringmail: armor('mail', 'ringmail', 'Ring Mail', 2, 0.5),
-  scaleshirt: armor('mail', 'scaleshirt', 'Scale Shirt', 3, 1),
+  scaleshirt: armor('mail', 'scaleshirt', 'Scale Shirt', 4, 1),
   hauberk: armor('mail', 'hauberk', 'Chain Hauberk', 3, 0.5),
-  brigandine: armor('mail', 'brigandine', 'Brigandine', 4, 1),
+  brigandine: armor('mail', 'brigandine', 'Brigandine', 5, 1),
   wardmail: armor('mail', 'wardmail', 'Warded Mail', 4, 0.5),
-  bulwark: armor('mail', 'bulwark', 'Bulwark Plate', 5, 1),
-  patchwork: cloth('patchwork', 'Patchwork Coat', { effect: 'patchwork', perFight: true }, 'the first blow you take in a fight is halved (before armor and Shield).'),
+  bulwark: armor('mail', 'bulwark', 'Bulwark Plate', 6, 1),
+  patchwork: cloth('patchwork', 'Patchwork Coat', { effect: 'patchwork', perFight: true }, 'the first blow you take in a fight is halved (before Block and Shield).'),
   hastening: cloth('hastening', 'Hastening Robe', { effect: 'hasten', cooldown: 60 }, `Swiftwork: the next event you start is done in ${CLOTH.hastenSecs}s, however long it usually takes.`),
   wayfarer: cloth('wayfarer', "Wayfarer's Cloak", { effect: 'wayfarer', cooldown: 12 }, `the next tunnel you set out on takes ${CLOTH.wayfarerSecs}s.`),
   sackcloth: cloth('sackcloth', "Penitent's Sackcloth", { effect: 'penitent', cooldown: 120 },
@@ -371,7 +373,7 @@ export function gearGain(item: ItemId, current: ItemId | null, fit?: GearFit): n
     const d = ITEMS[id];
     const staff = d.staff && fit?.support ? itemTier(id) * 1.5 : 0;
     const cloth = d.cloth ? itemTier(id) - (d.cursed ? 0.5 : 0) : 0;
-    return staff + cloth + (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? (d.speed ?? 0) * speedWeight : 0);
+    return staff + cloth + (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.block ?? 0) - (isArms(id) ? (d.speed ?? 0) * speedWeight : 0);
   };
   return value(item) - value(current);
 }

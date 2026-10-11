@@ -4,7 +4,7 @@ import type { ClassId } from '../content/classes';
 import { CR_RULES, crUnitChance, ENEMIES, rollRoster, UNITS_BY_TIER, type EnemyId, type Roster } from '../content/enemies';
 import { neighbours } from '../dungeon/gen';
 import { Rng } from '../rng';
-import { armored, crUnits, doomOf, fieldTurn, pickGroup, spawnGroup } from './combat';
+import { afterBlock, crUnits, doomOf, fieldTurn, pickGroup, spawnGroup } from './combat';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
 const baseStress = STRESS.basePerSec;
@@ -156,7 +156,7 @@ describe('Lich', () => {
     h.st.doom = 2;
     untilTurn(w, room, 'h0');
     const aura = enc.events.find((e) => e.target === 'h0' && e.text.includes('cold presence'));
-    expect(aura?.amount).toBe(armored(h, ENEMIES.lich.dmg) + 2);
+    expect(aura?.amount).toBe(afterBlock(h, ENEMIES.lich.dmg) + 2);
   });
 
   it('raises the newest slain monster whole, once; otherwise stacks Doom', () => {

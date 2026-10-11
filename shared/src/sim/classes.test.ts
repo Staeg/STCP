@@ -90,7 +90,7 @@ describe('poison and acid', () => {
 
 describe('monster armor', () => {
   it('takes its armor off every hit (at least 1 gets through); only the Bone Giant has any', () => {
-    expect(Object.values(ENEMIES).filter((e) => e.armor > 0).map((e) => [e.id, e.armor])).toEqual([['giant', 3]]);
+    expect(Object.values(ENEMIES).filter((e) => e.block > 0).map((e) => [e.id, e.block])).toEqual([['giant', 3]]);
     const { world, ids, room, monsters } = arena(['warden'], ['giant']);
     walkIn(world, ids, room);
     const giant = monsters[0];
@@ -357,7 +357,7 @@ describe('reworked kits', () => {
     const [giant, ghoul] = monsters;
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: giant.id } });
     untilTurn(world, room, 'h0');
-    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power - ENEMIES.giant.armor, crit: true });
+    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power - ENEMIES.giant.block, crit: true });
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: ghoul.id } });
     untilTurn(world, room, 'h0');
     expect(ghoul.st.stun).toBe(true);
@@ -382,7 +382,7 @@ describe('reworked kits', () => {
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
     untilTurn(world, room, 'h0');
     const hex = abilityById('hex')!.power;
-    expect(hexes()).toEqual([hex, 2 * hex].map((n) => n - ENEMIES.giant.armor));
+    expect(hexes()).toEqual([hex, 2 * hex].map((n) => n - ENEMIES.giant.block));
     // The Giant (Speed 8) took its turn right after the second Hex (same moment): both stacks ticked once.
     expect(monsters[0].st.hexed).toEqual([1, 1]);
     world.heroes.h0.cooldowns = { hex: 99, pact: 99, wither: 99 }; // just brace from here

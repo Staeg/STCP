@@ -8,7 +8,7 @@ import {
 import { Rng } from '../rng';
 import { anvilInto, forgeable, reforged } from '../content/forge';
 import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
+import { addStress, afterBlock, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor, makePack } from './escalation';
 import { hopsFrom } from './call';
 import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, seesInDark, takeItem } from './loot';
@@ -532,7 +532,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       if (h.cls !== 'lampbearer') h.light = Math.min(h.light, LIGHT_DIM - 1);
       notify(world, h, `You scrape through the dark and tumble out in ${world.dungeon.rooms[dest].name}.`);
       explore(world, h, dest);
-      hurtHero(world, h, armored(h, 4), null);
+      hurtHero(world, h, afterBlock(h, 4), null);
       if (isConscious(h)) onHeroInRoom(world, h, dest);
       return;
     }
@@ -672,8 +672,9 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
 /**
  * Crowned in Dread: the Dead King and his court rise in one of the rooms farthest from the exit (nobody in it, no
  * fight, if possible) and march straight for the exit, where they hold. Everyone hears who woke him and from where.
+ * `rite`: a Relic Rite woke him as the run began (user, 2026-10-11), not `h` at the event.
  */
-function rouseTheKing(world: World, h: Hero, from: number) {
+export function rouseTheKing(world: World, h: Hero, from: number, rite = false) {
   const d = world.dungeon;
   const hops = hopsFrom(world, d.exit, true);
   const someoneIn = (r: number) => Object.values(world.heroes).some((o) => inDungeon(o) && o.pos.kind === 'room' && o.pos.room === r);
@@ -690,11 +691,13 @@ function rouseTheKing(world: World, h: Hero, from: number) {
   for (const o of Object.values(world.heroes)) {
     if (!inDungeon(o)) continue;
     if (!o.seen.includes(room)) o.seen.push(room);
-    notify(world, o, o === h
+    notify(world, o, rite
+      ? `The Relic Rite has woken the Dead King! His procession sets out from ${where} for the exit, carrying his treasure.`
+      : o === h
       ? `Far away, something answers. The Dead King's procession sets out from ${where} for the exit. Stop it, and his treasure is yours.`
       : `${h.name} has woken the Dead King! His procession sets out from ${where} for the exit, carrying his treasure.`, 'king');
   }
-  chronicle(world, `${h.name} woke the Dead King. His procession set out from ${where}.`);
+  chronicle(world, rite ? `${h.name}'s Relic Rite woke the Dead King. His procession set out from ${where}.` : `${h.name} woke the Dead King. His procession set out from ${where}.`);
   if (someoneIn(room)) for (const o of Object.values(world.heroes)) if (inDungeon(o) && o.pos.kind === 'room' && o.pos.room === room) onHeroInRoom(world, o, room);
 }
 

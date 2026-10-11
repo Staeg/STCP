@@ -3,7 +3,7 @@ import { COLLAPSE_AT } from '../content/constants';
 import { STRESS } from '../content/events';
 import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
-import { armored, DEATH_TIMER, spawnGroup, thornsOf } from './combat';
+import { afterBlock, DEATH_TIMER, spawnGroup, thornsOf } from './combat';
 import { Game } from './game';
 import { activeItems, addToPile, canTake, castVote, giveItem, LEAVE, votersIn } from './loot';
 import { buildView } from './views';
@@ -314,7 +314,7 @@ describe('items', () => {
     const h = world.heroes.h0;
     h.ring = 'quickblood';
     h.armor = 'studded';
-    expect(armored(h, 5)).toBe(5); // 5 − 2 armor + 2
+    expect(afterBlock(h, 5)).toBe(5); // 5 − 2 armor + 2
     h.ring = 'thorns';
     expect(thornsOf(h)).toBe(3); // 2 armor + 1
     h.armor = null;

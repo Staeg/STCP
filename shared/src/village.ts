@@ -144,19 +144,25 @@ export function sightMatches(sight: Sight | undefined, item: ItemId): boolean {
 }
 
 /**
- * Rites (user 2026-10-10): spend 5 of a Resource in the Village for an effect on your next run only. Effigy, Tome and
+ * Rites (user 2026-10-10): spend 5 of a Resource (1 Relic) in the Village for an effect on your next run only. Effigy, Tome and
  * Gem change your own hero; a Relic changes the whole party's run.
  */
 export const RITES: Record<ResourceId, { name: string; desc: string }> = {
   effigy: { name: 'Effigy Rite', desc: 'CR +1. Your hero deals +20% damage and has +20% max HP, and is 1s faster.' },
   gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t bring, pick up or use consumables.' },
   tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold and consumables they carry come home even if they die.' },
-  relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away.' },
+  relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away. And the Dead King wakes as it begins: his procession sets out for the exit with his treasure.' },
 };
 
+/** Resources this Rite costs: 5, but a Relic Rite only 1. */
+export function riteCost(r: ResourceId): number {
+  return r === 'relic' ? KIT_RULES.relicRiteCost : KIT_RULES.riteCost;
+}
+
 export const KIT_RULES = {
-  /** Resources a Rite costs. */
+  /** Resources a Rite costs (the Relic Rite: `relicRiteCost`, user 2026-10-11). */
   riteCost: 5,
+  relicRiteCost: 1,
   /** Consumables a hero may bring from the Stash at no cost. */
   consumables: 2,
   /** CR added per level (tier) of every piece of Gear brought in. */
@@ -234,7 +240,7 @@ export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<R
   if (new Set(kit.rites).size !== kit.rites.length) return 'One of each Rite at most.';
   for (const r of kit.rites) {
     if (!RESOURCE_IDS.includes(r)) return 'No such Rite.';
-    if ((resources[r] ?? 0) < KIT_RULES.riteCost) return `${RITES[r].name} needs ${KIT_RULES.riteCost} ${pluralName(r)}.`;
+    if ((resources[r] ?? 0) < riteCost(r)) return `${RITES[r].name} needs ${riteCost(r)} ${riteCost(r) === 1 ? ITEMS[r].name : pluralName(r)}.`;
   }
   return null;
 }
