@@ -34,15 +34,18 @@ function commitsBetween(from: string | null, to: string) {
 function patchGroup(at: string | null, sha: string, commits: { msg: string; body: string }[]): PatchGroup {
   const g: PatchGroup = { at, sha: sha.slice(0, 7), headlines: [], major: [], minor: [], other: [] };
   for (const { msg, body } of commits) {
-    let tagged = false;
+    let tagged = false, headline = '', major = false;
     for (const line of body.split('\n')) {
       const m = /^(Headline|Major|Minor|Patch):\s*(.+?)\s*$/i.exec(line.trim());
       if (!m) continue;
       tagged = true;
       const kind = m[1].toLowerCase();
-      if (kind === 'headline') g.headlines.push(m[2]);
+      if (kind === 'headline') headline = m[2];
       else if (kind === 'major' || kind === 'minor') g[kind].push(m[2]);
+      if (kind === 'major') major = true;
     }
+    // Only a commit with a Major change makes the headline; a minor-only commit's would crowd out the big news.
+    if (headline && major) g.headlines.push(headline);
     if (!tagged) g.other.push(msg);
   }
   return g;

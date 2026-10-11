@@ -5,7 +5,7 @@
 - Work on the first unchecked milestone. Skip ahead only when that milestone is explicitly blocked.
 - Ask the user about real design ambiguities; they like being asked and often give custom answers. Decide minor things yourself and record them in PLAN.md's **Decisions** table.
 - Once a feature is done (tests pass, PLAN.md updated), commit it right away without asking. The message says what changed and why.
-- Commit messages feed the in-game patch notes. Before the Co-Authored-By line, add one line per player-facing change, in player terms, judged individually: `Major:` for new mechanics, content or rule changes players will notice; `Minor:` for number tweaks, renames, UI polish and bug fixes. Add one `Headline:` line, a short player-facing hook for the commit's biggest change. A commit that doesn't change play (tests, tooling, refactors) gets `Patch: none` instead. Example:
+- Commit messages feed the in-game patch notes. Before the Co-Authored-By line, add one line per player-facing change, in player terms, judged individually: `Major:` for new mechanics, content or rule changes players will notice; `Minor:` for number tweaks, renames, UI polish and bug fixes. Add one `Headline:` line, a short player-facing hook for the commit's biggest change (it only shows if the commit has a `Major:` line). A commit that doesn't change play (tests, tooling, refactors) gets `Patch: none` instead. Example:
   ```
   Headline: Undertakers raise the dead
   Major: Undertakers Raise fallen allies, who fight beside them and can walk out with them
