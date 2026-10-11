@@ -8,7 +8,7 @@ import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster
 import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
 import { chargeable, healBy, moveCharges, pullPackCharge, reliefBy, ward, type ItemCharge } from './gear';
-import { STRESS } from '../content/events';
+import { CROWNED, STRESS } from '../content/events';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
 
 export const LEAVE = 'leave';
@@ -111,6 +111,22 @@ export function dropBounty(world: World, room: number) {
   const items = Array.from({ length: count }, () => rollItem(world, quality));
   if (world.rng.chance(LOOT.dropResourceChance)) items.push(rollResource(world));
   addToPile(world, room, 0, items);
+}
+
+/**
+ * Crowned in Dread: the Dead King's treasure, worth `CROWNED.lairs` Lairs (their gold, Relic chances and bounty),
+ * spills where the last of his procession fell. The bounty pays out with the rest when the room is clear.
+ */
+export function dropKingsTreasure(world: World, room: number) {
+  const rng = world.rng;
+  let gold = 0;
+  const items: ItemId[] = [];
+  for (let i = 0; i < CROWNED.lairs; i++) {
+    gold += rng.int(...LOOT.lairGold);
+    if (rng.chance(LOOT.relicChance)) items.push('relic');
+  }
+  addToPile(world, room, gold, items);
+  world.bounty[room] = (world.bounty[room] ?? 0) + CROWNED.lairs * LOOT.lairBounty;
 }
 
 /**

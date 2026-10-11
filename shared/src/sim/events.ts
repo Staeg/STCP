@@ -2,13 +2,14 @@ import { CLASSES, type ClassId } from '../content/classes';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  ANVIL_UPGRADES, channelTime, CLASS_ELITE, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
+  ANVIL_UPGRADES, channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
   type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
-import { corridorBetween, neighbours, otherEnd } from '../dungeon/gen';
+import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { addStress, armored, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
-import { collapseCorridor } from './escalation';
+import { collapseCorridor, makePack } from './escalation';
+import { hopsFrom } from './call';
 import { addToPile, equip, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { goInsane } from './mind';
 import { notify } from './notify';
@@ -33,6 +34,8 @@ export interface RoomEvent {
   by: string | null;
   /** Twin Locks: the second hero, on the other wheel (it only turns while both are at it). */
   with?: string | null;
+  /** Twin Locks: a Hastening Robe on either wheel was spent on it, so it turns in CLOTH.hastenSecs. */
+  hasten?: boolean;
   /** Altar: the guardians have been summoned. */
   spawned: boolean;
   /** Altar: whoever woke the guardians picks the Cleanse back up once they're beaten, if still here and standing. */
@@ -213,7 +216,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       const first = ev.by && ev.by !== h.id ? world.heroes[ev.by] : undefined;
       const full = first && ev.with && ev.with !== h.id ? 'Both wheels are taken.' : undefined;
       const label = first ? `Take the other wheel, with ${first.name}` : 'Take hold of a wheel (someone must turn the other)';
-      return one({ id: 'wheel', label: `${label} (${MORE_EVENTS.locksTime}s together)`, disabled: full });
+      return one({ id: 'wheel', label: `${label} (${locksSecs(world, ev, h)}s together)`, disabled: full });
     }
     case 'coffin':
       return one(c('lie', "Lie down (stress to 0, but you're down until someone revives you)",
@@ -230,6 +233,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
     }
     case 'scrying':
       return one(c('gaze', `Gaze into it (see every ally, and the room they're in, for ${MORE_EVENTS.scrySecs}s)`));
+    case 'crowned':
+      return one(c('rouse', 'Wake the king (his procession sets out for the exit; stop it to take his treasure)'));
     // ---- Elite Events: only their own class gets this far ----
     case 'wanderers':
       return one(perk(c('gather', 'Gather them up'), 'warden', 'They will not leave your side until you leave the dungeon.'));
@@ -314,8 +319,13 @@ function signed(seconds: number): string {
  */
 export function eventTime(world: World, h: Hero, kind: EventKind): number {
   const usual = channelTime(kind, speedOf(h, world.time));
-  // Twin Locks turn at the pace of two pairs of hands, Swiftwork or not.
-  if (!Number.isFinite(usual) || kind === 'locks') return usual;
+  if (kind === 'locks') {
+    const ch = h.channel;
+    const room = ch?.kind === 'event' ? ch.room : h.pos.kind === 'room' ? h.pos.room : -1;
+    const ev = world.events[room];
+    return ev?.kind === 'locks' ? locksSecs(world, ev, h) : usual;
+  }
+  if (!Number.isFinite(usual)) return usual;
   const ch = h.channel;
   if (ch?.kind === 'event') return ch.hasten ? CLOTH.hastenSecs : usual;
   return clothReady(h, 'hasten') ? CLOTH.hastenSecs : usual;
@@ -330,7 +340,7 @@ export function choiceVerb(kind: EventKind, choice: string): string {
     quaff: 'drinking the quicksilver', haul: 'shouldering the satchel', turn: 'turning the hourglass', wind: 'winding the shrine',
     gather: 'gathering the wanderers', read: 'reading the marks', pray: 'praying at the shrine', partake: 'drinking from the chalice',
     raise: 'waking the dead', ring: 'ringing the great bell', sit: 'sitting in silence', rework: 'reworking their bottles',
-    wheel: 'turning a wheel', lie: 'lying down in the coffin', weave: 'working the loom', gaze: 'gazing into the pool',
+    wheel: 'turning a wheel', rouse: 'waking the Dead King', lie: 'lying down in the coffin', weave: 'working the loom', gaze: 'gazing into the pool',
   };
   return verbs[choice] ?? 'busy';
 }
@@ -380,6 +390,13 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   return null;
 }
 
+/** Twin Locks: hastened if either pair of hands (or `h`, about to take one) has a Hastening Robe ready (user, 2026-10-11). */
+function locksSecs(world: World, ev: RoomEvent, h?: Hero): number {
+  if (ev.hasten) return CLOTH.hastenSecs;
+  const hands = [ev.by, ev.with].map((id) => (id ? world.heroes[id] : undefined));
+  return [...hands, h].some((x) => x && clothReady(x, 'hasten')) ? CLOTH.hastenSecs : MORE_EVENTS.locksTime;
+}
+
 /** Twin Locks: the first hero takes a wheel and waits; the second takes the other, and the door starts to turn. */
 function takeWheel(world: World, ev: RoomEvent, h: Hero): null {
   h.channel = { kind: 'event', room: ev.room, choice: 'wheel', until: Infinity };
@@ -393,7 +410,15 @@ function takeWheel(world: World, ev: RoomEvent, h: Hero): null {
   }
   ev.with = h.id;
   ev.progress = 0;
-  const secs = MORE_EVENTS.locksTime;
+  // Swiftwork from either pair of hands is enough: one Hastening Robe is spent (the first hero's, if both).
+  if (!ev.hasten) {
+    const robe = [first, h].map((x) => [x, clothReady(x, 'hasten')] as const).find(([, c]) => c);
+    if (robe) {
+      spendCloth(robe[0], robe[1]!);
+      ev.hasten = true;
+    }
+  }
+  const secs = locksSecs(world, ev);
   notify(world, h, `You take the other wheel. Together with ${first.name}, it begins to turn… (${secs}s; if either of you stops, it starts over)`);
   notify(world, first, `${h.name} takes the other wheel. It begins to turn… (${secs}s; if either of you stops, it starts over)`);
   for (const o of othersHere(world, h)) if (o !== first) notify(world, o, `${h.name} and ${first.name} turn the twin locks together.`);
@@ -603,6 +628,9 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       chronicle(world, `${h.name} worked the Loom.`);
       return;
     }
+    case 'rouse':
+      rouseTheKing(world, h, room);
+      return;
     case 'gaze':
       h.scryUntil = world.time + MORE_EVENTS.scrySecs;
       notify(world, h, `The water clouds, then clears, and there they are, wherever they are. (${MORE_EVENTS.scrySecs}s)`);
@@ -661,6 +689,35 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
   }
   if (choice.startsWith('forge-')) forge(world, ev, h, choice.slice('forge-'.length) as GearSlot);
+}
+
+/**
+ * Crowned in Dread: the Dead King and his court rise in one of the rooms farthest from the exit (nobody in it, no
+ * fight, if possible) and march straight for the exit, where they hold. Everyone hears who woke him and from where.
+ */
+function rouseTheKing(world: World, h: Hero, from: number) {
+  const d = world.dungeon;
+  const hops = hopsFrom(world, d.exit, true);
+  const someoneIn = (r: number) => Object.values(world.heroes).some((o) => inDungeon(o) && o.pos.kind === 'room' && o.pos.room === r);
+  const open = [...hops.keys()].filter((r) => d.rooms[r].kind === 'normal' && r !== from);
+  const quietRooms = open.filter((r) => !someoneIn(r) && !world.encounters[r] && monstersIn(world, r).length === 0);
+  const pool = quietRooms.length ? quietRooms : open.length ? open : [from];
+  const far = Math.max(...pool.map((r) => hops.get(r) ?? 0));
+  const room = world.rng.pick(pool.filter((r) => (hops.get(r) ?? 0) === far));
+  const court = spawnGroup(world, room, CROWNED.procession, world.escalation);
+  for (const m of court) m.procession = true;
+  const pack = makePack(world, court, room, d.exit);
+  pack.restUntil = world.time + 2;
+  const where = theRoom(d.rooms[room].name);
+  for (const o of Object.values(world.heroes)) {
+    if (!inDungeon(o)) continue;
+    if (!o.seen.includes(room)) o.seen.push(room);
+    notify(world, o, o === h
+      ? `Far away, something answers. The Dead King's procession sets out from ${where} for the exit. Stop it, and his treasure is yours.`
+      : `${h.name} has woken the Dead King! His procession sets out from ${where} for the exit, carrying his treasure.`);
+  }
+  chronicle(world, `${h.name} woke the Dead King. His procession set out from ${where}.`);
+  if (someoneIn(room)) for (const o of Object.values(world.heroes)) if (inDungeon(o) && o.pos.kind === 'room' && o.pos.room === room) onHeroInRoom(world, o, room);
 }
 
 /** Smith's Anvil: the worn piece in that slot comes off the anvil one step better. */

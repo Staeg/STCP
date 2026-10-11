@@ -88,6 +88,9 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return pick('weave');
     case 'scrying':
       return rng.chance(0.5) ? pick('gaze') : undefined;
+    case 'crowned':
+      // Only the greediest, early on and in good shape, dare wake him.
+      return mem.greed > 0.7 && timeLeft > 150 && healthy && rng.chance(0.3) ? pick('rouse') : undefined;
     // ---- Elite Events (only their own class gets choices; the rest see it veiled) ----
     case 'wanderers':
     case 'uprising':

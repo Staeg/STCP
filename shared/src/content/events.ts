@@ -1,4 +1,5 @@
 import type { ClassId } from './classes';
+import type { EnemyId } from './enemies';
 import type { ItemId } from './items';
 
 /**
@@ -57,7 +58,7 @@ export const STRESS = {
 export type EventKind =
   | 'altar' | 'villager' | 'idol' | 'stranger' | 'well' | 'vault' | 'chest' | 'crawlspace'
   | 'quicksilver' | 'satchel' | 'hourglass' | 'clockwork'
-  | 'locks' | 'coffin' | 'anvil' | 'loom' | 'scrying'
+  | 'locks' | 'coffin' | 'anvil' | 'loom' | 'scrying' | 'crowned'
   | EliteEventKind
   /** How an Elite Event looks to every class but its own. */
   | 'veiled';
@@ -146,6 +147,11 @@ export const EVENTS: Record<EventKind, EventDef> = {
   scrying: {
     kind: 'scrying', name: 'Scrying Pool', glyph: '◎', weight: 1,
     text: 'A still pool that shows no reflection. Look long enough, and it shows you the others instead.',
+  },
+  crowned: {
+    kind: 'crowned', name: 'Crowned in Dread', glyph: '♔', weight: 0.5,
+    text: 'An empty throne of black iron, and above it, carved deep: HE WHO WAKES THE KING MAY TAKE WHAT HE CARRIES. '
+      + 'Far off, something old is waiting to be woken, with riches beyond your wildest imagining.',
   },
   // ---- Elite Events: seeded per hero (see ELITE_EVENTS), not by weight ----
   veiled: {
@@ -250,8 +256,8 @@ export const SPEED_EVENTS = {
 export const MORE_EVENTS = {
   /** Twin Locks: both wheels must turn together this long; if either hero stops, it starts over. */
   locksTime: 12,
-  /** Twin Locks: gold behind the door (a rare item and a Relic too). */
-  locksGold: [20, 40] as const,
+  /** Twin Locks: gold behind the door (a quality-3 find and a Relic too). Doubled 2026-10-11 (user; was 20–40). */
+  locksGold: [40, 80] as const,
   /** Open Coffin: lying down. */
   coffinTime: 3,
   /** Smith's Anvil: reforging. */
@@ -259,6 +265,16 @@ export const MORE_EVENTS = {
   /** Scrying Pool: gazing, then how long you see every ally and the room they're in. */
   scryTime: 3,
   scrySecs: 10,
+};
+
+/**
+ * Crowned in Dread (user, 2026-10-11): waking the Dead King sends his procession out from one of the rooms farthest
+ * from the exit, straight for it, where it holds until killed. They carry his treasure (`lairs` Lairs' worth); the
+ * last of them to fall drops it.
+ */
+export const CROWNED = {
+  procession: ['king', 'lich', 'queen', 'giant'] as EnemyId[],
+  lairs: 3,
 };
 
 /**

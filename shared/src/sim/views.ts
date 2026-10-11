@@ -11,7 +11,7 @@ import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } fro
 import type { ItemCharge } from './gear';
 import { activeItems, canTake, decidersOf, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -483,7 +483,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     legion,
     monsters: order.monsters.map((m) => ({
       id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, st: { ...m.st }, enemy: m.type,
-      speed: ENEMIES[m.type].speed, nextIn: nextIn(m.id),
+      speed: monsterSpeed(enc, m), nextIn: nextIn(m.id),
     })),
     yourChoice: enc.choices[you.id] ?? null,
     yourOptions,

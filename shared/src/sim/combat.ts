@@ -1,13 +1,13 @@
 import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
 import { escalationAt, EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
 import {
-  crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
+  crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, STAFF } from '../content/items';
 import { chargesAfterFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
-import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
+import { applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
@@ -76,6 +76,10 @@ export interface Monster {
   again?: boolean;
   /** Lich: its raising is used up. */
   spent?: boolean;
+  /** Dead King: the move he makes next (he takes turns between them, starting with either). */
+  cycle?: 'kneel' | 'charge';
+  /** Marches in the Dead King's procession (Crowned in Dread): the last of them to fall drops his treasure. */
+  procession?: true;
 }
 
 /** A slain monster as a fight remembers it (what Raise and the Lich bring back). */
@@ -160,6 +164,8 @@ export interface Encounter {
   legion?: Risen[];
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
+  /** Dead King's Charges so far: every monster in the fight is this many × KING_RULES.chargeHaste faster until it ends. */
+  charge?: number;
   /** The whole play-by-play, for the results screen (shared with this fight's chronicle entry). */
   history?: FightLine[];
   /** Everyone who fought here at any point, in join order, and what they faced. */
@@ -560,7 +566,7 @@ function startTimers(world: World, enc: Encounter) {
   }
   for (const m of monstersIn(world, enc.room)) {
     if (enc.next[m.id] !== undefined) continue;
-    enc.next[m.id] = at(world.time + ENEMIES[m.type].speed);
+    enc.next[m.id] = at(world.time + monsterSpeed(enc, m));
     // Great Bell: still reeling from the Toll.
     if ((m.dazedUntil ?? 0) > world.time) m.st.stun = true;
   }
@@ -576,7 +582,7 @@ function startTimers(world: World, enc: Encounter) {
  */
 export function combatOrder(world: World, enc: Encounter): { heroes: Hero[]; monsters: Monster[] } {
   const heroes = enc.heroes.map((id, i) => ({ h: world.heroes[id], s: speedOf(world.heroes[id], world.time), i }));
-  const monsters = monstersIn(world, enc.room).map((m, i) => ({ m, s: ENEMIES[m.type].speed, i }));
+  const monsters = monstersIn(world, enc.room).map((m, i) => ({ m, s: monsterSpeed(enc, m), i }));
   return {
     heroes: heroes.sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.h),
     monsters: monsters.sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.m),
@@ -781,7 +787,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
 function takeTurn(world: World, enc: Encounter, unit: Unit) {
   const events: CombatEvent[] = [];
   const id = unit.kind === 'hero' ? unit.h.id : unit.kind === 'monster' ? unit.m.id : unit.r.id;
-  const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : unit.kind === 'monster' ? ENEMIES[unit.m.type].speed : risenSpeed(world, unit.r);
+  const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : unit.kind === 'monster' ? monsterSpeed(enc, unit.m) : risenSpeed(world, unit.r);
   enc.next[id] = at(enc.next[id] + speed);
   if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
   else if (unit.kind === 'monster') monsterTurn(world, enc, unit.m, events);
@@ -919,9 +925,23 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
   (st.poison ??= []).push({ dmg, rounds });
 }
 
+/** A monster's Speed in this fight: the Dead King's Charges quicken every monster in it. */
+export function monsterSpeed(enc: Encounter | undefined, m: Monster): number {
+  const base = ENEMIES[m.type].speed;
+  const haste = (enc?.charge ?? 0) * KING_RULES.chargeHaste;
+  return haste ? Math.max(Math.min(base, KING_RULES.speedFloor), base - haste) : base;
+}
+
+/** A monster's armor right now: the Dead King's grows with every other monster still standing beside him. */
+export function monsterArmor(world: World, m: Monster): number {
+  const base = ENEMIES[m.type].armor;
+  if (m.type !== 'king' || m.room < 0) return base;
+  return base + KING_RULES.armorPerCourtier * monstersIn(world, m.room).filter((o) => o !== m).length;
+}
+
 /** What a monster actually takes from a hit of `dmg`: its armor takes some off (at least 1 gets through), then Acid adds to it. */
-function monsterTakes(m: Monster, dmg: number): number {
-  const reduced = dmg > 0 ? Math.max(1, dmg - ENEMIES[m.type].armor) : dmg;
+function monsterTakes(world: World, m: Monster, dmg: number): number {
+  const reduced = dmg > 0 ? Math.max(1, dmg - monsterArmor(world, m)) : dmg;
   const acid = m.st.acid ? reduced + m.st.acid.stacks * CLASS_RULES.acidBonus : reduced;
   return Math.round(acid * witchwoodMult(m.st));
 }
@@ -1024,7 +1044,7 @@ function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEve
     vigilFlares(world, enc, events);
   }
   if (world.monsters[m.id]) {
-    endOfTurn(m.st, ENEMIES[m.type].name, m.id, (n) => monsterTakes(m, n), (n) => {
+    endOfTurn(m.st, ENEMIES[m.type].name, m.id, (n) => monsterTakes(world, m, n), (n) => {
       applyMonsterDamage(world, m, n, events);
       return !!world.monsters[m.id];
     }, events);
@@ -1040,7 +1060,7 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
   if (foes.length) {
     const dmg = Math.max(1, Math.round(ENEMIES[r.type!].dmg * r.dmgMult));
     const hit = (m: Monster, verb: string) => {
-      const taken = monsterTakes(m, dmg);
+      const taken = monsterTakes(world, m, dmg);
       events.push({ actor: r.id, kind: 'damage', target: m.id, amount: taken, text: `${name} ${verb} ${ENEMIES[m.type].name} for ${taken}.` });
       applyMonsterDamage(world, m, taken, events);
     };
@@ -1439,7 +1459,7 @@ export function hitDamage(h: Hero, base: number, world?: World): number {
 
 /** Hero damages a monster. Returns true if it connected. */
 function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
-  let dmg = monsterTakes(m, hitDamage(h, base, world));
+  let dmg = monsterTakes(world, m, hitDamage(h, base, world));
   if (m.st.shield) {
     const absorbed = Math.min(m.st.shield, dmg);
     m.st.shield -= absorbed;
@@ -1479,6 +1499,11 @@ function applyMonsterDamage(world: World, m: Monster, dmg: number, events: Comba
     // A Zombie pays out once, however often it's put down; and only counts once for an Emergency.
     if (!m.again) world.kills[m.type] = (world.kills[m.type] ?? 0) + 1;
     if (!m.again) world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
+    // The last of the Dead King's procession: his treasure spills where they fell.
+    if (m.procession && m.room >= 0 && !Object.values(world.monsters).some((o) => o.procession)) {
+      dropKingsTreasure(world, m.room);
+      events.push({ actor: m.id, kind: 'info', text: "The procession is broken. The Dead King's treasure spills across the floor." });
+    }
     if (monstersIn(world, m.room).length === 0 && (world.bounty[m.room] ?? 0) > 0) {
       dropBounty(world, m.room);
       events.push({ actor: m.id, kind: 'info', text: 'Something glints among the remains.' });
@@ -1586,6 +1611,20 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
       }
       return;
     }
+    case 'king': {
+      // Kneel and Charge in turn, starting with either.
+      const move = (m.cycle ??= rng.chance(0.5) ? 'kneel' : 'charge');
+      m.cycle = move === 'kneel' ? 'charge' : 'kneel';
+      if (move === 'kneel') {
+        for (const t of heroes) t.st.stun = true;
+        events.push({ actor: m.id, kind: 'status', text: `${name} bids them kneel, and they do. Every hero is Stunned!` });
+        return;
+      }
+      enc.charge = (enc.charge ?? 0) + 1;
+      events.push({ actor: m.id, kind: 'status', text: `${name} charges, and his court surges with him. (every monster here: −${KING_RULES.chargeHaste}s Speed until the fight ends)` });
+      monsterHits(world, enc, m, nearest, ENEMIES.king.dmg, 'rides down', events);
+      return;
+    }
     case 'queen': {
       const court = monstersIn(world, enc.room).filter((o) => o !== m);
       if (court.length === 0) {
@@ -1671,14 +1710,14 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   });
   applyHeroDamage(world, enc, t, dmg, events);
   if (returned > 0 && world.monsters[m.id]) {
-    const back = monsterTakes(m, returned);
+    const back = monsterTakes(world, m, returned);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
     applyMonsterDamage(world, m, back, events);
   }
   // Thorn Ring: a blow that lands costs the attacker.
   const thorns = wornStat(t, 'thorns');
   if (thorns > 0 && dmg > 0 && world.monsters[m.id] && m.hp > 0) {
-    const back = monsterTakes(m, thorns);
+    const back = monsterTakes(world, m, thorns);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Thorns! ${name} takes ${back}.` });
     applyMonsterDamage(world, m, back, events);
   }

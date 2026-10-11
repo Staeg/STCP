@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
-import { MORE_EVENTS, STRESS } from '../content/events';
-import { ITEMS, itemTier } from '../content/items';
-import { hopDistances } from '../dungeon/gen';
-import { spawnGroup } from './combat';
+import { CROWNED, MORE_EVENTS, STRESS } from '../content/events';
+import { ENEMIES, KING_RULES, type EnemyId } from '../content/enemies';
+import { ITEMS, itemTier, LOOT } from '../content/items';
+import { hopDistances, neighbours } from '../dungeon/gen';
+import { monsterArmor, monsterSpeed, onHeroInRoom, spawnGroup } from './combat';
 import { wornCharge } from './gear';
 import { equip } from './loot';
 import { buildView } from './views';
@@ -215,5 +216,97 @@ describe('Scrying Pool', () => {
     expect(o.messages.some((m) => m.text.includes('pool'))).toBe(false);
     run(world, MORE_EVENTS.scrySecs);
     expect(ally().live).toBe(false);
+  });
+});
+
+describe('Twin Locks, Swiftwork', () => {
+  it('turns in 3s if either pair of hands has a Hastening Robe ready, spending one', () => {
+    const { world, room } = withEvent('locks');
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'sorceress' });
+    equip(o, 'armor', 'hastening');
+    choose(world, 'h', 'wheel');
+    expect(buildView(world, 'o').event!.choices[0].label).toMatch(/\(3s together\)/);
+    choose(world, 'o', 'wheel');
+    expect(wornCharge(o, 'armor')!.cdLeft).toBeGreaterThan(0);
+    run(world, 3.3);
+    expect(world.events[room].done).toBe(true);
+    step(world, 0.1);
+    expect(world.heroes.h.gold + o.gold).toBeGreaterThanOrEqual(MORE_EVENTS.locksGold[0] - 1); // split, rounded down
+  });
+});
+
+describe('the Dead King', () => {
+  function court(extra: EnemyId[] = []) {
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
+    // Nobody here who could Stun him and skip his turn.
+    const h = addHero(world, { id: 'h', name: 'H', cls: 'zealot' });
+    h.maxHp = h.hp = 500;
+    const room = world.dungeon.entrance;
+    const [king, ...rest] = spawnGroup(world, room, ['king', ...extra], 0);
+    return { world, h, room, king, rest };
+  }
+
+  it('wears 3 armor for every other monster still standing beside him', () => {
+    const { world, king, rest } = court(['ghoul', 'ghoul']);
+    expect(monsterArmor(world, king)).toBe(2 * KING_RULES.armorPerCourtier);
+    delete world.monsters[rest[0].id];
+    expect(monsterArmor(world, king)).toBe(KING_RULES.armorPerCourtier);
+  });
+
+  it('takes turns between Kneel (every hero Stunned) and Charge (every monster quicker, a blow to the nearest)', () => {
+    const { world, h, room, king } = court();
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'lampbearer' });
+    o.maxHp = o.hp = 500;
+    king.cycle = 'kneel';
+    onHeroInRoom(world, h, room);
+    const enc = world.encounters[room];
+    run(world, ENEMIES.king.speed + 0.05);
+    expect(enc.log.some((l) => l.includes('bids them kneel'))).toBe(true);
+    expect(king.cycle).toBe('charge');
+    const hp = h.hp + o.hp;
+    run(world, ENEMIES.king.speed);
+    expect(enc.charge).toBe(1);
+    expect(monsterSpeed(enc, king)).toBe(ENEMIES.king.speed - KING_RULES.chargeHaste);
+    expect(h.hp + o.hp).toBeLessThan(hp);
+    expect(king.cycle).toBe('kneel');
+  });
+});
+
+describe('Crowned in Dread', () => {
+  it('sends the procession from a room farthest from the exit, toward it; everyone hears who woke him', () => {
+    const world = createWorld(31, { monsters: false, loot: false, events: false });
+    const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
+    const o = addHero(world, { id: 'o', name: 'O', cls: 'lampbearer' });
+    const d = world.dungeon;
+    const room = neighbours(d, d.entrance)[0];
+    h.pos = { kind: 'room', room };
+    world.events[room] = { room, kind: 'crowned', done: false, progress: 0, by: null, spawned: false };
+    choose(world, 'h', 'rouse');
+    run(world, 6.2);
+    const court = Object.values(world.monsters).filter((m) => m.procession);
+    expect(court.map((m) => m.type).sort()).toEqual([...CROWNED.procession].sort());
+    const start = court[0].room;
+    const dist = hopDistances(d, d.exit);
+    const farthest = Math.max(...d.rooms.filter((r) => r.kind === 'normal' && r.id !== room).map((r) => dist[r.id]));
+    expect(dist[start]).toBe(farthest);
+    expect(o.messages.some((m) => m.text.includes('H has woken the Dead King'))).toBe(true);
+    expect(o.seen).toContain(start);
+    const pack = Object.values(world.packs).find((p) => p.monsters.includes(court[0].id))!;
+    expect(pack.goal).toBe(d.exit);
+    run(world, 40);
+    expect(dist[pack.to ?? pack.room]).toBeLessThan(dist[start]);
+  });
+
+  it("the last of the procession to fall drops three Lairs' worth", () => {
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
+    const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
+    const room = world.dungeon.entrance;
+    const [m] = spawnGroup(world, room, ['crawler'], 0);
+    m.procession = true;
+    onHeroInRoom(world, h, room);
+    run(world, 40);
+    expect(world.monsters[m.id]).toBeUndefined();
+    expect(h.gold).toBeGreaterThanOrEqual(CROWNED.lairs * LOOT.lairGold[0]);
+    expect(world.piles[room].items.length).toBeGreaterThanOrEqual(3);
   });
 });

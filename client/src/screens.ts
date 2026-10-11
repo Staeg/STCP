@@ -466,7 +466,7 @@ function crHelpHtml(cr: number): string {
   const now = cr === lo ? [lo] : [lo, lo + 1];
   const u = CR_RULES.units;
   return `<div class="cr-help">
-    <div><b>Monster tiers.</b> ${TIERS.map((t) => `<span class="tier">T${t}</span> ${tierUnits(t)}`).join(' · ')}</div>
+    <div><b>Monster tiers.</b> ${TIERS.map((t) => `<span class="tier">T${t}</span> ${tierUnits(t)}`).join(' · ')} · <span class="tier">T4</span> ${ENEMIES.king.name} (only if someone wakes him)</div>
     <div><b>Each run</b> picks its monsters at random: ${ROSTER_RULES.defaults[0]} T0, ${ROSTER_RULES.defaults[1]} T1 and ${ROSTER_RULES.defaults[2]} T2 are its default monsters.
       T0 are there from the start, T1 join at Escalation ${ROSTER_RULES.escalation[1]} and T2 at Escalation ${ROSTER_RULES.escalation[2]} (lairs and hidden rooms don't wait).
       One more of each tier (the T3 always: there is only the ${ENEMIES.lich.name}) is the run's <i>CR unit</i>, which only Challenge Rating brings.</div>

@@ -1,9 +1,14 @@
 import type { Rng } from '../rng';
 
-export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich';
+export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich' | 'king';
 
-/** Power tier: 0 the common dead, 3 the worst there is. Which units of each tier a run uses is rolled (see `Roster`). */
-export type Tier = 0 | 1 | 2 | 3;
+/**
+ * Power tier: 0 the common dead, 4 the worst there is. Which units of tiers 0–3 a run uses is rolled (see `Roster`);
+ * T4 only ever comes from its event (the Dead King, with Crowned in Dread).
+ */
+export type Tier = 0 | 1 | 2 | 3 | 4;
+/** The tiers a run's roster, its encounter tables and Challenge Rating draw on. */
+export type RosterTier = Exclude<Tier, 4>;
 
 export interface EnemyDef {
   id: EnemyId;
@@ -21,6 +26,8 @@ export interface EnemyDef {
   onePerRoom?: boolean;
   /** Never spawns on its own: a group that would be only this gets one of the run's T0 units beside it. */
   needsCompany?: boolean;
+  /** Only ever spawned by its event, never by the roster or Challenge Rating. */
+  eventOnly?: boolean;
   /** Placeholder glyph until sprites (M9). */
   glyph: string;
   desc: string;
@@ -42,11 +49,24 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- T3 ----
   lich: { id: 'lich', name: 'Lich', tier: 3, maxHp: 30, speed: 6, dmg: 3, armor: 0, undead: true, glyph: '♚', onePerRoom: true,
     desc: 'Aura: every hero takes 3 dmg before each of their turns. Once a fight it raises a slain monster whole; otherwise Doom: every hero in the fight gains a stack of +1 dmg taken from everything. Stacks hold while a Lich stands in their fight, then fade one per turn of theirs, even after the fight.' },
+  // ---- T4: only with Crowned in Dread (user, 2026-10-11) ----
+  king: { id: 'king', name: 'Dead King', tier: 4, maxHp: 100, speed: 10, dmg: 10, armor: 0, undead: true, glyph: '♔', onePerRoom: true, eventOnly: true,
+    desc: 'Very slow. Armor 3 for every other monster still standing in the fight. Takes turns between Kneel (every hero in the fight is Stunned) and Charge (10 dmg to the nearest hero; every monster in the fight is 1s faster until it ends), starting with either.' },
 };
 
-export const TIERS: Tier[] = [0, 1, 2, 3];
-export const UNITS_BY_TIER: Record<Tier, EnemyId[]> = { 0: [], 1: [], 2: [], 3: [] };
-for (const e of Object.values(ENEMIES)) UNITS_BY_TIER[e.tier].push(e.id);
+export const TIERS: RosterTier[] = [0, 1, 2, 3];
+export const UNITS_BY_TIER: Record<RosterTier, EnemyId[]> = { 0: [], 1: [], 2: [], 3: [] };
+for (const e of Object.values(ENEMIES)) if (!e.eventOnly && e.tier !== 4) UNITS_BY_TIER[e.tier].push(e.id);
+
+/** The Dead King (T4). */
+export const KING_RULES = {
+  /** Armor for every other monster still standing in his fight. */
+  armorPerCourtier: 3,
+  /** Charge: every monster in the fight is this much faster (seconds) until it ends; each Charge adds more. */
+  chargeHaste: 1,
+  /** No monster gets quicker than this. */
+  speedFloor: 2,
+};
 
 /**
  * The monsters a run uses (user, 2026-10-10), rolled at its start. `main`: per tier, the run's default units, which
@@ -54,15 +74,15 @@ for (const e of Object.values(ENEMIES)) UNITS_BY_TIER[e.tier].push(e.id);
  * Challenge Rating brings (see CR_RULES), or null.
  */
 export interface Roster {
-  main: Record<Tier, EnemyId[]>;
-  cr: Record<Tier, EnemyId | null>;
+  main: Record<RosterTier, EnemyId[]>;
+  cr: Record<RosterTier, EnemyId | null>;
 }
 
 export const ROSTER_RULES = {
   /** Default units per tier: 2 of T0, 1 of T1, 1 of T2, no T3. */
-  defaults: { 0: 2, 1: 1, 2: 1, 3: 0 } as Record<Tier, number>,
+  defaults: { 0: 2, 1: 1, 2: 1, 3: 0 } as Record<RosterTier, number>,
   /** The Escalation from which ordinary groups use each tier (lairs and secret rooms don't wait). */
-  escalation: { 0: 0, 1: 1, 2: 3, 3: Infinity } as Record<Tier, number>,
+  escalation: { 0: 0, 1: 1, 2: 3, 3: Infinity } as Record<RosterTier, number>,
 };
 
 /** Shuffle each tier: the first `ROSTER_RULES.defaults[tier]` are the run's defaults, the next its CR unit. */
@@ -93,7 +113,7 @@ export const CR_RULES = {
     1: { from: 2, chance: 0.2, perCr: 0.04 },
     2: { from: 4, chance: 0.15, perCr: 0.03 },
     3: { from: 5, chance: 0.1, perCr: 0.02 },
-  } as Record<Tier, { from: number; chance: number; perCr: number }>,
+  } as Record<RosterTier, { from: number; chance: number; perCr: number }>,
   growFrom: 6,
   /** From CR `lowCr`, monsters of tier `lowTiersMax` and below get `lowBonus` more HP and damage. */
   lowCr: 3,
@@ -118,7 +138,7 @@ export const CR_RULES = {
 };
 
 /** Chance that a group spawned at this CR brings the tier's CR unit (0 before it's unlocked). */
-export function crUnitChance(tier: Tier, cr: number): number {
+export function crUnitChance(tier: RosterTier, cr: number): number {
   const u = CR_RULES.units[tier];
   if (cr < u.from) return 0;
   return Math.min(1, u.chance + u.perCr * Math.max(0, cr - CR_RULES.growFrom));
@@ -135,7 +155,7 @@ export function crBonus(tier: Tier, cr: number): number {
 /** A group template: each entry is a tier, filled with one of the run's default units of that tier. */
 export interface GroupTemplate {
   weight: number;
-  tiers: Tier[];
+  tiers: RosterTier[];
   minEscalation?: number;
 }
 

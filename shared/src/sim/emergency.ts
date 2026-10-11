@@ -21,7 +21,7 @@ export function forceRoster(roster: Roster, ids: readonly EmergencyId[]) {
     const e = EMERGENCIES[id].kill?.enemy;
     if (!e) continue;
     const t = ENEMIES[e].tier;
-    if (ROSTER_RULES.defaults[t] === 0 || roster.main[t].includes(e)) continue;
+    if (t === 4 || ROSTER_RULES.defaults[t] === 0 || roster.main[t].includes(e)) continue;
     if (roster.cr[t] === e) roster.cr[t] = roster.main[t][0] ?? null;
     roster.main[t][0] = e;
   }
