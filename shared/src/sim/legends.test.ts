@@ -5,11 +5,11 @@ import { CROWNED } from '../content/events';
 import { isCursed, ITEMS, itemTier, LEGENDARY_IDS, LOOT_TABLE } from '../content/items';
 import { LEGEND_RULES, LEGENDS } from '../content/legends';
 import { dieOut, downHero, heroBlock, monsterBlock, onHeroInRoom, spawnGroup, submitChoice } from './combat';
-import { addToPile, equip } from './loot';
+import { addToPile, equip, equipFromPack, giveItem } from './loot';
 import { checkSkill, fieldSkillsOf, useSkill } from './skills';
 import { legendsOf, wolvesOf } from './legends';
 import { buildView } from './views';
-import { kitCr } from '../village';
+import { kitCr, kitError } from '../village';
 import { addHero, createWorld, step, type World } from './world';
 import type { ClassId } from '../content/classes';
 
@@ -33,7 +33,7 @@ describe('Legendary items', () => {
       expect(LOOT_TABLE.some((e) => e.item === it)).toBe(false);
       expect(LEGENDS[ITEMS[it].legend!]).toBeDefined();
     }
-    expect(kitCr({ gear: { weapon: 'nightfang', ring: 'catseye' }, consumables: [], rites: [] })).toBe(1.2);
+    expect(kitCr({ gear: { weapon: 'alastor', ring: 'catseye' }, consumables: [], rites: [] })).toBe(1.2);
     expect(CROWNED).toMatchObject({ lairs: 2, legendaries: 1 });
   });
 
@@ -42,10 +42,16 @@ describe('Legendary items', () => {
     const h = world.heroes.h0;
     expect(legendsOf(h)).toEqual([]);
     equip(h, 'weapon', 'hollowrod');
-    equip(h, 'amulet', 'fenrir');
-    expect(legendsOf(h)).toEqual(['unmake', 'howl']);
-    expect(fieldSkillsOf(h)).toEqual(['unmake', 'howl']);
+    expect(legendsOf(h)).toEqual(['unmake']);
+    expect(fieldSkillsOf(h)).toEqual(['unmake']);
+    // Only one Legendary at a time: a second goes in the pack, and won't go on.
+    giveItem(h, 'fenrir');
+    expect(h.amulet).toBeNull();
+    expect(equipFromPack(world, h, h.items.indexOf('fenrir'))).toMatch(/one Legendary/);
+    equip(h, 'weapon', null);
+    expect(equipFromPack(world, h, h.items.indexOf('fenrir'))).toBeNull();
     expect(h.maxHp).toBe(54 + 20);
+    expect(kitError({ gear: { weapon: 'alastor', ring: 'silva' }, consumables: [], rites: [] }, ['alastor', 'silva'], { effigy: 0, gem: 0, tome: 0, relic: 0 })).toMatch(/one Legendary/);
     // Quake only works in a fight.
     equip(h, 'weapon', 'earthsplitter');
     expect(fieldSkillsOf(h)).not.toContain('quake');
@@ -54,21 +60,21 @@ describe('Legendary items', () => {
 });
 
 describe('Legendary abilities', () => {
-  it('Foredoom: the strongest non-Boss foe of the next fight dies as it begins', () => {
+  it('Promise: the strongest non-Boss foe of the next fight dies as it begins', () => {
     const { world, room } = party(['cutthroat']);
     const h = world.heroes.h0;
-    equip(h, 'weapon', 'nightfang');
-    useSkill(world, h, 'foredoom', null);
-    expect(h.foredoom).toBe(true);
-    expect(h.cooldowns.foredoom).toBe(LEGENDS.foredoom.cooldown);
-    expect(checkSkill(world, h, 'foredoom', null)).toBeTruthy();
+    equip(h, 'weapon', 'alastor');
+    useSkill(world, h, 'promise', null);
+    expect(h.promise).toBe(true);
+    expect(h.cooldowns.promise).toBe(LEGENDS.promise.cooldown);
+    expect(checkSkill(world, h, 'promise', null)).toBeTruthy();
     const [ghoul, giant, king] = spawnGroup(world, room, ['ghoul', 'giant', 'king'], 0);
     h.pos = { kind: 'room', room };
     onHeroInRoom(world, h, room);
     expect(world.monsters[giant.id]).toBeUndefined();
     expect(world.monsters[ghoul.id]).toBeDefined();
     expect(world.monsters[king.id]).toBeDefined();
-    expect(h.foredoom).toBe(false);
+    expect(h.promise).toBe(false);
   });
 
   it('Quake: every enemy takes your basic attack and is Stunned', () => {
@@ -102,20 +108,20 @@ describe('Legendary abilities', () => {
     expect(Object.values(world.monsters).filter((m) => m.room === room)).toEqual([]);
   });
 
-  it('Lethe: full HP and no stress, but no light either', () => {
+  it('Redeem: full HP and no stress, but no light either', () => {
     const { world } = party(['warden', 'lampbearer']);
     const [h, t] = [world.heroes.h0, world.heroes.h1];
-    equip(h, 'armor', 'lethehide');
+    equip(h, 'armor', 'daystar');
     t.hp = 5;
     t.stress = 60;
-    useSkill(world, h, 'lethe', t.id);
+    useSkill(world, h, 'redeem', t.id);
     expect(t).toMatchObject({ hp: t.maxHp, stress: 0, light: 0 });
   });
 
   it('Bastion: Shield of 3× your Block', () => {
     const { world } = party(['warden']);
     const h = world.heroes.h0;
-    equip(h, 'armor', 'halvard');
+    equip(h, 'armor', 'durance');
     expect(heroBlock(h)).toBe(6);
     useSkill(world, h, 'bastion', null);
     expect(h.st.shield).toBe(6 * LEGEND_RULES.bastionPerBlock);
@@ -124,7 +130,7 @@ describe('Legendary abilities', () => {
   it('Arise: a dead ally in your room lives again at full HP', () => {
     const { world, d } = party(['warden', 'zealot']);
     const [h, t] = [world.heroes.h0, world.heroes.h1];
-    equip(h, 'armor', 'elowen');
+    equip(h, 'armor', 'pilgrim');
     downHero(world, t, null);
     dieOut(world, t);
     expect(t.dead).toBe(true);
@@ -161,7 +167,7 @@ describe('Legendary abilities', () => {
   it('Waystep: into any room on your map, out of a fight if need be', () => {
     const { world, d, room } = party(['warden']);
     const h = world.heroes.h0;
-    equip(h, 'ring', 'ashkar');
+    equip(h, 'ring', 'silva');
     const far = d.rooms.find((r) => r.id !== d.entrance && !neighbours(d, d.entrance).includes(r.id))!.id;
     expect(checkSkill(world, h, 'waystep', null, far)).toMatch(/know/);
     h.seen.push(far, room);

@@ -834,7 +834,7 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 .cx-section { margin-bottom: 10px; }
 .cx-title { color: var(--gold); font-size: 21px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
 .cx-note { font-size: 15px; }
-.cx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.cx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; align-items: start; }
 .cx-entry { background: #15110d; border: 1px solid #3a2e24; padding: 4px 8px 6px; min-width: 0; }
 .cx-entry.unknown { opacity: 0.45; display: flex; gap: 8px; align-items: center; }
 .cx-glyph { font-size: 22px; float: left; margin-right: 6px; line-height: 1; }
@@ -848,3 +848,5 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 @media (max-width: 900px), (max-height: 560px) {
   .card.codex { height: auto; grid-template-rows: none; }
 }
+.cx-twist { display: flex; gap: 6px; align-items: center; margin-top: 4px; padding: 2px 4px; border-left: 3px solid var(--cls); font-size: 15px; }
+.cx-twist img { width: 24px; height: 24px; image-rendering: pixelated; }

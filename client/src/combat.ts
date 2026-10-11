@@ -1,6 +1,6 @@
 import {
-  abilitiesOf, CLASS_RULES, FLEE_CHANCE, GEAR_SLOTS, INSANITY, INSANITY_RULES, LEGENDS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
-  skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type GearSlot, type LegendId, type PlayerView,
+  abilitiesOf, CLASS_RULES, FLEE_CHANCE, INSANITY, INSANITY_RULES, LEGENDS, legendsOf, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
+  skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type LegendId, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
@@ -8,6 +8,7 @@ import { juice } from './juice';
 import { itemName, useFromField } from './loot';
 import { cooldownIcon, icon, iconize, iconNum, type IconId } from './icons';
 import { statusIcons } from './statuses';
+import { digitClaimed, digitKey } from './events';
 
 const $ = (id: string) => document.getElementById(id)!;
 /** Events from one turn play out this far apart; a busy fight queues them up. */
@@ -299,7 +300,8 @@ export class CombatUi {
       out.push(enc ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} ${cooldownIcon(CLASS_RULES.tollCooldown)} Only out of a fight.`, you.cooldowns.toll ?? 0, false, true)
         : this.fieldBtn(view, 'toll', 'M'));
     }
-    for (const { legend: l, key } of legendKeys(you)) {
+    for (const l of legendsOf(you)) {
+      const key = LEGEND_KEY;
       const def = LEGENDS[l];
       if (!enc) {
         out.push(def.field ? this.fieldBtn(view, l, key) : this.greyBtn(l, key, def.name, `${iconize(def.desc)} ${cooldownIcon(def.cooldown)} Only in a fight.`, you.cooldowns[l] ?? 0, true));
@@ -343,16 +345,10 @@ export class CombatUi {
     const queued = you.queuedSkill?.skill === skill;
     const aiming = this.aim?.skill === skill;
     const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead;
-    const mKey = skill === this.mSkill(view) && key !== 'M' ? ' <kbd>M</kbd>' : '';
     const inFights = legend ? LEGENDS[skill as LegendId].combat : !!ab;
     return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''}" data-skill="${skill}">
-      <kbd>${key}</kbd>${mKey} ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      <kbd>${key}</kbd> ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
       <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)}${cooldown ? ` ${cooldownIcon(cooldown)}` : ''}${inFights ? ` ${icon('field')}` : ' Only out of a fight.'}</div></button>`;
-  }
-
-  /** The skill M uses out of a fight: the first class skill (Toll first) that's ready. */
-  private mSkill(view: PlayerView): FieldSkill | undefined {
-    return fieldSkillsOf(view.you).find((s) => !(s in LEGENDS) && !((view.you.cooldowns[s] ?? 0) > 0));
   }
 
   /** Who an ability being aimed can go to, as name buttons (or a "click a room" note), above the bar. */
@@ -645,16 +641,19 @@ export class CombatUi {
       return;
     }
     if (view.phase !== 'running' || view.you.dead || view.you.extracted) return;
-    // Legendary abilities (Q, T, G, V), in a fight or out; out of one, M is your class skill.
-    const l = legendKeys(view.you).find((x) => `Key${x.key}` === e.code)?.legend;
+    // Your Legendary's ability is on Q, in a fight or out.
+    const l = e.code === `Key${LEGEND_KEY}` ? legendsOf(view.you)[0] : undefined;
     if (l) {
       if (view.encounter) this.pickLegend(l);
       else if (LEGENDS[l].field) this.useField(l);
       return;
     }
     if (!view.encounter) {
-      const m = this.mSkill(view);
-      if (e.code === 'KeyM' && m) this.useField(m);
+      // Out of a fight, your abilities keep their keys (1–3) unless an event or a loot vote is using that number; M tolls.
+      const digit = digitKey(e.code);
+      const ab = digit !== null && digit < 3 && !digitClaimed(view, digit) ? abilitiesOf(view.you)[digit] : undefined;
+      if (ab?.field) this.useField(ab.id as FieldSkill);
+      if (e.code === 'KeyM' && fieldSkillsOf(view.you).includes('toll')) this.useField('toll');
       return;
     }
     const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
@@ -687,17 +686,8 @@ export class CombatUi {
   }
 }
 
-/** Keys for Legendary abilities, by the slot their Gear is worn in. */
-const LEGEND_KEYS: Record<GearSlot, string> = { weapon: 'Q', armor: 'T', amulet: 'G', ring: 'V' };
-
-/** The Legendary abilities you have, each with its key. */
-function legendKeys(you: PlayerView['you']): { legend: LegendId; key: string }[] {
-  return GEAR_SLOTS.flatMap((slot) => {
-    const it = you[slot];
-    const legend = it ? ITEMS[it].legend : undefined;
-    return legend ? [{ legend, key: LEGEND_KEYS[slot] }] : [];
-  });
-}
+/** Your Legendary's ability (you can wear only one) is on this key. */
+const LEGEND_KEY = 'Q';
 
 /** Ability text (HTML) with icons for its cooldown and whether it works outside fights. */
 function abilityDesc(desc: string, cooldown: number, field: boolean): string {

@@ -1,4 +1,5 @@
-import { CROWNED, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS, type EventKind } from './events';
+import type { ClassId } from './classes';
+import { CLASS_EVENTS, CROWNED, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS, type EventKind } from './events';
 import { ENEMIES, type EnemyId } from './enemies';
 import { ITEMS, type ItemId } from './items';
 
@@ -10,11 +11,31 @@ export interface Codex {
   items: ItemId[];
   enemies: EnemyId[];
   events: EventKind[];
+  /** Class event twists (`TwistId`) found by meeting the event while playing that class (user, 2026-10-11). */
+  twists: TwistId[];
 }
 
 export function emptyCodex(): Codex {
-  return { items: [], enemies: [], events: [] };
+  return { items: [], enemies: [], events: [], twists: [] };
 }
+
+/**
+ * Class event twists (see CLASS_EVENTS): each class does an event its own way. Never shown in the class picker; the
+ * Archive lists one once a player has met that event while playing that class.
+ */
+export const TWISTS = {
+  'sorceress-altar': { cls: 'sorceress', event: 'altar', text: 'Her rites keep its guardians asleep: none wake while she cleanses it.' },
+  'cutthroat-idol': { cls: 'cutthroat', event: 'idol', text: 'Light fingers: the trap never springs, and nothing caves in.' },
+  'lampbearer-stranger': { cls: 'lampbearer', event: 'stranger', text: 'Tends the wound with no bandage, and the stranger always repays it.' },
+  'lampbearer-crawlspace': { cls: 'lampbearer', event: 'crawlspace', text: 'The lamp stays lit through the squeeze.' },
+  'zealot-well': { cls: 'zealot', event: 'well', text: `The whispers feed the fervour: always +${CLASS_EVENTS.zealotWellStress} stress and +${CLASS_EVENTS.zealotWellHp} HP.` },
+  'undertaker-chest': { cls: 'undertaker', event: 'chest', text: 'The dead hold no fear: no stress from opening it.' },
+  'warden-villager': { cls: 'warden', event: 'villager', text: `They hurry the Warden along: Speed −${Math.abs(CLASS_EVENTS.wardenEscortSpeed)}s while escorting, instead of slower.` },
+  'bellwright-hourglass': { cls: 'bellwright', event: 'hourglass', text: 'The haste lasts the rest of the run, for everyone in the room.' },
+  'alchemist-quicksilver': { cls: 'alchemist', event: 'quicksilver', text: `Drinks it safely: +${CLASS_EVENTS.alchemistQuicksilverMaxHp} max HP instead of losing some.` },
+} as const satisfies Record<string, { cls: ClassId; event: EventKind; text: string }>;
+export type TwistId = keyof typeof TWISTS;
+export const TWIST_IDS = Object.keys(TWISTS) as TwistId[];
 
 /** Everything the Armory can list, in the item catalogue's order. */
 export const CODEX_ITEMS = Object.keys(ITEMS) as ItemId[];
@@ -37,6 +58,7 @@ export function mergeCodex(into: Codex, found: Partial<Codex>): boolean {
   add(into.items, found.items, CODEX_ITEMS);
   add(into.enemies, found.enemies, CODEX_ENEMIES);
   add(into.events, found.events, CODEX_EVENTS);
+  add((into.twists ??= []), found.twists, TWIST_IDS);
   return added;
 }
 

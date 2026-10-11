@@ -1,6 +1,6 @@
 import {
   CLASSES, CODEX_ENEMIES, ESCALATION, CODEX_EVENTS, CODEX_ITEMS, ELITE_NOTE, ENEMIES, EVENT_RULES, EVENTS, fmtSpeed, ITEMS, slotOf, type EnemyId, type EventKind, type ItemId,
-  type VillageView,
+  type TwistId, TWISTS, type VillageView,
 } from '@stcp/shared';
 import { iconize, iconNum } from './icons';
 import { itemName } from './loot';
@@ -27,7 +27,7 @@ export function codexHtml(v: VillageView, tab: CodexTab): string {
     archive: `${c.events.length}/${CODEX_EVENTS.length}`,
   };
   const tabs = CODEX_TABS.map((t) => `<button class="cx-tab ${t.id === tab ? 'selected' : ''}" data-act="codex" data-tab="${t.id}">${t.name} <span class="muted">${counts[t.id]}</span></button>`).join('');
-  const body = tab === 'armory' ? armoryHtml(c.items) : tab === 'bestiary' ? bestiaryHtml(c.enemies) : archiveHtml(c.events);
+  const body = tab === 'armory' ? armoryHtml(c.items) : tab === 'bestiary' ? bestiaryHtml(c.enemies) : archiveHtml(c.events, c.twists ?? []);
   const what = CODEX_TABS.find((t) => t.id === tab)!.what;
   return `<div class="card codex">
     <div class="vv-head">
@@ -74,14 +74,19 @@ function bestiaryHtml(found: readonly EnemyId[]): string {
   }))).join('') + `<div class="muted cx-foot">Numbers are at Escalation 0: they grow by ${Math.round(ESCALATION.escalationScaling * 100)}% every Escalation, and more at high Challenge Rating.</div>`;
 }
 
-function archiveHtml(found: readonly EventKind[]): string {
+function archiveHtml(found: readonly EventKind[], twists: readonly TwistId[]): string {
   const entry = (k: EventKind) => {
     if (!found.includes(k)) return unknown();
     const d = EVENTS[k];
     const rules = EVENT_RULES[k];
     const elite = d.elite ? `<div class="cx-stats" style="color:${CLASSES[d.elite].color}">${CLASSES[d.elite].name} only</div>` : '';
+    // Class twists you've found playing that class.
+    const known = twists.filter((t) => TWISTS[t].event === k).map((t) => {
+      const cls = CLASSES[TWISTS[t].cls];
+      return `<div class="cx-twist" style="--cls:${cls.color}"><img src="${spriteUrl(cls.id, cls.color)}" alt="" title="${cls.name}"><span><b>${cls.name}</b>: ${esc(TWISTS[t].text)}</span></div>`;
+    }).join('');
     return `<div class="cx-entry"><div class="cx-glyph">${d.glyph}</div><div class="cx-name">${esc(d.name)}</div>${elite}
-      <div class="cx-desc"><i>${esc(d.text)}</i>${rules ? `<br>${iconize(rules)}` : ''}</div></div>`;
+      <div class="cx-desc"><i>${esc(d.text)}</i>${rules ? `<br>${iconize(rules)}` : ''}</div>${known}</div>`;
   };
   return section('Events', CODEX_EVENTS.filter((k) => !EVENTS[k].elite).map(entry))
     + section(`Elite Events <span class="muted cx-note">${esc(ELITE_NOTE)}</span>`, CODEX_EVENTS.filter((k) => EVENTS[k].elite).map(entry));

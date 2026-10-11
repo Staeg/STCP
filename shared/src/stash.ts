@@ -197,7 +197,7 @@ export class Stash {
       wellbeing: this.wellbeingOf(r), offered: r.fate ? [] : emergenciesAt(this.wellbeingOf(r)), emergency: r.fate ? null : (r.emergency ?? null),
       fate: r.fate ?? null,
       buildings: this.buildingsOf(r), used: [...(r.used ?? [])], sight: { ...r.sight }, upkeep: upkeepOf(this.buildingsOf(r)), notice: r.notice ?? null,
-      codex: structuredClone(r.codex ?? emptyCodex()),
+      codex: { ...emptyCodex(), ...structuredClone(r.codex) },
     };
   }
 

@@ -262,7 +262,11 @@ function inKit(kit: Kit, item: ItemId): number {
 /** Gear goes on its slot (replacing what was chosen there); a consumable takes a free place. */
 export function addToKit(kit: Kit, item: ItemId) {
   const slot = slotOf(item);
-  if (slot) kit.gear[slot] = item;
+  if (slot) {
+    // Only one Legendary can be worn: a new one takes the place of any other.
+    if (ITEMS[item].legend) for (const s of GEAR_SLOTS) if (s !== slot && kit.gear[s] && ITEMS[kit.gear[s]!].legend) delete kit.gear[s];
+    kit.gear[slot] = item;
+  }
   else if (kit.consumables.length < KIT_RULES.consumables) kit.consumables.push(item);
 }
 

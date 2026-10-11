@@ -10,7 +10,7 @@ export type ItemId =
   | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
   | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark'
   | 'patchwork' | 'hastening' | 'wayfarer' | 'sackcloth' | 'gravecloth' | 'softstep' | 'blinkcloth' | 'gossamer'
-  | 'nightfang' | 'earthsplitter' | 'hollowrod' | 'lethehide' | 'halvard' | 'elowen' | 'fenrir' | 'ashkar';
+  | 'alastor' | 'earthsplitter' | 'hollowrod' | 'daystar' | 'durance' | 'pilgrim' | 'fenrir' | 'silva';
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
 import { legendNote, type LegendId } from './legends';
@@ -240,18 +240,18 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     `Slip: instead of going down, you leave at 1 HP for a random room next door (+${CLOTH.blinkStress} stress).`),
   gossamer: cloth('gossamer', 'Gossamer Shroud', { effect: 'gossamer', perFight: true }, 'the first attack aimed at you in a fight misses.', { speed: -0.5 }),
   // Legendaries (user 2026-10-11): only from the Dead King's treasure. Stats like any piece, plus an ability.
-  nightfang: legendary('nightfang', 'weapon', 'dagger', 'Nightfang of Ysolde', 'foredoom', `${pct(0.35)} damage dealt.`, { dmgPct: 0.35, speed: -0.5 }),
-  earthsplitter: legendary('earthsplitter', 'weapon', 'hammer', "Orvar's Earthsplitter", 'quake', `+5 to every hit, then ${pct(0.75)} damage dealt.`, { flatDmg: 5, dmgPct: 0.75, speed: 0.5 }),
-  hollowrod: legendary('hollowrod', 'weapon', 'staff', "Saint Ilva's Hollow Rod", 'unmake', '', { speed: 0.5 }),
-  lethehide: legendary('lethehide', 'armor', 'leather', 'Lethewyrm Hide', 'lethe', blockNote(3), { block: 3, speed: -0.5 }),
-  halvard: legendary('halvard', 'armor', 'mail', 'Aegis of Halvard', 'bastion', blockNote(6), { block: 6, speed: 0.5 }),
-  elowen: legendary('elowen', 'armor', 'cloth', 'Shroud of Saint Elowen', 'arise', '', { speed: -1 }),
+  alastor: legendary('alastor', 'weapon', 'dagger', 'Oath of Alastor', 'promise', `${pct(0.35)} damage dealt.`, { dmgPct: 0.35, speed: -0.5 }),
+  earthsplitter: legendary('earthsplitter', 'weapon', 'hammer', "Smough's Earthsplitter", 'quake', `+5 to every hit, then ${pct(0.75)} damage dealt.`, { flatDmg: 5, dmgPct: 0.75, speed: 0.5 }),
+  hollowrod: legendary('hollowrod', 'weapon', 'staff', "Magister Ilya's Hollow Rod", 'unmake', '', { speed: 0.5 }),
+  daystar: legendary('daystar', 'armor', 'leather', "Day Star's Embrace", 'redeem', blockNote(3), { block: 3, speed: -0.5 }),
+  durance: legendary('durance', 'armor', 'mail', "Tal's Durance", 'bastion', blockNote(6), { block: 6, speed: 0.5 }),
+  pilgrim: legendary('pilgrim', 'armor', 'cloth', 'Gray Shroud of the Pilgrim', 'arise', '', { speed: -1 }),
   fenrir: legendary('fenrir', 'amulet', null, "Fenrir's Tooth", 'howl', '+20 max HP.', { maxHp: 20 }),
-  ashkar: legendary('ashkar', 'ring', null, 'Signet of Ashkar', 'waystep', '', { speed: -0.5 }),
+  silva: legendary('silva', 'ring', null, 'Signet of Saint Silva', 'waystep', '', { speed: -0.5 }),
 };
 
 /** Every Legendary, in slot order (the Dead King's treasure holds one at random). */
-export const LEGENDARY_IDS: readonly ItemId[] = ['nightfang', 'earthsplitter', 'hollowrod', 'lethehide', 'halvard', 'elowen', 'fenrir', 'ashkar'];
+export const LEGENDARY_IDS: readonly ItemId[] = ['alastor', 'earthsplitter', 'hollowrod', 'daystar', 'durance', 'pilgrim', 'fenrir', 'silva'];
 
 /** Legendary Gear: a stat line (`text`), Speed, and the ability it gives. */
 function legendary(id: ItemId, kind: GearSlot, gearType: GearType | null, name: string, legend: LegendId, text: string, stats: Partial<ItemDef>): ItemDef {
@@ -269,6 +269,8 @@ export const OLD_GEAR_IDS: Record<string, ItemId> = {
   leathercoat: 'jerkin', chainshirt: 'studded', cuirass: 'drakehide',
   // Lucky Coin, removed 2026-10-11: loads as the other plain amulet bonus.
   coin: 'locket',
+  // Legendaries renamed 2026-10-11 (user).
+  nightfang: 'alastor', lethehide: 'daystar', halvard: 'durance', elowen: 'pilgrim', ashkar: 'silva',
 };
 
 /** An id as saved before gear types, read as today's. */

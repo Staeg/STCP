@@ -233,6 +233,7 @@ export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<R
     if (!isGear(it) || slotOf(it) !== slot) return `${ITEMS[it].name} isn't worn there.`;
     if (!take(it)) return `Your Stash has no ${ITEMS[it].name}.`;
   }
+  if (Object.values(kit.gear).filter((it) => it && ITEMS[it].legend).length > 1) return 'Only one Legendary can be worn at a time.';
   if (kit.consumables.length > KIT_RULES.consumables) return `At most ${KIT_RULES.consumables} consumables.`;
   if (kit.rites.includes('gem') && kit.consumables.length) return 'The Gem Rite forbids consumables: leave them at home.';
   // What the Emergency needs carried out can't be carried in.

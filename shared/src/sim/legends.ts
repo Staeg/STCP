@@ -81,7 +81,7 @@ export function legendError(world: World, h: Hero, id: LegendId, target: string 
     if (!targets.length) return l.target === 'fallen' ? 'Nobody lies fallen here.' : 'Nobody is here.';
     if (target !== null && !targets.includes(target)) return 'Pick someone it can reach.';
   }
-  if (id === 'foredoom' && h.foredoom) return 'Your next fight is already doomed.';
+  if (id === 'promise' && h.promise) return 'Your next fight is already promised.';
   if (id === 'howl' && wolvesOf(world, h) >= LEGEND_RULES.maxWolves) return `${LEGEND_RULES.maxWolves} wolves already run with you.`;
   if (id === 'bastion' && heroBlock(h) <= 0) return 'You have no Block to build on.';
   return null;
@@ -105,8 +105,8 @@ export function useLegend(world: World, h: Hero, id: LegendId, target: string | 
     return world.heroes[target && targets.includes(target) ? target : targets[0]];
   };
   switch (id) {
-    case 'foredoom':
-      h.foredoom = true;
+    case 'promise':
+      h.promise = true;
       tell('You whisper a name into the dark. Whatever leads your next fight will not live to see it.');
       return;
     case 'quake': {
@@ -125,16 +125,16 @@ export function useLegend(world: World, h: Hero, id: LegendId, target: string | 
     case 'unmake':
       if (room !== null) unmake(world, h, room);
       return;
-    case 'lethe': {
+    case 'redeem': {
       const t = pick();
       if (!t) return;
       const healed = t.maxHp - t.hp;
       t.hp = t.maxHp;
       t.stress = 0;
       t.light = 0;
-      const who = events ? (t === h ? `${h.name} drinks` : `${h.name} gives ${t.name}`) : t === h ? 'You drink' : `You give ${t.name}`;
-      tell(`${who} the waters of Lethe: whole again, untroubled, and in the dark.`, 'heal', t.id, healed);
-      if (!events && t !== h) notify(world, t, `${h.name} gives you the waters of Lethe: your wounds and your fears are gone, and so is your light.`);
+      const who = events ? (t === h ? `${h.name} finds` : `${h.name} grants ${t.name}`) : t === h ? 'You find' : `You grant ${t.name}`;
+      tell(`${who} redemption: whole again, untroubled, and in the dark.`, 'heal', t.id, healed);
+      if (!events && t !== h) notify(world, t, `${h.name} redeems you: your wounds and your fears are gone, and so is your light.`);
       return;
     }
     case 'bastion': {
@@ -249,15 +249,15 @@ function waystep(world: World, h: Hero, room: number, enc: Encounter | null, eve
   onHeroInRoom(world, h, room);
 }
 
-/** Foredoom: as `h` walks into a fight, its strongest foe that isn't a Boss dies (highest tier, ties at random). */
-export function foredoom(world: World, enc: Encounter, h: Hero) {
-  if (!h.foredoom || !isConscious(h)) return;
+/** Promise: as `h` walks into a fight, its strongest foe that isn't a Boss dies (highest tier, ties at random). */
+export function keepPromise(world: World, enc: Encounter, h: Hero) {
+  if (!h.promise || !isConscious(h)) return;
   const foes = monstersIn(world, enc.room).filter((m) => ENEMIES[m.type].tier < BOSS_TIER);
   if (!foes.length) return;
   const top = Math.max(...foes.map((m) => ENEMIES[m.type].tier));
   const m = world.rng.pick(foes.filter((x) => ENEMIES[x.type].tier === top));
-  h.foredoom = false;
-  const events: CombatEvent[] = [{ actor: h.id, kind: 'info', text: `${h.name}'s foredoom falls on the ${ENEMIES[m.type].name}.` }];
+  h.promise = false;
+  const events: CombatEvent[] = [{ actor: h.id, kind: 'info', text: `${h.name}'s Promise is kept: death takes the ${ENEMIES[m.type].name}.` }];
   applyMonsterDamage(world, m, m.hp, events);
   record(world, enc, events);
 }

@@ -188,7 +188,16 @@ export function hasSpace(h: Hero, item?: ItemId): boolean {
  */
 export function putsOn(h: Hero, item: ItemId): boolean {
   const slot = slotOf(item);
-  return !!slot && !h[slot];
+  return !!slot && !h[slot] && !(ITEMS[item].legend && wornLegendary(h, slot));
+}
+
+/** The Legendary this hero wears in a slot other than `except`, if any: only one may be worn at a time (user, 2026-10-11). */
+export function wornLegendary(h: Hero, except?: GearSlot): ItemId | null {
+  for (const s of GEAR_SLOTS) {
+    const it = h[s];
+    if (s !== except && it && ITEMS[it].legend) return it;
+  }
+  return null;
 }
 
 /** Gear that goes on (into an empty slot) can always be taken; the rest needs room. */
@@ -251,6 +260,8 @@ export function equipFromPack(world: World, h: Hero, index: number): string | nu
   const slot = item === undefined ? null : slotOf(item);
   if (!slot) return "You can't wear that.";
   if (h.encounter !== null || !isConscious(h)) return 'Not now.';
+  const other = ITEMS[item].legend ? wornLegendary(h, slot) : null;
+  if (other) return `Only one Legendary can be worn at a time: take off the ${ITEMS[other].name} first.`;
   takeItem(h, index);
   const old = equip(h, slot, item);
   if (old) stow(h, old);

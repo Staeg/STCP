@@ -20,7 +20,7 @@ import {
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
 import { CLOTH, GEAR_SLOTS, ITEMS, pluralName, slotOf } from '../content/items';
-import { emptyCodex, type Codex } from '../content/codex';
+import { emptyCodex, TWIST_IDS, TWISTS, type Codex } from '../content/codex';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
@@ -190,8 +190,8 @@ export interface Hero {
   called: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
   scryUntil: number;
-  /** Foredoom (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
-  foredoom: boolean;
+  /** Promise (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
+  promise: boolean;
   /** What this hero has come across this run (items, monsters, events), for their player's Codex in the Village. */
   codex: Codex;
   /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
@@ -471,7 +471,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     risen: null,
     called: false,
     scryUntil: 0,
-    foredoom: false,
+    promise: false,
     codex: emptyCodex(),
     restHp: null,
     elite: {},
@@ -798,6 +798,11 @@ function noteCodex(world: World, a: Hero, room: number) {
   const ev = world.events[room];
   add(c.events, ev?.kind);
   if (villagerHere(world, room)) add(c.events, 'villager');
+  // A class twist is found by meeting its event while playing that class.
+  for (const id of TWIST_IDS) {
+    const t = TWISTS[id];
+    if (t.cls === a.cls && c.events.includes(t.event) && (ev?.kind === t.event || (t.event === 'villager' && villagerHere(world, room)))) add(c.twists, id);
+  }
 }
 
 /** A hero's memory of a room: what was in it when they last looked. A room seen only from next door holds just what showed from there. */

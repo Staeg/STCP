@@ -14,7 +14,7 @@ import { chronicle, extractHero, roomName, type Hero, type World } from './world
 import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
-import { foredoom, legendError, useLegend } from './legends';
+import { keepPromise, legendError, useLegend } from './legends';
 import type { LegendId } from '../content/legends';
 
 export const DEATH_TIMER = 36;
@@ -448,8 +448,8 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
     if (wolves) say(world, enc, `${wolves > 1 ? `${wolves} wolves pad` : 'A wolf pads'} in at ${h.name}'s side.`);
     h.legion = [];
   }
-  // Foredoom: the strongest foe here dies as the fight begins.
-  foredoom(world, enc, h);
+  // Promise: the strongest foe here dies as the fight begins.
+  keepPromise(world, enc, h);
   // Restless Dead: the risen that followed the Undertaker here fights on.
   if (h.risen && !risenOf(enc)) {
     enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };

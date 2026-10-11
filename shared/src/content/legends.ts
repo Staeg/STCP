@@ -3,7 +3,7 @@
  * piece adds to its wearer's stats like any other and gives them an active ability of its own, with a cooldown in
  * their own turns. Brought in from the Village, a Legendary adds a whole CR (`KIT_RULES.legendaryCr`).
  */
-export type LegendId = 'foredoom' | 'quake' | 'unmake' | 'lethe' | 'bastion' | 'arise' | 'howl' | 'waystep';
+export type LegendId = 'promise' | 'quake' | 'unmake' | 'redeem' | 'bastion' | 'arise' | 'howl' | 'waystep';
 
 /**
  * none: nothing to aim · ally: a conscious hero with you (in your fight, or your room out of one), you included ·
@@ -30,17 +30,17 @@ export const LEGEND_RULES = {
   bastionPerBlock: 3,
 };
 
-/** Bosses are T4 (only the Dead King): Foredoom never takes one. */
+/** Bosses are T4 (only the Dead King): Promise never takes one. */
 export const BOSS_TIER = 4;
 
 export const LEGENDS: Record<LegendId, LegendDef> = {
-  foredoom: { id: 'foredoom', name: 'Foredoom', cooldown: 8, combat: false, field: true, target: 'none',
+  promise: { id: 'promise', name: 'Promise', cooldown: 8, combat: false, field: true, target: 'none',
     desc: 'Mark your next fight: as it begins, its strongest foe (the highest tier; ties at random) dies on the spot. Never a Boss.' },
   quake: { id: 'quake', name: 'Quake', cooldown: 6, combat: true, field: false, target: 'none',
     desc: 'Strike every enemy with your basic attack’s damage, and Stun them all.' },
   unmake: { id: 'unmake', name: 'Unmake', cooldown: 6, combat: true, field: true, target: 'room',
     desc: 'Pick any room on your map: every monster, all the loot and the event there are gone, as if they had never been. Your own fight too, Bosses and treasure included.' },
-  lethe: { id: 'lethe', name: 'Lethe', cooldown: 12, combat: true, field: true, target: 'ally',
+  redeem: { id: 'redeem', name: 'Redeem', cooldown: 12, combat: true, field: true, target: 'ally',
     desc: 'An ally with you (or you) is healed in full and their stress drops to 0, but their light goes out (0).' },
   bastion: { id: 'bastion', name: 'Bastion', cooldown: 6, combat: true, field: true, target: 'none',
     desc: `Gain Shield equal to ${LEGEND_RULES.bastionPerBlock}× your Block.` },
