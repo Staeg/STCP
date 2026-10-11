@@ -35,7 +35,8 @@ function withElite(cls: ClassId, other: ClassId = 'warden') {
 }
 
 describe('Elite Events: seeding', () => {
-  it('each hero adds 20% for their class; never two of the same', () => {
+  // 3000 worlds: ~2s alone, but past the 5s default when the whole suite runs in parallel.
+  it('each hero adds 20% for their class; never two of the same', { timeout: 30000 }, () => {
     let one = 0;
     let two = 0;
     const games = 1000;
