@@ -259,7 +259,7 @@ describe('Bellwright', () => {
   it('timed statuses outlast the fight and tick in the field; Poison keeps hurting', () => {
     const { world, ids } = arena(['bellwright'], ['ghoul']);
     const h = world.heroes[ids[0]];
-    h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: 1, stun: true, shield: 5 };
+    h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: { stacks: 1, turns: 1 }, stun: true, shield: 5 };
     h.cooldowns = {};
     const hp = h.hp;
     fieldTurn(world, h);
@@ -404,7 +404,7 @@ describe('reworked kits', () => {
     expect(warden.stress).toBeGreaterThanOrEqual(CLASS_RULES.pactStress);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
     untilTurn(world, room, 'h0');
-    for (const m of monsters) expect(m.st.weak).toBeGreaterThan(0);
+    for (const m of monsters) expect(m.st.weak?.stacks).toBe(1);
   });
 
   it('Mend cannot target the Lampbearer; a lone Vigil answers every enemy action with a free Flare', () => {

@@ -5,6 +5,7 @@ export type ItemId =
   | 'effigy' | 'gem' | 'tome' | 'relic'
   | 'dirk' | 'knife' | 'stiletto' | 'kris' | 'misericorde' | 'whisperblade'
   | 'cudgel' | 'sledge' | 'warhammer' | 'ironmaul' | 'bonebreaker' | 'giantmaul'
+  | 'crook' | 'censer' | 'rowan' | 'wardstaff' | 'witchwood' | 'twinned' | 'evergreen' | 'hourglass'
   | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
   | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark';
 
@@ -39,6 +40,8 @@ export interface ItemDef {
   dmgPct?: number;
   /** Hammers: added to every direct hit you deal, before `dmgPct` (not to Poison ticks). */
   flatDmg?: number;
+  /** Staves: what it does for the one who carries it (numbers in STAFF). */
+  staff?: StaffEffect;
   /** Armor: subtracted from every hit you take (never below 1). */
   armor?: number;
   /** Seconds added to your Speed while you wear it (negative = faster: cursed amulets and rings, a few light rares). */
@@ -81,6 +84,27 @@ const hammer = (id: ItemId, name: string, flatDmg: number, dmgPct: number, speed
   id, name, kind: 'weapon', gearType: 'hammer', glyph: GLYPHS.hammer, target: 'self', combat: false, field: false, dmgPct, flatDmg, speed,
   desc: `Hammer: +${flatDmg} to every hit, then ${pct(dmgPct)} damage dealt.${speedNote(speed)}`,
 });
+/**
+ * Staves (user 2026-10-11): no damage, for those who help, hinder or hurry. heal: healing you give · relief: stress
+ * you take off others (and Take Their Sins) · linger: your debuffs last longer · ward: Shield on whoever you heal,
+ * buff or relieve, in a fight or out · witch: what carries your debuffs takes more from everyone · twin: your debuffs
+ * land twice · evergreen: your buffs last twice as long · hourglass: shorter cooldowns, down to 0.
+ */
+export type StaffEffect = 'heal' | 'relief' | 'linger' | 'ward' | 'witch' | 'twin' | 'evergreen' | 'hourglass';
+export const STAFF = {
+  healMult: 1.5,
+  reliefMult: 1.5,
+  lingerTurns: 1,
+  wardShield: 2,
+  witchMult: 1.15,
+  evergreenMult: 2,
+  hourglassCut: 1,
+};
+const staff = (id: ItemId, name: string, effect: StaffEffect, text: string, speed = 0.5): ItemDef => ({
+  id, name, kind: 'weapon', gearType: 'staff', glyph: GLYPHS.staff, target: 'self', combat: false, field: false, staff: effect, speed,
+  desc: `Staff: ${text}${speedNote(speed)}`,
+});
+
 const armor = (type: 'leather' | 'mail', id: ItemId, name: string, value: number, speed: number): ItemDef => ({
   id, name, kind: 'armor', gearType: type, glyph: GLYPHS[type], target: 'self', combat: false, field: false, armor: value, speed,
   desc: `${GEAR_TYPE_NAMES[type]}: −${value} damage from every hit (min 1).${speedNote(speed)}`,
@@ -130,6 +154,14 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   ironmaul: hammer('ironmaul', 'Iron Maul', 3, 0.5, 1),
   bonebreaker: hammer('bonebreaker', 'Bonebreaker', 3, 0.5, 0.5),
   giantmaul: hammer('giantmaul', "Giant's Maul", 5, 0.75, 1),
+  crook: staff('crook', "Shepherd's Crook", 'heal', 'healing you give +50%.'),
+  censer: staff('censer', 'Censer Staff', 'relief', 'stress you relieve +50% (Take Their Sins moves 50% more).'),
+  rowan: staff('rowan', 'Rowan Staff', 'linger', 'debuffs you place last 1 turn longer.'),
+  wardstaff: staff('wardstaff', 'Warding Staff', 'ward', 'whoever you heal, buff or relieve also gains +2 Shield, in a fight or out of one.'),
+  witchwood: staff('witchwood', 'Witchwood Staff', 'witch', 'enemies carrying your debuffs take +15% damage from everyone.'),
+  twinned: staff('twinned', 'Twinned Staff', 'twin', 'every debuff you place lands twice (two stacks; Stun chances roll twice).'),
+  evergreen: staff('evergreen', 'Evergreen Staff', 'evergreen', 'buffs you place last twice as long.'),
+  hourglass: staff('hourglass', 'Hourglass Staff', 'hourglass', 'all your cooldowns are 1 turn shorter, down to 0.', 1),
   jerkin: armor('leather', 'jerkin', 'Padded Jerkin', 1, 0),
   studded: armor('leather', 'studded', 'Studded Leather', 2, 0),
   drakehide: armor('leather', 'drakehide', 'Drakehide', 3, 0),
@@ -244,12 +276,21 @@ export function packRank(item: ItemId): number {
   return isGear(item) ? 1 : 0;
 }
 
+/** Who it's for (bots): supports get the most from Staves; the quick feel every second of Speed more. */
+export interface GearFit {
+  support: boolean;
+  /** Class base Speed. */
+  speed: number;
+}
+
 /** How much better `item` is than what's in that slot now (0 or less = not an upgrade). */
-export function gearGain(item: ItemId, current: ItemId | null): number {
+export function gearGain(item: ItemId, current: ItemId | null, fit?: GearFit): number {
+  const speedWeight = !fit ? 1 : fit.speed <= 4 ? 2 : fit.speed >= 6 ? 0.5 : 1;
   const value = (id: ItemId | null) => {
     if (!id) return 0;
     const d = ITEMS[id];
-    return (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? d.speed ?? 0 : 0);
+    const staff = d.staff && fit?.support ? itemTier(id) * 1.5 : 0;
+    return staff + (d.dmgPct ?? 0) * 10 + (d.flatDmg ?? 0) * 0.5 + (d.armor ?? 0) - (isArms(id) ? (d.speed ?? 0) * speedWeight : 0);
   };
   return value(item) - value(current);
 }
@@ -273,9 +314,9 @@ export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] =
   { item: 'quickblood', weight: 0.5, rarity: 2 },
   { item: 'ashen', weight: 0.5, rarity: 2 },
   ...gearLoot('weapon', {
-    1: ['dirk', 'knife', 'cudgel', 'sledge'],
-    2: ['stiletto', 'kris', 'warhammer', 'ironmaul'],
-    3: ['misericorde', 'whisperblade', 'bonebreaker', 'giantmaul'],
+    1: ['dirk', 'knife', 'cudgel', 'sledge', 'crook', 'censer'],
+    2: ['stiletto', 'kris', 'warhammer', 'ironmaul', 'rowan', 'wardstaff', 'witchwood'],
+    3: ['misericorde', 'whisperblade', 'bonebreaker', 'giantmaul', 'twinned', 'evergreen', 'hourglass'],
   }),
   ...gearLoot('armor', {
     1: ['jerkin', 'ringmail', 'scaleshirt'],

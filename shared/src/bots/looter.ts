@@ -2,6 +2,7 @@ import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { STRESS_MAX } from '../sim/combat';
 import { BOTS } from './tuning';
 import { gearGain, isCursed, isArms, isGear, slotOf, type ItemId } from '../content/items';
+import { CLASSES, type ClassId } from '../content/classes';
 import { BOT_DEFER_AFTER, LEAVE } from '../sim/loot';
 import type { LootItemView, PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -48,7 +49,7 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
   if (isGear(f.item)) {
     // Whoever it's the biggest upgrade for (ties: me). Nobody gains → a player, whose Stash keeps it; else leave it.
     const best = cands
-      .map((c) => ({ id: c.id, gain: wornGain(f.item, c.wearing ?? null) }))
+      .map((c) => ({ id: c.id, gain: wornGain(f.item, c.wearing ?? null, classOf(view, c.id)) }))
       .filter((c) => c.gain > 0)
       .sort((a, b) => b.gain - a.gain || Number(b.id === me.id) - Number(a.id === me.id))[0];
     return best ? best.id : cands.find((c) => !c.isBot)?.id ?? LEAVE;
@@ -68,8 +69,15 @@ function preferredRecipient(view: PlayerView, f: LootItemView): string {
  * How much better a piece is than what's worn: weapons and armor by their numbers; amulets and rings blessed beats
  * nothing beats cursed (bots don't trade health for haste).
  */
-function wornGain(item: ItemId, wearing: ItemId | null): number {
-  if (isArms(item)) return gearGain(item, wearing);
+/** Classes that lean on Staves (heal, ease, hinder) more than on raw damage. */
+const STAFF_CLASSES: ClassId[] = ['lampbearer', 'sorceress', 'alchemist', 'bellwright'];
+
+function classOf(view: PlayerView, id: string): ClassId | undefined {
+  return id === view.you.id ? view.you.cls : view.allies.find((a) => a.id === id)?.cls;
+}
+
+function wornGain(item: ItemId, wearing: ItemId | null, cls?: ClassId): number {
+  if (isArms(item)) return gearGain(item, wearing, cls && { support: STAFF_CLASSES.includes(cls), speed: CLASSES[cls].speed });
   const worth = (id: ItemId | null) => (!id ? 0 : isCursed(id) ? -1 : 1);
   return worth(item) - worth(wearing);
 }
@@ -87,7 +95,7 @@ export function botUseItem(view: PlayerView): Intent | null {
   if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
   // Put on anything in the pack that beats what's worn (it went in the pack for being no rarer).
-  const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!]) > 0);
+  const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!], me.cls) > 0);
   if (better >= 0) return { type: 'useItem', index: better };
   // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).
   const low = (frac: number) => frac <= 1 - BOTS.consumeAt;

@@ -7,6 +7,7 @@ import { neighbours } from '../dungeon/gen';
 import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
 import { ENEMIES } from '../content/enemies';
 import { notify } from './notify';
+import { healBy, reliefBy, ward } from './gear';
 import { STRESS } from '../content/events';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
 
@@ -600,22 +601,29 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   const x = h.elixir ? 2 : 1;
   h.elixir = false;
   const boost = x > 1 ? ' (Elixir: double!)' : '';
+  // Warding Staff: healing and easing someone with an item shields them too.
+  const warded = () => {
+    const shield = ward(h, t);
+    return shield ? ` (+${shield} Shield)` : '';
+  };
   switch (item) {
     case 'bandage': {
       const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + 12 * x);
+      t.hp = Math.min(t.maxHp, t.hp + healBy(h, 12 * x));
       delete t.st.poison;
-      return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).${boost}`;
+      return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).${boost}${warded()}`;
     }
     case 'torch':
       t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
       return `${h.name} lights a fresh torch.${boost}`;
-    case 'tonic':
-      addStress(t, -25 * x);
-      return `${h.name} drinks a tonic. (−${25 * x} stress)${boost}`;
+    case 'tonic': {
+      const eased = reliefBy(h, 25 * x);
+      addStress(t, -eased);
+      return `${h.name} drinks a tonic. (−${eased} stress)${boost}${warded()}`;
+    }
     case 'salts':
-      reviveHero(t, Math.min(1, 0.5 * x), world, h);
-      return `${h.name} revives ${t.name} with smelling salts!${boost}`;
+      reviveHero(t, Math.min(1, healBy(h, 50 * x) / 100), world, h);
+      return `${h.name} revives ${t.name} with smelling salts!${boost}${warded()}`;
   }
   return `${h.name} uses ${def.name}.`;
 }

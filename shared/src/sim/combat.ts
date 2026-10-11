@@ -5,7 +5,8 @@ import {
 } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
-import { ITEMS, LOOT } from '../content/items';
+import { ITEMS, LOOT, STAFF } from '../content/items';
+import { buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
 import { applyItem, bodyRoom, dropBounty, dropEverything, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS } from '../content/events';
 import { maybeHitVillager } from './events';
@@ -32,8 +33,10 @@ export interface Statuses {
   hexed?: number[];
   /** Shield (was Block): soaks up this much damage from blows. Can be gained out of combat; gone when a fight you are in ends. */
   shield?: number;
-  /** Deals half damage; turns remaining. */
-  weak?: number;
+  /** Wither: each stack halves the damage it deals (two: −75%). `turns` = own turns until one stack fades (like Acid). */
+  weak?: { stacks: number; turns: number };
+  /** Witchwood Staff: takes STAFF.witchMult more from everyone while it carries any debuff. */
+  witchwood?: boolean;
   /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
   vengeance?: number;
   /** Lich's Doom (heroes): stacks, each CR_RULES.doom more from every blow, aura and poison tick. Holds while a Lich
@@ -48,6 +51,8 @@ export interface Statuses {
   // ---- Until someone's next turn ----
   /** Lampbearer's lone Vigil: every enemy action sets off a Flare, until this hero's next turn. */
   vigil?: string;
+  /** Evergreen Staff: the lone Vigil holds through this many more of the Lampbearer's turns. */
+  vigilMore?: number;
   /** Bracing until their own next turn. */
   brace?: boolean;
 }
@@ -773,7 +778,9 @@ function record(world: World, enc: Encounter, events: CombatEvent[]) {
 function endLingering(world: World, enc: Encounter, id: string) {
   for (const hid of enc.heroes) {
     const st = world.heroes[hid].st;
-    if (st.vigil === id) delete st.vigil;
+    if (st.vigil !== id) continue;
+    if (st.vigilMore) st.vigilMore--;
+    else delete st.vigil;
   }
 }
 
@@ -790,7 +797,10 @@ function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) =
     if (st.poison?.length === 0) delete st.poison;
     if (!hurt(dmg)) return;
   }
-  if (st.weak !== undefined && --st.weak <= 0) delete st.weak;
+  if (st.weak && --st.weak.turns <= 0) {
+    if (--st.weak.stacks <= 0) delete st.weak;
+    else st.weak.turns = CLASS_RULES.witherTurns;
+  }
   if (st.acid && --st.acid.turns <= 0) {
     if (--st.acid.stacks <= 0) delete st.acid;
     else st.acid.turns = CLASS_RULES.acidTurns;
@@ -799,6 +809,11 @@ function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) =
     st.hexed = st.hexed.map((n) => n - 1).filter((n) => n > 0);
     if (st.hexed.length === 0) delete st.hexed;
   }
+}
+
+/** Wither: each stack halves the damage a unit deals. */
+export function weakMult(st: Statuses): number {
+  return 0.5 ** (st.weak?.stacks ?? 0);
 }
 
 /** Is this unit in smoke right now? */
@@ -884,7 +899,8 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
 /** What a monster actually takes from a hit of `dmg`: its armor takes some off (at least 1 gets through), then Acid adds to it. */
 function monsterTakes(m: Monster, dmg: number): number {
   const reduced = dmg > 0 ? Math.max(1, dmg - ENEMIES[m.type].armor) : dmg;
-  return m.st.acid ? reduced + m.st.acid.stacks * CLASS_RULES.acidBonus : reduced;
+  const acid = m.st.acid ? reduced + m.st.acid.stacks * CLASS_RULES.acidBonus : reduced;
+  return Math.round(acid * witchwoodMult(m.st));
 }
 
 /** What a risen takes from a blow: a Risen ally's own armor counts, a risen monster's its kind's. */
@@ -943,7 +959,7 @@ function lichAura(world: World, enc: Encounter, h: Hero, events: CombatEvent[]):
   for (const m of monstersIn(world, enc.room)) {
     if (m.type !== 'lich' || !isConscious(h)) continue;
     let dmg = ENEMIES.lich.dmg * m.dmgMult;
-    if (m.st.weak) dmg *= 0.5;
+    dmg *= weakMult(m.st);
     if (h.light <= 0) dmg *= 1.25;
     dmg = armored(h, Math.max(1, Math.round(dmg))) + doomOf(h);
     if (h.st.shield) {
@@ -1117,28 +1133,38 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
   }
 
   const ab = abilityOf(h, c.action)!;
-  if (ab.cooldown > 0) h.cooldowns[ab.id] = ab.cooldown;
+  const cd = cooldownFor(h, ab.cooldown);
+  if (cd > 0) h.cooldowns[ab.id] = cd;
   switch (ab.id) {
     case 'bash': {
       const t = pickEnemy(true);
       if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id] && rng.chance(CLASS_RULES.bashStun)) {
+      // Twinned Staff: the Stun gets a second roll.
+      const stuns = heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]
+        && Array.from({ length: debuffCopies(h) }, () => rng.chance(CLASS_RULES.bashStun)).some(Boolean);
+      if (stuns) {
         t.st.stun = true;
+        markWitchwood(h, t.st);
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
       return;
     }
     case 'vengeance':
-      h.st.vengeance = CLASS_RULES.vengeanceTurns + (h.talent === 'unyielding' ? TALENT_RULES.unyieldingTurns : 0);
+      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + (h.talent === 'unyielding' ? TALENT_RULES.unyieldingTurns : 0));
+      ward(h, h);
       events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
       return;
-    case 'rally':
+    case 'rally': {
+      const eased = reliefBy(h, 10);
+      const shield = ab.power + (staffOf(h) === 'ward' ? STAFF.wardShield : 0);
       for (const a of allies()) {
         a.st.shield = (a.st.shield ?? 0) + ab.power;
-        addStress(a, -10);
+        ward(h, a);
+        addStress(a, -eased);
       }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${ab.power} Shield, −10 stress)` });
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${shield} Shield, −${eased} stress)` });
       return;
+    }
     case 'backstab': {
       const t = pickEnemy(false);
       if (!t) return;
@@ -1152,20 +1178,27 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       heroHits(world, enc, h, t, ab.power, events, ab.name);
       if (world.monsters[t.id]) {
         t.st.stun = true;
+        markWitchwood(h, t.st);
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
       }
       return;
     }
-    case 'smoke':
-      for (const a of allies()) a.st.dodge = world.time + CLASS_RULES.smokeSecs;
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${CLASS_RULES.smokeSecs}s)` });
+    case 'smoke': {
+      const secs = buffLength(h, CLASS_RULES.smokeSecs);
+      for (const a of allies()) {
+        a.st.dodge = world.time + secs;
+        ward(h, a);
+      }
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${secs}s)` });
       return;
+    }
     case 'mend': {
       // Triage: only ever the Lampbearer.
       const t = ab.target === 'self' ? h : pickAlly();
       if (!t || (t === h && ab.target !== 'self')) return;
-      const healed = heal(t, ab.power);
+      const healed = heal(t, healBy(h, ab.power));
       delete t.st.poison;
+      ward(h, t);
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
       return;
     }
@@ -1175,11 +1208,14 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'vigil': {
       const t = pickAlly();
       if (t) {
-        addStress(t, -ab.power);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t === h ? 'themself' : t.name}. (−${ab.power} stress)` });
+        const eased = reliefBy(h, ab.power);
+        addStress(t, -eased);
+        ward(h, t);
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t === h ? 'themself' : t.name}. (−${eased} stress)` });
       }
       if (othersIn(world, enc, h).length === 0) {
         h.st.vigil = h.id;
+        h.st.vigilMore = buffLength(h, 1) - 1;
         events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} stands alone, lamp raised. Any move against them will meet the light.` });
       }
       return;
@@ -1190,14 +1226,18 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const stacks = t.st.hexed?.length ?? 0;
       heroHits(world, enc, h, t, ab.power * (1 + CLASS_RULES.hexedBonus * stacks), events, ab.name);
       if (world.monsters[t.id]) {
-        (t.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is Hexed (×${t.st.hexed.length}).` });
+        for (let i = 0; i < debuffCopies(h); i++) (t.st.hexed ??= []).push(debuffTurns(h, CLASS_RULES.hexedTurns));
+        markWitchwood(h, t.st);
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is Hexed (×${t.st.hexed?.length ?? 0}).` });
       }
       return;
     }
     case 'wither':
-      for (const m of enemies()) m.st.weak = CLASS_RULES.witherTurns;
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} withers every foe. (−50% damage)` });
+      for (const m of enemies()) {
+        m.st.weak = { stacks: (m.st.weak?.stacks ?? 0) + debuffCopies(h), turns: debuffTurns(h, CLASS_RULES.witherTurns) };
+        markWitchwood(h, m.st);
+      }
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} withers every foe. (−50% damage per stack)` });
       return;
     case 'pact': {
       for (const a of allies()) {
@@ -1237,7 +1277,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const hp = Math.max(1, Math.round(dead.maxHp * CLASS_RULES.raiseHp));
       enc.risen = {
         id: `r${world.nextId++}`, type: dead.type, hp, maxHp: hp, dmgMult: dead.dmgMult, by: h.id,
-        turns: h.talent === 'restlessDead' ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns,
+        turns: buffLength(h, h.talent === 'restlessDead' ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns),
       };
       enc.lastSlain = null;
       // Raised, it's the Undertaker's: a Zombie won't get back up for the enemy, nor the Lich call it back.
@@ -1252,20 +1292,22 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       if (!t) return;
       heroHits(world, enc, h, t, ab.power, events, ab.name);
       if (world.monsters[t.id] && enc.next[t.id] !== undefined) {
-        enc.next[t.id] = at(enc.next[t.id] + CLASS_RULES.clangDelay);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} reels from the din. (+${CLASS_RULES.clangDelay}s)` });
+        const delay = CLASS_RULES.clangDelay * debuffCopies(h);
+        enc.next[t.id] = at(enc.next[t.id] + delay);
+        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} reels from the din. (+${delay}s)` });
       }
       // The ringing quickens the ringer: one more stack, and the timer starts over.
-      h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + 1, turns: CLASS_RULES.clangTurns };
+      h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + 1, turns: buffLength(h, CLASS_RULES.clangTurns) };
       return;
     }
     case 'peal':
       for (const a of othersIn(world, enc, h)) {
         if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - CLASS_RULES.pealHaste));
+        ward(h, a);
         // Resonance: the note settles nerves and knits wounds.
         if (h.talent === 'resonance') {
-          addStress(a, -TALENT_RULES.resonanceStress);
-          const healed = heal(a, TALENT_RULES.resonanceHeal);
+          addStress(a, -reliefBy(h, TALENT_RULES.resonanceStress));
+          const healed = heal(a, healBy(h, TALENT_RULES.resonanceHeal));
           if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
         }
       }
@@ -1286,11 +1328,12 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'sins': {
       const t = pickAlly();
       if (!t) return;
-      const moved = takeSins(h, t, ab.power);
+      const moved = takeSins(h, t, reliefBy(h, ab.power));
+      ward(h, t);
       events.push({ actor: h.id, kind: 'stress', target: h.id, amount: moved, text: `${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)` });
       // Martyr: and eases their wounds.
       if (h.talent === 'martyr') {
-        const healed = heal(t, TALENT_RULES.martyrHeal);
+        const healed = heal(t, healBy(h, TALENT_RULES.martyrHeal));
         if (healed) events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${t.name} is soothed. (+${healed})` });
       }
       return;
@@ -1312,7 +1355,8 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = pickEnemy(false);
       if (!t) return;
       if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) {
-        t.st.acid = { stacks: (t.st.acid?.stacks ?? 0) + 1, turns: CLASS_RULES.acidTurns };
+        t.st.acid = { stacks: (t.st.acid?.stacks ?? 0) + debuffCopies(h), turns: debuffTurns(h, CLASS_RULES.acidTurns) };
+        markWitchwood(h, t.st);
         events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is burned by acid.${t.st.acid.stacks > 1 ? ` (×${t.st.acid.stacks})` : ''}` });
       }
       return;
@@ -1324,6 +1368,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = pickAlly();
       if (!t) return;
       t.elixir = true;
+      ward(h, t);
       events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} hands ${t === h ? 'themself' : t.name} an elixir. (next item ×2)` });
       return;
     }
@@ -1335,7 +1380,10 @@ function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent[], fre
   const foes = monstersIn(world, enc.room);
   if (!foes.length) return;
   events.push({ actor: h.id, kind: 'status', text: free ? `Fumes spill from ${h.name}'s satchel!` : `${h.name} smashes a flask of fumes!` });
-  for (const m of foes) addPoison(m.st, Math.round(CLASS_RULES.fumesPoison * damageMult(h, world)), CLASS_RULES.fumesTurns);
+  for (const m of foes) {
+    for (let i = 0; i < debuffCopies(h); i++) addPoison(m.st, Math.round(CLASS_RULES.fumesPoison * damageMult(h, world)), debuffTurns(h, CLASS_RULES.fumesTurns));
+    markWitchwood(h, m.st);
+  }
 }
 
 /** Light for everyone in the room (Flare, in or out of a fight). */
@@ -1369,7 +1417,7 @@ function heal(h: Hero, n: number): number {
 /** A direct hit's damage before the target's defences. Hammers add a flat bonus first, then the percentages apply. */
 export function hitDamage(h: Hero, base: number, world?: World): number {
   let dmg = (base + (h.weapon ? ITEMS[h.weapon].flatDmg ?? 0 : 0)) * damageMult(h, world);
-  if (h.st.weak) dmg *= 0.5;
+  dmg *= weakMult(h.st);
   if (h.affliction === 'hopeless') dmg *= 0.7;
   return Math.max(1, Math.round(dmg));
 }
@@ -1554,7 +1602,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   }
   if (victim.kind === 'risen') {
     const r = victim.r;
-    const dmg = risenTakes(world, r, Math.max(1, Math.round(base * m.dmgMult * (m.st.weak ? 0.5 : 1))));
+    const dmg = risenTakes(world, r, Math.max(1, Math.round(base * m.dmgMult * weakMult(m.st))));
     r.hp = Math.max(0, r.hp - dmg);
     const rname = risenName(world, r);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
@@ -1575,7 +1623,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     return null;
   }
   let dmg = base * m.dmgMult;
-  if (m.st.weak) dmg *= 0.5;
+  dmg *= weakMult(m.st);
   if (t.light <= 0) dmg *= 1.25;
   // Vengeance: the attacker takes the whole blow back, before any of the Warden's defences.
   const returned = t.st.vengeance ? Math.max(1, Math.round(dmg)) : 0;

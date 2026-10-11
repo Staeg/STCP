@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { neighbours } from '../dungeon/gen';
 import { botUseItem, botVote } from '../bots/looter';
-import { armored, damageMult, hitDamage, spawnGroup } from './combat';
+import { armored, damageMult, hitDamage, spawnGroup, weakMult } from './combat';
+import { witchwoodMult } from './gear';
+import { useSkill } from './skills';
+import { CLASS_RULES, abilityById } from '../content/abilities';
+import type { EnemyId } from '../content/enemies';
+import { STRESS } from '../content/events';
 import { speedOf } from './speed';
-import { isArms, ITEMS, LOOT_TABLE } from '../content/items';
+import { isArms, ITEMS, LOOT_TABLE, STAFF } from '../content/items';
 import { Stash } from '../stash';
 import { addToPile, LEAVE } from './loot';
 import { buildView } from './views';
@@ -223,8 +228,8 @@ describe('gear types', () => {
   it('no two pieces share a rarity and an effect', () => {
     const seen = new Set<string>();
     for (const e of LOOT_TABLE.filter((x) => isArms(x.item))) {
-      const { kind, dmgPct, flatDmg, armor, speed } = ITEMS[e.item];
-      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, armor, speed]);
+      const { kind, dmgPct, flatDmg, armor, speed, staff } = ITEMS[e.item];
+      const key = JSON.stringify([kind, e.rarity, dmgPct, flatDmg, armor, speed, staff]);
       expect(seen.has(key), e.item).toBe(false);
       seen.add(key);
     }
@@ -236,5 +241,126 @@ describe('gear types', () => {
     const v = stash.village('Ann');
     expect([...v.items].sort()).toEqual(['bandage', 'drakehide', 'jerkin', 'stiletto']);
     expect(v.kit.gear).toEqual({ weapon: 'misericorde', armor: 'studded' });
+  });
+});
+
+describe('staves', () => {
+  function arena(classes: ClassId[], enemies: EnemyId[]) {
+    const world = createWorld(777, { monsters: false, loot: false });
+    const d = world.dungeon;
+    const ids = classes.map((cls, i) => addHero(world, { id: `h${i}`, name: `H${i}`, cls }).id);
+    const room = neighbours(d, d.entrance)[0];
+    const monsters = spawnGroup(world, room, enemies, 0);
+    for (const m of monsters) m.hp = m.maxHp = 999;
+    return { world, d, ids, room, monsters };
+  }
+  function walkIn(world: World, ids: string[], room: number) {
+    for (const id of ids) applyIntent(world, id, { type: 'goto', room });
+    for (let i = 0; i < 100 && ids.some((id) => world.heroes[id].encounter === null); i++) step(world, 0.1);
+  }
+  /** Pick `action` for h0 and run until it has been used. */
+  function act(world: World, room: number, action: 'a0' | 'a1' | 'a2', target?: string) {
+    const enc = world.encounters[room];
+    applyIntent(world, 'h0', { type: 'combat', choice: { action, target } });
+    const due = enc.next.h0;
+    for (let i = 0; i < 300 && enc.next.h0 === due; i++) step(world, 0.1);
+  }
+
+  it('Twinned: Wither lands two stacks (−75%) and Clang pushes twice as far', () => {
+    const { world, ids, room, monsters } = arena(['sorceress'], ['ghoul']);
+    world.heroes.h0.weapon = 'twinned';
+    walkIn(world, ids, room);
+    act(world, room, 'a2');
+    expect(monsters[0].st.weak?.stacks).toBe(2);
+    expect(weakMult(monsters[0].st)).toBe(0.25);
+
+    const b = arena(['bellwright'], ['ghoul']);
+    b.world.heroes.h0.weapon = 'twinned';
+    walkIn(b.world, b.ids, b.room);
+    const enc = b.world.encounters[b.room];
+    applyIntent(b.world, 'h0', { type: 'combat', choice: { action: 'a0' } });
+    const before = () => enc.next[b.monsters[0].id];
+    let was = before();
+    for (let i = 0; i < 300 && !b.world.heroes.h0.st.clang; i++) {
+      was = before();
+      step(b.world, 0.1);
+    }
+    expect(before() - was).toBeCloseTo(2 * CLASS_RULES.clangDelay);
+  });
+
+  it('Rowan makes debuffs last a turn longer; Hourglass cuts every cooldown by 1, down to 0', () => {
+    const { world, ids, room, monsters } = arena(['sorceress'], ['ghoul']);
+    const h = world.heroes.h0;
+    h.weapon = 'rowan';
+    walkIn(world, ids, room);
+    act(world, room, 'a0');
+    expect(monsters[0].st.hexed).toEqual([CLASS_RULES.hexedTurns + 1]);
+    h.weapon = 'hourglass';
+    act(world, room, 'a2');
+    expect(h.cooldowns.wither).toBe(abilityById('wither')!.cooldown - 1);
+
+    const l = arena(['lampbearer', 'warden'], ['ghoul']);
+    l.world.heroes.h0.weapon = 'hourglass';
+    l.world.heroes.h1.hp -= 20;
+    walkIn(l.world, l.ids, l.room);
+    act(l.world, l.room, 'a2', 'h1'); // Mend: cooldown 1 → 0
+    expect(l.world.heroes.h0.cooldowns.mend).toBeUndefined();
+  });
+
+  it("Shepherd's Crook heals 50% more; Censer Staff eases 50% more stress", () => {
+    const { world, ids, room } = arena(['lampbearer', 'warden'], ['ghoul']);
+    const [l, w] = [world.heroes.h0, world.heroes.h1];
+    l.weapon = 'crook';
+    w.hp -= 30;
+    w.st.shield = 999; // the Ghoul's blows don't blur the numbers
+    walkIn(world, ids, room);
+    const hp = w.hp;
+    act(world, room, 'a2', 'h1');
+    expect(w.hp - hp).toBe(Math.round(abilityById('mend')!.power * 1.5));
+    l.weapon = 'censer';
+    const base = STRESS.basePerSec;
+    STRESS.basePerSec = 0;
+    w.stress = 50;
+    act(world, room, 'a1', 'h1');
+    STRESS.basePerSec = base;
+    expect(w.stress).toBeCloseTo(50 - Math.round(abilityById('vigil')!.power * 1.5), 0);
+  });
+
+  it('Evergreen doubles the buffs you place', () => {
+    const { world, ids, room } = arena(['warden'], ['ghoul']);
+    world.heroes.h0.weapon = 'evergreen';
+    walkIn(world, ids, room);
+    act(world, room, 'a1'); // Vengeance
+    expect(world.heroes.h0.st.vengeance).toBe(2 * CLASS_RULES.vengeanceTurns);
+  });
+
+  it('Warding Staff shields whoever you help, even out of a fight; the Shield lasts into the next fight and ends with it', () => {
+    const { world, room, monsters } = arena(['lampbearer', 'warden'], ['ghoul']);
+    const [l, w] = [world.heroes.h0, world.heroes.h1];
+    l.weapon = 'wardstaff';
+    w.hp -= 10;
+    useSkill(world, l, 'mend', 'h1');
+    expect(w.st.shield).toBe(STAFF.wardShield);
+    walkIn(world, ['h1'], room);
+    expect(w.encounter).toBe(room);
+    expect(w.st.shield).toBe(STAFF.wardShield);
+    for (const m of monsters) m.hp = 1;
+    applyIntent(world, 'h1', { type: 'combat', choice: { action: 'a0' } });
+    for (let i = 0; i < 300 && w.encounter !== null; i++) step(world, 0.1);
+    expect(w.encounter).toBeNull();
+    expect(w.st.shield).toBeUndefined();
+  });
+
+  it('Witchwood: what carries your debuff takes 15% more from everyone, until its debuffs are gone', () => {
+    const { world, ids, room, monsters } = arena(['sorceress'], ['ghoul']);
+    world.heroes.h0.weapon = 'witchwood';
+    walkIn(world, ids, room);
+    act(world, room, 'a2'); // Wither marks every foe
+    const m = monsters[0];
+    expect(m.st.witchwood).toBe(true);
+    expect(witchwoodMult(m.st)).toBe(STAFF.witchMult);
+    delete m.st.weak;
+    expect(witchwoodMult(m.st)).toBe(1);
+    expect(m.st.witchwood).toBeUndefined();
   });
 });

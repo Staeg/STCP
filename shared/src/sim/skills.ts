@@ -5,6 +5,7 @@ import { theRoom } from '../dungeon/gen';
 import { abilitiesOf, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
 import { dazeAll, lureToward } from './escalation';
 import { giveItem, hasSpace } from './loot';
+import { buffLength, cooldownFor, healBy, reliefBy, ward } from './gear';
 import { notify } from './notify';
 import type { Hero, World } from './world';
 
@@ -88,25 +89,30 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
 export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null) {
   const err = checkSkill(world, h, skill, targetId);
   if (err) return notify(world, h, err);
-  const cd = cooldownOf(h, skill);
+  const cd = cooldownFor(h, cooldownOf(h, skill));
   if (cd > 0) h.cooldowns[skill] = cd;
   h.cdClock = 0;
   const t = targetId && skillTarget(h, skill) !== 'none' ? world.heroes[targetId] : h;
+  // Warding Staff: everyone you help out here goes into the next fight with a Shield.
+  if (skill !== 'toll' && skill !== 'flare') {
+    const shield = ward(h, t);
+    if (shield) notify(world, t, `${t === h ? 'You gain' : `${h.name}'s staff gives you`} +${shield} Shield (until the end of your next fight).`);
+  }
   switch (skill) {
     case 'toll':
       return toll(world, h);
     case 'sins': {
-      const moved = takeSins(h, t, abilitiesOf(h)[2].power);
+      const moved = takeSins(h, t, reliefBy(h, abilitiesOf(h)[2].power));
       // Martyr: and eases their wounds.
       const before = t.hp;
-      if (h.talent === 'martyr') t.hp = Math.min(t.maxHp, t.hp + TALENT_RULES.martyrHeal);
+      if (h.talent === 'martyr') t.hp = Math.min(t.maxHp, t.hp + healBy(h, TALENT_RULES.martyrHeal));
       const healed = t.hp > before ? `, +${t.hp - before} HP` : '';
       notify(world, h, `You take ${t.name}'s sins upon yourself. (+${moved} stress)`);
       notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress${healed})`);
       return;
     }
     case 'vengeance':
-      h.st.vengeance = CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns;
+      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns);
       notify(world, h, `You swear vengeance. Whoever strikes you in your next ${h.st.vengeance} turns will feel it.`);
       return;
     case 'elixir':
@@ -116,7 +122,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
       return;
     case 'mend': {
       const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + abilitiesOf(h)[2].power);
+      t.hp = Math.min(t.maxHp, t.hp + healBy(h, abilitiesOf(h)[2].power));
       delete t.st.poison;
       if (t === h) return notify(world, h, `You tend your own wounds (+${t.hp - before}).`);
       notify(world, h, `You mend ${t.name} (+${t.hp - before}).`);
@@ -130,7 +136,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
       }
       return;
     case 'vigil': {
-      const eased = -addStress(t, -abilityById('vigil')!.power);
+      const eased = -addStress(t, -reliefBy(h, abilityById('vigil')!.power));
       notify(world, h, t === h ? `You keep a quiet vigil. (−${eased} stress)` : `You keep vigil over ${t.name}. (−${eased} stress)`);
       if (t !== h) notify(world, t, `${h.name} keeps vigil over you. (−${eased} stress)`);
       return;
