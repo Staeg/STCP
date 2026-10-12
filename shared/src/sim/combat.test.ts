@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { DEATH_TIMER, combatOrder, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
+import { DEATH_TIMER, combatOrder, defaultChoice, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
 import { Game } from './game';
 import { buildView } from './views';
 import { speedOf } from './speed';
@@ -73,6 +73,15 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.text.includes('hesitates, then uses Backstab'))).toBe(true);
     // Two Cutthroat turns before the Giant's first.
     expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
+  });
+
+  it("an undecided hero's single-target attack goes to the frontmost monster", () => {
+    const { world, ids, room } = arena(['cutthroat'], ['crawler', 'ghoul', 'giant']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const front = combatOrder(world, enc).monsters[0];
+    expect(front.type).toBe('giant'); // the slowest stands nearest the heroes
+    for (let i = 0; i < 10; i++) expect(defaultChoice(world, enc, world.heroes.h0)?.target).toBe(front.id);
   });
 
   it('ties go to heroes before monsters, and to the leftmost hero (equal Speed: join order) before the rightmost', () => {

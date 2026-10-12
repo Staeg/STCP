@@ -747,7 +747,7 @@ export function readyAbilities(h: { cls: Hero['cls']; talent?: TalentId | null; 
 
 /**
  * What a hero does if their turn comes before they've picked: the first ability that's ready and has a
- * target, aimed sensibly (an enemy for attacks, the most hurt ally for heals). Null if none can be used
+ * target, aimed sensibly (the frontmost enemy for attacks, the most hurt ally for heals). Null if none can be used
  * (then they brace).
  */
 export function defaultChoice(world: World, enc: Encounter, h: Hero): Choice | null {
@@ -762,7 +762,9 @@ export function defaultChoice(world: World, enc: Encounter, h: Hero): Choice | n
       const hurt = targets.map((id) => world.heroes[id]).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
       return { action, target: hurt.id };
     }
-    return { action, target: world.rng.pick(targets) };
+    // A single foe: the frontmost one, nearest the heroes (user, 2026-10-12; was a random one).
+    const front = combatOrder(world, enc).monsters.find((m) => targets.includes(m.id));
+    return { action, target: front?.id ?? world.rng.pick(targets) };
   }
   return null;
 }
