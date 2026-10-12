@@ -98,10 +98,11 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     mem.returnAt = mem.escortReturnAt;
     mem.escortReturnAt = null;
   }
-  if (exit && here === exit.id && view.time >= mem.returnAt) {
+  // In trouble (badly hurt): leave now rather than wait for the planned time.
+  if (exit && here === exit.id && (view.time >= mem.returnAt || you.hp / you.maxHp < BOTS.homeAt)) {
     // Wait a while for the others (they might be coming), unless hurt or out of time.
     if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(8, BOTS.exitWaitMax);
-    const hurt = you.hp / you.maxHp < 0.4;
+    const hurt = you.hp / you.maxHp < BOTS.exitHurt;
     const late = view.time > view.collapseAt - 60;
     const everyoneHere = view.allies.every((a) => a.dead || a.extracted || (a.live && a.pos.kind === 'room' && a.pos.room === here));
     if (hurt || late || everyoneHere || view.time >= mem.leaveAt) {
@@ -151,7 +152,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   }
 
   // Badly hurt bots give up and head for the rendezvous early.
-  if (exit && (view.time >= mem.returnAt || you.hp / you.maxHp < 0.3)) {
+  if (exit && (view.time >= mem.returnAt || you.hp / you.maxHp < BOTS.homeAt)) {
     if (costs.has(exit.id)) return travel(exit.id) ?? { type: 'goto', room: exit.id };
     // Route unknown: push into the unexplored room that looks closest to the exit.
     const frontier = frontierRooms(view, costs);

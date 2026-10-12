@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, ESCALATION_INTERVAL, WAVES_AT } from '../content/constants';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
-import { collapseCorridor } from './escalation';
+import { collapseCorridor, stragglerEvery } from './escalation';
+import { applyMonsterDamage, carryItem, monsterBlock, monsterSpeed, spawnGroup } from './combat';
+import { addToPile, scavenge } from './loot';
+import { ITEMS } from '../content/items';
 import { ESCALATION } from '../content/enemies';
 import { buildView } from './views';
 import { speedOf } from './speed';
@@ -126,7 +129,7 @@ describe('escalation', () => {
     world.time = WAVES_AT - 1;
     world.escalation = 5;
     run(world, 2);
-    const waves = Object.values(world.packs).filter((p) => p.goal === world.dungeon.exit);
+    const waves = Object.values(world.packs).filter((p) => p.goal === world.dungeon.exit && !world.monsters[p.monsters[0]].straggler);
     expect(waves.length).toBe(1);
     expect(neighbours(world.dungeon, world.dungeon.exit)).toContain(waves[0].room);
   });
@@ -189,5 +192,55 @@ describe('extraction and the end', () => {
     h.immuneUntil = Infinity; // only the tunnels matter here, not what wanders by
     expect(h.pos).toEqual({ kind: 'room', room: d.exit });
     expect(Math.max(...hopDistances(d, d.exit))).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('stragglers', () => {
+  it('a T0 from the roster appears on schedule and heads for the exit', () => {
+    const world = createWorld(9, { monsters: false, loot: false });
+    addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    expect(stragglerEvery(0)).toBe(50);
+    expect(stragglerEvery(6)).toBe(10);
+    run(world, 49);
+    expect(Object.values(world.monsters).some((m) => m.straggler)).toBe(false);
+    run(world, 2);
+    const stragglers = Object.values(world.monsters).filter((m) => m.straggler);
+    expect(stragglers.length).toBeGreaterThan(0);
+    expect(world.roster.main[0]).toContain(stragglers[0].type);
+    const pack = Object.values(world.packs).find((p) => p.monsters.includes(stragglers[0].id))!;
+    expect(pack.goal).toBe(world.dungeon.exit);
+  });
+
+  it('have no loot of their own, and drop what they picked up', () => {
+    const world = createWorld(9, { monsters: false, loot: false });
+    addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    const room = world.dungeon.rooms.find((r) => r.kind === 'normal')!.id;
+    addToPile(world, room, 0, ['bandage']);
+    ESCALATION.stragglerPickup = 1;
+    try {
+      const [m] = spawnGroup(world, room, ['ghoul'], 0);
+      m.straggler = true;
+      scavenge(world, room, [m]);
+      expect(m.carry).toBe('bandage');
+      expect(world.piles[room]).toBeUndefined();
+      m.room = room;
+      applyMonsterDamage(world, m, 999, []);
+      expect(world.bounty[room]).toBeUndefined();
+      expect(world.piles[room].items.map((f) => f.item)).toEqual(['bandage']);
+    } finally {
+      ESCALATION.stragglerPickup = 0.05;
+    }
+  });
+
+  it('carried Gear helps them: HP, Block, Speed and blows', () => {
+    const world = createWorld(9, { monsters: false, loot: false });
+    const [m] = spawnGroup(world, 0, ['ghoul'], 0);
+    const before = { hp: m.maxHp, block: monsterBlock(world, m), speed: monsterSpeed(undefined, m) };
+    carryItem(m, 'locket');
+    expect(m.maxHp).toBe(before.hp + ITEMS.locket.maxHp!);
+    const [n] = spawnGroup(world, 0, ['ghoul'], 0);
+    carryItem(n, 'hauberk');
+    expect(monsterBlock(world, n)).toBe(before.block + ITEMS.hauberk.block!);
+    expect(monsterSpeed(undefined, n)).toBe(before.speed + (ITEMS.hauberk.speed ?? 0));
   });
 });

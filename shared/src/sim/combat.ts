@@ -1,13 +1,13 @@
 import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
-import { escalationAt, LIGHT_MAX } from '../content/constants';
+import { escalationAt, LIGHT_MAX, MIN_SPEED } from '../content/constants';
 import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
 import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
-import { CLOTH, ITEMS, LOOT, STAFF } from '../content/items';
+import { CLOTH, ITEMS, LOOT, STAFF, isGear, type ItemId } from '../content/items';
 import { chargesForFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
-import { applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
+import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
@@ -84,6 +84,10 @@ export interface Monster {
   cycle?: 'kneel' | 'charge';
   /** Marches in the Dead King's procession (Crowned in Dread): the last of them to fall drops his treasure. */
   procession?: true;
+  /** A straggler heading for the exit: no loot of its own, though it may pick something up (`carry`). */
+  straggler?: true;
+  /** What a straggler picked up (one thing at most): Gear helps it (`carried`); it drops where it falls. */
+  carry?: ItemId;
 }
 
 /** A slain monster as a fight remembers it (what Raise and the Lich bring back). */
@@ -94,6 +98,7 @@ export interface Slain {
   maxHp: number;
   dmgMult: number;
   again?: boolean;
+  straggler?: true;
 }
 
 /** A Zombie that will get back up in `room` at `at`. */
@@ -973,7 +978,7 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
 
 /** A monster's Speed in this fight: the Dead King's Charges quicken every monster in it. */
 export function monsterSpeed(enc: Encounter | undefined, m: Monster): number {
-  const base = ENEMIES[m.type].speed;
+  const base = Math.max(MIN_SPEED, ENEMIES[m.type].speed + carried(m, 'speed'));
   const haste = (enc?.charge ?? 0) * KING_RULES.chargeHaste;
   return haste ? Math.max(Math.min(base, KING_RULES.speedFloor), base - haste) : base;
 }
@@ -983,9 +988,27 @@ export function monsterSpeed(enc: Encounter | undefined, m: Monster): number {
  * him, minus 2 per stack of Acid and 1 per wolf bite this fight (`sunder`). Can go below 0.
  */
 export function monsterBlock(world: World, m: Monster): number {
-  let block = ENEMIES[m.type].block - (m.st.acid?.stacks ?? 0) * CLASS_RULES.acidBonus - (m.st.sunder ?? 0);
+  let block = ENEMIES[m.type].block + carried(m, 'block') - (m.st.acid?.stacks ?? 0) * CLASS_RULES.acidBonus - (m.st.sunder ?? 0);
   if (m.type === 'king' && m.room >= 0) block += KING_RULES.blockPerCourtier * monstersIn(world, m.room).filter((o) => o !== m).length;
   return block;
+}
+
+/** A number from the Gear a straggler carries (0 for anything else). Staves, Cloth and Legendaries do nothing for it. */
+export function carried(m: Monster, key: 'speed' | 'block' | 'maxHp' | 'thorns' | 'dmgPct' | 'flatDmg'): number {
+  return m.carry && isGear(m.carry) ? ITEMS[m.carry][key] ?? 0 : 0;
+}
+
+/** A straggler picks something up: Gear with max HP adds it at once. */
+export function carryItem(m: Monster, item: ItemId) {
+  m.carry = item;
+  const hp = carried(m, 'maxHp');
+  m.maxHp = Math.max(1, m.maxHp + hp);
+  m.hp = Math.max(1, Math.min(m.maxHp, m.hp + hp));
+}
+
+/** A monster's blow of `base` before the hero's defences: its scaling, then a carried weapon's (hammer first). */
+function monsterBlow(m: Monster, base: number): number {
+  return (base + carried(m, 'flatDmg')) * m.dmgMult * (1 + carried(m, 'dmgPct'));
 }
 
 /** What a monster actually takes from a hit of `dmg`: its Block takes some off (at least 1 gets through) or, below 0, adds to it. */
@@ -1526,7 +1549,7 @@ export function hitDamage(h: Hero, base: number, world?: World): number {
 }
 
 /** Hero damages a monster. Returns true if it connected. */
-export function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
+export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
   let dmg = monsterTakes(world, m, hitDamage(h, base, world));
   if (m.st.shield) {
     const absorbed = Math.min(m.st.shield, dmg);
@@ -1543,6 +1566,13 @@ export function heroHits(world: World, _enc: Encounter, h: Hero, m: Monster, bas
     const healed = heal(h, TALENT_RULES.sanguineHeal * hexes);
     if (healed) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} drinks from the hex. (+${healed})` });
   }
+  // A Thorn Ring a straggler picked up: whoever lands a blow takes its bonus plus the straggler's Block back.
+  const thorns = carried(m, 'thorns');
+  if (thorns > 0 && dmg > 0 && isConscious(h)) {
+    const back = afterBlock(h, thorns + Math.max(0, monsterBlock(world, m)));
+    events.push({ actor: m.id, kind: 'damage', target: h.id, amount: back, text: `Thorns! ${h.name} takes ${back}.` });
+    hurtHero(world, h, back, events, enc);
+  }
   applyMonsterDamage(world, m, dmg, events);
   return true;
 }
@@ -1554,7 +1584,7 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
     world.stats.slain++;
     events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
     const enc = world.encounters[m.room];
-    const slain: Slain = { id: m.id, type: m.type, maxHp: m.maxHp, dmgMult: m.dmgMult, again: m.again };
+    const slain: Slain = { id: m.id, type: m.type, maxHp: m.maxHp - carried(m, 'maxHp'), dmgMult: m.dmgMult, again: m.again, straggler: m.straggler };
     if (enc) {
       enc.lastSlain = slain;
       (enc.slain ??= []).push(slain);
@@ -1566,7 +1596,12 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
     }
     // A Zombie pays out once, however often it's put down; and only counts once for an Emergency.
     if (!m.again) world.kills[m.type] = (world.kills[m.type] ?? 0) + 1;
-    if (!m.again) world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
+    // Stragglers have nothing of their own: only what they picked up, which falls where they do.
+    if (!m.again && !m.straggler) world.bounty[m.room] = (world.bounty[m.room] ?? 0) + monsterPoints(m);
+    if (m.carry && m.room >= 0) {
+      addToPile(world, m.room, 0, [m.carry], null, true);
+      events.push({ actor: m.id, kind: 'info', text: `${ENEMIES[m.type].name} drops ${ITEMS[m.carry].name}.` });
+    }
     // The last of the Dead King's procession: his treasure spills where they fell.
     if (m.procession && m.room >= 0 && !Object.values(world.monsters).some((o) => o.procession)) {
       dropKingsTreasure(world, m.room);
@@ -1582,6 +1617,7 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
 /** Bring a slain monster back whole in `room` (a Zombie rising, or the Lich's raising). */
 function unslay(world: World, room: number, s: Slain, again: boolean): Monster {
   const m: Monster = { id: `m${world.nextId++}`, type: s.type, room, hp: s.maxHp, maxHp: s.maxHp, dmgMult: s.dmgMult, st: {}, again };
+  if (s.straggler) m.straggler = true;
   world.monsters[m.id] = m;
   // It's no longer dead: nothing else can raise it, and a Zombie won't rise twice from the one death.
   if (s.id) world.risings = world.risings.filter((r) => r.id !== s.id);
@@ -1717,14 +1753,14 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
  */
 function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, base: number, verb: string, events: CombatEvent[]): Hero | null {
   const name = ENEMIES[m.type].name;
-  const villagerText = maybeHitVillager(world, enc.room, Math.round(base * m.dmgMult), name);
+  const villagerText = maybeHitVillager(world, enc.room, Math.round(monsterBlow(m, base)), name);
   if (villagerText) {
     events.push({ actor: m.id, kind: 'info', text: villagerText });
     return null;
   }
   if (victim.kind === 'risen') {
     const r = victim.r;
-    const dmg = risenTakes(world, r, Math.max(1, Math.round(base * m.dmgMult * weakMult(m.st))));
+    const dmg = risenTakes(world, r, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
     r.hp = Math.max(0, r.hp - dmg);
     const rname = risenName(world, r);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
@@ -1751,7 +1787,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name}, but strikes only gossamer.` });
     return null;
   }
-  let dmg = base * m.dmgMult;
+  let dmg = monsterBlow(m, base);
   dmg *= weakMult(m.st);
   if (t.light <= 0) dmg *= 1.25;
   // Vengeance: the attacker takes the whole blow back, before any of the Warden's defences.

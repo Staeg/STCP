@@ -201,6 +201,10 @@ export const ESCALATION = {
   respawnEvery: 45,
   respawnEveryLate: 30,
   wandererEvery: 60,
+  /** Stragglers: one of the run's T0s every this many seconds, by Escalation 0/1/2/3/4+ (user, 2026-10-12). */
+  stragglerEvery: [50, 40, 30, 20, 10],
+  /** Chance each straggler with empty hands picks up something lying in a room it ends up in. */
+  stragglerPickup: 0.05,
   collapseEvery: 60,
   /** When a collapse can hit a tunnel that cuts nothing off (part of a loop), it does so this often. */
   collapsePreferLoops: 0.75,

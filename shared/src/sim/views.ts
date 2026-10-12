@@ -170,6 +170,8 @@ export interface CombatUnitView {
   cls?: ClassId;
   color?: string;
   enemy?: EnemyId;
+  /** A straggler's pick-up: it drops when the straggler falls. */
+  carry?: ItemId;
   downed?: boolean;
   /** Seconds until a downed hero dies. */
   dying?: number;
@@ -535,7 +537,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     legion,
     monsters: order.monsters.map((m) => ({
       id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, st: { ...m.st }, enemy: m.type,
-      speed: monsterSpeed(enc, m), nextIn: nextIn(m.id),
+      speed: monsterSpeed(enc, m), nextIn: nextIn(m.id), ...(m.carry ? { carry: m.carry } : {}),
     })),
     yourChoice: enc.choices[you.id] ?? null,
     yourOptions,

@@ -497,6 +497,7 @@ export class CombatUi {
     const icons = [
       u.insane && sym('😱', `${INSANITY.name}: ${INSANITY.desc} ${INSANITY_RULES}`),
       u.kind === 'hero' && (u.stress ?? 0) > 0 && iconNum('stress', u.stress!, `Stress ${u.stress}/100.`),
+      u.carry && sym(ITEMS[u.carry].glyph, `Carrying ${ITEMS[u.carry].name}: ${ITEMS[u.carry].desc} Dropped when it falls.`),
       u.kind === 'monster' && !st.acted && sym('◌', "Hasn't acted yet: Backstab crits it for double damage."),
       ...statusIcons(st, time),
     ].filter(Boolean).join('');

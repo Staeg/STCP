@@ -1,8 +1,9 @@
 import { WAVES_AT, escalationAt } from '../content/constants';
-import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
+import { ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { afterBlock, crUnits, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
+import { afterBlock, crUnits, monsterSpeed, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
 import { hopsFrom } from './call';
+import { scavenge } from './loot';
 import { notify } from './notify';
 import { openDueSecrets } from './secrets';
 import { chronicle, explore, type World } from './world';
@@ -37,6 +38,10 @@ export function tickEscalation(world: World) {
   if (esc >= 2 && world.time >= world.nextWanderer) {
     world.nextWanderer = world.time + ESCALATION.wandererEvery;
     spawnWanderer(world, esc);
+  }
+  if (world.time >= world.nextStraggler) {
+    world.nextStraggler = world.time + stragglerEvery(esc);
+    spawnStraggler(world, esc);
   }
   if (esc >= 3 && world.time >= world.nextCollapse) {
     world.nextCollapse = world.time + ESCALATION.collapseEvery;
@@ -105,6 +110,31 @@ function spawnWanderer(world: World, esc: number) {
   makePack(world, spawnGroup(world, room, groupFor(world, esc, room), esc), room, null);
 }
 
+/** Seconds between stragglers at this Escalation. */
+export function stragglerEvery(esc: number): number {
+  const every = ESCALATION.stragglerEvery;
+  return every[Math.min(esc, every.length - 1)];
+}
+
+/**
+ * Stragglers (user, 2026-10-12): from the start, one of the run's T0 units (and any CR units that tag along) appears
+ * in an empty room and heads for the exit, which it then holds like a wave. Ignores the monster cap. They have no
+ * loot of their own, but may pick something up on the way (`scavenge`).
+ */
+function spawnStraggler(world: World, esc: number) {
+  const d = world.dungeon;
+  const t0 = world.roster.main[0];
+  const candidates = d.rooms.filter(
+    (r) => r.kind === 'normal' && !occupied(world, r.id) && monstersIn(world, r.id).length === 0 && !world.encounters[r.id],
+  );
+  if (candidates.length === 0 || t0.length === 0) return;
+  const room = world.rng.pick(candidates).id;
+  const monsters = spawnGroup(world, room, crUnits(world, [world.rng.pick(t0)], 'room', room), esc);
+  for (const m of monsters) m.straggler = true;
+  makePack(world, monsters, room, d.exit);
+  scavenge(world, room, monsters);
+}
+
 /** Waves spawn next to the exit (so you get a moment's warning) and march on it. */
 function spawnWave(world: World, esc: number) {
   const d = world.dungeon;
@@ -153,7 +183,7 @@ export function lureToward(world: World, room: number) {
       const members = pack.monsters.map((id) => world.monsters[id]).filter(Boolean);
       pack.to = to;
       pack.departAt = world.time;
-      pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
+      pack.arriveAt = world.time + Math.max(...members.map((m) => monsterSpeed(undefined, m))) * ESCALATION.packSlowness;
       for (const m of members) m.room = -1;
     }
   }
@@ -182,7 +212,7 @@ function movePacks(world: World) {
           if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === pack.room) notify(world, h, 'Monsters burst in!');
         }
         onHeroInRoom(world, here, pack.room);
-      }
+      } else scavenge(world, pack.room, members);
       continue;
     }
     // Resting. Packs stay put while fighting or while heroes are in the room.
@@ -207,7 +237,7 @@ function movePacks(world: World) {
     pack.to = otherEnd(c, pack.room);
     pack.departAt = world.time;
     // A pack moves at its slowest member's Speed.
-    pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
+    pack.arriveAt = world.time + Math.max(...members.map((m) => monsterSpeed(undefined, m))) * ESCALATION.packSlowness;
     for (const m of members) m.room = -1;
   }
 }

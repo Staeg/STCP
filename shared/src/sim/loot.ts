@@ -4,8 +4,8 @@ import {
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { addStress, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
-import { ENEMIES } from '../content/enemies';
+import { addStress, carryItem, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
+import { ENEMIES, ESCALATION } from '../content/enemies';
 import { notify } from './notify';
 import { chargeable, healBy, moveCharges, pullPackCharge, reliefBy, ward, type ItemCharge } from './gear';
 import { CROWNED, STRESS } from '../content/events';
@@ -166,6 +166,21 @@ export function addToPile(world: World, room: number, gold: number, items: ItemI
       // What a hero puts down takes its charge with it (out of their pack's).
       ...(dropper && chargeable(item) ? { charge: pullPackCharge(dropper, item) } : {}),
     });
+  }
+}
+
+/**
+ * Stragglers that end up in a room with things lying about: each with empty hands picks one up at random, now and
+ * then (ESCALATION.stragglerPickup), and carries it on (user, 2026-10-12).
+ */
+export function scavenge(world: World, room: number, monsters: Monster[]) {
+  for (const m of monsters) {
+    const pile = world.piles[room];
+    if (!pile?.items.length) return;
+    if (!m.straggler || m.carry || !world.rng.chance(ESCALATION.stragglerPickup)) continue;
+    const [f] = pile.items.splice(world.rng.int(0, pile.items.length - 1), 1);
+    carryItem(m, f.item);
+    if (emptyPile(pile)) delete world.piles[room];
   }
 }
 

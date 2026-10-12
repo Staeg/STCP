@@ -1,5 +1,5 @@
 import { CLASSES, SPARE_COLORS, type ClassId } from '../content/classes';
-import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MAX_ESCALATION, WAVES_AT } from '../content/constants';
+import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MAX_ESCALATION, WAVES_AT, escalationAt } from '../content/constants';
 import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../content/enemies';
 import type { EmergencyId } from '../content/emergencies';
 import { forceRoster, seedEmergencies } from './emergency';
@@ -8,7 +8,7 @@ import { injuredMaxHp, KIT_RULES, RITES, sightMatches, VILLAGE_RULES, type Injur
 import { GEAR_KIND_PLURALS } from '../content/forge';
 import { CLASS_RULES } from '../content/abilities';
 import { callForHelp, type Call } from './call';
-import { clearRubble, tickEscalation, type Pack } from './escalation';
+import { clearRubble, stragglerEvery, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
 import { EVENT_SEEDING, STRESS, type EliteEventKind, type EventKind } from '../content/events';
 import { hallucinate, perceive, relearnPaths, seeTruly, tickForgetting } from './mind';
@@ -261,6 +261,7 @@ export interface World {
   clearedAt: Record<number, number>;
   nextRespawn: number;
   nextWanderer: number;
+  nextStraggler: number;
   nextCollapse: number;
   nextWave: number;
   /** The full story of the run, revealed on the results screen. */
@@ -370,6 +371,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [], kills: {},
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
     nextRespawn: Math.max(ESCALATION_INTERVAL, start + 30), nextWanderer: Math.max(ESCALATION_INTERVAL * 2, start + 30),
+    nextStraggler: start + stragglerEvery(escalationAt(start)),
     nextCollapse: Math.max(ESCALATION_INTERVAL * 3, start + 60), nextWave: Math.max(WAVES_AT, start + 45),
   };
   // Quarry: Emergencies' kill targets are default units this run.

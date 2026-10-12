@@ -12,6 +12,14 @@ export const BOTS = {
   exitWaitMax: 75,
   /** Once a bot at the exit is ready to leave (E), it waits this long for the others there to be ready too, then goes alone. */
   readyWait: 6,
+  /** A bot in a fight it's losing, with nobody to patch it up, tries to flee below this fraction of its HP. */
+  fleeAt: 0.35,
+  /** In a fight at the exit, a bot escapes (Flee) below this fraction of its HP, or when the fight is being lost. */
+  exitFleeAt: 0.5,
+  /** Out of a fight, a bot below this fraction of its HP gives up: it heads for the exit and leaves. */
+  homeAt: 0.5,
+  /** At the exit, a bot below this fraction of its HP stops waiting for the others. */
+  exitHurt: 0.6,
   /** Chance per combat decision of a random-but-legal action. */
   blunder: 0.25,
   /** Bots answer a bell tolled at most this far away (route cost, ~6 per tunnel), and keep heading there this long. */

@@ -41,10 +41,11 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   // Retreat when the fight is clearly being lost and nobody can patch us up.
   const enemyHp = enc.monsters.reduce((sum, m) => sum + m.hp, 0);
   const healer = enc.heroes.some((h) => h.cls === 'lampbearer' && !h.downed && h.id !== me.id);
-  if (me.hp / me.maxHp < 0.35 && enemyHp > me.hp && !healer && !downed.length && rng.chance(0.6)) return { action: 'flee' };
-  // At the exit, fleeing means escaping the dungeon.
+  // At the exit, fleeing means escaping the dungeon: do it when hurt, out of time, or losing the fight.
   const atOpenExit = enc.room === view.exitRoom;
-  if (atOpenExit && (me.hp / me.maxHp < 0.5 || view.time > view.collapseAt - 90)) return { action: 'flee' };
+  const ourHp = allies.reduce((sum, h) => sum + h.hp, 0);
+  if (atOpenExit && (me.hp / me.maxHp < BOTS.exitFleeAt || enemyHp > ourHp || view.time > view.collapseAt - 90)) return { action: 'flee' };
+  if (me.hp / me.maxHp < BOTS.fleeAt && enemyHp > me.hp && !healer && !downed.length && rng.chance(0.6)) return { action: 'flee' };
 
   switch (view.you.cls) {
     case 'warden':
