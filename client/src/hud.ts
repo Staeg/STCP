@@ -267,7 +267,12 @@ function rosterHtml(view: PlayerView): string {
     const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
     if (a.extracted) status = `escaped at ${fmtTime(a.seenAt)}`;
-    else if (a.live) status = (sameRoom ? 'with you' : 'in sight') + (a.heading !== null ? ` · → ${name(a.heading)}` : '');
+    // Watching a revealed map from outside: where they are, not whether you can see them.
+    else if (a.live && (view.you.extracted || view.you.dead)) {
+      const next = a.pos.kind === 'room' ? null : a.pos.to;
+      status = (a.pos.kind === 'room' ? name(a.pos.room) : `tunnel to ${name(a.pos.to)}`)
+        + (a.heading !== null && a.heading !== next ? ` · → ${name(a.heading)}` : '');
+    } else if (a.live) status = (sameRoom ? 'with you' : 'in sight') + (a.heading !== null ? ` · → ${name(a.heading)}` : '');
     else {
       const where = a.heading !== null ? `heading to ${name(a.heading)}` : a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;

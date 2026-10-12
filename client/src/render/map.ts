@@ -350,6 +350,26 @@ export class MapRenderer {
     const ordered = [...view.allies].sort((a, b) => Number(a.live) - Number(b.live));
     // Sprite size: a whole multiple of 16 px keeps the pixel art crisp.
     const sprite = Math.max(16, Math.round((r * 2.8) / 8) * 8);
+    // Monster groups on the move (revealed map only): their leader's sprite partway down the tunnel, and how many.
+    for (const p of view.packs) {
+      const a = rooms.get(p.from);
+      const b = rooms.get(p.to);
+      if (!a || !b) continue;
+      const k = p.dur > 0 ? Math.max(0, Math.min(1, p.t / p.dur)) : 0.5;
+      const x = this.sx(a.x + (b.x - a.x) * k);
+      const y = this.sy(a.y + (b.y - a.y) * k);
+      const tiered = [...p.monsters].sort((m, n) => ENEMIES[n].tier - ENEMIES[m].tier);
+      drawSprite(ctx, tiered[0], x, y, Math.round(sprite * 0.8));
+      if (p.monsters.length > 1) {
+        ctx.font = '16px VT323, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#000';
+        ctx.fillText(`☠${p.monsters.length}`, x + sprite * 0.4 + 1, y + sprite * 0.4 + 1);
+        ctx.fillStyle = '#e05a4a';
+        ctx.fillText(`☠${p.monsters.length}`, x + sprite * 0.4, y + sprite * 0.4);
+        ctx.textAlign = 'center';
+      }
+    }
     for (const a of ordered) {
       const p = tokens.get(a.id)!;
       this.drawHero(p.x, p.y, sprite, a.cls, a.color, a.live ? 'live' : 'ghost');

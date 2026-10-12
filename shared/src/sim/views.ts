@@ -17,7 +17,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
-import { knowsCorridor, soloOut, type Hero, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
+import { headingOf, knowsCorridor, soloOut, type Hero, type Sighting, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
 export type RoomKnowledge = 'explored' | 'seen' | 'unknown';
@@ -96,6 +96,16 @@ export interface LootItemView {
   startedAt: number;
   /** Cloth that has been worn before: its charge (cooldown left, uses left). */
   charge?: ItemCharge;
+}
+
+/** A monster group walking a tunnel from one room to the next (only shown on a revealed map). */
+export interface PackView {
+  from: number;
+  to: number;
+  /** Seconds since it set off, of `dur`. */
+  t: number;
+  dur: number;
+  monsters: EnemyId[];
 }
 
 export interface AllyView {
@@ -229,7 +239,9 @@ export interface PlayerView {
   objectives: { altars: number; villagers: number };
   /** The fog has lifted for you: the run is over, or you're out of a bots-only run and asked to see it. */
   mapRevealed: boolean;
-  /** You're out (escaped or dead) and only bots are left inside: Reveal map and Kill bots are on offer. */
+  /** Monster groups on the move between rooms, while you watch the revealed map. */
+  packs: PackView[];
+  /** You're out (escaped or dead) and only bots are left inside: Reveal map and Kill the bots are on offer. */
   soloOut: boolean;
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
@@ -265,8 +277,16 @@ export function buildView(world: World, heroId: string): PlayerView {
     roomIds.add(c.b);
   }
 
+  // Revealed mid-run, you watch everyone as they are now; otherwise only as you last saw them.
+  const watching = over && world.phase === 'running';
+  const sightings: Record<string, Sighting> = watching
+    ? Object.fromEntries(Object.values(world.heroes).filter((h) => h !== you).map((h) => [h.id, {
+        pos: { ...h.pos }, heading: headingOf(h), time: world.time, hp: h.hp, maxHp: h.maxHp,
+        downed: h.downedAt !== null, dead: h.dead, extracted: h.extracted, insane: h.insane,
+      }]))
+    : you.lastKnown;
   const allies: AllyView[] = [];
-  for (const [id, sighting] of Object.entries(you.lastKnown)) {
+  for (const [id, sighting] of Object.entries(sightings)) {
     const h = world.heroes[id];
     if (!h) continue;
     const live = sighting.time === world.time;
@@ -284,7 +304,7 @@ export function buildView(world: World, heroId: string): PlayerView {
   }
   // Where allies are going: their chosen room if you know where that is, otherwise at least their next step.
   for (const a of allies) {
-    const s = you.lastKnown[a.id];
+    const s = sightings[a.id];
     if (s.heading === null) continue;
     const h = world.heroes[a.id];
     const next = s.pos.kind === 'corridor' ? s.pos.to : a.live ? h.path[0] : undefined;
@@ -338,6 +358,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     encounter: encounterView(world, you),
     loot: you.extracted ? null : lootView(world, you),
     mapRevealed: over,
+    packs: watching ? movingPacks(world) : [],
     soloOut: world.phase === 'running' && soloOut(world, you),
     exitRoom: d.exit,
     exitOpen: world.time >= EXIT_OPENS_AT,
@@ -414,6 +435,16 @@ function resultsView(world: World): ResultsView {
     })),
     chronicle: world.chronicle,
   };
+}
+
+function movingPacks(world: World): PackView[] {
+  return Object.values(world.packs)
+    .filter((p) => p.to !== null)
+    .map((p) => ({
+      from: p.room, to: p.to!, t: world.time - p.departAt, dur: p.arriveAt - p.departAt,
+      monsters: p.monsters.map((id) => world.monsters[id]?.type).filter((m): m is EnemyId => !!m),
+    }))
+    .filter((p) => p.monsters.length > 0);
 }
 
 function lootView(world: World, you: Hero): LootView | null {

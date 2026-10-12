@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EXIT_OPENS_AT, ESCALATION_INTERVAL } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { spawnGroup } from './combat';
+import { makePack } from './escalation';
 import { Game } from './game';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
@@ -144,6 +145,25 @@ describe('after you escape', () => {
     const view = buildView(world, 'you');
     expect(view.mapRevealed).toBe(true);
     expect(view.rooms.every((r) => r.knowledge === 'explored')).toBe(true);
+  });
+
+  it('the revealed map shows the bots and moving monsters as they are now', () => {
+    const world = escapeAlone(true);
+    applyIntent(world, 'you', { type: 'revealMap' });
+    const b0 = world.heroes.b0;
+    const there = neighbours(world.dungeon, world.dungeon.exit)[1];
+    b0.pos = { kind: 'room', room: there };
+    const from = neighbours(world.dungeon, there).find((n) => n !== world.dungeon.exit)!;
+    const pack = makePack(world, spawnGroup(world, from, ['ghoul', 'ghoul'], 1), from, null);
+    pack.to = there;
+    pack.departAt = world.time - 1;
+    pack.arriveAt = world.time + 3;
+    for (const id of pack.monsters) world.monsters[id].room = -1;
+    const view = buildView(world, 'you');
+    const ally = view.allies.find((a) => a.id === 'b0')!;
+    expect(ally.live).toBe(true);
+    expect(ally.pos).toEqual({ kind: 'room', room: there });
+    expect(view.packs).toEqual([{ from, to: there, t: 1, dur: 4, monsters: ['ghoul', 'ghoul'] }]);
   });
 
   it('dead with 3 bots left inside, the buttons work too', () => {

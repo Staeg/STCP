@@ -12,8 +12,9 @@ export interface Pack {
   id: string;
   monsters: string[];
   room: number;
-  /** Travelling to `to`, arriving at `arriveAt`; null when resting in `room`. */
+  /** Travelling to `to`, having set off at `departAt` and arriving at `arriveAt`; null when resting in `room`. */
   to: number | null;
+  departAt: number;
   arriveAt: number;
   /** Rest until this time before picking the next room. */
   restUntil: number;
@@ -118,7 +119,7 @@ function spawnWave(world: World, esc: number) {
 
 export function makePack(world: World, monsters: Monster[], room: number, goal: number | null): Pack {
   const pack: Pack = {
-    id: `p${world.nextId++}`, monsters: monsters.map((m) => m.id), room, to: null, arriveAt: 0,
+    id: `p${world.nextId++}`, monsters: monsters.map((m) => m.id), room, to: null, departAt: 0, arriveAt: 0,
     restUntil: world.time + world.rng.float(4, 9), goal,
   };
   world.packs[pack.id] = pack;
@@ -151,6 +152,7 @@ export function lureToward(world: World, room: number) {
     for (const pack of packs) {
       const members = pack.monsters.map((id) => world.monsters[id]).filter(Boolean);
       pack.to = to;
+      pack.departAt = world.time;
       pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
       for (const m of members) m.room = -1;
     }
@@ -203,6 +205,7 @@ function movePacks(world: World) {
       c = best;
     }
     pack.to = otherEnd(c, pack.room);
+    pack.departAt = world.time;
     // A pack moves at its slowest member's Speed.
     pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
     for (const m of members) m.room = -1;
