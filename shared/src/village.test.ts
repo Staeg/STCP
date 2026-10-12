@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLASS_IDS, CLASSES } from './content/classes';
 import { Stash } from './stash';
-import { applyRun, BUILDINGS, injuredMaxHp, upkeepOf, VILLAGE_RULES, type Character } from './village';
+import { applyRun, BUILDINGS, injuredMaxHp, upkeepOf, VILLAGE_RULES, VILLAGE_UPKEEP, type Character } from './village';
 import { isGear, ITEMS, itemTier, type ItemId } from './content/items';
 import { gearKind } from './content/forge';
 import { addHero, createWorld } from './sim/world';
@@ -123,30 +123,49 @@ describe('Village buildings', () => {
     expect(v.buildings.elder).toBe(1);
     expect(v.resources.gem).toBe(1);
     expect(v.resources.tome).toBe(0);
-    expect(v.upkeep).toBe(BUILDINGS.elder.levels[0].upkeep);
+    expect(v.upkeep).toBe(VILLAGE_UPKEEP + BUILDINGS.elder.levels[0].upkeep);
     expect(stash.demolish('Ann', 'elder')).toBeNull();
     v = stash.village('Ann');
     expect(v.buildings.elder).toBe(0);
     expect(v.resources.gem).toBe(1); // nothing back
-    expect(upkeepOf({ blacksmith: 3, seer: 3, elder: 3 })).toBe(140);
+    expect(upkeepOf({ blacksmith: 0, seer: 0, elder: 0 })).toBe(100);
+    expect(upkeepOf({ blacksmith: 3, seer: 3, elder: 3 })).toBe(800);
   });
 
   it('upkeep comes out of the purse after the haul; short, levels fall at random until it can be paid', () => {
     const stash = rich();
     for (let i = 0; i < 3; i++) for (const b of ['blacksmith', 'seer', 'elder'] as const) expect(stash.build('Ann', b)).toBeNull();
-    expect(stash.village('Ann').upkeep).toBe(140);
-    stash.recordRun('Ann', true, 200);
+    expect(stash.village('Ann').upkeep).toBe(800);
+    stash.recordRun('Ann', true, 1000);
     stash.payUpkeep('Ann');
-    expect(stash.purse('Ann')).toBe(60);
-    // Next run brings nothing home: 60 gold can't keep 140 a run going.
+    expect(stash.purse('Ann')).toBe(200);
+    // Next run brings nothing home: 200 gold can't keep 800 a run going.
     stash.recordRun('Ann', false, 0);
     const lines = stash.payUpkeep('Ann');
     const v = stash.village('Ann');
-    expect(v.upkeep).toBeLessThanOrEqual(60);
-    expect(stash.purse('Ann')).toBe(60 - v.upkeep);
+    expect(v.upkeep).toBeLessThanOrEqual(200);
+    expect(stash.purse('Ann')).toBe(200 - v.upkeep);
     expect(lines.filter((l) => /closed/.test(l)).length).toBeGreaterThan(0);
+    expect(v.wellbeing).toBe(3);
     // The lifetime total is untouched by upkeep.
-    expect(stash.get('Ann')).toBe(200);
+    expect(stash.get('Ann')).toBe(1000);
+  });
+
+  it("a purse that can't cover the Village's own upkeep pays what it has and costs 1 Wellbeing", () => {
+    const stash = rich();
+    expect(stash.build('Ann', 'seer')).toBeNull();
+    stash.recordRun('Ann', true, 60);
+    const lines = stash.payUpkeep('Ann');
+    const v = stash.village('Ann');
+    expect(v.buildings.seer).toBe(0);
+    expect(stash.purse('Ann')).toBe(0);
+    expect(v.wellbeing).toBe(2);
+    expect(lines).toContain(`Upkeep: −60 gold, ${VILLAGE_UPKEEP - 60} short.`);
+    // At Wellbeing 1, going unpaid loses the game.
+    stash.payUpkeep('Ann');
+    stash.payUpkeep('Ann');
+    expect(stash.village('Ann').wellbeing).toBe(0);
+    expect(stash.village('Ann').fate).toBe('lost');
   });
 
   it('Elder: heals an Injury, cures Insanity, teaches XP for a Relic; each once before a run', () => {
@@ -166,7 +185,7 @@ describe('Village buildings', () => {
     expect(after.xp).toBe(2); // 1 for surviving, 1 taught
     expect(stash.village('Ann').resources.relic).toBe(relics - 1);
     // A new run (with the gold to keep the Elder), and the Elder is ready again.
-    stash.recordRun('Ann', true, 100);
+    stash.recordRun('Ann', true, 500);
     stash.payUpkeep('Ann');
     expect(stash.useService('Ann', { service: 'heal', charId: c.id })).toBeNull();
     expect(stash.characterFor('Ann', 'sorceress').injuries).toEqual([]);

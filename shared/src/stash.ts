@@ -316,11 +316,19 @@ export class Stash {
    */
   settleEmergency(name: string, id: EmergencyId, done: boolean): string[] {
     const r = this.record(name);
-    const before = this.wellbeingOf(r);
-    const after = Math.max(WELLBEING.lose, Math.min(WELLBEING.win, before + (done ? 1 : -1)));
-    r.wellbeing = after;
     r.emergency = null;
-    const lines = [`${EMERGENCIES[id].name}: ${done ? 'done' : 'failed'}. Wellbeing ${before} → ${after}.`];
+    const lines = this.shiftWellbeing(r, done ? 1 : -1, `${EMERGENCIES[id].name}: ${done ? 'done' : 'failed'}`);
+    (r.report ??= []).push(...lines);
+    this.save();
+    return lines;
+  }
+
+  /** Wellbeing up or down by `by`, ending the Village's game at 6 or 0. Returns the report lines. */
+  private shiftWellbeing(r: Record_, by: number, why: string): string[] {
+    const before = this.wellbeingOf(r);
+    const after = Math.max(WELLBEING.lose, Math.min(WELLBEING.win, before + by));
+    r.wellbeing = after;
+    const lines = [`${why}. Wellbeing ${before} → ${after}.`];
     if (after >= WELLBEING.win) {
       r.fate = 'won';
       lines.push('The Village prospers. You have won!');
@@ -328,8 +336,6 @@ export class Stash {
       r.fate = 'lost';
       lines.push('The Village has fallen. The game is lost.');
     }
-    (r.report ??= []).push(...lines);
-    this.save();
     return lines;
   }
 
@@ -526,8 +532,10 @@ export class Stash {
   }
 
   /**
-   * A real run is over for this player: pay the buildings' upkeep from the purse (after the haul). If the purse can't
-   * cover it, levels fall at random until it can. Services are ready again. Returns the report lines.
+   * A real run is over for this player: pay the Village's and its buildings' upkeep from the purse (after the haul).
+   * If the purse can't cover it, levels fall at random until it can; if even the Village's own upkeep is too much,
+   * the purse pays what it has and the Village loses 1 Wellbeing (user, 2026-10-12). Services are ready again.
+   * Returns the report lines.
    */
   payUpkeep(name: string): string[] {
     const r = this.record(name);
@@ -543,9 +551,13 @@ export class Stash {
       b[id]--;
     }
     const upkeep = upkeepOf(b);
-    if (upkeep > 0) {
+    if (upkeep <= purse) {
       purse -= upkeep;
       lines.push(`Upkeep: −${upkeep} gold.`);
+    } else {
+      lines.push(`Upkeep: −${purse} gold, ${upkeep - purse} short.`);
+      purse = 0;
+      if (!r.fate) lines.push(...this.shiftWellbeing(r, -1, 'The Village went unpaid'));
     }
     r.purse = purse;
     r.buildings = b;

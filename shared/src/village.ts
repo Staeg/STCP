@@ -45,8 +45,10 @@ export const INJURY_NAMES: Record<Injury, string> = { minor: 'Minor Injury', maj
 
 /**
  * Buildings (user, 2026-10-11). Each has an Apprentice, a Journeyman and a Master level. A level costs Resources to
- * build and gold upkeep after every run (on top of the levels below it); it can be torn down for free, Resources
- * lost. A Village that can't pay its upkeep from its purse, after the run's haul, loses levels at random until it can.
+ * build and gold upkeep after every run (on top of the levels below it, and the Village's own `VILLAGE_UPKEEP`); it can
+ * be torn down for free, Resources lost. A Village that can't pay its upkeep from its purse, after the run's haul, loses
+ * levels at random until it can; if even the Village's own upkeep is more than the purse, it pays what it has and
+ * loses 1 Wellbeing.
  * Every level adds one service, each usable once between runs.
  */
 export type BuildingId = 'blacksmith' | 'seer' | 'elder';
@@ -85,25 +87,25 @@ export const SERVICES: Record<ServiceId, { name: string; desc: string; relic?: t
 };
 
 /**
- * Upkeep is per level, so a Master Elder costs 15 + 20 + 25 = 60 gold a run. Building costs (user, 2026-10-11): Blacksmith
+ * Upkeep is per level, so a Master Elder costs 75 + 100 + 125 = 300 gold a run (user, 2026-10-12: ×5). Building costs (user, 2026-10-11): Blacksmith
  * Effigies and Gems, Seer Effigies and Tomes, Elder Gems and Tomes; more of each per level, more of the commoner one.
  * Relics are never a building cost, only the Master services'.
  */
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   blacksmith: { id: 'blacksmith', name: 'Blacksmith', glyph: '⚒', levels: [
-    { cost: { effigy: 3, gem: 1 }, upkeep: 10, service: 'forge' },
-    { cost: { effigy: 5, gem: 2 }, upkeep: 15, service: 'reroll' },
-    { cost: { effigy: 8, gem: 4 }, upkeep: 20, service: 'upgrade' },
+    { cost: { effigy: 3, gem: 1 }, upkeep: 50, service: 'forge' },
+    { cost: { effigy: 5, gem: 2 }, upkeep: 75, service: 'reroll' },
+    { cost: { effigy: 8, gem: 4 }, upkeep: 100, service: 'upgrade' },
   ] },
   seer: { id: 'seer', name: 'Seer', glyph: '◎', levels: [
-    { cost: { effigy: 3, tome: 1 }, upkeep: 5, service: 'seeConsumable' },
-    { cost: { effigy: 5, tome: 2 }, upkeep: 10, service: 'seeResource' },
-    { cost: { effigy: 8, tome: 3 }, upkeep: 20, service: 'seeGear' },
+    { cost: { effigy: 3, tome: 1 }, upkeep: 25, service: 'seeConsumable' },
+    { cost: { effigy: 5, tome: 2 }, upkeep: 50, service: 'seeResource' },
+    { cost: { effigy: 8, tome: 3 }, upkeep: 100, service: 'seeGear' },
   ] },
   elder: { id: 'elder', name: 'Elder', glyph: '⚕', levels: [
-    { cost: { gem: 2, tome: 1 }, upkeep: 15, service: 'heal' },
-    { cost: { gem: 4, tome: 2 }, upkeep: 20, service: 'cure' },
-    { cost: { gem: 6, tome: 3 }, upkeep: 25, service: 'train' },
+    { cost: { gem: 2, tome: 1 }, upkeep: 75, service: 'heal' },
+    { cost: { gem: 4, tome: 2 }, upkeep: 100, service: 'cure' },
+    { cost: { gem: 6, tome: 3 }, upkeep: 125, service: 'train' },
   ] },
 };
 
@@ -116,9 +118,12 @@ export function noBuildings(): Buildings {
   return { blacksmith: 0, seer: 0, elder: 0 };
 }
 
-/** Gold a Village pays after each run for what it has built. */
+/** Gold every Village pays after each run, built up or not (user, 2026-10-12). */
+export const VILLAGE_UPKEEP = 100;
+
+/** Gold a Village pays after each run: its own upkeep plus what it has built. */
 export function upkeepOf(b: Buildings): number {
-  return BUILDING_IDS.reduce((s, id) => s + BUILDINGS[id].levels.slice(0, b[id]).reduce((t, l) => t + l.upkeep, 0), 0);
+  return VILLAGE_UPKEEP + BUILDING_IDS.reduce((s, id) => s + BUILDINGS[id].levels.slice(0, b[id]).reduce((t, l) => t + l.upkeep, 0), 0);
 }
 
 /** The building a service belongs to, and the level it needs. */

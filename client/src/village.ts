@@ -1,6 +1,6 @@
 import {
   BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
-  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, forgeable, anvilInto,
+  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
   type BuildingId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
@@ -52,7 +52,7 @@ export function villageHtml(v: VillageView, lobby: LobbyView | null, picking: Se
     <div class="vv-head">
       <h1>The Village</h1>
       <span class="vv-stat">Purse <b class="gold">${v.purse}g</b></span>
-      <span class="vv-stat" title="Paid from the purse after every run. If the purse can't cover it, buildings lose levels at random until it can.">Upkeep <b class="${v.upkeep > v.purse ? 'danger' : 'gold'}">${v.upkeep}g</b>/run</span>
+      <span class="vv-stat" title="Paid from the purse after every run: ${VILLAGE_UPKEEP}g for the Village itself, plus its buildings. If the purse can't cover it, buildings lose levels at random until it can; if it can't even cover the Village's ${VILLAGE_UPKEEP}g, it pays what it has and the Village loses 1 Wellbeing.">Upkeep <b class="${v.upkeep > v.purse ? 'danger' : 'gold'}">${v.upkeep}g</b>/run</span>
       ${v.notice ? `<span class="vv-notice">${esc(v.notice)}</span>` : ''}
       <span class="vv-books">${CODEX_TABS.map((t) => `<button data-act="codex" data-tab="${t.id}" title="Every one of the ${t.what} your heroes have come across.">${t.name}</button>`).join('')}</span>
       <button class="primary vv-back" data-act="village-close">Back</button>
