@@ -118,7 +118,7 @@ export const ABILITIES: Record<ClassId, [AbilityDef, AbilityDef, AbilityDef]> = 
   ],
   alchemist: [
     { id: 'acid', name: 'Acid Flask', cooldown: 0, target: 'enemy', power: 6, desc: '6 dmg and a stack of Acid: −2 Block (it takes 2 more from every hit, Poison included). Lasts 2 of its turns, then one stack fades; another Flask adds a stack and refreshes it.' },
-    { id: 'fumes', name: 'Fumes', cooldown: 3, target: 'allEnemies', power: 3, desc: 'Every enemy is Poisoned for 4 at the end of each of its next 3 turns (stacks with other Poisons).' },
+    { id: 'fumes', name: 'Fumes', cooldown: 3, target: 'allEnemies', power: 3, desc: 'Places 4 Poison on every enemy for 3 turns (stacks with other Poisons).' },
     { id: 'elixir', name: 'Elixir', cooldown: 4, target: 'ally', power: 2, desc: "An ally's next item (or yours) has double effect.", field: true },
   ],
 };
