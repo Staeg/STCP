@@ -134,22 +134,50 @@ describe('after you escape', () => {
     return world;
   }
 
-  it('with 3 bots left inside, the whole map is revealed at once', () => {
-    const view = buildView(escapeAlone(true), 'you');
+  it('with 3 bots left inside, Reveal map lifts the fog', () => {
+    const world = escapeAlone(true);
+    const before = buildView(world, 'you');
+    expect(before.soloOut).toBe(true);
+    expect(before.mapRevealed).toBe(false);
+    expect(before.loot).toBeNull();
+    applyIntent(world, 'you', { type: 'revealMap' });
+    const view = buildView(world, 'you');
     expect(view.mapRevealed).toBe(true);
     expect(view.rooms.every((r) => r.knowledge === 'explored')).toBe(true);
-    expect(view.loot).toBeNull();
   });
 
-  it('dying with 3 bots left inside reveals the map too', () => {
+  it('dead with 3 bots left inside, the buttons work too', () => {
     const world = escapeAlone(true);
     world.heroes.you.extracted = false;
     world.heroes.you.dead = true;
+    applyIntent(world, 'you', { type: 'revealMap' });
     expect(buildView(world, 'you').mapRevealed).toBe(true);
   });
 
-  it('with other players left inside, the fog stays', () => {
-    const view = buildView(escapeAlone(false), 'you');
+  it('Kill the bots ends the run at once', () => {
+    const world = escapeAlone(true);
+    applyIntent(world, 'you', { type: 'killBots' });
+    expect(['b0', 'b1', 'b2'].every((id) => world.heroes[id].dead)).toBe(true);
+    expect(world.phase).toBe('ended');
+    expect(world.heroes.you.extracted).toBe(true);
+  });
+
+  it('still inside, the buttons do nothing', () => {
+    const world = atOpenExit(1);
+    for (let i = 0; i < 3; i++) addHero(world, { id: `b${i}`, name: `B${i}`, cls: 'warden', isBot: true });
+    applyIntent(world, 'h0', { type: 'killBots' });
+    applyIntent(world, 'h0', { type: 'revealMap' });
+    expect(world.phase).toBe('running');
+    expect(buildView(world, 'h0').mapRevealed).toBe(false);
+  });
+
+  it('with other players left inside, neither button works', () => {
+    const world = escapeAlone(false);
+    applyIntent(world, 'you', { type: 'revealMap' });
+    applyIntent(world, 'you', { type: 'killBots' });
+    const view = buildView(world, 'you');
+    expect(view.soloOut).toBe(false);
     expect(view.mapRevealed).toBe(false);
+    expect(world.phase).toBe('running');
   });
 });

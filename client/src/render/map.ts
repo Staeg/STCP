@@ -88,7 +88,7 @@ export class MapRenderer {
     const h = innerHeight - top - bottom;
     // About 7 rooms across and 4–5 down, whatever the window size.
     if (view.mapRevealed) {
-      // After the run (or once you escape or die in a bots-only run) the whole dungeon is revealed: fit all of it on screen, clear of the status panel too.
+      // After the run (or once you Reveal map out of a bots-only run) the whole dungeon is revealed: fit all of it on screen, clear of the status panel too.
       const w = innerWidth - left - 290;
       const xs = view.rooms.map((r) => r.x);
       const ys = view.rooms.map((r) => r.y);

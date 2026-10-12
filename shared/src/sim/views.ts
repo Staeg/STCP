@@ -17,7 +17,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
-import { knowsCorridor, type Hero, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
+import { knowsCorridor, soloOut, type Hero, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
 export type RoomKnowledge = 'explored' | 'seen' | 'unknown';
@@ -227,8 +227,10 @@ export interface PlayerView {
   /** The villagers you're escorting. */
   leading: { hp: number; maxHp: number }[];
   objectives: { altars: number; villagers: number };
-  /** The fog has lifted for you: the run is over, or you're out (escaped or dead) and only bots are left inside. */
+  /** The fog has lifted for you: the run is over, or you're out of a bots-only run and asked to see it. */
   mapRevealed: boolean;
+  /** You're out (escaped or dead) and only bots are left inside: Reveal map and Kill bots are on offer. */
+  soloOut: boolean;
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
   /** Bells heard in the last few seconds: where, who, and how long ago. */
@@ -250,9 +252,9 @@ export interface PlayerView {
 export function buildView(world: World, heroId: string): PlayerView {
   const d = world.dungeon;
   const you = world.heroes[heroId];
-  // Once it's over the fog lifts: every room and tunnel, and what was left in them. A player who escaped or
-  // died with only bots left inside sees it all at once: there's nobody to spoil it for.
-  const over = world.phase !== 'running' || mapRevealed(world, you);
+  // Once it's over the fog lifts: every room and tunnel, and what was left in them. A player out of a
+  // bots-only run can lift it early (Reveal map).
+  const over = world.phase !== 'running' || (you.mapRevealed && soloOut(world, you));
   const corridors: CorridorView[] = d.corridors
     .filter((c) => over || knowsCorridor(you, c))
     .map((c) => ((over ? world.collapsed : you.knownCollapsed).includes(c.id) ? { ...c, collapsed: true } : c));
@@ -336,6 +338,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     encounter: encounterView(world, you),
     loot: you.extracted ? null : lootView(world, you),
     mapRevealed: over,
+    soloOut: world.phase === 'running' && soloOut(world, you),
     exitRoom: d.exit,
     exitOpen: world.time >= EXIT_OPENS_AT,
     event: eventView(world, you),
@@ -411,12 +414,6 @@ function resultsView(world: World): ResultsView {
     })),
     chronicle: world.chronicle,
   };
-}
-
-/** You're out (escaped or dead) and everyone else in the run is a bot (playing solo with 3 bots). */
-function mapRevealed(world: World, you: Hero): boolean {
-  const others = Object.values(world.heroes).filter((h) => h.id !== you.id);
-  return !inDungeon(you) && others.length === 3 && others.every((h) => h.isBot);
 }
 
 function lootView(world: World, you: Hero): LootView | null {

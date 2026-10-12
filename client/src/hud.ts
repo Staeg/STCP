@@ -35,6 +35,10 @@ export class Hud {
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
     $('btn-ready').addEventListener('click', () => net.intent({ type: 'ready' }));
     $('btn-call').addEventListener('click', () => net.intent({ type: 'call' }));
+    $('btn-reveal').addEventListener('click', () => net.intent({ type: 'revealMap' }));
+    $('btn-kill-bots').addEventListener('click', () => {
+      if (confirm('Kill all three bots now? The run ends at once.')) net.intent({ type: 'killBots' });
+    });
     $('btn-revive').addEventListener('click', () => {
       const id = $('btn-revive').dataset.target;
       if (id) net.intent({ type: 'revive', target: id });
@@ -157,6 +161,14 @@ export class Hud {
     setHtml(call, `📣 Call for Help <kbd>C</kbd>`);
     call.title = `Once per run, even while down: every ally may hear where you are (${Math.round(CALL_RULES.falloff * 100)}% less likely per tunnel away). `
       + `So will the dungeon: monsters for this Escalation appear up to ${CALL_RULES.spawnWithin} rooms away and come straight here.`;
+
+    // Out of a bots-only run (escaped or dead): see the whole map now, or end it by killing the bots.
+    const reveal = $('btn-reveal');
+    reveal.hidden = !view.soloOut || view.mapRevealed;
+    reveal.title = 'Lift the fog: see every room and tunnel, and what is in them, while the bots play on.';
+    const kill = $('btn-kill-bots');
+    kill.hidden = !view.soloOut;
+    kill.title = 'The bots die where they stand and the run ends now. Whatever they carry is lost.';
 
     // Out-of-combat revive: a downed ally in your room.
     const reviveBtn = $('btn-revive');

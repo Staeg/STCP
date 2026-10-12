@@ -188,6 +188,8 @@ export interface Hero {
   risen: Omit<Risen, 'id' | 'by'> | null;
   /** Called for help (C) this run: only once. */
   called: boolean;
+  /** Out of a bots-only run, they asked to see the whole map (see `soloOut`). */
+  mapRevealed: boolean;
   /** Bellwright: rang the Toll this run (once a run, until a Loom weaves it back; user, 2026-10-12). */
   tolled: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
@@ -325,6 +327,10 @@ export type Intent =
   | { type: 'autopilot' }
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
+  /** Out of a bots-only run (escaped or dead): lift the fog. */
+  | { type: 'revealMap' }
+  /** Out of a bots-only run (escaped or dead): the bots die where they stand and the run ends. */
+  | { type: 'killBots' }
   /** A class skill out of a fight (Toll, or an ability that works in the field): happens when your timer runs out. Default: your first one. */
   | { type: 'skill'; skill?: FieldSkill; target?: string; room?: number };
 
@@ -472,6 +478,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     immuneUntil: 0,
     risen: null,
     called: false,
+    mapRevealed: false,
     tolled: false,
     scryUntil: 0,
     promise: false,
@@ -654,9 +661,31 @@ export function extractHero(world: World, h: Hero) {
   }
 }
 
+/** You're out (escaped or dead) and the other three heroes are all bots: nobody's run to spoil. */
+export function soloOut(world: World, h: Hero): boolean {
+  const others = Object.values(world.heroes).filter((o) => o !== h);
+  return !inDungeon(h) && others.length === 3 && others.every((o) => o.isBot);
+}
+
 export function applyIntent(world: World, heroId: string, intent: Intent): void {
   const hero = world.heroes[heroId];
   if (!hero || world.phase !== 'running') return;
+  if (intent.type === 'revealMap' || intent.type === 'killBots') {
+    if (!soloOut(world, hero)) return;
+    if (intent.type === 'revealMap') hero.mapRevealed = true;
+    else {
+      for (const b of Object.values(world.heroes)) {
+        if (b === hero || !inDungeon(b)) continue;
+        b.dead = true;
+        b.diedAt = world.time;
+        b.fate = `was abandoned in ${roomName(world, b)}`;
+        chronicle(world, `${b.name} was abandoned in ${roomName(world, b)}.`);
+      }
+      notify(world, hero, 'You leave the bots to the dark.', 'abandon');
+      checkEnd(world);
+    }
+    return;
+  }
   if (intent.type === 'call') {
     // A cry needs no turn, nor even standing up.
     const err = callForHelp(world, hero);

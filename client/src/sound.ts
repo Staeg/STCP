@@ -48,6 +48,10 @@ export function beep(kind: 'escalate' | 'alarm' | SoundCue) {
         tone(330, 0, 0.32, { type: 'sawtooth', vol: 0.04, to: 520 });
         tone(330, 0.38, 0.45, { type: 'sawtooth', vol: 0.04, to: 620 });
         break;
+      case 'abandon':
+        // The bots are left to the dark: three falling notes, the last one dying away.
+        [196, 165, 110].forEach((f, i) => tone(f, i * 0.3, i === 2 ? 1.2 : 0.28, { vol: 0.05, lp: 900 }));
+        break;
       case 'king':
         // A funeral march: a dark, beating drone swells under four heavy strikes, a tritone creeps in beneath them,
         // and it all sinks into a long falling groan.
