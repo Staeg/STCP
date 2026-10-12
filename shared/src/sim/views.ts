@@ -227,6 +227,8 @@ export interface PlayerView {
   /** The villagers you're escorting. */
   leading: { hp: number; maxHp: number }[];
   objectives: { altars: number; villagers: number };
+  /** The fog has lifted for you: the run is over, or you're out (escaped or dead) and only bots are left inside. */
+  mapRevealed: boolean;
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
   /** Bells heard in the last few seconds: where, who, and how long ago. */
@@ -248,8 +250,9 @@ export interface PlayerView {
 export function buildView(world: World, heroId: string): PlayerView {
   const d = world.dungeon;
   const you = world.heroes[heroId];
-  // Once it's over the fog lifts: every room and tunnel, and what was left in them.
-  const over = world.phase !== 'running';
+  // Once it's over the fog lifts: every room and tunnel, and what was left in them. A player who escaped or
+  // died with only bots left inside sees it all at once: there's nobody to spoil it for.
+  const over = world.phase !== 'running' || mapRevealed(world, you);
   const corridors: CorridorView[] = d.corridors
     .filter((c) => over || knowsCorridor(you, c))
     .map((c) => ((over ? world.collapsed : you.knownCollapsed).includes(c.id) ? { ...c, collapsed: true } : c));
@@ -331,7 +334,8 @@ export function buildView(world: World, heroId: string): PlayerView {
     /** Corridors an ally was seen in that you don't otherwise know; position only. */
     ghostCorridors: extraCorridors,
     encounter: encounterView(world, you),
-    loot: lootView(world, you),
+    loot: you.extracted ? null : lootView(world, you),
+    mapRevealed: over,
     exitRoom: d.exit,
     exitOpen: world.time >= EXIT_OPENS_AT,
     event: eventView(world, you),
@@ -407,6 +411,12 @@ function resultsView(world: World): ResultsView {
     })),
     chronicle: world.chronicle,
   };
+}
+
+/** You're out (escaped or dead) and everyone else in the run is a bot (playing solo with 3 bots). */
+function mapRevealed(world: World, you: Hero): boolean {
+  const others = Object.values(world.heroes).filter((h) => h.id !== you.id);
+  return !inDungeon(you) && others.length === 3 && others.every((h) => h.isBot);
 }
 
 function lootView(world: World, you: Hero): LootView | null {

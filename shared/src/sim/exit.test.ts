@@ -118,3 +118,38 @@ describe('secret rooms', () => {
     expect(d.secrets.every((s) => s.open)).toBe(true);
   });
 });
+
+describe('after you escape', () => {
+  /** You plus three companions at the open exit; only you leave. */
+  function escapeAlone(bots: boolean) {
+    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
+    addHero(world, { id: 'you', name: 'You', cls: 'warden' });
+    for (let i = 0; i < 3; i++) addHero(world, { id: `b${i}`, name: `B${i}`, cls: 'warden', isBot: bots });
+    world.time = EXIT_OPENS_AT;
+    for (const id of ['b0', 'b1', 'b2']) world.heroes[id].pos = { kind: 'room', room: neighbours(world.dungeon, world.dungeon.exit)[0] };
+    applyIntent(world, 'you', { type: 'ready' });
+    step(world, 0.1);
+    expect(world.heroes.you.extracted).toBe(true);
+    expect(world.phase).toBe('running');
+    return world;
+  }
+
+  it('with 3 bots left inside, the whole map is revealed at once', () => {
+    const view = buildView(escapeAlone(true), 'you');
+    expect(view.mapRevealed).toBe(true);
+    expect(view.rooms.every((r) => r.knowledge === 'explored')).toBe(true);
+    expect(view.loot).toBeNull();
+  });
+
+  it('dying with 3 bots left inside reveals the map too', () => {
+    const world = escapeAlone(true);
+    world.heroes.you.extracted = false;
+    world.heroes.you.dead = true;
+    expect(buildView(world, 'you').mapRevealed).toBe(true);
+  });
+
+  it('with other players left inside, the fog stays', () => {
+    const view = buildView(escapeAlone(false), 'you');
+    expect(view.mapRevealed).toBe(false);
+  });
+});

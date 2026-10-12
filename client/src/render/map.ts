@@ -87,8 +87,8 @@ export class MapRenderer {
     const w = innerWidth - left - right;
     const h = innerHeight - top - bottom;
     // About 7 rooms across and 4–5 down, whatever the window size.
-    if (view.results) {
-      // After the run the whole dungeon is revealed: fit all of it on screen, clear of the status panel too.
+    if (view.mapRevealed) {
+      // After the run (or once you escape or die in a bots-only run) the whole dungeon is revealed: fit all of it on screen, clear of the status panel too.
       const w = innerWidth - left - 290;
       const xs = view.rooms.map((r) => r.x);
       const ys = view.rooms.map((r) => r.y);
@@ -126,7 +126,8 @@ export class MapRenderer {
 
   /** Screen positions for every hero token, spreading out tokens that would overlap. */
   private tokenPositions(view: PlayerView): Map<string, { x: number; y: number; lx: number; ly: number }> {
-    const entries: { id: string; pos: HeroPos }[] = [{ id: view.you.id, pos: view.you.pos }, ...view.allies];
+    // Once you've escaped you're no longer on the map.
+    const entries: { id: string; pos: HeroPos }[] = [...(view.you.extracted ? [] : [{ id: view.you.id, pos: view.you.pos }]), ...view.allies];
     const raw = entries.map((e) => {
       const p = posXY(view, e.pos);
       return { id: e.id, x: this.sx(p.x), y: this.sy(p.y) };
@@ -261,10 +262,12 @@ export class MapRenderer {
     }
 
     const tokens = this.tokenPositions(view);
-    const hp = tokens.get(you.id)!;
+    const youXY = posXY(view, you.pos);
+    const hp = tokens.get(you.id) ?? { x: this.sx(youXY.x), y: this.sy(youXY.y), lx: 0, ly: 0 };
+    const onMap = !you.extracted;
 
     // Planned path
-    if (hp && you.path.length + (you.pos.kind === 'corridor' ? 1 : 0) > 0) {
+    if (onMap && you.path.length + (you.pos.kind === 'corridor' ? 1 : 0) > 0) {
       ctx.strokeStyle = you.color;
       ctx.globalAlpha = 0.7;
       ctx.lineWidth = 2;
@@ -356,7 +359,7 @@ export class MapRenderer {
     // midpoint), or to their next turn standing in a room.
     const youFree = you.encounter === null && you.downedAt === null && !you.dead && !you.channel;
     let yourFrac: number | null = null;
-    for (const h of [...view.allies.filter((a) => a.live), you]) {
+    for (const h of [...view.allies.filter((a) => a.live), ...(onMap ? [you] : [])]) {
       let frac: number;
       if (h.pos.kind === 'corridor') frac = Math.min(1, h.pos.t / h.pos.dur);
       else {
@@ -376,13 +379,15 @@ export class MapRenderer {
       ctx.arc(p.x, p.y, sprite * 0.72, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
       ctx.stroke();
     }
-    if (curRoom !== null && you.encounter === null && you.downedAt === null) this.drawKeyHints(view, rooms.get(curRoom), size);
-    view.leading.forEach((_, i) => drawSprite(ctx, 'villager', hp.x + sprite * (0.55 + 0.35 * i), hp.y + sprite * 0.1, Math.round(sprite * 0.75)));
-    this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
-    if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
+    if (onMap && curRoom !== null && you.encounter === null && you.downedAt === null) this.drawKeyHints(view, rooms.get(curRoom), size);
+    if (onMap) {
+      view.leading.forEach((_, i) => drawSprite(ctx, 'villager', hp.x + sprite * (0.55 + 0.35 * i), hp.y + sprite * 0.1, Math.round(sprite * 0.75)));
+      this.drawHero(hp.x, hp.y, sprite, you.cls, you.color, 'you');
+      if (you.downedAt !== null || you.dead) this.drawCross(hp.x, hp.y, r, you.dead);
+    }
 
     // Light vignette around the hero (gone once the run is over and the map is revealed)
-    if (!view.results) {
+    if (!view.mapRevealed) {
       const frac = you.light / 100;
       const r0 = 90 + frac * 520;
       const g = ctx.createRadialGradient(hp.x, hp.y, r0 * 0.35, hp.x, hp.y, r0);
