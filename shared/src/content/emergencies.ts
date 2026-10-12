@@ -41,8 +41,13 @@ export interface EmergencyDef {
   allEscape?: boolean;
   /** Personal goals: what your own hero has to carry out. */
   carry?: CarryGoal[];
-  /** The kill target only exists from this rolled CR (user: Liches need CR 5). */
+  /** The kill target only roams from this rolled CR (user: Liches need CR 5). */
   minCr?: number;
+  /**
+   * Below `minCr`, a Crowned in Dread is seeded instead: the Dead King's procession brings the targets (user,
+   * 2026-10-12: two Liches march with him).
+   */
+  kingBelowCr?: boolean;
   /** Personal seeding, per player who has it: Relics put in lairs, Gems lying about. */
   seed?: { relics?: number; gems?: number };
 }
@@ -94,8 +99,8 @@ export const EMERGENCIES: Record<EmergencyId, EmergencyDef> = {
   },
   liches: {
     id: 'liches', name: 'Night of the Liches', wellbeing: 5, kind: 'party',
-    desc: 'Two Liches rise beneath the Village. Kill them both. They only come at CR 5.',
-    kill: { enemy: 'lich', n: 2 }, minCr: 5,
+    desc: 'Two Liches rise beneath the Village. Kill them both. Below CR 5, they only march with the Dead King: wake him.',
+    kill: { enemy: 'lich', n: 2 }, minCr: 5, kingBelowCr: true,
   },
   exodus: {
     id: 'exodus', name: 'Exodus', wellbeing: 5, kind: 'party',
@@ -131,10 +136,14 @@ export function emergencyWarning(id: EmergencyId, ctx: { cr?: number; rites?: re
   }
   if (def.minCr !== undefined && def.kill) {
     const name = def.kill.enemy === 'lich' ? 'Liches' : `${ENEMIES[def.kill.enemy].name}s`;
-    if (ctx.cr === undefined) return `Needs CR ${def.minCr} for the ${name} to come: the lobby shows your party’s.`;
+    if (ctx.cr === undefined) return `Needs CR ${def.minCr} for the ${name} to roam${def.kingBelowCr ? ', or wake the Dead King' : ''}: the lobby shows your party’s.`;
     const base = Math.floor(ctx.cr);
     const frac = Math.round((ctx.cr - base) * 100);
     if (base >= def.minCr) return null;
+    if (def.kingBelowCr) {
+      const odds = base + 1 >= def.minCr && frac > 0 ? `A ${100 - frac}% chance` : `At CR ${ctx.cr},`;
+      return `${odds} the ${name} only march with the Dead King (they need CR ${def.minCr} to roam): wake him at Crowned in Dread.`;
+    }
     if (base + 1 >= def.minCr && frac > 0) return `Only a ${frac}% chance the ${name} come: needs CR ${def.minCr}, the party has ${ctx.cr}.`;
     return `Impossible: the ${name} need CR ${def.minCr}, the party has ${ctx.cr}.`;
   }

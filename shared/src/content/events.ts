@@ -267,10 +267,11 @@ export const MORE_EVENTS = {
 /**
  * Crowned in Dread (user, 2026-10-11): waking the Dead King sends his procession out from one of the rooms farthest
  * from the exit, straight for it, where it holds until killed. They carry his treasure (`lairs` Lairs' worth and a
- * Legendary); the last of them to fall drops it.
+ * Legendary); the last of them to fall drops it. Two Liches march with him (user, 2026-10-12; was one), so Night of
+ * the Liches can be done below CR 5 by waking him.
  */
 export const CROWNED = {
-  procession: ['king', 'lich', 'queen', 'giant', 'giant', 'giant', 'giant'] as EnemyId[],
+  procession: ['king', 'lich', 'lich', 'queen', 'giant', 'giant', 'giant', 'giant'] as EnemyId[],
   /** His treasure: this many Lairs' worth, plus one random Legendary (user, 2026-10-11; was 3 Lairs). */
   lairs: 2,
   legendaries: 1,

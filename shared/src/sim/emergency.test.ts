@@ -41,15 +41,20 @@ describe('Emergency seeding', () => {
     }
   });
 
-  it('Liches come only at CR 5', () => {
+  it('Liches roam only at CR 5; below it, the Dead King (and his two Liches) is sure to be there', () => {
+    const crowned = (w: World) => Object.values(w.events).filter((e) => e.kind === 'crowned').length;
     for (const seed of SEEDS) {
       const w = createWorld(seed, { emergencies: ['liches'], cr: 5 });
       expect(Object.values(w.monsters).filter((m) => m.type === 'lich').length).toBeGreaterThanOrEqual(2);
+      const low = createWorld(seed, { emergencies: ['liches'], cr: 4 });
+      expect(crowned(low)).toBe(1);
+      // A Relic Rite wakes him as the run begins, so his event isn't seeded.
+      expect(crowned(createWorld(seed, { emergencies: ['liches'], cr: 4, relicRite: true }))).toBe(0);
     }
     const low = createWorld(SEEDS[0], { emergencies: ['liches'], cr: 4 });
     expect(Object.values(low.monsters).some((m) => m.type === 'lich')).toBe(false);
     const h = hero(low, 'ann', 'warden', 'liches');
-    expect(emergencyProgress(low, h)?.impossible).toMatch(/No Liches/);
+    expect(emergencyProgress(low, h)?.impossible).toBeUndefined();
   });
 
   it('Tithe: a sure Relic in a lair and 2 Gems per Tithe player', () => {
@@ -169,8 +174,8 @@ describe('Wellbeing in the Village', () => {
 
   it('warns when the setup makes an Emergency impossible', () => {
     expect(emergencyWarning('liches', { cr: 5 })).toBeNull();
-    expect(emergencyWarning('liches', { cr: 4.6 })).toMatch(/60% chance/);
-    expect(emergencyWarning('liches', { cr: 3 })).toMatch(/^Impossible/);
+    expect(emergencyWarning('liches', { cr: 4.6 })).toMatch(/40% chance .* Dead King/);
+    expect(emergencyWarning('liches', { cr: 3 })).toMatch(/^At CR 3, .* Dead King/);
     expect(emergencyWarning('liches', {})).toMatch(/lobby/);
     expect(emergencyWarning('fever', { rites: ['gem'] })).toMatch(/Gem Rite/);
     expect(emergencyWarning('patrol', { cr: 0, rites: ['gem'] })).toBeNull();

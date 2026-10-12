@@ -373,7 +373,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     world.eliteEvents = true;
   }
   if (opts.loot !== false) spawnInitialLoot(world);
-  if (opts.monsters !== false) seedEmergencies(world, opts.emergencies ?? []);
+  if (opts.monsters !== false) seedEmergencies(world, opts.emergencies ?? [], !!opts.relicRite);
   return world;
 }
 

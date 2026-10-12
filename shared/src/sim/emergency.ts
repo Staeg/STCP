@@ -27,8 +27,11 @@ export function forceRoster(roster: Roster, ids: readonly EmergencyId[]) {
   }
 }
 
-/** Seed the dungeon so every player's Emergency can be done. Its own RNG for placement. */
-export function seedEmergencies(world: World, ids: readonly EmergencyId[]) {
+/**
+ * Seed the dungeon so every player's Emergency can be done. Its own RNG for placement. `relicRite`: the Dead King
+ * wakes as the run begins, so his procession is already there for a target below its CR.
+ */
+export function seedEmergencies(world: World, ids: readonly EmergencyId[], relicRite = false) {
   if (!ids.length) return;
   const defs = ids.map((id) => EMERGENCIES[id]);
   const most = (f: (d: EmergencyDef) => number | undefined) => Math.max(0, ...defs.map((d) => f(d) ?? 0));
@@ -75,6 +78,12 @@ export function seedEmergencies(world: World, ids: readonly EmergencyId[]) {
       if (room === null) break;
       spawnGroup(world, room, [enemy, ...pickGroup(world, 0)], 0);
     }
+  }
+  // Below its CR, Night of the Liches gets a sure Crowned in Dread: the Dead King's procession brings two Liches.
+  const needsKing = defs.some((x) => x.kingBelowCr && x.minCr !== undefined && world.cr < x.minCr);
+  if (needsKing && !relicRite && !Object.values(world.events).some((e) => e.kind === 'crowned')) {
+    const room = pickRoom(true);
+    if (room !== null) world.events[room] = { room, kind: 'crowned', done: false, progress: 0, by: null, spawned: false };
   }
 
   // Tithe: per player, sure Relics in lairs (a lair is made if there are too few) and Gems lying about.
@@ -138,7 +147,7 @@ export function emergencyProgress(world: World, h: Hero): EmergencyProgress | nu
     const carried = carriedHome(h);
     for (const c of def.carry) parts.push({ label: c.label, have: carried.filter((it) => c.items.includes(it)).length, need: c.n });
   }
-  const impossible = def.minCr !== undefined && world.cr < def.minCr ? `No ${def.kill?.enemy === 'lich' ? 'Liches' : 'targets'} at CR ${world.cr}.` : undefined;
+  const impossible = def.minCr !== undefined && world.cr < def.minCr && !def.kingBelowCr ? `No ${def.kill?.enemy === 'lich' ? 'Liches' : 'targets'} at CR ${world.cr}.` : undefined;
   return { id: h.emergency, parts, done: parts.every((p) => p.have >= p.need), impossible };
 }
 
