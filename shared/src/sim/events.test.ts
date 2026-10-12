@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
 import { CLASS_RULES } from '../content/abilities';
 import { CLASS_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
-import { EXIT_OPENS_AT } from '../content/constants';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';
 import { buildView } from './views';
@@ -398,11 +397,10 @@ describe('villagers', () => {
     run(world, CORRIDOR_TIME + 0.2);
     expect(h.pos.kind).toBe('corridor'); // slower than normal
     run(world, CORRIDOR_TIME);
-    // Delivered on reaching the rendezvous, even before the exit opens.
+    // Delivered on reaching the rendezvous.
     expect(world.villagers.v1.state).toBe('saved');
     expect(world.objectives.villagers).toBe(1);
     expect(h.leading).toEqual([]);
-    world.time = EXIT_OPENS_AT;
     applyIntent(world, 'h', { type: 'extract' });
     step(world, 0.1);
     expect(h.gold).toBe(25); // the game ended (only hero out) → bonus paid

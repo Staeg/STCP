@@ -87,12 +87,12 @@ export class Hud {
     setHtml($('escalation'), escalationHtml(view.escalation) + ` <span class="cr-tag" title="${rosterTitle(view)}">· CR ${view.cr}</span>`);
     const next = $('next-event');
     const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
-    if (time < view.exitOpensAt) {
-      next.textContent = `Exit opens in ${fmtTime(view.exitOpensAt - time)}`;
+    if (time < view.wavesAt) {
+      next.textContent = `Waves in ${fmtTime(view.wavesAt - time)}`;
     } else {
-      next.textContent = `EXIT OPEN · collapse in ${fmtTime(view.collapseAt - time)}`;
+      next.textContent = `WAVES · collapse in ${fmtTime(view.collapseAt - time)}`;
     }
-    $('clock').classList.toggle('urgent', time >= view.exitOpensAt);
+    $('clock').classList.toggle('urgent', time >= view.wavesAt);
 
     const you = view.you;
     const cls = CLASSES[you.cls];
@@ -147,7 +147,7 @@ export class Hud {
 
     $('btn-turn').hidden = you.pos.kind !== 'corridor' || you.downedAt !== null || you.dead;
 
-    // E: ready to leave. It can be set anywhere; at the open exit it shows who you're waiting on.
+    // E: ready to leave. It can be set anywhere; at the exit it shows who you're waiting on.
     const ready = $('btn-ready');
     ready.hidden = you.dead || you.extracted || view.phase !== 'running';
     ready.classList.toggle('on', you.ready);
@@ -155,10 +155,10 @@ export class Hud {
     if (you.ready && here === view.exitRoom) {
       const others = view.allies.filter((a) => a.live && !a.dead && !a.extracted && a.pos.kind === 'room' && a.pos.room === here);
       const waiting = others.filter((a) => a.downed || !a.ready).map((a) => (a.downed ? `${a.name} (down)` : a.name));
-      readyText += !view.exitOpen ? ' · exit opens soon' : view.encounter ? ' · after the fight' : waiting.length ? ` · waiting for ${waiting.join(', ')}` : '';
+      readyText += view.encounter ? ' · after the fight' : waiting.length ? ` · waiting for ${waiting.join(', ')}` : '';
     } else if (you.ready) readyText += ' · at the exit';
     setHtml(ready, `${readyText} <kbd>E</kbd>`);
-    ready.title = 'Ready to leave: once the exit is open, if everyone standing in the exit room is ready (and nobody is fighting or down there), you all escape together. Alone and ready, you escape as soon as you get there. F still leaves on your own.';
+    ready.title = 'Ready to leave: if everyone standing in the exit room is ready (and nobody is fighting or down there), you all escape together. Alone and ready, you escape as soon as you get there. F still leaves on your own.';
 
     // C: call for help, then wait out the cooldown.
     const call = $('btn-call');
@@ -206,7 +206,7 @@ export class Hud {
     // The way out
     const esc = $('btn-escape');
     const atExit = free && here === view.exitRoom;
-    esc.hidden = !atExit || !view.exitOpen;
+    esc.hidden = !atExit;
     if (!esc.hidden) esc.innerHTML = `⚑ ESCAPE ALONE with ${you.gold} gold <kbd>F</kbd>`;
     setHtml($('roster'), rosterHtml(view));
 

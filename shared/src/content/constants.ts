@@ -1,7 +1,8 @@
 /** Global timing and tuning constants. All times in seconds. */
 export const ESCALATION_INTERVAL = 120;
 export const MAX_ESCALATION = 6;
-export const EXIT_OPENS_AT = 600;
+/** Waves start pouring toward the exit (Escalation 5). The exit itself is open from the start (user, 2026-10-12). */
+export const WAVES_AT = 600;
 export const COLLAPSE_AT = 780;
 
 export const SERVER_TICK = 0.1;

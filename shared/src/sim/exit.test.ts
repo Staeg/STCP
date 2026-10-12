@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXIT_OPENS_AT, ESCALATION_INTERVAL } from '../content/constants';
+import { ESCALATION_INTERVAL } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { spawnGroup } from './combat';
 import { makePack } from './escalation';
@@ -11,11 +11,10 @@ function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
 }
 
-/** A quiet world at the moment the exit opens, everyone standing at it. */
+/** A quiet world, everyone standing at the exit. */
 function atOpenExit(n: number) {
   const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
   for (let i = 0; i < n; i++) addHero(world, { id: `h${i}`, name: `H${i}`, cls: 'warden' });
-  world.time = EXIT_OPENS_AT;
   return world;
 }
 
@@ -38,16 +37,14 @@ describe('ready to leave (E)', () => {
     expect(world.chronicle.some((c) => c.text.includes('left together'))).toBe(true);
   });
 
-  it('E toggles, and can be set before the exit opens or away from it', () => {
-    const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
-    addHero(world, { id: 'h0', name: 'H0', cls: 'warden' });
+  it('E toggles', () => {
+    const world = atOpenExit(1);
     applyIntent(world, 'h0', { type: 'ready' });
     applyIntent(world, 'h0', { type: 'ready' });
     expect(world.heroes.h0.ready).toBe(false);
-    applyIntent(world, 'h0', { type: 'ready' });
     run(world, 1);
-    expect(world.heroes.h0.extracted).toBe(false); // the exit isn't open yet
-    world.time = EXIT_OPENS_AT;
+    expect(world.heroes.h0.extracted).toBe(false);
+    applyIntent(world, 'h0', { type: 'ready' });
     step(world, 0.1);
     expect(world.heroes.h0.extracted).toBe(true);
   });
@@ -126,7 +123,6 @@ describe('after you escape', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false, events: false });
     addHero(world, { id: 'you', name: 'You', cls: 'warden' });
     for (let i = 0; i < 3; i++) addHero(world, { id: `b${i}`, name: `B${i}`, cls: 'warden', isBot: bots });
-    world.time = EXIT_OPENS_AT;
     for (const id of ['b0', 'b1', 'b2']) world.heroes[id].pos = { kind: 'room', room: neighbours(world.dungeon, world.dungeon.exit)[0] };
     applyIntent(world, 'you', { type: 'ready' });
     step(world, 0.1);

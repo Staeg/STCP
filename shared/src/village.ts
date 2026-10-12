@@ -156,7 +156,7 @@ export const RITES: Record<ResourceId, { name: string; desc: string }> = {
   effigy: { name: 'Effigy Rite', desc: 'CR +1. Your hero deals +20% damage and has +20% max HP, and is 1s faster.' },
   gem: { name: 'Gem Rite', desc: 'CR −0.5. Your hero can’t bring, pick up or use consumables.' },
   tome: { name: 'Tome Rite', desc: 'Your hero deals −20% damage and has −20% max HP, but the gold and consumables they carry come home even if they die.' },
-  relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: the exit is open at once, and the collapse is 3 minutes away. And the Dead King wakes as it begins: his procession sets out for the exit with his treasure.' },
+  relic: { name: 'Relic Rite', desc: 'The whole party’s run starts at Escalation 5: waves come for the exit at once, and the collapse is 3 minutes away. And the Dead King wakes as it begins: his procession sets out for the exit with his treasure.' },
 };
 
 /** Resources this Rite costs: 5, but a Relic Rite only 1. */

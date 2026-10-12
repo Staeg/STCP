@@ -99,7 +99,6 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
     mem.escortReturnAt = null;
   }
   if (exit && here === exit.id && view.time >= mem.returnAt) {
-    if (!view.exitOpen) return null;
     // Wait a while for the others (they might be coming), unless hurt or out of time.
     if (mem.leaveAt === null) mem.leaveAt = view.time + mem.rng.float(8, BOTS.exitWaitMax);
     const hurt = you.hp / you.maxHp < 0.4;

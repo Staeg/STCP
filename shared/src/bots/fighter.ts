@@ -42,8 +42,8 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const enemyHp = enc.monsters.reduce((sum, m) => sum + m.hp, 0);
   const healer = enc.heroes.some((h) => h.cls === 'lampbearer' && !h.downed && h.id !== me.id);
   if (me.hp / me.maxHp < 0.35 && enemyHp > me.hp && !healer && !downed.length && rng.chance(0.6)) return { action: 'flee' };
-  // At the open exit, fleeing means escaping the dungeon.
-  const atOpenExit = enc.room === view.exitRoom && view.exitOpen;
+  // At the exit, fleeing means escaping the dungeon.
+  const atOpenExit = enc.room === view.exitRoom;
   if (atOpenExit && (me.hp / me.maxHp < 0.5 || view.time > view.collapseAt - 90)) return { action: 'flee' };
 
   switch (view.you.cls) {

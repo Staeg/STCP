@@ -8,7 +8,7 @@
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
 import * as shared from '@stcp/shared';
-import { CLASS_IDS, COLLAPSE_AT, EXIT_OPENS_AT, Game, Rng, talentsFor, ESCALATION_INTERVAL, type ClassId } from '@stcp/shared';
+import { CLASS_IDS, COLLAPSE_AT, WAVES_AT, Game, Rng, talentsFor, ESCALATION_INTERVAL, type ClassId } from '@stcp/shared';
 
 const args = new Map<string, string>();
 const sets: string[] = [];
@@ -64,11 +64,11 @@ for (let g = 0; g < games; g++) {
     loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talent: talentRng.pick(talentsFor(cls)), injuries: [], insane: false } : undefined,
   })), worldOpts);
   const w = game.world;
-  // The climax check: when the exit opens, is someone waiting there while someone else is still alive out there?
+  // The climax check: when the waves start, is someone waiting there while someone else is still alive out there?
   let drama = false;
   while (w.phase === 'running' && w.time <= COLLAPSE_AT + 1) {
     game.tick(0.1);
-    if (!drama && Math.abs(w.time - EXIT_OPENS_AT) < 0.05) {
+    if (!drama && Math.abs(w.time - WAVES_AT) < 0.05) {
       const alive = Object.values(w.heroes).filter((h) => !h.dead && !h.extracted);
       const atExit = alive.filter((h) => h.pos.kind === 'room' && h.pos.room === w.dungeon.exit);
       drama = atExit.length > 0 && atExit.length < alive.length;
@@ -81,7 +81,7 @@ for (let g = 0; g < games; g++) {
     heroes++;
     runsByClass[h.cls] = (runsByClass[h.cls] ?? 0) + 1;
     if (h.arrivedAt !== null) arrivals.push(h.arrivedAt);
-    if (h.arrivedAt !== null && h.arrivedAt > EXIT_OPENS_AT + 30) late = true;
+    if (h.arrivedAt !== null && h.arrivedAt > WAVES_AT + 30) late = true;
     if (h.extracted) {
       escaped++;
       escapesByClass[h.cls] = (escapesByClass[h.cls] ?? 0) + 1;
@@ -91,7 +91,7 @@ for (let g = 0; g < games; g++) {
       deathsByEscalation[Math.min(7, Math.floor((h.diedAt ?? COLLAPSE_AT) / ESCALATION_INTERVAL))]++;
       deathsByClass[h.cls] = (deathsByClass[h.cls] ?? 0) + 1;
       const cause = (h.fate ?? '').startsWith('was buried') ? 'buried' : 'died';
-      const where = (h.diedAt ?? 0) >= EXIT_OPENS_AT && h.pos.kind === 'room' && h.pos.room === w.dungeon.exit ? ' at exit' : '';
+      const where = (h.diedAt ?? 0) >= WAVES_AT && h.pos.kind === 'room' && h.pos.room === w.dungeon.exit ? ' at exit' : '';
       causes[cause + where] = (causes[cause + where] ?? 0) + 1;
     }
   }

@@ -1,5 +1,5 @@
 import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
-import { escalationAt, EXIT_OPENS_AT, LIGHT_MAX } from '../content/constants';
+import { escalationAt, LIGHT_MAX } from '../content/constants';
 import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
@@ -1180,7 +1180,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
   if (c.action === 'flee') {
     const ghost = h.talent === 'ghostStep';
     if (ghost || inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
-      if (enc.room === world.dungeon.exit && world.time >= EXIT_OPENS_AT) {
+      if (enc.room === world.dungeon.exit) {
         leaveEncounter(world, enc, h);
         extractHero(world, h);
         events.push({ actor: h.id, kind: 'flee', text: `${h.name} escapes through the exit!` });

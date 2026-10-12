@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
-import { EXIT_OPENS_AT } from '../content/constants';
 import { hopDistances, neighbours } from '../dungeon/gen';
 import { dieOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
 import { carriedHome } from './emergency';
@@ -170,7 +169,6 @@ describe('Undertaker', () => {
     expect(c.gold).toBe(50);
     expect(u.items).not.toContain('bandage');
     expect(world.piles[world.dungeon.entrance]).toBeUndefined();
-    world.time = EXIT_OPENS_AT;
     extractHero(world, u);
     expect(c.legacy).toBe(50);
     expect(c.legacyItems).toContain('bandage');

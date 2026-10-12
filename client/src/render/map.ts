@@ -608,9 +608,11 @@ export class MapRenderer {
     const y = this.sy(r.y) - size / 2;
 
     if (r.kind === 'exit') {
-      const open = this.net.cur?.exitOpen;
-      const pulse = 0.5 + 0.5 * Math.sin(t * (open ? 6 : 2.5));
-      ctx.shadowColor = open ? '#7cff6a' : COLORS.exit;
+      // Always open; it pulses faster once the waves come for it.
+      const cur = this.net.cur;
+      const waves = !!cur && cur.time >= cur.wavesAt;
+      const pulse = 0.5 + 0.5 * Math.sin(t * (waves ? 6 : 2.5));
+      ctx.shadowColor = '#7cff6a';
       ctx.shadowBlur = 10 + pulse * 14;
     }
     ctx.fillStyle = r.knowledge === 'explored' ? COLORS.roomExplored : COLORS.roomSeen;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXIT_OPENS_AT } from './content/constants';
+import { ESCALATION_INTERVAL } from './content/constants';
 import { CR_RULES, ENEMIES, type EnemyId } from './content/enemies';
 import { CLASSES } from './content/classes';
 import { Rng } from './rng';
@@ -117,7 +117,7 @@ describe('heroes with a kit', () => {
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout({ rites: ['relic'] }) },
       { id: 'b', name: 'B', cls: 'sorceress', isBot: true },
     ], { monsters: false });
-    expect(game.world.time).toBe(EXIT_OPENS_AT);
+    expect(game.world.time).toBe(5 * ESCALATION_INTERVAL);
     game.tick(0.1);
     expect(game.world.escalation).toBe(5);
     expect(game.world.chronicle.some((c) => c.text.startsWith('Escalation 5'))).toBe(true);
@@ -155,7 +155,7 @@ describe('the lobby and the Stash', () => {
     expect(stash.village('Ann').items).toEqual([]);
     const lobby = (mgr as unknown as { lobbies: Map<string, { game: Game }> }).lobbies.values().next().value!;
     const w = lobby.game.world;
-    expect(w.startTime).toBe(EXIT_OPENS_AT);
+    expect(w.startTime).toBe(5 * ESCALATION_INTERVAL);
     // ...and the Dead King is already on the march.
     expect(Object.values(w.monsters).filter((m) => m.procession).map((m) => m.type)).toContain('king');
     // ...so his event never turns up in the dungeon.

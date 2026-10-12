@@ -1,7 +1,7 @@
 import { LEGENDS, type LegendId } from '../content/legends';
 import { legendError, legendsOf, legendTargets, PICK_A_ROOM } from './legends';
 import { emergencyProgress, type EmergencyProgress } from './emergency';
-import { COLLAPSE_AT, EXIT_OPENS_AT, LIGHT_DIM, escalationAt } from '../content/constants';
+import { COLLAPSE_AT, LIGHT_DIM, WAVES_AT, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
@@ -215,7 +215,8 @@ export interface ChalkView {
 export interface PlayerView {
   time: number;
   escalation: number;
-  exitOpensAt: number;
+  /** When waves start coming for the exit. */
+  wavesAt: number;
   collapseAt: number;
   phase: WorldPhase;
   width: number;
@@ -231,7 +232,6 @@ export interface PlayerView {
   /** Loot in your current room, if any. */
   loot: LootView | null;
   exitRoom: number;
-  exitOpen: boolean;
   /** The event in your room, if any. */
   event: EventView | null;
   /** The villagers you're escorting. */
@@ -342,7 +342,7 @@ export function buildView(world: World, heroId: string): PlayerView {
   return {
     time: world.time,
     escalation: escalationAt(world.time),
-    exitOpensAt: EXIT_OPENS_AT,
+    wavesAt: WAVES_AT,
     collapseAt: COLLAPSE_AT,
     phase: world.phase,
     width: d.width,
@@ -361,7 +361,6 @@ export function buildView(world: World, heroId: string): PlayerView {
     packs: watching ? movingPacks(world) : [],
     soloOut: world.phase === 'running' && soloOut(world, you),
     exitRoom: d.exit,
-    exitOpen: world.time >= EXIT_OPENS_AT,
     event: eventView(world, you),
     leading: you.leading.map((id) => ({ hp: world.villagers[id].hp, maxHp: world.villagers[id].maxHp })),
     objectives: { ...world.objectives },

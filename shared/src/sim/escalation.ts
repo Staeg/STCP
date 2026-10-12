@@ -1,4 +1,4 @@
-import { EXIT_OPENS_AT, escalationAt } from '../content/constants';
+import { WAVES_AT, escalationAt } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import { neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { afterBlock, crUnits, fillGroup, hurtHero, inDungeon, monstersIn, onHeroInRoom, pickGroup, spawnGroup, type Monster } from './combat';
@@ -42,7 +42,7 @@ export function tickEscalation(world: World) {
     world.nextCollapse = world.time + ESCALATION.collapseEvery;
     collapseRandomCorridor(world);
   }
-  if (world.time >= EXIT_OPENS_AT && world.time >= world.nextWave) {
+  if (world.time >= WAVES_AT && world.time >= world.nextWave) {
     world.nextWave = world.time + (esc >= 6 ? ESCALATION.waveEveryLate : ESCALATION.waveEvery);
     spawnWave(world, esc);
   }
@@ -53,7 +53,7 @@ export const ESCALATION_TEXT: Record<number, string> = {
   2: 'Something walks the halls. Wandering packs roam the dungeon.',
   3: 'The ceiling groans. Tunnels begin to collapse, and the worst of the dead rise.',
   4: 'The air thickens. Torches burn out faster.',
-  5: 'THE EXIT IS OPEN. Get to the rendezvous — they are coming for it.',
+  5: 'THEY ARE COMING FOR THE EXIT. Waves close in on the rendezvous.',
   6: 'The dungeon is coming down. Waves pour toward the exit.',
 };
 
