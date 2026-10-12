@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createBotMemory, botThink } from '../bots/explorer';
-import { CALL_RULES, hopsFrom } from './call';
+import { CALL_RULES, callError, hopsFrom } from './call';
 import { Game } from './game';
 import { buildView } from './views';
 import { speedOf } from './speed';
@@ -19,12 +19,12 @@ function roomAt(world: World, from: number, n: number): number {
 
 describe('call for help', () => {
   // Packs only move while the dungeon escalates (nothing else respawns before Escalation 1, at 2:00).
-  it('works once per run, summons a pack nearby that goes to the call and stays there', () => {
+  it('summons a pack nearby that goes to the call and stays there', () => {
     const world = createWorld(5, { monsters: false, loot: false });
     const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
     const room = world.dungeon.entrance;
     applyIntent(world, 'a', { type: 'call' });
-    expect(h.called).toBe(true);
+    expect(h.calledAt).toBe(world.time);
     expect(world.calls).toHaveLength(1);
     const packs = Object.values(world.packs);
     expect(packs).toHaveLength(1);
@@ -33,7 +33,7 @@ describe('call for help', () => {
     const hops = hopsFrom(world, room, true).get(pack.room)!;
     expect(hops).toBeGreaterThanOrEqual(1);
     expect(hops).toBeLessThanOrEqual(CALL_RULES.spawnWithin);
-    // A second call does nothing.
+    // A second call right away does nothing.
     applyIntent(world, 'a', { type: 'call' });
     expect(world.calls).toHaveLength(1);
     expect(Object.keys(world.packs)).toHaveLength(1);
@@ -62,7 +62,22 @@ describe('call for help', () => {
     addHero(world, { id: 'b', name: 'B', cls: 'sorceress' });
     h.downedAt = world.time;
     applyIntent(world, 'a', { type: 'call' });
-    expect(h.called).toBe(true);
+    expect(h.calledAt).toBe(world.time);
+  });
+
+  it('can be done again once the cooldown is over', () => {
+    const world = createWorld(5, { monsters: false, loot: false, escalates: false });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    applyIntent(world, 'a', { type: 'call' });
+    world.time += CALL_RULES.cooldown - 1;
+    expect(callError(world, h)).toMatch(/again in 1s/);
+    applyIntent(world, 'a', { type: 'call' });
+    expect(world.calls).toHaveLength(1);
+    world.time += 1;
+    expect(callError(world, h)).toBeNull();
+    applyIntent(world, 'a', { type: 'call' });
+    expect(world.calls).toHaveLength(2);
+    expect(h.calledAt).toBe(world.time);
   });
 
   it('is heard with chance 1 − 0.1 × distance', () => {
@@ -119,10 +134,10 @@ describe('call for help', () => {
     // B stands in the same room: A waits for them.
     a.downedAt = game.world.time;
     game.tick(0.1);
-    expect(a.called).toBe(false);
+    expect(a.calledAt).toBeNull();
     // Alone: A cries out.
     b.pos = { kind: 'room', room: roomAt(game.world, (a.pos as { room: number }).room, 3) };
     game.tick(0.1);
-    expect(a.called).toBe(true);
+    expect(a.calledAt).not.toBeNull();
   });
 });

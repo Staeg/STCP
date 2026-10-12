@@ -186,8 +186,8 @@ export interface Hero {
   immuneUntil: number;
   /** Restless Dead: a risen that follows this Undertaker into their next fight. */
   risen: Omit<Risen, 'id' | 'by'> | null;
-  /** Called for help (C) this run: only once. */
-  called: boolean;
+  /** When this hero last called for help (C), for its cooldown; null if never. */
+  calledAt: number | null;
   /** Out of a bots-only run, they asked to see the whole map (see `soloOut`). */
   mapRevealed: boolean;
   /** Bellwright: rang the Toll this run (once a run, until a Loom weaves it back; user, 2026-10-12). */
@@ -321,7 +321,7 @@ export type Intent =
   | { type: 'extract' }
   /** Ready to leave together (E): toggles, or sets `on`. Works anywhere; it only matters at the open exit. */
   | { type: 'ready'; on?: boolean }
-  /** Call for help (C): once per run, even while Downed or fighting. See call.ts. */
+  /** Call for help (C): even while Downed or fighting, with a cooldown. See call.ts. */
   | { type: 'call' }
   /** Hand your hero to a bot, or take them back (O). Handled by Game; the world ignores it. */
   | { type: 'autopilot' }
@@ -477,7 +477,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     oathUsed: false,
     immuneUntil: 0,
     risen: null,
-    called: false,
+    calledAt: null,
     mapRevealed: false,
     tolled: false,
     scryUntil: 0,

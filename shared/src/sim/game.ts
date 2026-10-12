@@ -7,6 +7,7 @@ import { buildView } from './views';
 import { isConscious } from './combat';
 import { addHero, applyIntent, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
 import { rouseTheKing } from './events';
+import { callReadyIn } from './call';
 
 export interface PlayerSlot {
   id: string;
@@ -90,7 +91,7 @@ export class Game {
       if (hero.dead || hero.extracted) continue;
       if (hero.downedAt !== null) {
         // Down with nobody standing here to get them up: cry out.
-        if (!hero.called && !allyStandingWith(w, hero)) applyIntent(w, id, { type: 'call' });
+        if (!callReadyIn(w, hero) && !allyStandingWith(w, hero)) applyIntent(w, id, { type: 'call' });
         continue;
       }
       if (hero.encounter !== null) {

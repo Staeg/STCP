@@ -24,6 +24,11 @@ export function fmtTime(seconds: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** Seconds until you can call for help again (0: now). The client's copy of the sim's `callReadyIn`. */
+function callWait(you: PlayerView['you'], time: number): number {
+  return you.calledAt === null ? 0 : Math.max(0, you.calledAt + CALL_RULES.cooldown - time);
+}
+
 export class Hud {
   private lastEscalation = 0;
   private bannerTimer = 0;
@@ -155,11 +160,13 @@ export class Hud {
     setHtml(ready, `${readyText} <kbd>E</kbd>`);
     ready.title = 'Ready to leave: once the exit is open, if everyone standing in the exit room is ready (and nobody is fighting or down there), you all escape together. Alone and ready, you escape as soon as you get there. F still leaves on your own.';
 
-    // C: call for help, once per run.
+    // C: call for help, then wait out the cooldown.
     const call = $('btn-call');
-    call.hidden = you.dead || you.extracted || you.called || view.phase !== 'running';
-    setHtml(call, `📣 Call for Help <kbd>C</kbd>`);
-    call.title = `Once per run, even while down: every ally may hear where you are (${Math.round(CALL_RULES.falloff * 100)}% less likely per tunnel away). `
+    const callIn = callWait(you, time);
+    call.hidden = you.dead || you.extracted || view.phase !== 'running';
+    (call as HTMLButtonElement).disabled = callIn > 0;
+    setHtml(call, `📣 Call for Help ${callIn > 0 ? `${Math.ceil(callIn)}s` : '<kbd>C</kbd>'}`);
+    call.title = `Even while down, once every ${CALL_RULES.cooldown}s: every ally may hear where you are (${Math.round(CALL_RULES.falloff * 100)}% less likely per tunnel away). `
       + `So will the dungeon: monsters for this Escalation appear up to ${CALL_RULES.spawnWithin} rooms away and come straight here.`;
 
     // Out of a bots-only run (escaped or dead): see the whole map now, or end it by killing the bots.
@@ -216,7 +223,7 @@ export class Hud {
     else if (you.dead) this.showBanner('YOU HAVE DIED<br><span style="font-size:24px">Your allies fight on without you.</span>', 0);
     else if (you.downedAt !== null && !view.encounter) {
       const left = Math.max(0, DEATH_TIMER - (view.time - you.downedAt));
-      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Dying in ${Math.ceil(left)}s — an ally must reach you.${you.called ? '' : ' <kbd>C</kbd> to call for help.'}</span>`, 0);
+      this.showBanner(`YOU ARE DOWN<br><span style="font-size:24px">Dying in ${Math.ceil(left)}s — an ally must reach you.${callWait(you, view.time) > 0 ? '' : ' <kbd>C</kbd> to call for help.'}</span>`, 0);
     } else if (this.persistentBanner) {
       $('banner').hidden = true;
     }

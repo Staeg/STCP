@@ -10,7 +10,7 @@ import { anvilInto, forgeable, reforged } from '../content/forge';
 import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
 import { addStress, afterBlock, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor, makePack } from './escalation';
-import { hopsFrom } from './call';
+import { callReadyIn, hopsFrom } from './call';
 import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, seesInDark, takeItem } from './loot';
 import { goInsane } from './mind';
 import { notify } from './notify';
@@ -230,7 +230,7 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       return { kind: ev.kind, progress, choices: slots.map((s) => c(`forge-${s}`, `Reforge your ${ITEMS[h[s]!].name} into ${anvilInto(h[s]!)}`)) };
     }
     case 'loom': {
-      const worn = loomMends(h);
+      const worn = loomMends(world, h);
       return one(c('weave', worn.length ? `Weave it whole again: ${worn.join(', ')}` : 'Weave',
         worn.length ? undefined : 'Nothing of yours is worn thin.'));
     }
@@ -273,14 +273,14 @@ function spent(item: ItemId, c: ItemCharge): boolean {
 }
 
 /** The Loom: what it would make whole again for this hero (Cloth worn or carried, Call for Help, Iron Oath). */
-function loomMends(h: Hero): string[] {
+function loomMends(world: World, h: Hero): string[] {
   const out: string[] = [];
   for (const slot of GEAR_SLOTS) {
     const c = wornCharge(h, slot);
     if (c && spent(h[slot]!, c)) out.push(ITEMS[h[slot]!].name);
   }
   for (const p of h.packCharges) if (spent(p.item, p.charge)) out.push(ITEMS[p.item].name);
-  if (h.called) out.push('Call for Help');
+  if (callReadyIn(world, h) > 0) out.push('Call for Help');
   if (h.tolled) out.push('Toll');
   if (h.talent === 'ironOath' && h.oathUsed) out.push('Iron Oath');
   return out;
@@ -594,13 +594,13 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'weave': {
-      const mended = loomMends(h);
+      const mended = loomMends(world, h);
       for (const slot of GEAR_SLOTS) {
         const c = wornCharge(h, slot);
         if (c) Object.assign(c, freshCharge(h[slot]!), { disabled: c.disabled });
       }
       for (const p of h.packCharges) p.charge = freshCharge(p.item);
-      h.called = false;
+      h.calledAt = null;
       h.tolled = false;
       h.oathUsed = false;
       notify(world, h, mended.length

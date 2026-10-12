@@ -178,14 +178,14 @@ describe('The Loom', () => {
     const { world, h } = withEvent('loom');
     equip(h, 'armor', 'gravecloth');
     wornCharge(h, 'armor')!.usesLeft = 0;
-    h.called = true;
+    h.calledAt = world.time;
     h.talent = 'ironOath';
     h.oathUsed = true;
     expect(buildView(world, 'h').event!.choices[0].label).toMatch(/Gravecloth, Call for Help, Iron Oath/);
     choose(world, 'h', 'weave');
     run(world, 6.5);
     expect(wornCharge(h, 'armor')!.usesLeft).toBe(1);
-    expect(h.called).toBe(false);
+    expect(h.calledAt).toBeNull();
     expect(h.oathUsed).toBe(false);
   });
 
