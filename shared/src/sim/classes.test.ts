@@ -9,6 +9,8 @@ import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
 import { dropEverything } from './loot';
 import { buildView } from './views';
+import { checkSkill } from './skills';
+import { eventChoices } from './events';
 import { addHero, applyIntent, createWorld, digTime, extractHero, step, type World } from './world';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId } from '../content/enemies';
@@ -289,6 +291,25 @@ describe('Bellwright', () => {
     expect(world.monsters[ghoul.id].room).toBe(-1); // on its way
     run(world, 10 + CLASS_RULES.tollDaze); // they reel from the bell first
     expect(heroes[0].encounter).toBe(d.entrance);
+  });
+
+  it('Toll: every monster in the dungeon comes one room closer; once a run, until a Loom weaves it back', () => {
+    const { world, heroes } = quiet(['bellwright'], true);
+    const d = world.dungeon;
+    const hops = hopDistances(d, d.entrance);
+    const far = d.rooms.find((r) => r.kind === 'normal' && hops[r.id] >= 4)!.id;
+    const [ghoul] = spawnGroup(world, far, ['ghoul'], 0);
+    applyIntent(world, 'h0', { type: 'skill' });
+    run(world, CLASSES.bellwright.speed + 0.2);
+    expect(world.tolls).toHaveLength(1);
+    expect(heroes[0].tolled).toBe(true);
+    expect(world.monsters[ghoul.id].room).toBe(-1);
+    run(world, CLASS_RULES.tollDaze + 10);
+    expect(hops[world.monsters[ghoul.id].room]).toBe(hops[far] - 1);
+    expect(checkSkill(world, heroes[0], 'toll', null)).toMatch(/already/);
+    const room = heroes[0].pos.kind === 'room' ? heroes[0].pos.room : -1;
+    world.events[room] = { room, kind: 'loom', done: false, progress: 0, by: null, spawned: false };
+    expect(eventChoices(world, heroes[0])?.choices.some((c) => c.label.includes('Toll'))).toBe(true);
   });
 });
 

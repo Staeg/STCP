@@ -115,7 +115,7 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
       return null;
     }
     // A Bellwright waiting at the open exit rings to call the stragglers home.
-    if (you.cls === 'bellwright' && !(you.cooldowns.toll > 0)) return { type: 'skill', skill: 'toll' };
+    if (you.cls === 'bellwright' && !you.tolled) return { type: 'skill', skill: 'toll' };
     return null;
   }
   const costs = viewDistances(view, here);

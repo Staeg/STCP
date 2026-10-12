@@ -62,8 +62,7 @@ export const CLASS_RULES = {
   pealHaste: 3,
   /** Knell: power minus this per ally in the fight. */
   knellPerAlly: 5,
-  /** Toll (out of combat): cooldown in your own turns; allies see you live for this long (seconds). */
-  tollCooldown: 4,
+  /** Toll (out of combat, once a run; user, 2026-10-12, was a 4-turn cooldown): allies see you live for this long (seconds). */
   tollReveal: 10,
   /** Toll: monsters outside fights stop for this long (seconds); those fighting lose their next turn. Great Bell's until 2026-10-11. */
   tollDaze: 7,

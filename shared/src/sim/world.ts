@@ -188,6 +188,8 @@ export interface Hero {
   risen: Omit<Risen, 'id' | 'by'> | null;
   /** Called for help (C) this run: only once. */
   called: boolean;
+  /** Bellwright: rang the Toll this run (once a run, until a Loom weaves it back; user, 2026-10-12). */
+  tolled: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
   scryUntil: number;
   /** Promise (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
@@ -470,6 +472,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     immuneUntil: 0,
     risen: null,
     called: false,
+    tolled: false,
     scryUntil: 0,
     promise: false,
     codex: emptyCodex(),

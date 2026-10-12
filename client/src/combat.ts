@@ -1,5 +1,5 @@
 import {
-  abilitiesOf, CLASS_RULES, FLEE_CHANCE, INSANITY, INSANITY_RULES, LEGENDS, legendsOf, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
+  abilitiesOf, FLEE_CHANCE, INSANITY, INSANITY_RULES, LEGENDS, legendsOf, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
   skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type LegendId, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -297,7 +297,7 @@ export class CombatUi {
     const you = view.you;
     const out: string[] = [];
     if (you.cls === 'bellwright') {
-      out.push(enc ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} ${cooldownIcon(CLASS_RULES.tollCooldown)} Only out of a fight.`, you.cooldowns.toll ?? 0, false, true)
+      out.push(enc ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} Only out of a fight.`, you.cooldowns.toll ?? 0, false, true)
         : this.fieldBtn(view, 'toll', 'M'));
     }
     for (const l of legendsOf(you)) {
@@ -341,13 +341,15 @@ export class CombatUi {
     const info = skillInfo(you, skill);
     const cd = you.cooldowns[skill] ?? 0;
     const ab = abilitiesOf(you).find((a) => a.id === skill);
-    const cooldown = legend ? LEGENDS[skill as LegendId].cooldown : skill === 'toll' ? CLASS_RULES.tollCooldown : ab?.cooldown ?? 0;
+    const cooldown = legend ? LEGENDS[skill as LegendId].cooldown : skill === 'toll' ? 0 : ab?.cooldown ?? 0;
     const queued = you.queuedSkill?.skill === skill;
     const aiming = this.aim?.skill === skill;
-    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead;
+    // The Toll is once a run (a Loom weaves it back).
+    const rung = skill === 'toll' && you.tolled;
+    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung;
     const inFights = legend ? LEGENDS[skill as LegendId].combat : !!ab;
     return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''}" data-skill="${skill}">
-      <kbd>${key}</kbd> ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      <kbd>${key}</kbd> ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}${rung ? ' <span class="cd">rung</span>' : ''}
       <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)}${cooldown ? ` ${cooldownIcon(cooldown)}` : ''}${inFights ? ` ${icon('field')}` : ' Only out of a fight.'}</div></button>`;
   }
 

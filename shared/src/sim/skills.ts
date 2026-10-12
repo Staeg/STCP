@@ -27,7 +27,7 @@ export type FieldTarget = 'none' | 'any' | 'other' | 'fallen' | 'room';
 
 /** Display name, who it can be aimed at, and what it does out of a fight. */
 export const FIELD_SKILLS: Record<ClassSkill, { name: string; target: FieldTarget; desc: string }> = {
-  toll: { name: 'Toll', target: 'none', desc: `Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s. Monsters next door come to the bell.` },
+  toll: { name: 'Toll', target: 'none', desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
   sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
   elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
   mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Poison.` },
@@ -67,7 +67,7 @@ export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
 
 /** Cooldown in the hero's own turns after using it. */
 function cooldownOf(h: Hero, skill: ClassSkill): number {
-  return skill === 'toll' ? CLASS_RULES.tollCooldown : abilitiesOf(h).find((a) => a.id === skill)!.cooldown;
+  return skill === 'toll' ? 0 : abilitiesOf(h).find((a) => a.id === skill)!.cooldown;
 }
 
 function sameRoom(a: Hero, b: Hero) {
@@ -79,6 +79,7 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: s
   if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
   if (isLegend(skill)) return legendError(world, h, skill, targetId, room, null);
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
+  if (skill === 'toll' && h.tolled) return 'You have already rung the bell this run.';
   const cd = h.cooldowns[skill] ?? 0;
   if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
   const kind = skillTarget(h, skill);
@@ -110,6 +111,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
   }
   switch (skill) {
     case 'toll':
+      h.tolled = true;
       return toll(world, h);
     case 'sins': {
       const moved = takeSins(h, t, reliefBy(h, abilitiesOf(h)[2].power));
@@ -154,7 +156,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
   }
 }
 
-/** Bellwright: everyone in the dungeon hears it, sees you for a while, and the monsters next door come running. */
+/** Bellwright: everyone in the dungeon hears it, sees you for a while, and every monster comes one room closer. */
 export function toll(world: World, h: Hero) {
   if (h.pos.kind !== 'room') return;
   const room = h.pos.room;

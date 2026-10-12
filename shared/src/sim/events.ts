@@ -281,6 +281,7 @@ function loomMends(h: Hero): string[] {
   }
   for (const p of h.packCharges) if (spent(p.item, p.charge)) out.push(ITEMS[p.item].name);
   if (h.called) out.push('Call for Help');
+  if (h.tolled) out.push('Toll');
   if (h.talent === 'ironOath' && h.oathUsed) out.push('Iron Oath');
   return out;
 }
@@ -600,6 +601,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       }
       for (const p of h.packCharges) p.charge = freshCharge(p.item);
       h.called = false;
+      h.tolled = false;
       h.oathUsed = false;
       notify(world, h, mended.length
         ? `The grey thread runs through your things, and they are whole again: ${mended.join(', ')}.`

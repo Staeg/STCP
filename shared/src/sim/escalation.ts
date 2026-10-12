@@ -126,24 +126,31 @@ export function makePack(world: World, monsters: Monster[], room: number, goal: 
 }
 
 /**
- * A bell rang in `room`: monsters resting in the rooms next to it (through open tunnels, not fighting,
- * no heroes with them) head straight there.
+ * A bell rang in `room`: every monster in the dungeon not fighting, with no heroes beside it and not already on the
+ * move, heads one room closer to it by open tunnels (user, 2026-10-12; was only the rooms next to it). The Toll's
+ * daze (`dazeAll`, after this) holds them where they are first.
  */
 export function lureToward(world: World, room: number) {
   const d = world.dungeon;
-  for (const cid of d.rooms[room].corridors) {
-    if (world.collapsed.includes(cid)) continue;
-    const from = otherEnd(d.corridors[cid], room);
-    if (world.encounters[from] || occupied(world, from)) continue;
+  const hops = hopsFrom(world, room, true);
+  const rooms = new Set(Object.values(world.monsters).map((m) => m.room));
+  for (const from of rooms) {
+    const dist = hops.get(from);
+    if (from < 0 || !dist || world.encounters[from] || occupied(world, from)) continue;
+    const steps = d.rooms[from].corridors
+      .filter((cid) => !world.collapsed.includes(cid))
+      .map((cid) => otherEnd(d.corridors[cid], from))
+      .filter((n) => hops.get(n) === dist - 1);
+    if (!steps.length) continue;
+    const to = world.rng.pick(steps);
     const here = monstersIn(world, from);
-    if (here.length === 0) continue;
     // Monsters already in a resting pack go with it; any others form a new one.
     const packs = Object.values(world.packs).filter((p) => p.to === null && p.room === from);
     const loose = here.filter((m) => !packs.some((p) => p.monsters.includes(m.id)));
     if (loose.length) packs.push(makePack(world, loose, from, null));
     for (const pack of packs) {
       const members = pack.monsters.map((id) => world.monsters[id]).filter(Boolean);
-      pack.to = room;
+      pack.to = to;
       pack.arriveAt = world.time + Math.max(...members.map((m) => ENEMIES[m.type].speed)) * ESCALATION.packSlowness;
       for (const m of members) m.room = -1;
     }
