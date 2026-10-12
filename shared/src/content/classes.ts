@@ -23,7 +23,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   warden: { id: 'warden', name: 'Warden', role: 'Tank', color: '#5b8fd9', maxHp: 54, speed: 6,
     innate: { name: 'Stalwart', desc: 'Takes 20% less damage while standing nearest the enemy.' } },
   cutthroat: { id: 'cutthroat', name: 'Cutthroat', role: 'Burst & locks', color: '#d94a4a', maxHp: 27, speed: 3,
-    innate: { name: 'Light Fingers', desc: 'Spots loot next door.' } },
+    innate: { name: 'Sixth Sense', desc: 'Spots loot next door.' } },
   lampbearer: { id: 'lampbearer', name: 'Lampbearer', role: 'Healer & light', color: '#e8c547', maxHp: 45, speed: 5,
     innate: { name: 'Beacon', desc: 'Their own light fades half as fast.' } },
   sorceress: { id: 'sorceress', name: 'Sorceress', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
