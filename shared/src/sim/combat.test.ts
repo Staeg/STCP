@@ -75,6 +75,19 @@ describe('encounters', () => {
     expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
   });
 
+  it('heroes who join a fight already going stand at the back, whatever their Speed', () => {
+    // Warden 6 starts it; the Cutthroat (3) and Undertaker join later, in that order.
+    const { world, ids, room, monsters } = arena(['warden', 'cutthroat', 'undertaker'], ['giant']);
+    monsters[0].hp = 999;
+    walkIn(world, ['h0'], room);
+    walkIn(world, ['h1'], room);
+    walkIn(world, ['h2'], room);
+    const enc = world.encounters[room];
+    expect(enc.heroes).toEqual(ids);
+    // Left to right: the last to come, then the one before, then the Warden nearest the enemy.
+    expect(combatOrder(world, enc).heroes.map((h) => h.id)).toEqual(['h2', 'h1', 'h0']);
+  });
+
   it("an undecided hero's single-target attack goes to the frontmost monster", () => {
     const { world, ids, room } = arena(['cutthroat'], ['crawler', 'ghoul', 'giant']);
     walkIn(world, ids, room);
