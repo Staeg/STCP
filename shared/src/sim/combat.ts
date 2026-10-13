@@ -1,12 +1,13 @@
-import { CLASS_RULES, abilityById, type AbilityDef } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
+import { CARD_RULES, CARDS, isCardId, type CardId } from '../content/cards';
 import { escalationAt, LIGHT_MAX, MIN_SPEED } from '../content/constants';
 import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
-import { abilitiesFor, hasTalent, TALENT_RULES, type TalentId } from '../content/talents';
+import { hasTalent, TALENT_RULES } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
-import { CLOTH, ITEMS, LOOT, STAFF, isGear, type ItemId } from '../content/items';
-import { chargesForFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
+import { CLOTH, ITEMS, LOOT, isGear, type ItemId } from '../content/items';
+import { buffLength, chargesForFight, clothReady, leftRoom, spendCloth, witchwoodMult } from './gear';
 import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
@@ -14,8 +15,8 @@ import { chronicle, extractHero, roomName, type Hero, type World } from './world
 import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
-import { keepPromise, legendError, useLegend } from './legends';
-import type { LegendId } from '../content/legends';
+import { actionTime, cardTime, playCard, tickOn, uselessReason, type DebuffKind } from './cards';
+import { dealDeck, gatherDeck, settleCard, takeFromHand } from './deck';
 
 export const DEATH_TIMER = 36;
 export const REVIVE_CHANNEL = 6;
@@ -46,12 +47,41 @@ export interface Statuses {
   /** Lich's Doom (heroes): stacks, each CR_RULES.doom more from every blow, aura and poison tick. Holds while a Lich
    * stands in their fight; otherwise one stack fades at the end of each of their turns, in a fight or out. */
   doom?: number;
-  /** Bellwright's Clang: −CLASS_RULES.clangHaste Speed per stack. `turns` = own turns until one stack fades (ticks at the start of each). */
+  /** Bellwright's Clang: −CARD_RULES.clangHaste on every card per stack. `turns` = own turns until one stack fades (ticks at the start of each). */
   clang?: { stacks: number; turns: number };
   /** Monster: has taken a turn in this fight (Backstab crits those that haven't). */
   acted?: boolean;
-  /** In smoke (50% dodge, sure to flee) until this game time. */
+  /** 50% dodge until this game time (Smoke Bomb, Sidestep). */
   dodge?: number;
+  /** Fleeing always works until this game time (Smoke Bomb). */
+  fleeSure?: number;
+  // ---- Card statuses (M15). Clock statuses run on game time; Bleed and Regen tick every CARD_RULES.pulse seconds. ----
+  /** Bleed: each one ticks every pulse until its time is up (the slow suffer it longest). */
+  bleed?: { dmg: number; until: number; next: number }[];
+  /** Regen: heals `amount` every pulse until `until`. */
+  regen?: { amount: number; until: number; next: number };
+  /** Slowed: every action takes this much longer until `until`. */
+  slow?: { amount: number; until: number };
+  /** Haste: every card takes this much less until `until`. */
+  haste?: { amount: number; until: number };
+  /** Blinded (a charge): its next attack misses. */
+  blind?: boolean;
+  /** Exposed (a charge): the next hit it takes does this much more (0.5 = +50%). */
+  exposed?: number;
+  /** A hero's next hit Exposes what it lands on (Hand Signal). */
+  expose?: boolean;
+  /** Attacks aimed at this hero that miss outright (Fade, Blink, Veil), one charge each. */
+  evade?: number;
+  /** Hold the Gate: until this game time, half damage, Vengeance, and every attacker is Delayed. */
+  gate?: number;
+  /** Blade Dance: every card takes 1s and Backstab always crits, until this game time. */
+  dance?: number;
+  /** The next card played: takes at most `set` seconds, then `cut` less (Mad Bargain, Fade, Whisper Cut…). */
+  quick?: { set?: number; cut: number };
+  /** For the rest of this fight: Conjure cards take half the time (Fever Dream). */
+  conjureHalf?: boolean;
+  /** For the rest of this fight: items take the quick time (Opus Magnum). */
+  quickItems?: boolean;
   // ---- Until someone's next turn ----
   /** Lampbearer's lone Vigil: every enemy action sets off a Flare, until this hero's next turn. */
   vigil?: string;
@@ -59,6 +89,10 @@ export interface Statuses {
   vigilMore?: number;
   /** Bracing until their own next turn. */
   brace?: boolean;
+  /** Sidestep: this chance to dodge until their own next turn. */
+  sidestep?: number;
+  /** Scale Ward: whatever hits this hero takes this much, until their own next turn. */
+  spikes?: number;
 }
 
 export interface Poison {
@@ -123,18 +157,21 @@ export interface Risen {
   by: string;
   /** Unholy Uprising: never crumbles; only falls when its HP runs out. */
   permanent?: boolean;
+  /** Called up by a card for this fight only: gone when it ends (M15). */
+  summon?: boolean;
 }
 
-export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item' | 'legend';
+/** A hero's move: a card from their hand, or one of the basic actions beside it. */
+export type CombatAction = 'card' | 'flee' | 'revive' | 'brace' | 'item';
 
 export interface Choice {
   action: CombatAction;
+  /** Which card in hand, for action 'card'. */
+  card?: CardId;
   target?: string;
   /** Inventory slot, for action 'item'. */
   item?: number;
-  /** Which Legendary ability, for action 'legend'. */
-  legend?: LegendId;
-  /** A room on the hero's map, for Legendary abilities aimed at one (Unmake, Waystep). */
+  /** A room on the hero's map, for a card aimed at one (Waystep). */
   room?: number;
 }
 
@@ -193,6 +230,12 @@ export interface Encounter {
   foes?: string[];
   /** This fight's entry in `world.chronicle`. */
   chron?: number;
+  /** Cards each hero has played in this fight (first-card effects). */
+  played?: Record<string, number>;
+  /** The last debuff each hero placed in this fight (Double Hex copies it). */
+  lastDebuff?: Record<string, DebuffKind>;
+  /** Each unit's current wait, in seconds (for the timer rings): a hero's last card, a monster's Speed. */
+  span?: Record<string, number>;
 }
 
 /** One line of a fight's play-by-play: seconds since the fight began, and what happened. */
@@ -321,28 +364,16 @@ export function stressCap(h: Pick<Hero, 'elite'>): number {
   return h.elite.zenith ? ELITE_EVENTS.zenithStressMax : STRESS_MAX;
 }
 
-/** Weapon bonus (and the Zealot's stress, and Everflame): multiplies every bit of damage this hero deals. */
-export function damageMult(h: Hero, world?: World): number {
+/** Weapon bonus (and the Zealot's stress, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
+export function damageMult(h: Hero, _world?: World): number {
   const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
   const zeal = h.cls === 'zealot' ? 1 + h.stress * CLASS_RULES.zealotDmgPerStress : 1;
-  return weapon * zeal * everflame(h, world) * riteMult(h);
+  return weapon * zeal * riteMult(h);
 }
 
 /** Effigy Rite: +20% damage and max HP; Tome Rite: −20%. */
 export function riteMult(h: { rites: readonly string[] }): number {
   return (h.rites.includes('effigy') ? KIT_RULES.effigyMult : 1) * (h.rites.includes('tome') ? KIT_RULES.tomeMult : 1);
-}
-
-/** Everflame: the Lampbearer burns brighter the more light their allies still carry. */
-export function everflame(h: Hero, world?: World): number {
-  if (!hasTalent(h, 'everflame') || !world) return 1;
-  const light = Object.values(world.heroes).filter((o) => o !== h && inDungeon(o)).reduce((s, o) => s + o.light, 0);
-  return 1 + TALENT_RULES.everflamePerLight * light;
-}
-
-/** A hero's three abilities, as their Talents have changed them. */
-export function abilitiesOf(h: { cls: Hero['cls']; talents?: readonly TalentId[] }): [AbilityDef, AbilityDef, AbilityDef] {
-  return abilitiesFor(h.cls, h.talents);
 }
 
 /** Zealot: move up to `max` stress from an ally onto yourself (ignores Calm and Ward Charm). Returns how much moved. */
@@ -378,12 +409,6 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
   h.riseAt = null;
   if (world) world.stats.revives++;
   if (world) chronicle(world, by ? `${by.name} got ${h.name} back on their feet.` : `${h.name} got back up.`);
-  // Pallbearer: the Undertaker brings them back whole, and spares them the lasting wound of going down.
-  if (hasTalent(by, 'pallbearer') && by !== h) {
-    fraction = 1;
-    h.downedMajor = false;
-    syncInjuries(h);
-  }
   h.hp = Math.max(1, Math.ceil(h.maxHp * fraction));
   // Open Coffin: they only lay down, so they get up no worse off than they were.
   if (h.restHp !== null) h.hp = Math.min(h.maxHp, Math.max(h.hp, h.restHp));
@@ -405,7 +430,7 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     world.stats.fights++;
     // Everyone already standing here is pulled in, including the downed.
     for (const h of Object.values(world.heroes)) {
-      if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room) enlist(enc, h);
+      if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room) enlist(world, enc, h);
     }
     enc.foes = monstersIn(world, room).map((m) => ENEMIES[m.type].name);
     enc.chron = world.chronicle.length;
@@ -415,7 +440,7 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
   } else {
     // Arriving in the same moment it began isn't late.
     if (!enc.heroes.includes(hero.id) && world.time > enc.startedAt) (enc.back ??= []).push(hero.id);
-    enlist(enc, hero);
+    enlist(world, enc, hero);
     say(world, enc, `${hero.name} joins the fight.`);
     if (enc.chron !== undefined) world.chronicle[enc.chron].text = fightSummary(world, enc);
     onEnlist(world, enc, hero);
@@ -439,18 +464,21 @@ function unnoticed(world: World, room: number): boolean {
   return true;
 }
 
-/** The Bellwright gains Clang stacks (−1s Speed each); the timer starts over for all of them. */
+/** The Bellwright gains Clang stacks (every card quicker); the timer starts over for all of them. */
 export function addClang(h: Hero, stacks: number) {
-  h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + stacks, turns: buffLength(h, CLASS_RULES.clangTurns) };
+  h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + stacks, turns: buffLength(h, CARD_RULES.clangTurns) };
 }
 
-/** Talents that act when a hero walks into a fight. */
+/** What happens as a hero walks into a fight: Talents, Gear and the dead who follow them. */
 function onEnlist(world: World, enc: Encounter, h: Hero) {
   if (!isConscious(h)) return;
-  // Evil Eye: every enemy here starts the fight Hexed.
-  if (hasTalent(h, 'evilEye')) {
-    for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
-    say(world, enc, `${h.name}'s evil eye falls on every foe. (Hexed)`);
+  // Brigandine: into every fight behind a ready Shield.
+  const start = wornStat(h, 'startShield');
+  if (start > 0) h.st.shield = (h.st.shield ?? 0) + start;
+  // Gravedigger: a Corpse lies ready for the Undertaker.
+  if (hasTalent(h, 'gravedigger')) {
+    for (let i = 0; i < TALENT_RULES.gravediggerCorpses; i++) (enc.slain ??= []).push({ type: 'ghoul', maxHp: ENEMIES.ghoul.maxHp, dmgMult: 1 });
+    say(world, enc, `${h.name} has a grave ready. (+${TALENT_RULES.gravediggerCorpses} Corpse)`);
   }
   // Unholy Uprising: the Undertaker's dead come too (and Howl's wolves).
   if (h.legion.length) {
@@ -462,33 +490,26 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
     if (wolves) say(world, enc, `${wolves > 1 ? `${wolves} wolves pad` : 'A wolf pads'} in at ${h.name}'s side.`);
     h.legion = [];
   }
-  // Promise: the strongest foe here dies as the fight begins.
-  keepPromise(world, enc, h);
-  // Restless Dead: the risen that followed the Undertaker here fights on.
-  if (h.risen && !risenOf(enc)) {
-    enc.risen = { ...h.risen, id: `r${world.nextId++}`, by: h.id };
-    h.risen = null;
-    say(world, enc, `The ${risenName(world, enc.risen)} shambles in behind ${h.name}.`);
-  }
 }
 
-/** Restless Dead: when the Undertaker leaves a fight (or it ends), their risen goes with them (and the Uprising's dead, if they still can). */
+/**
+ * When a hero leaves a fight (or it ends), what fights for them goes with them: the Uprising's dead, Howl's wolves,
+ * and (Restless Dead) what they Raised. What a card summoned for this fight only stays behind and is gone.
+ */
 function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
     const mine = enc.legion.filter((r) => r.by === h.id);
-    for (const { id: _id, by: _by, ...r } of mine) if (r.hp > 0) h.legion.push(r);
+    for (const { id: _id, by: _by, ...r } of mine) if (r.hp > 0 && !r.summon) h.legion.push(r);
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
-  const r = risenOf(enc);
-  if (!r || r.by !== h.id || !hasTalent(h, 'restlessDead') || !isConscious(h)) return;
-  h.risen = { type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns };
-  enc.risen = null;
 }
 
-function enlist(enc: Encounter, h: Hero) {
+function enlist(world: World, enc: Encounter, h: Hero) {
   if (enc.heroes.includes(h.id)) return;
   // A new fight: once-a-fight pieces are ready again (not on leaving one, or Blinkcloth's slip would rearm it).
   chargesForFight(h);
+  // A fresh shuffle of whatever isn't burned.
+  dealDeck(h, world.rng);
   h.unnoticedIn = null;
   enc.heroes.push(h.id);
   if (enc.fought && !enc.fought.includes(h.id)) enc.fought.push(h.id);
@@ -508,17 +529,27 @@ export function leaveEncounter(world: World, enc: Encounter, h: Hero) {
 }
 
 /**
- * Cooldowns and timed statuses carry on outside the fight (see `fieldTurn`); what only means something in a
- * fight (Stun, Shield, Brace, Vigil, having acted) ends with it.
+ * Timed statuses carry on outside the fight (turn ones tick per field turn, clock ones on game time); what only means
+ * something in a fight (Stun, Shield, Brace, Vigil, the next-card effects) ends with it. The cards are gathered up.
  */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
-  h.cdClock = 0;
-  const { poison, acid, hexed, weak, vengeance, dodge, clang, doom } = h.st;
-  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom }).filter(([, v]) => v !== undefined));
+  h.statusClock = 0;
+  gatherDeck(h);
+  const { poison, acid, hexed, weak, vengeance, dodge, clang, doom, bleed, regen, slow, haste, gate, dance } = h.st;
+  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom, bleed, regen, slow, haste, gate, dance }).filter(([, v]) => v !== undefined));
 }
 
 function endEncounter(world: World, enc: Encounter) {
+  // Undying Flame: a fight that ends with every ally standing gives the Lampbearer their Dawn back.
+  const standing = enc.heroes.every((id) => isConscious(world.heroes[id]));
+  for (const id of enc.heroes) {
+    const h = world.heroes[id];
+    if (standing && hasTalent(h, 'undyingFlame') && h.burned.includes('dawn')) {
+      h.burned.splice(h.burned.indexOf('dawn'), 1);
+      notify(world, h, 'The dawn kindles again in you. (Dawn is back in your deck)');
+    }
+  }
   // Unholy Uprising: fighting beside the restless dead wears on the living.
   const raisers = new Set((enc.legion ?? []).filter((r) => r.type !== 'wolf').map((r) => r.by));
   for (const by of raisers) {
@@ -590,7 +621,7 @@ export function say(world: World, enc: Encounter, text: string) {
 }
 
 /** Turn times are kept to the millisecond, so units that should tie do tie. */
-const at = (t: number) => Math.round(t * 1000) / 1000;
+export const at = (t: number) => Math.round(t * 1000) / 1000;
 
 /**
  * Give every standing unit without a timer a fresh one (a full Speed's wait), and drop the timers of
@@ -606,6 +637,7 @@ function startTimers(world: World, enc: Encounter) {
       if (first) enc.opened.push(id);
       const wait = speedOf(h, world.time) * (first && hasTalent(h, 'openingAct') ? TALENT_RULES.openingFraction : 1);
       enc.next[id] = at(world.time + wait);
+      (enc.span ??= {})[id] = wait;
     }
   }
   for (const m of monstersIn(world, enc.room)) {
@@ -720,95 +752,57 @@ function nextUp(world: World, enc: Encounter): Unit | null {
 // ---------------------------------------------------------------------------
 // Choices
 
-export function abilityOf(h: Hero, action: CombatAction): AbilityDef | null {
-  const abilities: readonly AbilityDef[] = abilitiesOf(h);
-  const idx = action === 'a0' ? 0 : action === 'a1' ? 1 : action === 'a2' ? 2 : -1;
-  return abilities[idx] ?? null;
-}
-
-/** Ids of units this hero could target with the given action, or [] if it needs no target. */
-export function validTargets(world: World, enc: Encounter, h: Hero, action: CombatAction): string[] {
-  const monsters = monstersIn(world, enc.room);
-  const allies = enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
-  if (action === 'revive') return enc.heroes.map((id) => world.heroes[id]).filter((x) => !x.dead && x.downedAt !== null).map((x) => x.id);
-  const ab = abilityOf(h, action);
-  if (!ab) return [];
-  switch (ab.target) {
+/** Ids of units this hero could aim `choice` at (a card's or a revive's), or [] if it needs no target. */
+export function validTargets(world: World, enc: Encounter, h: Hero, choice: Pick<Choice, 'action' | 'card'>): string[] {
+  if (choice.action === 'revive') return enc.heroes.map((id) => world.heroes[id]).filter((x) => !x.dead && x.downedAt !== null).map((x) => x.id);
+  if (choice.action !== 'card' || !choice.card) return [];
+  switch (CARDS[choice.card].target) {
     case 'enemy':
-      return monsters.map((m) => m.id);
-    case 'enemyFirst': {
-      const first = combatOrder(world, enc).monsters[0];
-      return first ? [first.id] : [];
-    }
-    case 'damagedEnemy':
-      return monsters.filter((m) => m.hp < m.maxHp).map((m) => m.id);
+      return monstersIn(world, enc.room).map((m) => m.id);
     case 'ally':
-      return allies.map((x) => x.id);
-    case 'otherAlly':
-      return allies.filter((x) => x.id !== h.id).map((x) => x.id);
+      return enc.heroes.map((id) => world.heroes[id]).filter(isConscious).map((x) => x.id);
     default:
       return [];
   }
 }
 
-export function needsTarget(h: Hero, action: CombatAction): boolean {
-  if (action === 'revive') return true;
-  const ab = abilityOf(h, action);
-  return !!ab && ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
+/** Does this move need a unit picked (a room for Waystep is picked on the map instead)? */
+export function needsTarget(choice: Pick<Choice, 'action' | 'card'>): boolean {
+  if (choice.action === 'revive') return true;
+  if (choice.action !== 'card' || !choice.card) return false;
+  const t = CARDS[choice.card].target;
+  return t === 'enemy' || t === 'ally';
 }
 
-/** Conscious heroes in the fight other than `h`. */
-function othersIn(world: World, enc: Encounter, h: Hero): Hero[] {
-  return enc.heroes.map((id) => world.heroes[id]).filter((x) => x !== h && isConscious(x));
-}
-
-/** Knell's damage right now: weaker the more allies stand with you. */
-export function knellDamage(power: number, allies: number): number {
-  return Math.max(0, power - CLASS_RULES.knellPerAlly * allies);
-}
-
-/** Why an ability that's off cooldown still can't be used right now (null = it can). Targets are checked separately. */
-export function unusableReason(world: World, enc: Encounter, h: Hero, ab: AbilityDef): string | null {
-  switch (ab.id) {
-    case 'knell':
-      return knellDamage(ab.power, othersIn(world, enc, h).length) <= 0 ? 'Too many allies here: the Knell rings hollow.' : null;
-    case 'absolution':
-      return h.stress <= CLASS_RULES.absolutionFloor ? `Needs more than ${CLASS_RULES.absolutionFloor} stress.` : null;
-    case 'raise':
-      return risenOf(enc) ? 'One of the dead already fights for you.' : !enc.lastSlain ? 'Nothing has died here since your last Raise.' : null;
-    default:
-      return null;
-  }
-}
-
-/** Ability slots (0–2) not cooling down, in order. The first of them is what an undecided hero falls back on. */
-export function readyAbilities(h: { cls: Hero['cls']; talent?: TalentId | null; cooldowns: Record<string, number> }): (0 | 1 | 2)[] {
-  const abilities = abilitiesOf(h);
-  return ([0, 1, 2] as const).filter((i) => (h.cooldowns[abilities[i].id] ?? 0) <= 0);
+/** The cards in this hero's hand (empty outside a fight). */
+export function handOf(h: Hero): CardId[] {
+  return h.deck?.hand ?? [];
 }
 
 /**
- * What a hero does if their turn comes before they've picked: the first ability that's ready and has a
- * target, aimed sensibly (the frontmost enemy for attacks, the most hurt ally for heals). Null if none can be used
- * (then they brace).
+ * What a hero does if their turn comes before they've picked: the leftmost card in hand that isn't a Burn (nor
+ * Waystep, which needs a room) and would do something useful, aimed sensibly: the frontmost enemy for attacks, the
+ * most hurt ally for help. Failing that, the leftmost that isn't a Burn; only a hand of nothing else plays one.
+ * Null only with an empty hand (then they brace).
  */
 export function defaultChoice(world: World, enc: Encounter, h: Hero): Choice | null {
-  for (const i of readyAbilities(h)) {
-    const action = `a${i}` as CombatAction;
-    const ab = abilityOf(h, action)!;
-    if (unusableReason(world, enc, h, ab)) continue;
-    if (!needsTarget(h, action)) return { action };
-    const targets = validTargets(world, enc, h, action);
-    if (targets.length === 0) continue;
-    if (ab.target === 'ally' || ab.target === 'otherAlly') {
-      const hurt = targets.map((id) => world.heroes[id]).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-      return { action, target: hurt.id };
-    }
-    // A single foe: the frontmost one, nearest the heroes (user, 2026-10-12; was a random one).
-    const front = combatOrder(world, enc).monsters.find((m) => targets.includes(m.id));
-    return { action, target: front?.id ?? world.rng.pick(targets) };
+  const hand = handOf(h);
+  const plain = (c: CardId) => !CARDS[c].burn && CARDS[c].target !== 'room';
+  const card = hand.find((c) => plain(c) && !uselessReason(world, enc, h, c)) ?? hand.find(plain) ?? hand.find((c) => CARDS[c].target !== 'room') ?? hand[0];
+  if (!card) return null;
+  const choice: Choice = { action: 'card', card };
+  const target = CARDS[card].target;
+  if (target === 'room') return { ...choice, room: world.dungeon.exit };
+  if (!needsTarget(choice)) return choice;
+  const targets = validTargets(world, enc, h, choice);
+  if (targets.length === 0) return choice;
+  if (target === 'ally') {
+    const hurt = targets.map((id) => world.heroes[id]).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    return { ...choice, target: hurt.id };
   }
-  return null;
+  // A single foe: the frontmost one, nearest the heroes (user, 2026-10-12; was a random one).
+  const front = combatOrder(world, enc).monsters.find((m) => targets.includes(m.id));
+  return { ...choice, target: front?.id ?? targets[0] };
 }
 
 /** Returns an error string, or null if the choice was accepted. */
@@ -828,37 +822,32 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
       // No target yet is fine: if the turn comes first, it goes to the leftmost one.
       if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
     }
-    const pick: Choice = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
-    // Quick Hands: the Alchemist uses it there and then, and keeps their turn.
-    if (hasTalent(h, 'quickHands')) {
-      const target = pick.target ?? leftmostTarget(world, enc, h, pick);
-      const events: CombatEvent[] = [];
-      heroAct(world, enc, h, { ...pick, target }, events);
-      record(world, enc, events);
+    enc.choices[h.id] = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
+    return null;
+  }
+  if (choice.action === 'card') {
+    if (!isCardId(choice.card) || !handOf(h).includes(choice.card)) return "That card isn't in your hand.";
+    const def = CARDS[choice.card];
+    if (def.target === 'room') {
+      if (choice.room === undefined) return 'Pick a room on your map.';
+      if (!world.dungeon.rooms[choice.room] || !h.seen.includes(choice.room)) return "You don't know that room.";
+      if (choice.room === enc.room) return 'You are already there.';
+      enc.choices[h.id] = { action: 'card', card: choice.card, room: choice.room };
       return null;
     }
-    enc.choices[h.id] = pick;
+    if (needsTarget(choice)) {
+      const targets = validTargets(world, enc, h, choice);
+      if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
+    }
+    enc.choices[h.id] = { action: 'card', card: choice.card, target: needsTarget(choice) ? choice.target : undefined };
     return null;
   }
-  if (choice.action === 'legend') {
-    if (!choice.legend) return 'No such ability.';
-    const err = legendError(world, h, choice.legend, choice.target ?? null, choice.room ?? null, enc);
-    if (err) return err;
-    enc.choices[h.id] = { action: 'legend', legend: choice.legend, target: choice.target, room: choice.room };
-    return null;
-  }
-  const ab = abilityOf(h, choice.action);
-  if (ab && (h.cooldowns[ab.id] ?? 0) > 0) return `${ab.name} is on cooldown.`;
-  const why = ab && unusableReason(world, enc, h, ab);
-  if (why) return why;
-  if (needsTarget(h, choice.action)) {
-    const targets = validTargets(world, enc, h, choice.action);
-    if (targets.length === 0) return 'No valid target.';
+  if (choice.action === 'revive') {
+    const targets = validTargets(world, enc, h, choice);
+    if (targets.length === 0) return 'Nobody here is down.';
     if (choice.target !== undefined && !targets.includes(choice.target)) return 'Pick a valid target.';
-  } else if (ab && ab.target === 'otherAlly') {
-    return 'No valid target.';
   }
-  enc.choices[h.id] = { action: choice.action, target: needsTarget(h, choice.action) ? choice.target : undefined };
+  enc.choices[h.id] = { action: choice.action, target: choice.action === 'revive' ? choice.target : undefined };
   return null;
 }
 
@@ -867,12 +856,16 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
 
 function takeTurn(world: World, enc: Encounter, unit: Unit) {
   const events: CombatEvent[] = [];
-  const id = unit.kind === 'hero' ? unit.h.id : unit.kind === 'monster' ? unit.m.id : unit.r.id;
-  const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : unit.kind === 'monster' ? monsterSpeed(enc, unit.m) : risenSpeed(world, unit.r);
-  enc.next[id] = at(enc.next[id] + speed);
-  if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
-  else if (unit.kind === 'monster') monsterTurn(world, enc, unit.m, events);
-  else risenTurn(world, enc, unit.r, events);
+  if (unit.kind === 'hero') {
+    // A hero's next action comes when the card (or action) they play says: heroTurn sets it.
+    heroTurn(world, enc, unit.h, events);
+  } else if (unit.kind === 'monster') {
+    enc.next[unit.m.id] = at(enc.next[unit.m.id] + monsterSpeed(enc, unit.m, world.time));
+    monsterTurn(world, enc, unit.m, events);
+  } else {
+    enc.next[unit.r.id] = at(enc.next[unit.r.id] + risenSpeed(world, unit.r));
+    risenTurn(world, enc, unit.r, events);
+  }
   record(world, enc, events);
 }
 
@@ -909,11 +902,11 @@ function endOfTurn(st: Statuses, name: string, id: string, adjust: (n: number) =
   }
   if (st.weak && --st.weak.turns <= 0) {
     if (--st.weak.stacks <= 0) delete st.weak;
-    else st.weak.turns = CLASS_RULES.witherTurns;
+    else st.weak.turns = CARD_RULES.witherTurns;
   }
   if (st.acid && --st.acid.turns <= 0) {
     if (--st.acid.stacks <= 0) delete st.acid;
-    else st.acid.turns = CLASS_RULES.acidTurns;
+    else st.acid.turns = CARD_RULES.acidTurns;
   }
   if (st.hexed) {
     st.hexed = st.hexed.map((n) => n - 1).filter((n) => n > 0);
@@ -926,28 +919,24 @@ export function weakMult(st: Statuses): number {
   return 0.5 ** (st.weak?.stacks ?? 0);
 }
 
-/** Is this unit in smoke right now? */
+/** Is this unit in smoke (or otherwise dodging half of what comes at it) right now? */
 export function inSmoke(world: World, st: Statuses): boolean {
   return st.dodge !== undefined && st.dodge > world.time;
 }
 
-/** Cooldowns count the hero's own turns: "cooldown N" = unusable for their next N turns. */
-export function tickCooldowns(h: Hero) {
-  for (const k of Object.keys(h.cooldowns)) {
-    h.cooldowns[k] = Math.max(0, h.cooldowns[k] - 1);
-    if (h.cooldowns[k] === 0) delete h.cooldowns[k];
-  }
+/** Does fleeing always work for this unit right now (Smoke Bomb)? */
+export function sureFlee(world: World, st: Statuses): boolean {
+  return st.fleeSure !== undefined && st.fleeSure > world.time;
 }
 
-/** A turn passing outside a fight: cooldowns and statuses tick as they would in one, Poison included. */
+/** A turn passing outside a fight: statuses tick as they would in one, Poison included. */
 export function fieldTurn(world: World, h: Hero) {
   fieldTurnStart(h);
   fieldTurnEnd(world, h);
 }
 
-/** Before a field turn's action, as in a fight: cooldowns, Vengeance and Clang tick. */
+/** Before a field turn's action, as in a fight: Vengeance and Clang tick. */
 export function fieldTurnStart(h: Hero) {
-  tickCooldowns(h);
   startOfTurn(h.st);
 }
 
@@ -955,11 +944,16 @@ export function fieldTurnStart(h: Hero) {
 export function fieldTurnEnd(world: World, h: Hero) {
   if (!isConscious(h)) return;
   const events: CombatEvent[] = [];
-  endOfTurn(h.st, h.name, h.id, (n) => afterBlock(h, n) + doomOf(h), (n) => {
+  endOfTurn(h.st, h.name, h.id, (n) => heroDot(h, n), (n) => {
     if (hurtHero(world, h, n, null)) notify(world, h, `You take ${n} poison damage.`);
     return isConscious(h);
   }, events);
   fadeDoom(h.st);
+}
+
+/** A Poison or Bleed tick on a hero: Drakehide halves it, then Block and Doom as any blow. */
+function heroDot(h: Hero, n: number): number {
+  return afterBlock(h, Math.max(1, Math.round(n * (wornStat(h, 'dotMult') || 1)))) + doomOf(h);
 }
 
 /** Statuses of a hero's own that tick at the start of their turn. */
@@ -967,7 +961,7 @@ function startOfTurn(st: Statuses) {
   if (st.vengeance !== undefined && --st.vengeance <= 0) delete st.vengeance;
   if (st.clang && --st.clang.turns <= 0) {
     if (--st.clang.stacks <= 0) delete st.clang;
-    else st.clang.turns = CLASS_RULES.clangTurns;
+    else st.clang.turns = CARD_RULES.clangTurns;
   }
 }
 
@@ -984,20 +978,77 @@ function fadeDoom(st: Statuses) {
 /** Anything that ticks per turn outside a fight. */
 function hasFieldTimers(h: Hero): boolean {
   const st = h.st;
-  return Object.keys(h.cooldowns).length > 0 || !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang || st.doom);
+  return !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang || st.doom);
 }
 
-/** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks cooldowns down as a turn would. */
-export function tickFieldCooldowns(world: World, h: Hero, dt: number) {
+/** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks statuses as a turn would. */
+export function tickFieldTurns(world: World, h: Hero, dt: number) {
   if (!hasFieldTimers(h)) {
-    h.cdClock = 0;
+    h.statusClock = 0;
     return;
   }
-  h.cdClock += dt;
+  h.statusClock += dt;
   const speed = speedOf(h, world.time);
-  while (h.cdClock >= speed - 1e-6 && isConscious(h)) {
-    h.cdClock -= speed;
+  while (h.statusClock >= speed - 1e-6 && isConscious(h)) {
+    h.statusClock -= speed;
     fieldTurn(world, h);
+  }
+}
+
+/**
+ * Clock statuses (M15), every tick, for every hero in the dungeon and every monster in a fight: Bleed and Regen tick
+ * each CARD_RULES.pulse seconds, and anything whose time is up ends.
+ */
+export function tickClocks(world: World) {
+  const now = world.time;
+  for (const h of Object.values(world.heroes)) {
+    if (!isConscious(h)) continue;
+    const st = h.st;
+    const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+    const events: CombatEvent[] = [];
+    for (const b of [...(st.bleed ?? [])]) {
+      while (b.next <= now && b.next <= b.until + 1e-6 && isConscious(h)) {
+        b.next += CARD_RULES.pulse;
+        const dmg = heroDot(h, b.dmg);
+        if (hurtHero(world, h, dmg, events, enc) && !enc) notify(world, h, `You bleed for ${dmg}.`);
+        events.push({ actor: h.id, kind: 'damage', target: h.id, amount: dmg, text: `${h.name} bleeds for ${dmg}.` });
+      }
+    }
+    if (st.bleed) {
+      st.bleed = st.bleed.filter((b) => b.until > now);
+      if (!st.bleed.length) delete st.bleed;
+    }
+    const r = st.regen;
+    if (r) {
+      while (r.next <= now && r.next <= r.until + 1e-6) {
+        r.next += CARD_RULES.pulse;
+        const healed = heal(h, r.amount);
+        if (healed && enc) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} regenerates ${healed}.` });
+      }
+      if (r.until <= now) delete st.regen;
+    }
+    if (st.haste && st.haste.until <= now) delete st.haste;
+    if (st.slow && st.slow.until <= now) delete st.slow;
+    if (st.gate !== undefined && st.gate <= now) delete st.gate;
+    if (st.dance !== undefined && st.dance <= now) delete st.dance;
+    if (enc && events.length) record(world, enc, events);
+  }
+  for (const enc of Object.values(world.encounters)) {
+    const events: CombatEvent[] = [];
+    for (const m of monstersIn(world, enc.room)) {
+      for (const b of [...(m.st.bleed ?? [])]) {
+        while (b.next <= now && b.next <= b.until + 1e-6 && world.monsters[m.id]) {
+          b.next += CARD_RULES.pulse;
+          tickOn(world, m, b.dmg, events, 'bleeding');
+        }
+      }
+      if (m.st.bleed) {
+        m.st.bleed = m.st.bleed.filter((b) => b.until > now);
+        if (!m.st.bleed.length) delete m.st.bleed;
+      }
+      if (m.st.slow && m.st.slow.until <= now) delete m.st.slow;
+    }
+    if (events.length) record(world, enc, events);
   }
 }
 
@@ -1006,19 +1057,21 @@ export function addPoison(st: Statuses, dmg: number, rounds: number) {
   (st.poison ??= []).push({ dmg, rounds });
 }
 
-/** A monster's Speed in this fight: the Dead King's Charges quicken every monster in it. */
-export function monsterSpeed(enc: Encounter | undefined, m: Monster): number {
+/** A monster's Speed in this fight: the Dead King's Charges quicken every monster in it; Slow drags it out. */
+export function monsterSpeed(enc: Encounter | undefined, m: Monster, now?: number): number {
   const base = Math.max(MIN_SPEED, ENEMIES[m.type].speed + carried(m, 'speed'));
   const haste = (enc?.charge ?? 0) * KING_RULES.chargeHaste;
-  return haste ? Math.max(Math.min(base, KING_RULES.speedFloor), base - haste) : base;
+  const speed = haste ? Math.max(Math.min(base, KING_RULES.speedFloor), base - haste) : base;
+  const slow = now !== undefined && m.st.slow && m.st.slow.until > now ? m.st.slow.amount : 0;
+  return speed + slow;
 }
 
 /**
  * A monster's Block right now: its kind's, plus the Dead King's 3 for every other monster still standing beside
- * him, minus 2 per stack of Acid and 1 per wolf bite this fight (`sunder`). Can go below 0.
+ * him, minus 2 per stack of Acid and 1 per wolf bite (or Shatter) this fight (`sunder`). Can go below 0.
  */
 export function monsterBlock(world: World, m: Monster): number {
-  let block = ENEMIES[m.type].block + carried(m, 'block') - (m.st.acid?.stacks ?? 0) * CLASS_RULES.acidBonus - (m.st.sunder ?? 0);
+  let block = ENEMIES[m.type].block + carried(m, 'block') - (m.st.acid?.stacks ?? 0) * CARD_RULES.acidBonus - (m.st.sunder ?? 0);
   if (m.type === 'king' && m.room >= 0) block += KING_RULES.blockPerCourtier * monstersIn(world, m.room).filter((o) => o !== m).length;
   return block;
 }
@@ -1042,7 +1095,7 @@ function monsterBlow(m: Monster, base: number): number {
 }
 
 /** What a monster actually takes from a hit of `dmg`: its Block takes some off (at least 1 gets through) or, below 0, adds to it. */
-function monsterTakes(world: World, m: Monster, dmg: number): number {
+export function monsterTakes(world: World, m: Monster, dmg: number): number {
   const taken = dmg > 0 ? Math.max(1, dmg - monsterBlock(world, m)) : dmg;
   return Math.round(taken * witchwoodMult(m.st));
 }
@@ -1058,32 +1111,35 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   world.stats.turns++;
   endLingering(world, enc, h.id);
   delete h.st.brace;
-  // The fallback is judged before cooldowns tick, so it matches what the hero's screen promised.
+  delete h.st.sidestep;
+  delete h.st.spikes;
   let choice: Choice | undefined = enc.choices[h.id];
   delete enc.choices[h.id];
-  // Things changed since it was picked (an ally joined, nothing left to raise…): fall back like an undecided hero.
-  const picked = choice && abilityOf(h, choice.action);
-  if (picked && unusableReason(world, enc, h, picked)) choice = undefined;
+  // The card left the hand since it was picked (Lucky Break, a Loom…): fall back like an undecided hero.
+  if (choice?.action === 'card' && (!choice.card || !handOf(h).includes(choice.card))) choice = undefined;
   if (!choice) {
     const auto = defaultChoice(world, enc, h);
     choice = auto ?? { action: 'brace' };
-    events.push({ actor: h.id, kind: 'info', text: auto ? `${h.name} hesitates, then uses ${abilityOf(h, auto.action)!.name}.` : `${h.name} hesitates and braces.` });
-  } else if (choice.target === undefined) {
+    events.push({ actor: h.id, kind: 'info', text: auto?.card ? `${h.name} hesitates, then plays ${CARDS[auto.card].name}.` : `${h.name} hesitates and braces.` });
+  } else if (choice.target === undefined && choice.room === undefined) {
     // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
     const target = leftmostTarget(world, enc, h, choice);
     if (target) choice = { ...choice, target };
   }
-  tickCooldowns(h);
   startOfTurn(h.st);
   if (!lichAura(world, enc, h, events)) return;
+  let wait: number;
   if (h.st.stun) {
     h.st.stun = false;
+    wait = CARD_RULES.stunnedTime;
     events.push({ actor: h.id, kind: 'status', text: `${h.name} is stunned!` });
   } else {
-    heroAct(world, enc, h, choice, events);
+    wait = heroAct(world, enc, h, choice, events);
   }
   if (isConscious(h) && h.encounter === enc.room) {
-    endOfTurn(h.st, h.name, h.id, (n) => afterBlock(h, n) + doomOf(h), (n) => {
+    enc.next[h.id] = at(world.time + wait);
+    (enc.span ??= {})[h.id] = Math.max(wait, 0.1);
+    endOfTurn(h.st, h.name, h.id, (n) => heroDot(h, n), (n) => {
       applyHeroDamage(world, enc, h, n, events);
       return isConscious(h);
     }, events);
@@ -1125,7 +1181,7 @@ function leftmostTarget(world: World, enc: Encounter, h: Hero, choice: Choice): 
     const def = ITEMS[h.items[choice.item ?? -1]];
     targets = def && (def.target === 'ally' || def.target === 'downed') ? itemTargets(world, h, choice.item!) : [];
   } else {
-    targets = needsTarget(h, choice.action) ? validTargets(world, enc, h, choice.action) : [];
+    targets = needsTarget(choice) ? validTargets(world, enc, h, choice) : [];
   }
   if (targets.length === 0) return undefined;
   const order = combatOrder(world, enc);
@@ -1185,67 +1241,89 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
         if (world.monsters[m.id]) m.st.sunder = (m.st.sunder ?? 0) + 1;
         break;
       }
+      case 'imp': {
+        // Bound Familiar: the imp's bite curses.
+        const m = foes[0];
+        hit(m, 'bites');
+        if (world.monsters[m.id]) (m.st.hexed ??= []).push(CARD_RULES.hexedTurns);
+        break;
+      }
+      case 'rat':
+        hit(foes[0], 'bites');
+        break;
       default:
         hit(foes[0], 'claws');
     }
   }
   if (!r.permanent && --r.turns <= 0 && r.hp > 0) {
     events.push({ actor: r.id, kind: 'death', target: r.id, text: `${name} crumbles back into dust.` });
+    r.hp = 0;
     delete enc.next[r.id];
   }
 }
 
 /**
- * A Risen ally does what its hero would have done undecided (their class's first ready ability, aimed as the
- * default would), with their gear, cooldowns and Speed. Nobody steers it, and it never uses items or flees.
+ * A Risen ally plays its hero's deck as an undecided hero would (the leftmost card that isn't a Burn, aimed as the
+ * default would), with their gear and Speed. Nobody steers it, and it never uses items or flees.
  */
 function risenAllyTurn(world: World, enc: Encounter, dead: Hero, events: CombatEvent[]) {
-  tickCooldowns(dead);
   startOfTurn(dead.st);
+  if (!dead.deck) dealDeck(dead, world.rng);
   const choice = defaultChoice(world, enc, dead);
-  if (choice) heroAct(world, enc, dead, choice, events);
+  if (choice?.card) playHand(world, enc, dead, choice, events);
   else events.push({ actor: dead.id, kind: 'info', text: `Risen ${dead.name} stands, waiting.` });
 }
 
-function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: CombatEvent[]) {
+/** Play a card from the hand: it leaves the hand, does what it does, then goes to the discard (or burns). Returns its time. */
+function playHand(world: World, enc: Encounter, h: Hero, c: Choice, events: CombatEvent[]): number {
+  const card = c.card!;
+  const wait = cardTime(world, enc, h, card, true);
+  const prev = h.deck?.last ?? null;
+  takeFromHand(h, card);
+  const ctx = playCard(world, enc, h, card, c.target, c.room, events, 1, prev);
+  settleCard(h, card, world.rng);
+  (enc.played ??= {})[h.id] = (enc.played[h.id] ?? 0) + 1;
+  // Echo repeats the last card that can be repeated.
+  if (!CARDS[card].burn && card !== 'echo' && card !== 'fumble' && CARDS[card].target !== 'room') h.lastCard = card;
+  const schools = CARDS[card].schools;
+  // Shieldwall: every Guard card the Warden plays makes the nearest enemy reel.
+  if (schools.includes('guard') && hasTalent(h, 'shieldwall') && h.encounter === enc.room) {
+    const m = combatOrder(world, enc).monsters[0];
+    if (m && enc.next[m.id] !== undefined) {
+      enc.next[m.id] = at(enc.next[m.id] + TALENT_RULES.shieldwallDelay + wornStat(h, 'delayBonus'));
+      events.push({ actor: h.id, kind: 'status', target: m.id, text: `${ENEMIES[m.type].name} staggers back from the shieldwall.` });
+    }
+  }
+  // Carillon: a Hinder card rings on into the Bellwright's next one.
+  if (schools.includes('hinder') && hasTalent(h, 'carillon')) h.st.quick = { ...(h.st.quick ?? { cut: 0 }), cut: (h.st.quick?.cut ?? 0) + TALENT_RULES.carillonCut };
+  return Math.max(0, wait - ctx.selfHurry);
+}
+
+/** Do what the hero picked. Returns the seconds until their next action. */
+function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: CombatEvent[]): number {
   const rng = world.rng;
-  const room = enc.room;
-  const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
-  const enemies = () => monstersIn(world, room);
-  /** `first`: always the nearest enemy now. Otherwise the chosen one, re-picked at random if it died before our turn. */
-  const pickEnemy = (first: boolean): Monster | null => {
-    if (first) return combatOrder(world, enc).monsters[0] ?? null;
-    const chosen = c.target ? world.monsters[c.target] : undefined;
-    if (chosen && chosen.room === room) return chosen;
-    const pool = enemies();
-    return pool.length ? rng.pick(pool) : null;
-  };
-  const pickAlly = (): Hero | null => {
-    const t = c.target ? world.heroes[c.target] : undefined;
-    return t && isConscious(t) && t.encounter === room ? t : null;
-  };
+  const enemies = () => monstersIn(world, enc.room);
 
   if (c.action === 'brace') {
     h.st.brace = true;
     events.push({ actor: h.id, kind: 'info', text: `${h.name} braces.` });
-    return;
+    return actionTime(h, 'brace');
   }
   if (c.action === 'flee') {
-    const ghost = hasTalent(h, 'ghostStep');
-    if (ghost || inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
+    if (sureFlee(world, h.st) || rng.chance(FLEE_CHANCE)) {
       if (enc.room === world.dungeon.exit) {
         leaveEncounter(world, enc, h);
         extractHero(world, h);
         events.push({ actor: h.id, kind: 'flee', text: `${h.name} escapes through the exit!` });
-        return;
+        return actionTime(h, 'flee');
       }
       flee(world, enc, h);
-      if (!ghost) addStress(h, STRESS.flee);
-      events.push({ actor: h.id, kind: 'flee', text: ghost ? `${h.name} slips away like a ghost.` : `${h.name} flees!` });
+      addStress(h, STRESS.flee);
+      events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
     } else {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
     }
-    return;
+    return actionTime(h, 'flee');
   }
   if (c.action === 'item') {
     const idx = c.item ?? -1;
@@ -1254,7 +1332,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     const result = applyItem(world, h, idx, c.target);
     if (result.startsWith('!')) {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} fumbles in their pack.` });
-      return;
+      return actionTime(h, 'item');
     }
     if (item === 'firebomb') {
       events.push({ actor: h.id, kind: 'status', text: result });
@@ -1263,20 +1341,9 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = c.target ?? h.id;
       events.push({ actor: h.id, kind: item === 'bandage' || item === 'salts' ? 'heal' : 'status', target: t, text: result });
     }
-    // Volatile: every flask the Alchemist opens in a fight leaks fumes.
-    if (hasTalent(h, 'volatile')) fumes(world, enc, h, events, true);
-    return;
-  }
-  if (c.action === 'legend') {
-    // Things may have changed since it was picked (the target died, the gear came off…): then it fizzles into a brace.
-    const err = c.legend ? legendError(world, h, c.legend, c.target ?? null, c.room ?? null, enc) : 'No such ability.';
-    if (err) {
-      h.st.brace = true;
-      events.push({ actor: h.id, kind: 'info', text: `${h.name} braces instead. (${err})` });
-      return;
-    }
-    useLegend(world, h, c.legend!, c.target ?? null, c.room ?? null, enc, events);
-    return;
+    // Volatile: every flask the Alchemist opens in a fight sets off a Catalyst.
+    if (hasTalent(h, 'volatile') && enemies().length) playCard(world, enc, h, 'catalyst', undefined, undefined, events);
+    return actionTime(h, 'item');
   }
   if (c.action === 'revive') {
     const t = c.target ? world.heroes[c.target] : undefined;
@@ -1284,280 +1351,36 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       reviveHero(t, undefined, world, h);
       events.push({ actor: h.id, kind: 'heal', target: t.id, amount: t.hp, text: `${h.name} drags ${t.name} back to their feet.` });
     }
-    return;
+    return actionTime(h, 'revive');
   }
-
-  const ab = abilityOf(h, c.action)!;
-  const cd = cooldownFor(h, ab.cooldown);
-  if (cd > 0) h.cooldowns[ab.id] = cd;
-  switch (ab.id) {
-    case 'bash': {
-      const t = pickEnemy(true);
-      if (!t) return;
-      // Twinned Staff: the Stun gets a second roll.
-      const stuns = heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]
-        && Array.from({ length: debuffCopies(h) }, () => rng.chance(CLASS_RULES.bashStun)).some(Boolean);
-      if (stuns) {
-        t.st.stun = true;
-        markWitchwood(h, t.st);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
-      }
-      return;
-    }
-    case 'vengeance':
-      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + (hasTalent(h, 'unyielding') ? TALENT_RULES.unyieldingTurns : 0));
-      ward(h, h);
-      events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
-      return;
-    case 'rally': {
-      const eased = reliefBy(h, CLASS_RULES.rallyStress);
-      const shield = ab.power + (staffOf(h) === 'ward' ? STAFF.wardShield : 0);
-      for (const a of allies()) {
-        a.st.shield = (a.st.shield ?? 0) + ab.power;
-        ward(h, a);
-        addStress(a, -eased);
-      }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${shield} Shield, −${eased} stress)` });
-      return;
-    }
-    case 'backstab': {
-      const t = pickEnemy(false);
-      if (!t) return;
-      const crit = !!(t.st.stun || !t.st.acted);
-      heroHits(world, enc, h, t, crit ? ab.power * 2 : ab.power, events, ab.name, crit);
-      return;
-    }
-    case 'cheap': {
-      const t = pickEnemy(false);
-      if (!t) return;
-      heroHits(world, enc, h, t, ab.power, events, ab.name);
-      if (world.monsters[t.id]) {
-        t.st.stun = true;
-        markWitchwood(h, t.st);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is stunned.` });
-      }
-      return;
-    }
-    case 'smoke': {
-      const secs = buffLength(h, CLASS_RULES.smokeSecs);
-      for (const a of allies()) {
-        a.st.dodge = world.time + secs;
-        ward(h, a);
-      }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${secs}s)` });
-      return;
-    }
-    case 'mend': {
-      // Triage: only ever the Lampbearer.
-      const t = ab.target === 'self' ? h : pickAlly();
-      if (!t || (t === h && ab.target !== 'self')) return;
-      const healed = heal(t, healBy(h, ab.power));
-      delete t.st.poison;
-      ward(h, t);
-      events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${h.name} mends ${t.name} (+${healed}).` });
-      return;
-    }
-    case 'flare':
-      flare(world, enc, h, events);
-      return;
-    case 'vigil': {
-      const t = pickAlly();
-      if (t) {
-        const eased = reliefBy(h, ab.power);
-        addStress(t, -eased);
-        ward(h, t);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} keeps vigil over ${t === h ? 'themself' : t.name}. (−${eased} stress)` });
-      }
-      if (othersIn(world, enc, h).length === 0) {
-        h.st.vigil = h.id;
-        h.st.vigilMore = buffLength(h, 1) - 1;
-        events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} stands alone, lamp raised. Any move against them will meet the light.` });
-      }
-      return;
-    }
-    case 'hex': {
-      const t = pickEnemy(false);
-      if (!t) return;
-      const stacks = t.st.hexed?.length ?? 0;
-      heroHits(world, enc, h, t, ab.power * (1 + CLASS_RULES.hexedBonus * stacks), events, ab.name);
-      if (world.monsters[t.id]) {
-        for (let i = 0; i < debuffCopies(h); i++) (t.st.hexed ??= []).push(debuffTurns(h, CLASS_RULES.hexedTurns));
-        markWitchwood(h, t.st);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is Hexed (×${t.st.hexed?.length ?? 0}).` });
-      }
-      return;
-    }
-    case 'wither':
-      for (const m of enemies()) {
-        m.st.weak = { stacks: (m.st.weak?.stacks ?? 0) + debuffCopies(h), turns: debuffTurns(h, CLASS_RULES.witherTurns) };
-        markWitchwood(h, m.st);
-      }
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} withers every foe. (−50% damage per stack)` });
-      return;
-    case 'pact': {
-      for (const a of allies()) {
-        const cost = Math.min(a.hp - 1, afterBlock(a, CLASS_RULES.pactCost));
-        if (cost > 0) {
-          a.hp -= cost;
-          events.push({ actor: h.id, kind: 'damage', target: a.id, amount: cost, text: a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.` });
-        }
-        const added = Math.round(addStress(a, CLASS_RULES.pactStress));
-        if (added > 0) events.push({ actor: h.id, kind: 'stress', target: a.id, amount: added, text: `The pact gnaws at ${a.name}'s mind. (+${added} stress)` });
-      }
-      for (const m of enemies()) heroHits(world, enc, h, m, ab.power, events, ab.name);
-      return;
-    }
-    // ---- Undertaker ----
-    case 'spade': {
-      const t = pickEnemy(false);
-      if (t) heroHits(world, enc, h, t, ab.power + h.spadeBonus, events, ab.name);
-      return;
-    }
-    case 'rites': {
-      const chosen = c.target ? world.monsters[c.target] : undefined;
-      const wounded = enemies().filter((m) => m.hp < m.maxHp);
-      const t = chosen && chosen.room === room && chosen.hp < chosen.maxHp ? chosen : wounded.length ? rng.pick(wounded) : null;
-      if (!t) {
-        events.push({ actor: h.id, kind: 'info', text: `${h.name} finds no one ready for the Last Rites.` });
-        return;
-      }
-      events.push({ actor: h.id, kind: 'damage', target: t.id, amount: t.hp, crit: true, text: `${h.name} reads the Last Rites over the ${ENEMIES[t.type].name}.` });
-      applyMonsterDamage(world, t, t.hp, events);
-      h.spadeBonus += CLASS_RULES.spadePerRites;
-      events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name}'s spade grows heavier. (Spade +${h.spadeBonus})` });
-      return;
-    }
-    case 'raise': {
-      const dead = enc.lastSlain!;
-      const hp = Math.max(1, Math.round(dead.maxHp * CLASS_RULES.raiseHp));
-      enc.risen = {
-        id: `r${world.nextId++}`, type: dead.type, hp, maxHp: hp, dmgMult: dead.dmgMult, by: h.id,
-        turns: buffLength(h, hasTalent(h, 'restlessDead') ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns),
-      };
-      enc.lastSlain = null;
-      // Raised, it's the Undertaker's: a Zombie won't get back up for the enemy, nor the Lich call it back.
-      enc.slain = (enc.slain ?? []).filter((x) => x !== dead && (!dead.id || x.id !== dead.id));
-      if (dead.id) world.risings = world.risings.filter((r) => r.id !== dead.id);
-      events.push({ actor: h.id, kind: 'status', target: enc.risen.id, text: `${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.` });
-      return;
-    }
-    // ---- Bellwright ----
-    case 'clang': {
-      const t = pickEnemy(true);
-      if (!t) return;
-      heroHits(world, enc, h, t, ab.power, events, ab.name);
-      if (world.monsters[t.id] && enc.next[t.id] !== undefined) {
-        const delay = CLASS_RULES.clangDelay * debuffCopies(h);
-        enc.next[t.id] = at(enc.next[t.id] + delay);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} reels from the din. (+${delay}s)` });
-      }
-      // The ringing quickens the ringer: one more stack, and the timer starts over.
-      addClang(h, 1);
-      return;
-    }
-    case 'peal':
-      for (const a of othersIn(world, enc, h)) {
-        if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - CLASS_RULES.pealHaste));
-        ward(h, a);
-        // Resonance: the note settles nerves and knits wounds.
-        if (hasTalent(h, 'resonance')) {
-          addStress(a, -reliefBy(h, TALENT_RULES.resonanceStress));
-          const healed = heal(a, healBy(h, TALENT_RULES.resonanceHeal));
-          if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
-        }
-      }
-      // Resonance: the peal rings on in the Bellwright too.
-      if (hasTalent(h, 'resonance')) addClang(h, 1);
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${hasTalent(h, 'resonance') ? `, −${TALENT_RULES.resonanceStress} stress, +1 Clang` : ''})` });
-      return;
-    case 'knell': {
-      const dmg = knellDamage(ab.power, othersIn(world, enc, h).length);
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} tolls the knell.` });
-      for (const m of enemies()) heroHits(world, enc, h, m, dmg, events, ab.name);
-      return;
-    }
-    // ---- Zealot ----
-    case 'scourge': {
-      const t = pickEnemy(false);
-      if (t) heroHits(world, enc, h, t, ab.power, events, ab.name);
-      return;
-    }
-    case 'sins': {
-      const t = pickAlly();
-      if (!t) return;
-      const moved = takeSins(h, t, reliefBy(h, ab.power));
-      ward(h, t);
-      events.push({ actor: h.id, kind: 'stress', target: h.id, amount: moved, text: `${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)` });
-      // Martyr: and eases their wounds.
-      if (hasTalent(h, 'martyr')) {
-        const healed = heal(t, healBy(h, TALENT_RULES.martyrHeal));
-        if (healed) events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${t.name} is soothed. (+${healed})` });
-      }
-      return;
-    }
-    case 'absolution': {
-      const spend = h.stress - CLASS_RULES.absolutionFloor;
-      // Penitent: all of it becomes damage, but only half of it leaves.
-      const paid = hasTalent(h, 'penitent') ? Math.floor(spend / 2) : spend;
-      const targets = enemies();
-      const each = Math.ceil(spend / Math.max(1, targets.length));
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} pours out their torment! (−${paid} stress)` });
-      // The damage is dealt at the stress it came from; then it's spent.
-      for (const m of targets) heroHits(world, enc, h, m, each, events, ab.name);
-      h.stress -= paid;
-      return;
-    }
-    // ---- Alchemist ----
-    case 'acid': {
-      const t = pickEnemy(false);
-      if (!t) return;
-      if (heroHits(world, enc, h, t, ab.power, events, ab.name) && world.monsters[t.id]) {
-        t.st.acid = { stacks: (t.st.acid?.stacks ?? 0) + debuffCopies(h), turns: debuffTurns(h, CLASS_RULES.acidTurns) };
-        markWitchwood(h, t.st);
-        events.push({ actor: h.id, kind: 'status', target: t.id, text: `${ENEMIES[t.type].name} is burned by acid.${t.st.acid.stacks > 1 ? ` (×${t.st.acid.stacks})` : ''}` });
-      }
-      return;
-    }
-    case 'fumes':
-      fumes(world, enc, h, events);
-      return;
-    case 'elixir': {
-      const t = pickAlly();
-      if (!t) return;
-      t.elixir = true;
-      ward(h, t);
-      events.push({ actor: h.id, kind: 'status', target: t.id, text: `${h.name} hands ${t === h ? 'themself' : t.name} an elixir. (next item ×2)` });
-      return;
-    }
-  }
+  if (c.action === 'card' && c.card) return playHand(world, enc, h, c, events);
+  h.st.brace = true;
+  return actionTime(h, 'brace');
 }
 
-/** Fumes: Poison on every enemy (`free`: Volatile's, set off by an item). */
-function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false) {
+/** Fumes: Poison on every enemy, laid by `apply` (the card's own debuff, so Staves and passives count). */
+export function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free: boolean, apply: (m: Monster) => void) {
   const foes = monstersIn(world, enc.room);
   if (!foes.length) return;
   events.push({ actor: h.id, kind: 'status', text: free ? `Fumes spill from ${h.name}'s satchel!` : `${h.name} smashes a flask of fumes!` });
-  for (const m of foes) {
-    for (let i = 0; i < debuffCopies(h); i++) addPoison(m.st, Math.round(CLASS_RULES.fumesPoison * damageMult(h, world)), debuffTurns(h, CLASS_RULES.fumesTurns));
-    markWitchwood(h, m.st);
-  }
+  for (const m of foes) apply(m);
 }
 
-/** Light for everyone in the room (Flare, in or out of a fight). */
+/** Light for everyone in the room (Flare). */
 export function flareLight(world: World, room: number) {
   for (const x of Object.values(world.heroes)) {
-    if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + CLASS_RULES.flareLight);
+    if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + CARD_RULES.flareLight);
   }
 }
 
 /** The Lampbearer's Flare: damage to every enemy and light for the room. */
-function flare(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false) {
+export function flare(world: World, enc: Encounter, h: Hero, events: CombatEvent[], free = false, dmg: number = CARD_RULES.flare) {
   flareLight(world, enc.room);
-  events.push({ actor: h.id, kind: 'status', text: `${h.name} ${free ? 'answers with a flare' : 'ignites a flare'}! (+${CLASS_RULES.flareLight} light)` });
-  for (const m of monstersIn(world, enc.room)) heroHits(world, enc, h, m, abilityById('flare')!.power, events, 'Flare');
+  events.push({ actor: h.id, kind: 'status', text: `${h.name} ${free ? 'answers with a flare' : 'ignites a flare'}! (+${CARD_RULES.flareLight} light)` });
+  for (const m of monstersIn(world, enc.room)) heroHits(world, enc, h, m, dmg, events, 'Flare');
 }
 
-/** A lone Lampbearer keeping Vigil answers every enemy action with a free Flare (no cooldown). */
+/** A lone Lampbearer keeping Vigil answers every enemy action with a free Flare. */
 function vigilFlares(world: World, enc: Encounter, events: CombatEvent[]) {
   for (const id of enc.heroes) {
     const h = world.heroes[id];
@@ -1565,7 +1388,7 @@ function vigilFlares(world: World, enc: Encounter, events: CombatEvent[]) {
   }
 }
 
-function heal(h: Hero, n: number): number {
+export function heal(h: Hero, n: number): number {
   const before = h.hp;
   h.hp = Math.min(h.maxHp, h.hp + n);
   return h.hp - before;
@@ -1580,7 +1403,26 @@ export function hitDamage(h: Hero, base: number, world?: World): number {
 
 /** Hero damages a monster. Returns true if it connected. */
 export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
-  let dmg = monsterTakes(world, m, hitDamage(h, base, world));
+  let raw = hitDamage(h, base, world);
+  // Misericorde: the nearly dead are struck true.
+  const low = wornStat(h, 'lowCrit');
+  if (!crit && low > 0 && m.hp < m.maxHp * low) {
+    raw *= 2;
+    crit = true;
+  }
+  // Giant's Maul: what's Stunned can't brace for it.
+  if (m.st.stun) raw *= 1 + wornStat(h, 'stunnedMult');
+  // Exposed: this hit is the one it couldn't guard against.
+  if (m.st.exposed) {
+    raw *= 1 + m.st.exposed;
+    delete m.st.exposed;
+  }
+  let dmg = monsterTakes(world, m, Math.round(raw));
+  // Hand Signal: this hit opens it up for the next.
+  if (h.st.expose) {
+    delete h.st.expose;
+    m.st.exposed = Math.max(m.st.exposed ?? 0, CARD_RULES.exposed);
+  }
   if (m.st.shield) {
     const absorbed = Math.min(m.st.shield, dmg);
     m.st.shield -= absorbed;
@@ -1590,12 +1432,6 @@ export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base
     actor: h.id, kind: 'damage', target: m.id, amount: dmg, crit,
     text: `${h.name}'s ${what} ${crit ? 'CRITS' : 'hits'} ${ENEMIES[m.type].name} for ${dmg}.`,
   });
-  // Sanguine: the Sorceress drinks from every Hex on what she hurts.
-  const hexes = m.st.hexed?.length ?? 0;
-  if (hasTalent(h, 'sanguine') && hexes > 0 && dmg > 0 && isConscious(h)) {
-    const healed = heal(h, TALENT_RULES.sanguineHeal * hexes);
-    if (healed) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} drinks from the hex. (+${healed})` });
-  }
   // A Thorn Ring a straggler picked up: whoever lands a blow takes its bonus plus the straggler's Block back.
   const thorns = carried(m, 'thorns');
   if (thorns > 0 && dmg > 0 && isConscious(h)) {
@@ -1723,7 +1559,8 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     }
     case 'crawler': {
       const t = monsterHits(world, enc, m, rng.pick(side), ENEMIES.crawler.dmg, 'bites', events);
-      if (t && isConscious(t)) addPoison(t.st, 1, 3);
+      // Warded Mail: what clings to you lets go sooner.
+      if (t && isConscious(t)) addPoison(t.st, 1, Math.max(1, 3 - wornStat(t, 'debuffResist')));
       return;
     }
     case 'acolyte':
@@ -1807,11 +1644,20 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     return null;
   }
   const t = victim.h;
-  if (t.immuneUntil > world.time) {
-    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} ${t.name}, who does not even flinch. (Iron Oath)` });
+  // Blinded: it swings at nothing (the charge is used up).
+  if (m.st.blind) {
+    delete m.st.blind;
+    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} blindly at ${t.name}, and misses.` });
     return null;
   }
-  if (inSmoke(world, t.st) && world.rng.chance(0.5)) {
+  // Fade, Blink, Veil: this one simply misses.
+  if (t.st.evade) {
+    if (--t.st.evade <= 0) delete t.st.evade;
+    events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name}, who is not quite there.` });
+    return null;
+  }
+  const dodge = Math.max(inSmoke(world, t.st) ? 0.5 : 0, t.st.sidestep ?? 0, wornStat(t, 'dodge'));
+  if (dodge > 0 && world.rng.chance(dodge)) {
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });
     return null;
   }
@@ -1825,18 +1671,23 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   let dmg = monsterBlow(m, base);
   dmg *= weakMult(m.st);
   if (t.light <= 0) dmg *= 1.25;
-  // Vengeance: the attacker takes the whole blow back, before any of the Warden's defences.
-  const returned = t.st.vengeance ? Math.max(1, Math.round(dmg)) : 0;
+  const gate = (t.st.gate ?? 0) > world.time;
+  // Vengeance (and Hold the Gate): the attacker takes the whole blow back, before any of the Warden's defences.
+  const returned = t.st.vengeance || gate ? Math.max(1, Math.round(dmg)) : 0;
+  const nearest = combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t;
   // Stalwart: the Warden takes less while standing nearest the enemy.
-  if (t.cls === 'warden' && combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t) dmg *= 0.8;
-  if (t.st.brace) dmg *= 0.7;
+  if (t.cls === 'warden' && nearest) dmg *= 0.8;
+  if (gate) dmg *= CARD_RULES.gateMult;
+  if (t.st.brace) dmg *= CARD_RULES.braceMult;
   // Patchwork Coat: the first blow in a fight is halved.
   const patch = clothReady(t, 'patchwork');
   if (patch) {
     spendCloth(t, patch);
     dmg *= CLOTH.patchworkMult;
   }
-  dmg = afterBlock(t, Math.max(1, Math.round(dmg))) + doomOf(t);
+  // Bulwark Plate: steadier at the front.
+  const front = nearest ? wornStat(t, 'frontBlock') : 0;
+  dmg = Math.max(1, afterBlock(t, Math.max(1, Math.round(dmg))) - front) + doomOf(t);
   if (t.st.shield) {
     const absorbed = Math.min(t.st.shield, dmg);
     t.st.shield -= absorbed;
@@ -1851,6 +1702,18 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   if (returned > 0 && world.monsters[m.id]) {
     const back = monsterTakes(world, m, returned);
     events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
+    applyMonsterDamage(world, m, back, events);
+  }
+  // Hold the Gate: whoever strikes the Warden reels back.
+  if (gate && world.monsters[m.id] && enc.next[m.id] !== undefined) {
+    const secs = CARD_RULES.gateDelay + wornStat(t, 'delayBonus');
+    enc.next[m.id] = at(enc.next[m.id] + secs);
+    events.push({ actor: t.id, kind: 'status', target: m.id, text: `${name} is thrown back from the gate. (Delayed ${secs}s)` });
+  }
+  // Scale Ward: the scales bite back.
+  if (t.st.spikes && world.monsters[m.id]) {
+    const back = monsterTakes(world, m, t.st.spikes);
+    events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `${name} is cut on ${t.name}'s scales for ${back}.` });
     applyMonsterDamage(world, m, back, events);
   }
   // Thorn Ring: a blow that lands costs the attacker its bonus plus the wearer's Block.
@@ -1868,20 +1731,11 @@ function applyHeroDamage(world: World, enc: Encounter, h: Hero, dmg: number, eve
 }
 
 /**
- * Damage to a hero from anything (blows, poison, cave-ins…), which can take them down. Iron Oath catches the
- * first blow that would, once a run. Returns false if nothing landed.
+ * Damage to a hero from anything (blows, poison, cave-ins…), which can take them down. Returns false if nothing landed.
  */
 export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent[] | null, enc?: Encounter): boolean {
   if (!isConscious(h) || dmg <= 0) return false;
-  if (h.immuneUntil > world.time) return false;
   h.hp -= dmg;
-  if (h.hp <= 0 && hasTalent(h, 'ironOath') && !h.oathUsed) {
-    h.oathUsed = true;
-    h.hp = 1;
-    h.immuneUntil = world.time + TALENT_RULES.oathImmune;
-    events?.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} refuses to fall! (Iron Oath: untouchable for ${TALENT_RULES.oathImmune}s)` });
-    chronicle(world, `${h.name} kept their Iron Oath and stayed standing in ${roomName(world, h)}.`);
-  }
   if (h.hp <= 0 && blinkAway(world, h, events, enc)) return true;
   h.lowestHp = Math.min(h.lowestHp, Math.max(0, h.hp) / h.maxHp);
   syncInjuries(h);
@@ -1995,13 +1849,13 @@ function sameRoom(a: Hero, b: Hero) {
   return a.pos.kind === 'room' && b.pos.kind === 'room' && a.pos.room === b.pos.room;
 }
 
-function flee(world: World, enc: Encounter, h: Hero) {
+/** Out of the fight and back down a tunnel: the way they came, or (`anyTunnel`: Slip Away) any of the room's. */
+export function flee(world: World, enc: Encounter, h: Hero, anyTunnel = false) {
   leaveEncounter(world, enc, h);
   leftRoom(h);
   const d = world.dungeon;
   const from = enc.room;
-  // Ghost Step: slip out by any tunnel, not just the one you came in by.
-  let to = hasTalent(h, 'ghostStep') ? null : h.prevRoom;
+  let to = anyTunnel ? null : h.prevRoom;
   if (to === null || !corridorBetween(d, from, to)) to = world.rng.pick(neighbours(d, from));
   const c = corridorBetween(d, from, to)!;
   h.pos = { kind: 'corridor', corridor: c.id, from, to, t: 0, dur: speedOf(h, world.time) };

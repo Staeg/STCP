@@ -1,11 +1,11 @@
-import { LEGENDS, type LegendId } from '../content/legends';
-import { legendError, legendsOf, legendTargets, PICK_A_ROOM } from './legends';
+import { CARDS, type CardId } from '../content/cards';
+import { cardTime, corpses, uselessReason } from './cards';
 import { emergencyProgress, type EmergencyProgress } from './emergency';
 import { COLLAPSE_AT, LIGHT_DIM, WAVES_AT, escalationAt } from '../content/constants';
 import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
 import type { TalentId } from '../content/talents';
 import type { ShardId } from '../content/regalia';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
@@ -14,7 +14,7 @@ import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } fro
 import type { ItemCharge } from './gear';
 import { activeItems, canTake, decidersOf, goldFor, pileGold, votersIn } from './loot';
 import {
-  abilitiesOf, abilityOf, DEATH_TIMER, combatOrder, doomOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, unusableReason, validTargets, type ChronicleEntry, type Choice, type CombatAction, type CombatEvent, type Statuses,
+  DEATH_TIMER, combatOrder, doomOf, handOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, validTargets, type ChronicleEntry, type Choice, type CombatEvent, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -178,7 +178,7 @@ export interface CombatUnitView {
   downed?: boolean;
   /** Seconds until a downed hero dies. */
   dying?: number;
-  /** Speed: seconds between this unit's turns. */
+  /** The length of this unit's current wait (a monster's Speed; for a hero, what their last card or action took). */
   speed: number;
   /** Seconds until this unit's next turn (null while down). */
   nextIn: number | null;
@@ -201,10 +201,17 @@ export interface EncounterView {
   legion: CombatUnitView[];
   monsters: CombatUnitView[];
   yourChoice: Choice | null;
-  /** For each of your abilities ('a0'…): who it can be aimed at now ([] = no target needed), or why it can't be used. */
-  yourOptions: Partial<Record<CombatAction, { targets: string[]; blocked: string | null }>>;
-  /** The same for each of your Legendary abilities that works in a fight (null `blocked`: usable now). */
-  legendOptions: Partial<Record<LegendId, { targets: string[]; blocked: string | null }>>;
+  /** Your hand, left to right (the leftmost non-Burn card is what you play if your turn comes first). */
+  yourHand: CardView[];
+  /** How many cards are left to draw, and in the discard (they're shuffled back when the draw pile runs out). */
+  deckCount: number;
+  discardCount: number;
+  /** Cards you've burned this run (gone until the run ends, or a Loom). */
+  burned: CardId[];
+  /** Downed allies here you could Revive. */
+  reviveTargets: string[];
+  /** Corpses lying in this fight (the Undertaker's cards use them up). */
+  corpses: number;
   /** Recent events, each with a `seq` that grows through the fight. */
   events: CombatEvent[];
   log: string[];
@@ -356,7 +363,8 @@ export function buildView(world: World, heroId: string): PlayerView {
     phase: world.phase,
     width: d.width,
     height: d.height,
-    you: structuredClone(you) as Hero,
+    // Your own draw pile stays face down: the hand comes in the fight view instead.
+    you: structuredClone({ ...you, deck: null }) as Hero,
     dim: you.light < LIGHT_DIM,
     rooms,
     corridors,
@@ -492,6 +500,17 @@ function lootView(world: World, you: Hero): LootView | null {
 }
 
 
+/** A card in your hand, as you see it. */
+export interface CardView {
+  card: CardId;
+  /** Seconds until your next action if you play it now (Tempo, Clang, Haste and the like counted). */
+  time: number;
+  /** Who it can be aimed at now ([] = nobody to pick; a room card is aimed on the map). */
+  targets: string[];
+  /** Why playing it now would do nothing useful (it still can be played). */
+  weak?: string;
+}
+
 function encounterView(world: World, you: Hero): EncounterView | null {
   if (you.encounter === null) return null;
   const enc = world.encounters[you.encounter];
@@ -503,7 +522,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
       id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, stress: Math.round(h.stress), cls: h.cls, color: h.color,
       downed: h.downedAt !== null,
       dying: h.downedAt !== null ? Math.max(0, DEATH_TIMER - (world.time - h.downedAt)) : undefined,
-      speed: speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
+      speed: enc.span?.[id] ?? speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
       ready: !!enc.choices[id] || !isConscious(h),
       choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,
       choiceTarget: enc.choices[id]?.target,
@@ -526,20 +545,13 @@ function encounterView(world: World, you: Hero): EncounterView | null {
       cls: ally?.cls, color: ally?.color, speed: risenSpeed(world, r), nextIn: nextIn(r.id),
     };
   });
-  const yourOptions: EncounterView['yourOptions'] = {};
-  const legendOptions: EncounterView['legendOptions'] = {};
-  if (isConscious(you) && enc.heroes.includes(you.id)) {
-    abilitiesOf(you).forEach((ab, i) => {
-      const action = `a${i}` as CombatAction;
-      yourOptions[action] = { targets: validTargets(world, enc, you, action), blocked: unusableReason(world, enc, you, ab) };
-    });
-    for (const l of legendsOf(you)) {
-      if (!LEGENDS[l].combat) continue;
-      // The room is picked on the map afterwards, so not having picked one yet isn't a reason it can't be used.
-      const blocked = (you.cooldowns[l] ?? 0) > 0 ? null : legendError(world, you, l, null, null, enc);
-      legendOptions[l] = { targets: legendTargets(world, you, l, enc), blocked: blocked === PICK_A_ROOM ? null : blocked };
-    }
-  }
+  const here = isConscious(you) && enc.heroes.includes(you.id);
+  const yourHand: CardView[] = here
+    ? handOf(you).map((card) => {
+        const weak = uselessReason(world, enc, you, card);
+        return { card, time: cardTime(world, enc, you, card), targets: validTargets(world, enc, you, { action: 'card', card }), ...(weak ? { weak } : {}) };
+      })
+    : [];
   return {
     room: enc.room,
     heroes: order.heroes.map(heroUnit),
@@ -547,11 +559,15 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     legion,
     monsters: order.monsters.map((m) => ({
       id: m.id, kind: 'monster', name: ENEMIES[m.type].name, hp: m.hp, maxHp: m.maxHp, st: { ...m.st }, enemy: m.type,
-      speed: monsterSpeed(enc, m), nextIn: nextIn(m.id), ...(m.carry ? { carry: m.carry } : {}),
+      speed: monsterSpeed(enc, m, world.time), nextIn: nextIn(m.id), ...(m.carry ? { carry: m.carry } : {}),
     })),
     yourChoice: enc.choices[you.id] ?? null,
-    yourOptions,
-    legendOptions,
+    yourHand,
+    deckCount: you.deck?.draw.length ?? 0,
+    discardCount: you.deck?.discard.length ?? 0,
+    burned: [...you.burned],
+    reviveTargets: here ? validTargets(world, enc, you, { action: 'revive' }) : [],
+    corpses: corpses(enc),
     events: enc.events,
     log: enc.log.slice(-12),
     doom: doomOf(you),
@@ -560,9 +576,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
 
 function choiceLabel(h: Hero, c: Choice): string {
   if (c.action === 'item') return ITEMS[h.items[c.item ?? -1]]?.name ?? 'Item';
-  if (c.action === 'legend') return c.legend ? LEGENDS[c.legend].name : 'Legend';
-  const ab = abilityOf(h, c.action);
-  if (ab) return ab.name;
+  if (c.action === 'card') return c.card ? CARDS[c.card].name : 'Card';
   return { revive: 'Revive', flee: 'Flee', brace: 'Brace' }[c.action as 'revive' | 'flee' | 'brace'];
 }
 

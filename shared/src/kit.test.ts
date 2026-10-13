@@ -23,7 +23,7 @@ describe('the kit and Challenge Rating', () => {
   it('Gear adds 0.1 CR per level, an Effigy Rite +1 and a Gem Rite −0.5; consumables are free', () => {
     expect(kitCr({ gear: { weapon: 'dirk', armor: 'drakehide', ring: 'catseye' }, consumables: ['bandage', 'torch'], rites: [] })).toBe(0.6);
     expect(kitCr({ gear: {}, consumables: [], rites: ['effigy', 'gem'] })).toBe(0.5);
-    expect(heroCr(['ironOath'], { gear: { weapon: 'stiletto' }, consumables: [], rites: [] })).toBe(1.2);
+    expect(heroCr(['shieldwall'], { gear: { weapon: 'stiletto' }, consumables: [], rites: [] })).toBe(1.2);
   });
 
   it('a fractional CR is the chance of the next one up', () => {
@@ -128,7 +128,7 @@ describe('heroes with a kit', () => {
   it('the Game rolls the combined CR', () => {
     const crs = new Set<number>();
     for (let seed = 1; seed < 40; seed++) {
-      const g = new Game(seed, [{ id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: { ...loadout({ gear: { weapon: 'misericorde', armor: 'drakehide' } }), talents: ['ironOath'] } }], { monsters: false });
+      const g = new Game(seed, [{ id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: { ...loadout({ gear: { weapon: 'misericorde', armor: 'drakehide' } }), talents: ['shieldwall'] } }], { monsters: false });
       crs.add(g.world.cr);
     }
     expect(crs).toEqual(new Set([1, 2])); // 1.6

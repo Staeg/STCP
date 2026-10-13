@@ -1,159 +1,57 @@
-import { CLASS_RULES, abilityById } from '../content/abilities';
-import { hasTalent, TALENT_RULES } from '../content/talents';
+import { CLASS_RULES } from '../content/innates';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { abilitiesOf, addClang, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
+import { inDungeon, isConscious } from './combat';
 import { dazeAll, lureToward } from './escalation';
 import { giveItem, hasSpace } from './loot';
-import { buffLength, cooldownFor, healBy, reliefBy, ward } from './gear';
 import { notify } from './notify';
 import type { Hero, World } from './world';
-import { LEGENDS, type LegendId } from '../content/legends';
-import { isLegend, legendError, legendsOf, useLegend } from './legends';
 
 /**
- * Class skills used outside a fight: the Bellwright's Toll, and every ability marked `field`. Like an event
- * choice, the skill is picked now and happens when the hero's timer runs out, using up that turn. Each shares its
- * cooldown with the ability in fights (same `cooldowns` entry, counted in the hero's turns).
+ * Class skills used outside a fight. Since the cards (M15) only the Bellwright's Toll is left: cards are for fights.
+ * Like an event choice, it's picked now and happens when the hero's timer runs out, using up that turn.
  */
-export type FieldSkill = 'toll' | 'sins' | 'elixir' | 'mend' | 'flare' | 'vigil' | 'vengeance' | LegendId;
-type ClassSkill = Exclude<FieldSkill, LegendId>;
+export type FieldSkill = 'toll';
 
-/**
- * none: no target · any: anyone conscious in your room, you included · other: not you · fallen: a downed or dead ally
- * in your room · room: a room on your map (Legendary abilities)
- */
-export type FieldTarget = 'none' | 'any' | 'other' | 'fallen' | 'room';
+/** none: no target (every field skill now). */
+export type FieldTarget = 'none';
 
 /** Display name, who it can be aimed at, and what it does out of a fight. */
-export const FIELD_SKILLS: Record<ClassSkill, { name: string; target: FieldTarget; desc: string }> = {
+export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string }> = {
   toll: { name: 'Toll', target: 'none', desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
-  sins: { name: 'Take Their Sins', target: 'other', desc: `Take up to ${abilityById('sins')!.power} stress off an ally onto yourself.` },
-  elixir: { name: 'Elixir', target: 'any', desc: 'Their next item (or yours) has double effect.' },
-  mend: { name: 'Mend', target: 'other', desc: `Heal an ally ${abilityById('mend')!.power} and cure Poison.` },
-  flare: { name: 'Flare', target: 'none', desc: `+${CLASS_RULES.flareLight} light to everyone here.` },
-  vigil: { name: 'Vigil', target: 'any', desc: `−${abilityById('vigil')!.power} stress.` },
-  vengeance: { name: 'Vengeance', target: 'none', desc: 'Swear vengeance before the fight: whoever strikes you in it takes the blow back.' },
 };
 
-/** Who a hero's skill can be aimed at, with their Talent (Triage turns Mend on yourself). */
-export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
-  if (isLegend(skill)) return ({ none: 'none', ally: 'any', fallen: 'fallen', room: 'room' } as const)[LEGENDS[skill].target];
-  if (skill === 'mend' && hasTalent(h, 'triage')) return 'none';
+export function skillTarget(_h: Hero, skill: FieldSkill): FieldTarget {
   return FIELD_SKILLS[skill].target;
 }
 
-/** Name and text of a skill for this hero (Talents change some numbers). */
-export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
-  if (isLegend(skill)) return { name: LEGENDS[skill].name, desc: LEGENDS[skill].desc };
-  if (skill === 'toll') return hasTalent(h, 'greatBell') ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: you gain ${TALENT_RULES.greatBellClang} Clang stacks.` } : FIELD_SKILLS.toll;
-  const ab = abilitiesOf(h).find((a) => a.id === skill);
-  if (skill === 'mend' && hasTalent(h, 'triage')) return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
-  if (skill === 'sins' && hasTalent(h, 'martyr')) return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
+export function skillInfo(_h: Hero, skill: FieldSkill): { name: string; desc: string } {
   return FIELD_SKILLS[skill];
 }
 
-/** This hero's field skills, in ability-slot order (the Toll first), then their Legendaries' that work out of a fight. */
+/** This hero's field skills: the Toll, for a Bellwright. */
 export function fieldSkillsOf(h: Hero): FieldSkill[] {
-  const skills: FieldSkill[] = h.cls === 'bellwright' ? ['toll'] : [];
-  for (const ab of abilitiesOf(h)) if (ab.field) skills.push(ab.id as FieldSkill);
-  for (const l of legendsOf(h)) if (LEGENDS[l].field) skills.push(l);
-  return skills;
+  return h.cls === 'bellwright' ? ['toll'] : [];
 }
 
 export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
   return skillTarget(h, skill) !== 'none';
 }
 
-/** Cooldown in the hero's own turns after using it. */
-function cooldownOf(h: Hero, skill: ClassSkill): number {
-  return skill === 'toll' ? 0 : abilitiesOf(h).find((a) => a.id === skill)!.cooldown;
-}
-
-function sameRoom(a: Hero, b: Hero) {
-  return a.pos.kind === 'room' && b.pos.kind === 'room' && a.pos.room === b.pos.room;
-}
-
-/** Returns an error message, or null if the skill can be used on `targetId` (null = untargeted) or `room`. */
-export function checkSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null, room: number | null = null): string | null {
+/** Returns an error message, or null if the skill can be used. */
+export function checkSkill(_world: World, h: Hero, skill: FieldSkill): string | null {
   if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
-  if (isLegend(skill)) return legendError(world, h, skill, targetId, room, null);
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
   if (skill === 'toll' && h.tolled) return 'You have already rung the bell this run.';
-  const cd = h.cooldowns[skill] ?? 0;
-  if (cd > 0) return `${FIELD_SKILLS[skill].name} is ready in ${cd} turn${cd === 1 ? '' : 's'}.`;
-  const kind = skillTarget(h, skill);
-  if (skill === 'mend' && kind === 'none' && h.hp >= h.maxHp && !h.st.poison) return 'You are not hurt.';
-  if (skill === 'vengeance' && h.st.vengeance) return 'You have already sworn vengeance.';
-  if (kind === 'none') return null;
-  const t = targetId ? world.heroes[targetId] : undefined;
-  if (!t || !isConscious(t) || !sameRoom(h, t)) return 'They must be standing here with you.';
-  if (kind === 'other' && t === h) return skill === 'sins' ? 'You can only take the sins of others.' : 'Only on someone else.';
-  if (skill === 'sins' && t.stress <= 0) return `${t.name} has nothing weighing on them.`;
-  if (skill === 'mend' && t.hp >= t.maxHp && !t.st.poison) return `${t.name} is not hurt.`;
-  if (skill === 'vigil' && t.stress <= 0) return `${t === h ? 'You are' : `${t.name} is`} already calm.`;
   return null;
 }
 
 /** The timer ran out with this skill queued: do it (if it still works). */
-export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: string | null, room: number | null = null) {
-  const err = checkSkill(world, h, skill, targetId, room);
+export function useSkill(world: World, h: Hero, skill: FieldSkill) {
+  const err = checkSkill(world, h, skill);
   if (err) return notify(world, h, err);
-  if (isLegend(skill)) return useLegend(world, h, skill, targetId, room, null, null);
-  const cd = cooldownFor(h, cooldownOf(h, skill));
-  if (cd > 0) h.cooldowns[skill] = cd;
-  h.cdClock = 0;
-  const t = targetId && skillTarget(h, skill) !== 'none' ? world.heroes[targetId] : h;
-  // Warding Staff: everyone you help out here goes into the next fight with a Shield.
-  if (skill !== 'toll' && skill !== 'flare') {
-    const shield = ward(h, t);
-    if (shield) notify(world, t, `${t === h ? 'You gain' : `${h.name}'s staff gives you`} +${shield} Shield (until the end of your next fight).`);
-  }
-  switch (skill) {
-    case 'toll':
-      h.tolled = true;
-      return toll(world, h);
-    case 'sins': {
-      const moved = takeSins(h, t, reliefBy(h, abilitiesOf(h)[2].power));
-      // Martyr: and eases their wounds.
-      const before = t.hp;
-      if (hasTalent(h, 'martyr')) t.hp = Math.min(t.maxHp, t.hp + healBy(h, TALENT_RULES.martyrHeal));
-      const healed = t.hp > before ? `, +${t.hp - before} HP` : '';
-      notify(world, h, `You take ${t.name}'s sins upon yourself. (+${moved} stress)`);
-      notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress${healed})`);
-      return;
-    }
-    case 'vengeance':
-      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns);
-      notify(world, h, `You swear vengeance. Whoever strikes you in your next ${h.st.vengeance} turns will feel it.`);
-      return;
-    case 'elixir':
-      t.elixir = true;
-      notify(world, h, t === h ? 'You drink an elixir: your next item has double effect.' : `You give ${t.name} an elixir.`);
-      if (t !== h) notify(world, t, `${h.name} gives you an elixir: your next item has double effect.`);
-      return;
-    case 'mend': {
-      const before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + healBy(h, abilitiesOf(h)[2].power));
-      delete t.st.poison;
-      if (t === h) return notify(world, h, `You tend your own wounds (+${t.hp - before}).`);
-      notify(world, h, `You mend ${t.name} (+${t.hp - before}).`);
-      notify(world, t, `${h.name} mends your wounds (+${t.hp - before}).`);
-      return;
-    }
-    case 'flare':
-      if (h.pos.kind === 'room') flareLight(world, h.pos.room);
-      for (const o of Object.values(world.heroes)) {
-        if (inDungeon(o) && sameRoom(o, h)) notify(world, o, o === h ? `You light a flare. (+${CLASS_RULES.flareLight} light)` : `${h.name} lights a flare. (+${CLASS_RULES.flareLight} light)`);
-      }
-      return;
-    case 'vigil': {
-      const eased = -addStress(t, -reliefBy(h, abilityById('vigil')!.power));
-      notify(world, h, t === h ? `You keep a quiet vigil. (−${eased} stress)` : `You keep vigil over ${t.name}. (−${eased} stress)`);
-      if (t !== h) notify(world, t, `${h.name} keeps vigil over you. (−${eased} stress)`);
-      return;
-    }
-  }
+  h.tolled = true;
+  toll(world, h);
 }
 
 /** Bellwright: everyone in the dungeon hears it, sees you for a while, and every monster comes one room closer. */
@@ -172,8 +70,6 @@ export function toll(world: World, h: Hero) {
   // The whole dungeon reels from it (Great Bell's until 2026-10-11).
   dazeAll(world, CLASS_RULES.tollDaze);
   for (const o of Object.values(world.heroes)) if (inDungeon(o)) notify(world, o, 'The bell shakes the dungeon. Every monster reels.');
-  // Great Bell: the ringing quickens the ringer.
-  if (hasTalent(h, 'greatBell')) addClang(h, TALENT_RULES.greatBellClang);
 }
 
 /** Is `h` being heard right now (a toll in the last few seconds)? Allies then see them as if in sight. */
@@ -187,21 +83,23 @@ export function hearsToll(world: World, h: Hero): boolean {
   return false;
 }
 
+/** A random consumable, as the loot table weighs them (the Alchemist's brews, Opus Magnum). */
+export function brewRoll(world: World): ItemId {
+  const pool = LOOT_TABLE.filter((e) => ITEMS[e.item].kind === 'consumable');
+  let roll = world.rng.float(0, pool.reduce((s, e) => s + e.weight, 0));
+  for (const e of pool) {
+    roll -= e.weight;
+    if (roll <= 0) return e.item;
+  }
+  return pool[0].item;
+}
+
 /** Alchemist: a fresh consumable every so often, if there's room in the pack. */
 export function tickBrew(world: World, h: Hero) {
   if (!inDungeon(h) || world.time < h.brewAt) return;
   h.brewAt += CLASS_RULES.brewEvery;
   if (!isConscious(h) || !hasSpace(h) || h.rites.includes('gem')) return;
-  const pool = LOOT_TABLE.filter((e) => ITEMS[e.item].kind === 'consumable');
-  let roll = world.rng.float(0, pool.reduce((s, e) => s + e.weight, 0));
-  let item: ItemId = pool[0].item;
-  for (const e of pool) {
-    roll -= e.weight;
-    if (roll <= 0) {
-      item = e.item;
-      break;
-    }
-  }
+  const item = brewRoll(world);
   giveItem(h, item);
   notify(world, h, `You brew a ${ITEMS[item].name}.`);
 }

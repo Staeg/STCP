@@ -3,11 +3,11 @@ import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MA
 import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../content/enemies';
 import type { EmergencyId } from '../content/emergencies';
 import { forceRoster, seedEmergencies } from './emergency';
-import { hasTalent, type TalentId } from '../content/talents';
+import type { TalentId } from '../content/talents';
 import type { ShardId } from '../content/regalia';
 import { injuredMaxHp, KIT_RULES, RITES, sightMatches, VILLAGE_RULES, type Injury, type Loadout, type Sight } from '../village';
 import { GEAR_KIND_PLURALS } from '../content/forge';
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
 import { callForHelp, type Call } from './call';
 import { clearRubble, stragglerEvery, tickEscalation, type Pack } from './escalation';
 import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
@@ -16,11 +16,13 @@ import { hallucinate, perceive, relearnPaths, seeTruly, tickForgetting } from '.
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, stepToEnd, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
+  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, stepToEnd, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldTurns, tickClocks,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import { CLOTH, GEAR_SLOTS, ITEMS, pluralName, slotOf } from '../content/items';
+import type { CardId } from '../content/cards';
+import type { Deck } from './deck';
+import { CLOTH, GEAR_SLOTS, ISSUED_KIT, ITEMS, pluralName, slotOf } from '../content/items';
 import { emptyCodex, TWIST_IDS, TWISTS, type Codex } from '../content/codex';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
@@ -74,10 +76,16 @@ export interface Hero {
   maxHp: number;
   stress: number;
   st: Statuses;
-  /** Ability id → own turns until usable. Shared by fights and the field; outside a fight they tick each time the Speed timer runs out. */
-  cooldowns: Record<string, number>;
-  /** Seconds channelling since cooldowns last ticked. */
-  cdClock: number;
+  /** The cards in play while in a fight (M15): dealt when they join one, gathered up when they leave it. */
+  deck: Deck | null;
+  /** Cards burned this run: out of the deck until the run ends (or a Loom). One entry per copy. */
+  burned: CardId[];
+  /** The last card played (in any fight this run) that Echo can repeat. */
+  lastCard: CardId | null;
+  /** The free Issued Gear this hero started with, by slot (it never goes home). */
+  issued: Partial<Record<GearSlot, ItemId>>;
+  /** Seconds channelling since statuses last ticked as a field turn would. */
+  statusClock: number;
   /** Time this hero went down, or null if standing. */
   downedAt: number | null;
   dead: boolean;
@@ -186,14 +194,8 @@ export interface Hero {
   runInjuries: Injury[];
   /** Lowest HP this run, as a fraction of max: what decides injuries. */
   lowestHp: number;
-  /** Went down this run (and wasn't brought back by a Pallbearer since): a Major Injury if they escape. */
+  /** Went down this run: a Major Injury if they escape. */
   downedMajor: boolean;
-  /** Iron Oath: spent this run. */
-  oathUsed: boolean;
-  /** Iron Oath: no damage until this game time. */
-  immuneUntil: number;
-  /** Restless Dead: a risen that follows this Undertaker into their next fight. */
-  risen: Omit<Risen, 'id' | 'by'> | null;
   /** When this hero last called for help (C), for its cooldown; null if never. */
   calledAt: number | null;
   /** Out of a bots-only run, they asked to see the whole map (see `soloOut`). */
@@ -202,8 +204,6 @@ export interface Hero {
   tolled: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
   scryUntil: number;
-  /** Promise (a Legendary's): the strongest foe of this hero's next fight dies as it begins. */
-  promise: boolean;
   /** What this hero has come across this run (items, monsters, events), for their player's Codex in the Village. */
   codex: Codex;
   /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
@@ -413,9 +413,13 @@ export function crGold(world: World, gold: number): number {
   return Math.round(gold * (1 + CR_RULES.goldPerCr * world.cr));
 }
 
-export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean; loadout?: Loadout }): Hero {
+/**
+ * `issue`: fill every Gear slot the kit leaves empty with the class's free Issued Gear (M15; real runs do, tests
+ * choose), except slots the player chose to go without (`Kit.bare`).
+ */
+export function addHero(world: World, opts: { id: string; name: string; cls: ClassId; isBot?: boolean; loadout?: Loadout; issue?: boolean }): Hero {
   const d = world.dungeon;
-  const { loadout, ...rest } = opts;
+  const { loadout, issue, ...rest } = opts;
   const rites = [...(loadout?.kit?.rites ?? [])];
   const maxHp = Math.round(injuredMaxHp(opts.cls, loadout?.injuries ?? []) * riteMult({ rites }));
   const hero: Hero = {
@@ -429,8 +433,11 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     maxHp,
     stress: loadout?.insane ? STRESS.insaneStart : 0,
     st: {},
-    cooldowns: {},
-    cdClock: 0,
+    deck: null,
+    burned: [],
+    lastCard: null,
+    issued: {},
+    statusClock: 0,
     downedAt: null,
     dead: false,
     diedAt: null,
@@ -493,14 +500,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     runInjuries: [],
     lowestHp: 1,
     downedMajor: false,
-    oathUsed: false,
-    immuneUntil: 0,
-    risen: null,
     calledAt: null,
     mapRevealed: false,
     tolled: false,
     scryUntil: 0,
-    promise: false,
     codex: emptyCodex(),
     restHp: null,
     elite: {},
@@ -517,6 +520,16 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
   if (kit) {
     for (const item of Object.values(kit.gear)) if (item) giveItem(hero, item);
     if (!rites.includes('gem')) for (const item of kit.consumables) giveItem(hero, item);
+    hero.hp = hero.maxHp;
+  }
+  // Issued Gear (M15): whatever the kit leaves empty, the quartermaster fills with something plain.
+  if (issue) {
+    for (const slot of GEAR_SLOTS) {
+      if (hero[slot] || kit?.bare?.includes(slot)) continue;
+      const item = ISSUED_KIT[opts.cls][slot];
+      giveItem(hero, item);
+      hero.issued[slot] = item;
+    }
     hero.hp = hero.maxHp;
   }
   world.heroes[hero.id] = hero;
@@ -561,9 +574,9 @@ export function step(world: World, dt: number): void {
     // Bloodstone Ring: slowly mends while exploring.
     const regen = wornStat(hero, 'regen');
     if (regen > 0 && isConscious(hero) && hero.encounter === null) hero.hp = Math.min(hero.maxHp, hero.hp + dt / regen);
-    // Cooldowns tick when the Speed timer runs out (see endIdleTurn and arrive); a channel holds the timer, so time it instead.
-    if (isConscious(hero) && hero.encounter === null && hero.channel) tickFieldCooldowns(world, hero, dt);
-    else hero.cdClock = 0;
+    // Turn statuses tick when the Speed timer runs out (see endIdleTurn and arrive); a channel holds the timer, so time it instead.
+    if (isConscious(hero) && hero.encounter === null && hero.channel) tickFieldTurns(world, hero, dt);
+    else hero.statusClock = 0;
     if (hero.channel) tickChannel(world, hero);
     else if (isConscious(hero) && hero.encounter === null) advance(world, hero, dt);
     // The next timer only starts once the hero is free again.
@@ -578,6 +591,7 @@ export function step(world: World, dt: number): void {
   }
   tickDowned(world);
   tickRisings(world);
+  tickClocks(world);
   tickCombat(world);
   tickLoot(world);
   tickEvents(world, dt);
@@ -794,7 +808,7 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
     }
     case 'skill': {
       const skill = intent.skill ?? fieldSkillsOf(hero)[0];
-      const err = skill ? checkSkill(world, hero, skill, intent.target ?? null, intent.room ?? null) : 'You have no such skill.';
+      const err = skill ? checkSkill(world, hero, skill) : 'You have no such skill.';
       if (err) return notify(world, hero, err);
       hero.channel = null;
       hero.queuedEvent = null;
@@ -940,7 +954,7 @@ function endIdleTurn(world: World, hero: Hero) {
   }
   const skill = hero.queuedSkill;
   hero.queuedSkill = null;
-  if (skill) useSkill(world, hero, skill.skill, skill.target, skill.room ?? null);
+  if (skill) useSkill(world, hero, skill.skill);
   const used = hero.queuedItem;
   hero.queuedItem = null;
   if (used) {
@@ -1065,10 +1079,7 @@ function updateKnowledge(world: World) {
   for (const a of heroes) {
     for (const b of heroes) {
       const scrying = world.time < a.scryUntil;
-      // Pallbearer: the Undertaker always knows where the Downed lie.
-      const pallbearer = hasTalent(a, 'pallbearer') && inDungeon(b) && b.downedAt !== null;
-      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying || pallbearer)) {
-        if (pallbearer && b.pos.kind === 'room' && !a.seen.includes(b.pos.room)) a.seen.push(b.pos.room);
+      if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying)) {
         a.lastKnown[b.id] = {
           pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, insane: b.insane,
         };

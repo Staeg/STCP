@@ -7,13 +7,13 @@ import type { LeaderboardEntry } from './content/titles';
 import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
-import { LEGENDS, type LegendId } from './content/legends';
+import { isCardId, type CardId } from './content/cards';
 import { TALENTS, type TalentId } from './content/talents';
 import { SPECS, type SpecId } from './content/regalia';
 import type { FateChoice, ServiceRequest, VillageView } from './stash';
 import { EMERGENCIES, type EmergencyId } from './content/emergencies';
 import { BUILDINGS, emptyKit, SERVICES, type BuildingId, type Character, type Kit, type ServiceId } from './village';
-import { GEAR_SLOTS, RESOURCE_IDS, type ResourceId } from './content/items';
+import { GEAR_SLOTS, RESOURCE_IDS, type GearSlot, type ResourceId } from './content/items';
 
 export type LobbyState = 'lobby' | 'game';
 
@@ -99,7 +99,7 @@ export type ServerMsg =
   /** Your Village: purse, Characters, and what the last run did to them. */
   | { t: 'village'; village: VillageView };
 
-const COMBAT_ACTIONS: CombatAction[] = ['a0', 'a1', 'a2', 'flee', 'revive', 'brace', 'item', 'legend'];
+const COMBAT_ACTIONS: CombatAction[] = ['card', 'flee', 'revive', 'brace', 'item'];
 
 export const MAX_PLAYERS = 4;
 export const NAME_MAX = 16;
@@ -188,6 +188,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (k.rites.length > 4 || !k.rites.every((x) => RESOURCE_IDS.includes(x as ResourceId))) return null;
       kit.consumables = k.consumables as ItemId[];
       kit.rites = k.rites as ResourceId[];
+      if (k.bare !== undefined) {
+        if (!Array.isArray(k.bare) || !k.bare.every((x) => GEAR_SLOTS.includes(x as never))) return null;
+        kit.bare = [...new Set(k.bare as GearSlot[])];
+      }
       return { t: 'setKit', kit };
     }
     case 'debugSkip':
@@ -214,7 +218,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'ready') return { t: 'intent', intent: typeof i.on === 'boolean' ? { type: 'ready', on: i.on } : { type: 'ready' } };
       if (i.type === 'revive' && str(i.target, 32)) return { t: 'intent', intent: { type: 'revive', target: i.target as string } };
       if (i.type === 'skill') {
-        if (i.skill !== undefined && !(typeof i.skill === 'string' && (i.skill in FIELD_SKILLS || i.skill in LEGENDS))) return null;
+        if (i.skill !== undefined && !(typeof i.skill === 'string' && i.skill in FIELD_SKILLS)) return null;
         return {
           t: 'intent',
           intent: {
@@ -241,7 +245,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
         if (!COMBAT_ACTIONS.includes(c.action as CombatAction)) return null;
         if (c.target !== undefined && !str(c.target, 32)) return null;
         if (c.item !== undefined && !slot(c.item)) return null;
-        if (c.legend !== undefined && !(typeof c.legend === 'string' && c.legend in LEGENDS)) return null;
+        if (c.card !== undefined && !isCardId(c.card)) return null;
         if (c.room !== undefined && !Number.isInteger(c.room)) return null;
         return {
           t: 'intent',
@@ -249,7 +253,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
             type: 'combat',
             choice: {
               action: c.action as CombatAction, target: c.target as string | undefined, item: c.item as number | undefined,
-              ...(c.legend !== undefined ? { legend: c.legend as LegendId } : {}), ...(c.room !== undefined ? { room: c.room as number } : {}),
+              ...(c.card !== undefined ? { card: c.card as CardId } : {}), ...(c.room !== undefined ? { room: c.room as number } : {}),
             },
           },
         };

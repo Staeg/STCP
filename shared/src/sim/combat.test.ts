@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { DEATH_TIMER, combatOrder, defaultChoice, monstersIn, REVIVE_CHANNEL, spawnGroup } from './combat';
+import { DEATH_TIMER, combatOrder, defaultChoice, monstersIn, REVIVE_CHANNEL, spawnGroup, submitChoice } from './combat';
+import { CARDS } from '../content/cards';
+import { liveCards } from './deck';
+import { play, setHand } from './testkit';
 import { Game } from './game';
 import { buildView } from './views';
 import { speedOf } from './speed';
@@ -51,26 +54,32 @@ describe('encounters', () => {
     expect(view.encounter?.monsters[0].speed).toBe(5);
   });
 
-  it('each unit acts when its own Speed timer runs out, falling back on the first ability if the hero has not picked', () => {
+  it("a hero's first action comes after their Speed; then each card says how long until the next, and an undecided hero plays their leftmost card", () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
     const start = enc.startedAt;
+    const h = world.heroes.h0;
     expect(enc.next.h0).toBeCloseTo(start + 3); // Cutthroat: Speed 3
     expect(enc.next[monsters[0].id]).toBeCloseTo(start + 8); // Bone Giant: Speed 8
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    expect(h.deck!.hand).toHaveLength(3);
+    setHand(h, ['backstab', 'cheap', 'envenom']);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'backstab', target: monsters[0].id } });
     run(world, 2.5);
     expect(enc.events).toHaveLength(0); // picked, but it isn't their turn yet
     untilTurn(world, room, 'h0');
     expect(world.time - start).toBeCloseTo(3, 0);
     expect(enc.events.some((e) => e.text.includes('Backstab'))).toBe(true);
     expect(enc.choices.h0).toBeUndefined(); // a pick is used up by the turn
-    expect(enc.next.h0).toBeCloseTo(start + 6);
+    expect(enc.next.h0).toBeCloseTo(start + 3 + CARDS.backstab.time); // Backstab: 2.5s
+    expect(h.deck!.hand).toHaveLength(3);
+    expect(h.deck!.discard).toContain('backstab');
 
-    // Don't pick: when the turn comes the hero uses their first ability that's ready.
+    // Don't pick: when the turn comes the hero plays their leftmost card.
+    setHand(h, ['cheap', 'envenom', 'signal']);
     untilTurn(world, room, 'h0');
-    expect(enc.events.some((e) => e.text.includes('hesitates, then uses Backstab'))).toBe(true);
+    expect(enc.events.some((e) => e.text.includes('hesitates, then plays Cheap Shot'))).toBe(true);
     // Two Cutthroat turns before the Giant's first.
     expect(enc.events.some((e) => e.actor === monsters[0].id)).toBe(false);
   });
@@ -130,6 +139,7 @@ describe('encounters', () => {
     const enc = world.encounters[room];
     const front = combatOrder(world, enc).monsters[0];
     expect(front.type).toBe('giant'); // the slowest stands nearest the heroes
+    setHand(world.heroes.h0, ['backstab', 'cheap', 'envenom']);
     for (let i = 0; i < 10; i++) expect(defaultChoice(world, enc, world.heroes.h0)?.target).toBe(front.id);
   });
 
@@ -152,25 +162,24 @@ describe('encounters', () => {
     expect(buildView(world, 'h0').encounter!.heroes.map((u) => u.id)).toEqual(['h0', 'h1']);
   });
 
-  it('an undecided hero falls back on the next ability off cooldown, and braces only if none is ready', () => {
+  it('an undecided hero passes over Burn cards for the leftmost one that reshuffles', () => {
     const { world, ids, room, monsters } = arena(['lampbearer'], ['giant']);
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
     const h = world.heroes.h0;
-    h.cooldowns = { mend: 2 };
+    setHand(h, ['dawn', 'flare', 'mend']);
     untilTurn(world, room, 'h0');
-    expect(enc.events.some((e) => e.text.includes('hesitates, then uses Flare'))).toBe(true);
-    h.cooldowns = { mend: 2, flare: 2, vigil: 2 };
-    untilTurn(world, room, 'h0');
-    expect(enc.events.some((e) => e.text.includes('hesitates and braces'))).toBe(true);
+    expect(enc.events.some((e) => e.text.includes('hesitates, then plays Flare'))).toBe(true);
+    expect(h.burned).toEqual([]);
   });
 
-  it('an ability picked without a target goes to the leftmost one when the turn comes', () => {
+  it('a card picked without a target goes to the leftmost one when the turn comes', () => {
     const { world, ids, room } = arena(['cutthroat'], ['ghoul', 'ghoul', 'ghoul']);
     walkIn(world, ids, room);
-    expect(applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } })).toBeUndefined();
-    expect(world.encounters[room].choices.h0).toEqual({ action: 'a1', target: undefined });
+    setHand(world.heroes.h0, ['backstab', 'cheap', 'envenom']);
+    expect(applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'cheap' } })).toBeUndefined();
+    expect(world.encounters[room].choices.h0).toEqual({ action: 'card', card: 'cheap', target: undefined });
     const leftmost = combatOrder(world, world.encounters[room]).monsters[0];
     untilTurn(world, room, 'h0');
     expect(leftmost.st.stun).toBeTruthy(); // Cheap Shot, not the fallback Backstab
@@ -180,63 +189,69 @@ describe('encounters', () => {
   it("shows allies' picks to everyone in the fight as soon as they're made", () => {
     const { world, ids, room, monsters } = arena(['cutthroat', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+    setHand(world.heroes.h0, ['backstab', 'cheap', 'envenom']);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'backstab', target: monsters[0].id } });
     const seen = buildView(world, 'h1').encounter!.heroes.find((u) => u.id === 'h0')!;
     expect(seen.choice).toBe('Backstab');
     expect(seen.choiceTarget).toBe(monsters[0].id);
     expect(buildView(world, 'h0').encounter!.heroes.find((u) => u.id === 'h1')!.choice).toBeUndefined();
   });
 
-  it("enforces cooldowns in the hero's own turns (Cheap Shot: cooldown 4 = unusable for the next four turns)", () => {
+  it('playing a card draws the next; a Burn card is gone for the rest of the run, even in the next fight', () => {
     const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
     walkIn(world, ids, room);
-    world.monsters[monsters[0].id].hp = 999;
-    const enc = world.encounters[room];
-    const cheap = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
-    const brace = () => applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
-    cheap();
-    expect(enc.choices.h0?.action).toBe('a1');
-    untilTurn(world, room, 'h0'); // turn 1: Cheap Shot
-    for (let turn = 2; turn <= 5; turn++) {
-      cheap();
-      expect(enc.choices.h0).toBeUndefined();
-      brace();
-      untilTurn(world, room, 'h0');
-    }
-    cheap();
-    expect(enc.choices.h0?.action).toBe('a1');
-  });
-
-  it('cooldowns carry over after a fight and tick down once per Speed of time outside it', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['ghoul']);
-    walkIn(world, ids, room);
+    monsters[0].hp = 999;
     const h = world.heroes.h0;
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
-    untilTurn(world, room, 'h0');
-    expect(h.cooldowns.cheap).toBe(4);
+    const enc = world.encounters[room];
+    setHand(h, ['dance', 'backstab', 'cheap']);
+    const before = h.deck!.draw.length;
+    play(world, h, 'dance');
+    expect(h.deck!.hand).toHaveLength(3);
+    expect(h.deck!.hand).not.toContain('dance');
+    expect(h.deck!.draw.length).toBe(before - 1);
+    expect(h.burned).toEqual(['dance']);
+    expect(enc.choices.h0).toBeUndefined();
+    // Cards you don't hold can't be picked.
+    expect(submitChoice(world, h, { action: 'card', card: 'dance' })).toMatch(/isn't in your hand/);
+    // The fight ends: the cards are gathered up, and the next deal leaves the burned one out.
     delete world.monsters[monsters[0].id];
     step(world, 0.1);
     expect(h.encounter).toBeNull();
-    expect(h.cooldowns.cheap).toBe(4);
-    run(world, 3.05); // Cutthroat: Speed 3
-    expect(h.cooldowns.cheap).toBe(3);
-    run(world, 9);
-    expect(h.cooldowns.cheap).toBeUndefined();
+    expect(h.deck).toBeNull();
+    expect(liveCards(h)).not.toContain('dance');
+    expect(liveCards(h)).toHaveLength(9);
+  });
+
+  it('when the draw pile runs out, the discard is shuffled back in', () => {
+    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant']);
+    walkIn(world, ids, room);
+    monsters[0].hp = 999;
+    const h = world.heroes.h0;
+    setHand(h, ['backstab', 'cheap', 'envenom']);
+    h.deck!.draw = [];
+    h.deck!.discard = ['signal', 'smoke'];
+    play(world, h, 'backstab');
+    expect(h.deck!.hand).toHaveLength(3);
+    expect(h.deck!.draw).toHaveLength(2);
+    expect(h.deck!.discard).toEqual([]);
+    expect([...h.deck!.hand, ...h.deck!.draw].sort()).toEqual(['backstab', 'cheap', 'envenom', 'signal', 'smoke']);
   });
 
   it('ends on victory and frees movement', () => {
     const { world, d, ids, room, monsters } = arena(['cutthroat', 'sorceress'], ['crawler']);
     walkIn(world, ids, room);
     for (let i = 0; i < 10 && monstersIn(world, room).length; i++) {
-      applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-      applyIntent(world, 'h1', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
+      setHand(world.heroes.h0, ['backstab', 'backstab', 'backstab']);
+      setHand(world.heroes.h1, ['hex', 'hex', 'hex']);
+      applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'backstab', target: monsters[0].id } });
+      applyIntent(world, 'h1', { type: 'combat', choice: { action: 'card', card: 'hex', target: monsters[0].id } });
       untilTurn(world, room, 'h0');
     }
     expect(monstersIn(world, room)).toHaveLength(0);
     step(world, 0.1);
     expect(world.encounters[room]).toBeUndefined();
     expect(world.heroes.h0.encounter).toBeNull();
-    expect(world.heroes.h0.cooldowns).toEqual({});
+    expect(world.heroes.h0.deck).toBeNull();
     // The kill always drops something to vote on, but nobody has to stay for it.
     expect(world.piles[room]?.items.length).toBeGreaterThan(0);
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
@@ -293,7 +308,8 @@ describe('encounters', () => {
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
+    setHand(h, ['vengeance', 'bash', 'rally']);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'vengeance' } });
     untilTurn(world, room, 'h0');
     expect(h.st.vengeance).toBe(2);
     applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });

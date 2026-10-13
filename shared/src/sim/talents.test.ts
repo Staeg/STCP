@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { STRESS } from '../content/events';
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
 import { CLASSES, type ClassId } from '../content/classes';
 import { CR_RULES, type EnemyId } from '../content/enemies';
-import { TALENT_RULES, type TalentId } from '../content/talents';
+import { migrateTalentId, OLD_TALENT_IDS, TALENT_RULES, TALENTS, type TalentId } from '../content/talents';
+import { CARD_RULES, CARDS } from '../content/cards';
+import { cardTime, corpses } from './cards';
+import { play } from './testkit';
 import { neighbours } from '../dungeon/gen';
-import { damageMult, downHero, spawnGroup, submitChoice } from './combat';
+import { downHero, spawnGroup, submitChoice } from './combat';
 import { addToPile } from './loot';
-import { fieldSkillsOf } from './skills';
 import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { Injury } from '../village';
@@ -24,10 +26,6 @@ function hero(world: World, i: number, spec: Spec, injuries: Injury[] = []) {
     id: `h${i}`, name: `H${i}`, cls,
     loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talents: talent ? [talent] : [], injuries, insane: false },
   });
-}
-
-function run(world: World, seconds: number) {
-  for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
 }
 
 /** Heroes at the start, monsters (with lots of HP) in the room next door. */
@@ -98,131 +96,107 @@ describe('Village loadouts', () => {
 });
 
 describe('Warden talents', () => {
-  it('Iron Oath: the first killing blow leaves 1 HP and no damage for 6s', () => {
-    const { world, ids, room, monsters } = arena([['warden', 'ironOath']], ['ghoul']);
+  it('Shieldwall: every Guard card Delays the nearest enemy', () => {
+    const { world, ids, room, monsters } = arena([['warden', 'shieldwall']], ['ghoul']);
     walkIn(world, ids, room);
-    const h = world.heroes.h0;
-    h.hp = 1;
-    untilTurn(world, room, monsters[0].id);
-    expect(h.downedAt).toBeNull();
-    expect(h.hp).toBe(1);
-    expect(h.oathUsed).toBe(true);
-    expect(h.immuneUntil).toBeCloseTo(world.time + TALENT_RULES.oathImmune, 0);
-    untilTurn(world, room, monsters[0].id);
-    expect(h.hp).toBe(1);
+    const enc = world.encounters[room];
+    enc.next[monsters[0].id] = world.time + 600;
+    play(world, world.heroes.h0, 'cover', 'h0');
+    expect(enc.next[monsters[0].id]).toBeCloseTo(world.time - 0.1 + 600 + TALENT_RULES.shieldwallDelay, 0);
   });
 
-  it('Unyielding: Vengeance lasts 3 turns, costs 5, and works out of combat', () => {
-    const { world, heroes: [h] } = quiet([['warden', 'unyielding']]);
-    expect(fieldSkillsOf(h)).toContain('vengeance');
-    applyIntent(world, 'h0', { type: 'skill', skill: 'vengeance' });
-    run(world, CLASSES.warden.speed + 0.2);
-    expect(h.st.vengeance).toBe(3);
-    expect(h.cooldowns.vengeance).toBe(5);
+  it('Unbroken Line: every fight starts with Cover and Shield Bash in hand', () => {
+    const { world, ids, room } = arena([['warden', 'unbrokenLine']], ['ghoul']);
+    walkIn(world, ids, room);
+    expect(world.heroes.h0.deck!.hand.slice(0, 2)).toEqual(['cover', 'bash']);
   });
 });
 
 describe('Cutthroat talents', () => {
-  it('Ghost Step: fleeing always works and costs no stress', () => {
-    const { world, ids, room } = arena([['cutthroat', 'ghostStep']], ['ghoul']);
+  it('Sleight of Hand: a hand of four', () => {
+    const { world, ids, room } = arena([['cutthroat', 'sleightOfHand']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
-    submitChoice(world, h, { action: 'flee' });
-    untilTurn(world, room, 'h0');
-    expect(h.encounter).toBeNull();
-    expect(h.stress).toBe(0);
+    expect(h.deck!.hand).toHaveLength(TALENT_RULES.bigHand);
+    play(world, h, h.deck!.hand[0] === 'dance' ? h.deck!.hand[1] : h.deck!.hand[0]);
+    expect(h.deck!.hand).toHaveLength(TALENT_RULES.bigHand);
   });
 
-  it('Opening Act: the first turn of a fight comes at half Speed', () => {
-    const { world, ids, room } = arena([['cutthroat', 'openingAct']], ['ghoul']);
+  it('Opening Act: the first action comes at half Speed, and the first card takes 1s', () => {
+    const { world, ids, room } = arena([['cutthroat', 'openingAct']], ['giant']);
     walkIn(world, ids, room);
-    const wait = world.encounters[room].next.h0 - world.time;
-    expect(wait).toBeLessThanOrEqual(CLASSES.cutthroat.speed / 2 + 0.01);
-    expect(wait).toBeGreaterThan(CLASSES.cutthroat.speed / 2 - 0.2);
+    const enc = world.encounters[room];
+    const h = world.heroes.h0;
+    expect(enc.next.h0 - enc.startedAt).toBeCloseTo(CLASSES.cutthroat.speed * TALENT_RULES.openingFraction);
+    expect(cardTime(world, enc, h, 'cheap')).toBe(TALENT_RULES.openingCard);
+    play(world, h, 'cheap');
+    expect(cardTime(world, enc, h, 'cheap')).toBe(CARDS.cheap.time);
   });
 });
 
 describe('Lampbearer talents', () => {
-  it("Everflame: +0.33% damage per point of allies' light", () => {
-    const { world, heroes: [lamp, a, b] } = quiet([['lampbearer', 'everflame'], 'warden', 'sorceress']);
-    expect(damageMult(lamp, world)).toBeCloseTo(1 + TALENT_RULES.everflamePerLight * 200);
-    a.light = 50;
-    b.light = 0;
-    expect(damageMult(lamp, world)).toBeCloseTo(1 + TALENT_RULES.everflamePerLight * 50);
+  it('Steady Hands: Mend and Sanctuary take a second less', () => {
+    const { world, ids, room } = arena([['lampbearer', 'steadyHands']], ['ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const h = world.heroes.h0;
+    play(world, h, 'flare'); // past the first card
+    expect(cardTime(world, enc, h, 'mend')).toBe(CARDS.mend.time - TALENT_RULES.steadyCut);
+    expect(cardTime(world, enc, h, 'sanctuary')).toBe(CARDS.sanctuary.time - TALENT_RULES.steadyCut);
+    expect(cardTime(world, enc, h, 'flare')).toBe(CARDS.flare.time);
   });
 
-  it('Triage: Mend heals 12, and only the Lampbearer', () => {
-    const { world, heroes: [lamp, ally] } = quiet([['lampbearer', 'triage'], 'warden']);
-    lamp.hp = 10;
-    ally.hp = 10;
-    applyIntent(world, 'h0', { type: 'skill', skill: 'mend', target: 'h1' });
-    run(world, CLASSES.lampbearer.speed + 0.2);
-    expect(lamp.hp).toBe(10 + TALENT_RULES.triageHeal);
-    expect(ally.hp).toBe(10);
+  it('Undying Flame: Dawn comes back after a fight that ends with everyone standing', () => {
+    const { world, ids, room, monsters } = arena([['lampbearer', 'undyingFlame']], ['ghoul']);
+    walkIn(world, ids, room);
+    const h = world.heroes.h0;
+    play(world, h, 'dawn');
+    expect(h.burned).toEqual(['dawn']);
+    delete world.monsters[monsters[0].id];
+    step(world, 0.1);
+    expect(h.encounter).toBeNull();
+    expect(h.burned).toEqual([]);
   });
 });
 
 describe('Sorceress talents', () => {
-  it('Sanguine: heals 2 per Hex on what she hits', () => {
-    const { world, ids, room, monsters } = arena([['sorceress', 'sanguine']], ['ghoul']);
+  it('Blood Price: the Pact costs her allies nothing, and her twice over', () => {
+    const { world, ids, room } = arena([['sorceress', 'bloodPrice'], 'warden'], ['ghoul']);
     walkIn(world, ids, room);
-    const h = world.heroes.h0;
-    h.hp = 10;
-    monsters[0].st.hexed = [3, 3];
-    submitChoice(world, h, { action: 'a0', target: monsters[0].id });
-    untilTurn(world, room, 'h0');
-    expect(h.hp).toBe(10 + 2 * TALENT_RULES.sanguineHeal);
+    const [s, w] = [world.heroes.h0, world.heroes.h1];
+    play(world, s, 'pact');
+    expect(w.hp).toBe(w.maxHp);
+    expect(s.hp).toBe(s.maxHp - CARD_RULES.pactCost * TALENT_RULES.bloodPriceMult);
+    expect(s.stress).toBe(CARD_RULES.pactStress * TALENT_RULES.bloodPriceMult);
   });
 
-  it('Evil Eye: every enemy starts the fight Hexed', () => {
-    const { world, ids, room, monsters } = arena([['sorceress', 'evilEye']], ['ghoul', 'crawler']);
+  it('Grimoire: a hand of four', () => {
+    const { world, ids, room } = arena([['sorceress', 'grimoire']], ['ghoul']);
     walkIn(world, ids, room);
-    expect(monsters.map((m) => m.st.hexed?.length)).toEqual([1, 1]);
+    expect(world.heroes.h0.deck!.hand).toHaveLength(TALENT_RULES.bigHand);
   });
 });
 
 describe('Undertaker talents', () => {
-  it('Restless Dead: the risen lasts 6 turns and follows into the next fight', () => {
-    const { world, ids, room, monsters } = arena([['undertaker', 'restlessDead']], ['ghoul']);
+  it('Gravedigger: a Corpse lies ready in every fight the Undertaker joins', () => {
+    const { world, ids, room } = arena([['undertaker', 'gravedigger']], ['ghoul']);
     walkIn(world, ids, room);
-    const h = world.heroes.h0;
+    expect(corpses(world.encounters[room])).toBe(TALENT_RULES.gravediggerCorpses);
+  });
+
+  it('Restless Dead: what they Raise never crumbles and follows them into the next fight', () => {
+    const { world, ids, room, monsters } = arena([['undertaker', 'restlessDead']], ['ghoul', 'ghoul']);
+    walkIn(world, ids, room);
     const enc = world.encounters[room];
-    enc.lastSlain = { type: 'ghoul', maxHp: 14, dmgMult: 1 };
-    submitChoice(world, h, { action: 'a2' });
-    untilTurn(world, room, 'h0');
-    expect(enc.risen?.turns).toBe(TALENT_RULES.restlessTurns);
-    delete world.monsters[monsters[0].id];
+    const h = world.heroes.h0;
+    enc.slain = [{ type: 'crawler', maxHp: 8, dmgMult: 1 }];
+    play(world, h, 'raise');
+    const r = enc.legion!.find((x) => x.type === 'crawler')!;
+    expect(r.permanent).toBe(true);
+    expect(r.summon).toBeUndefined();
+    for (const m of monsters) delete world.monsters[m.id];
     step(world, 0.1);
-    expect(world.encounters[room]).toBeUndefined();
-    expect(h.risen?.type).toBe('ghoul');
-    spawnGroup(world, room, ['crawler'], 0);
-    applyIntent(world, 'h0', { type: 'goto', room: world.dungeon.entrance });
-    run(world, 15);
-    applyIntent(world, 'h0', { type: 'goto', room });
-    for (let i = 0; i < 100 && h.encounter === null; i++) step(world, 0.1);
-    expect(world.encounters[room].risen?.type).toBe('ghoul');
-    expect(h.risen).toBeNull();
-  });
-
-  it('Pallbearer: revived allies get up at full HP, spared the Major Injury', () => {
-    const { world, heroes: [, ally] } = quiet([['undertaker', 'pallbearer'], 'warden']);
-    downHero(world, ally, null);
-    applyIntent(world, 'h0', { type: 'revive', target: 'h1' });
-    run(world, 7);
-    expect(ally.downedAt).toBeNull();
-    expect(ally.hp).toBe(ally.maxHp);
-    expect(ally.downedMajor).toBe(false);
-  });
-
-  it('Pallbearer: the Undertaker knows where the Downed lie, however far', () => {
-    const { world, heroes: [u, ally] } = quiet([['undertaker', 'pallbearer'], 'warden']);
-    const far = world.dungeon.rooms.find((r) => r.kind === 'normal' && !neighbours(world.dungeon, world.dungeon.entrance).includes(r.id))!.id;
-    ally.pos = { kind: 'room', room: far };
-    downHero(world, ally, null);
-    step(world, 0.1);
-    expect(u.lastKnown.h1?.downed).toBe(true);
-    expect(u.lastKnown.h1?.pos).toEqual({ kind: 'room', room: far });
-    expect(u.seen).toContain(far);
+    expect(h.legion.map((x) => x.type)).toEqual(['crawler']);
   });
 });
 
@@ -239,36 +213,34 @@ describe('Bellwright talents', () => {
     expect(world.heroes.h1.st.clang).toBeUndefined();
   });
 
-  it('Great Bell: the Toll gives the Bellwright 5 Clang stacks', () => {
-    const { world, heroes: [h] } = quiet([['bellwright', 'greatBell']]);
-    applyIntent(world, 'h0', { type: 'skill', skill: 'toll' });
-    for (let i = 0; i < 80 && !world.tolls.length; i++) step(world, 0.1);
-    expect(h.st.clang?.stacks).toBe(TALENT_RULES.greatBellClang);
+  it('Resounding: Echo repeats at full power', () => {
+    const { world, ids, room, monsters } = arena([['bellwright', 'resounding']], ['ghoul']);
+    walkIn(world, ids, room);
+    const h = world.heroes.h0;
+    play(world, h, 'clang');
+    const hp = monsters[0].hp;
+    play(world, h, 'echo');
+    expect(hp - monsters[0].hp).toBe(CARD_RULES.clang);
   });
 
-  it('Resonance: Peal also heals and calms the allies it hastens', () => {
-    const { world, ids, room } = arena([['bellwright', 'resonance'], 'warden'], ['ghoul']);
+  it('Carillon: after a Hinder card, the next card takes a second less', () => {
+    const { world, ids, room } = arena([['bellwright', 'carillon']], ['ghoul']);
     walkIn(world, ids, room);
-    const ally = world.heroes.h1;
-    ally.hp = 20;
-    submitChoice(world, world.heroes.h0, { action: 'a2' });
-    untilTurn(world, room, 'h0');
-    const heal = world.encounters[room].events.find((e) => e.actor === 'h0' && e.kind === 'heal' && e.target === 'h1');
-    expect(heal?.amount).toBe(TALENT_RULES.resonanceHeal);
-    expect(world.heroes.h0.st.clang?.stacks).toBe(1);
+    const enc = world.encounters[room];
+    const h = world.heroes.h0;
+    play(world, h, 'ringout');
+    expect(cardTime(world, enc, h, 'knell')).toBe(CARDS.knell.time - TALENT_RULES.carillonCut);
   });
 });
 
 describe('Zealot talents', () => {
-  it('Martyr: Take Their Sins moves up to 27 and heals 5', () => {
-    const { world, heroes: [z, ally] } = quiet([['zealot', 'martyr'], 'warden']);
-    ally.stress = 50;
-    ally.hp = 20;
-    applyIntent(world, 'h0', { type: 'skill', skill: 'sins', target: 'h1' });
-    run(world, CLASSES.zealot.speed + 0.2);
-    expect(ally.stress).toBe(50 - 27);
-    expect(z.stress).toBe(27);
-    expect(ally.hp).toBe(25);
+  it('Scourged: Flagellate goes straight back into the hand', () => {
+    const { world, ids, room } = arena([['zealot', 'scourged']], ['ghoul']);
+    walkIn(world, ids, room);
+    const h = world.heroes.h0;
+    play(world, h, 'flagellate');
+    expect(h.deck!.hand).toContain('flagellate');
+    expect(h.deck!.discard).not.toContain('flagellate');
   });
 
   it('Penitent: Absolution only spends half', () => {
@@ -276,35 +248,47 @@ describe('Zealot talents', () => {
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     h.stress = 90;
-    submitChoice(world, h, { action: 'a1' });
-    untilTurn(world, room, 'h0');
+    play(world, h, 'absolution');
     expect(h.stress).toBe(70);
   });
 });
 
 describe('Alchemist talents', () => {
-  it('Volatile: an item used in a fight sets off a free Fumes', () => {
+  it('Volatile: an item used in a fight sets off a free Catalyst', () => {
     const { world, ids, room, monsters } = arena([['alchemist', 'volatile']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
-    h.items = ['torch'];
+    h.items = ['tonic'];
+    h.stress = 30;
+    const enc = world.encounters[room];
     submitChoice(world, h, { action: 'item', item: 0 });
-    untilTurn(world, room, 'h0');
-    expect(h.items).toEqual([]);
-    expect(monsters[0].st.poison?.length).toBe(1);
+    enc.next[h.id] = world.time;
+    step(world, 0.1);
+    expect(monsters[0].st.poison?.length).toBeGreaterThan(0);
   });
 
-  it('Quick Hands: items are used at once and keep the turn', () => {
-    const { world, ids, room } = arena([['alchemist', 'quickHands']], ['ghoul']);
+  it('Prepared: Elixir in the opening hand, and items take 1s', () => {
+    const { world, ids, room } = arena([['alchemist', 'prepared']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
-    h.items = ['bandage'];
-    h.hp = 10;
-    const due = world.encounters[room].next.h0;
-    expect(submitChoice(world, h, { action: 'item', item: 0, target: 'h0' })).toBeNull();
-    expect(h.hp).toBe(22);
-    expect(world.encounters[room].next.h0).toBe(due);
-    expect(world.encounters[room].choices.h0).toBeUndefined();
+    expect(h.deck!.hand[0]).toBe('elixir');
+    h.items = ['tonic'];
+    h.stress = 30;
+    const enc = world.encounters[room];
+    submitChoice(world, h, { action: 'item', item: 0 });
+    enc.next[h.id] = world.time;
+    step(world, 0.1);
+    expect(enc.next[h.id] - world.time).toBeCloseTo(TALENT_RULES.preparedItemTime, 1);
+  });
+});
+
+describe('Talents from before the cards', () => {
+  it('load as their class’s new ones', () => {
+    expect(migrateTalentId('ironOath')).toBe('shieldwall');
+    expect(migrateTalentId('openingAct')).toBe('openingAct');
+    expect(migrateTalentId('restlessDead')).toBe('restlessDead');
+    expect(migrateTalentId('pallbearer')).toBe('gravedigger');
+    for (const old of Object.keys(OLD_TALENT_IDS)) expect(TALENTS[migrateTalentId(old)]).toBeDefined();
   });
 });
 
@@ -321,8 +305,8 @@ describe('Challenge Rating', () => {
     const { Game } = await import('./game');
     const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talents: talent ? [talent] : [], injuries: [], insane: false });
     const game = new Game(9, [
-      { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('ironOath') },
-      { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('sanguine') },
+      { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('shieldwall') },
+      { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('bloodPrice') },
       { id: 'c', name: 'C', cls: 'zealot', isBot: true, loadout: loadout(null) },
     ]);
     expect(game.world.cr).toBe(2);
@@ -340,6 +324,7 @@ describe('Challenge Rating', () => {
     const [queen, ghoul] = q.monsters;
     ghoul.hp = 500;
     const enc = q.world.encounters[q.room];
+    enc.next.h0 = q.world.time + 999; // the Sorceress holds still
     untilTurn(q.world, q.room, queen.id);
     expect(ghoul.hp).toBe(500 + CR_RULES.hymnHeal);
     delete q.world.monsters[ghoul.id];

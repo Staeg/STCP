@@ -1,4 +1,4 @@
-import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
+import { LIGHT_MAX } from '../content/constants';
 import { STRESS_MAX } from '../sim/combat';
 import { BOTS } from './tuning';
 import { gearGain, isCursed, isArms, isGear, slotOf, type ItemId } from '../content/items';
@@ -91,8 +91,6 @@ function majority(values: string[]): string {
 /** Use a consumable out of combat when it obviously helps. */
 export function botUseItem(view: PlayerView): Intent | null {
   const me = view.you;
-  const skill = botSkill(view);
-  if (skill) return skill;
   const idx = (pred: (id: string) => boolean) => me.items.findIndex(pred);
   // Put on anything in the pack that beats what's worn (pickups only go on into an empty slot).
   const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!], me.cls) > 0);
@@ -111,29 +109,3 @@ export function botUseItem(view: PlayerView): Intent | null {
   return null;
 }
 
-
-/**
- * Out-of-combat class skills: the Zealot lifts a burdened ally's stress; the Alchemist primes a Bandage when hurt;
- * the Lampbearer mends a hurt ally, eases their own stress, and lights a flare when the dark closes in.
- */
-function botSkill(view: PlayerView): Intent | null {
-  const me = view.you;
-  if (me.pos.kind !== 'room' || me.queuedSkill) return null;
-  const ready = (id: string) => (me.cooldowns[id] ?? 0) <= 0;
-  const here = me.pos.room;
-  const near = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.pos.kind === 'room' && a.pos.room === here);
-  if (me.cls === 'zealot' && me.stress < 90 && ready('sins')) {
-    const burdened = near.filter((a) => (a.stress ?? 0) >= 40).sort((a, b) => (b.stress ?? 0) - (a.stress ?? 0))[0];
-    if (burdened) return { type: 'skill', skill: 'sins', target: burdened.id };
-  }
-  if (me.cls === 'alchemist' && ready('elixir') && !me.elixir && me.hp / me.maxHp < 0.5 && me.items.includes('bandage')) {
-    return { type: 'skill', skill: 'elixir', target: me.id };
-  }
-  if (me.cls === 'lampbearer') {
-    const hurt = near.filter((a) => a.hp / a.maxHp < 0.75).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-    if (hurt && ready('mend')) return { type: 'skill', skill: 'mend', target: hurt.id };
-    if (me.stress > 30 && ready('vigil')) return { type: 'skill', skill: 'vigil', target: me.id };
-    if (me.light < LIGHT_DIM + 5 && ready('flare')) return { type: 'skill', skill: 'flare' };
-  }
-  return null;
-}

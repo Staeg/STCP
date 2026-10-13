@@ -10,10 +10,13 @@ export type ItemId =
   | 'jerkin' | 'studded' | 'drakehide' | 'shadowskin'
   | 'ringmail' | 'scaleshirt' | 'hauberk' | 'brigandine' | 'wardmail' | 'bulwark'
   | 'patchwork' | 'hastening' | 'wayfarer' | 'sackcloth' | 'gravecloth' | 'softstep' | 'blinkcloth' | 'gossamer'
-  | 'alastor' | 'earthsplitter' | 'hollowrod' | 'daystar' | 'durance' | 'pilgrim' | 'fenrir' | 'silva';
+  | 'alastor' | 'earthsplitter' | 'hollowrod' | 'daystar' | 'durance' | 'pilgrim' | 'fenrir' | 'silva'
+  | 'tincharm' | 'copperband';
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
 import { legendNote, type LegendId } from './legends';
+import { cardText, TYPE_CARDS, type CardId, type CardKind } from './cards';
+import type { ClassId } from './classes';
 
 export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
 export const GEAR_TYPE_NAMES: Record<GearType, string> = {
@@ -77,6 +80,41 @@ export interface ItemDef {
   seeDim?: boolean;
   /** Legendary (tier 4): the active ability it gives whoever wears it. */
   legend?: LegendId;
+  /** Rares: the card it puts in its wearer's deck (Commons and Uncommons use their kind's, Legendaries their legend's). */
+  card?: CardId;
+  /** Given free at the start of a run (M15): never found, worth no CR, and it doesn't go home. */
+  issued?: true;
+  // ---- Card passives (M15), while worn ----
+  /** Seconds added to every card you play (negative = quicker). */
+  tempo?: number;
+  /** Seconds added to every Delay you deal. */
+  delayBonus?: number;
+  /** Turns added to every Poison you place. */
+  poisonTurns?: number;
+  /** Your Strike cards deal this much more to a Poisoned enemy. */
+  poisonedBonus?: number;
+  /** Your hits crit (×2) on an enemy below this fraction of its HP. */
+  lowCrit?: number;
+  /** Your Venom cards take this many seconds less. */
+  venomCut?: number;
+  /** Your Hinder cards deal this much more damage. */
+  hinderDmg?: number;
+  /** Stunned enemies take this much more (0.5 = +50%) from your hits. */
+  stunnedMult?: number;
+  /** Your first card in each fight takes this many seconds less. */
+  firstCardCut?: number;
+  /** Poison and Bleed on you deal this fraction of their damage. */
+  dotMult?: number;
+  /** Always this chance to dodge an attack. */
+  dodge?: number;
+  /** Your Guard cards give this much more Shield. */
+  guardShield?: number;
+  /** Shield you start every fight with. */
+  startShield?: number;
+  /** Debuffs on you last this many turns (or twice as many seconds) less. */
+  debuffResist?: number;
+  /** Block added while you stand nearest the enemy. */
+  frontBlock?: number;
 }
 
 /** The pack: this many slots; Effigies, Gems, Tomes and Relics stack up to STACK_SIZE in one. */
@@ -216,7 +254,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   witchwood: staff('witchwood', 'Witchwood Staff', 'witch', 'enemies carrying your debuffs take +15% damage from everyone.'),
   twinned: staff('twinned', 'Twinned Staff', 'twin', 'every debuff you place lands twice (two stacks; Stun chances roll twice).'),
   evergreen: staff('evergreen', 'Evergreen Staff', 'evergreen', 'buffs you place last twice as long.'),
-  hourglass: staff('hourglass', 'Hourglass Staff', 'hourglass', 'all your cooldowns are 1 turn shorter, down to 0.', 1),
+  hourglass: staff('hourglass', 'Hourglass Staff', 'hourglass', 'every card you play takes 0.5s less.', 1),
   jerkin: armor('leather', 'jerkin', 'Padded Jerkin', 1, 0),
   studded: armor('leather', 'studded', 'Studded Leather', 2, 0),
   drakehide: armor('leather', 'drakehide', 'Drakehide', 3, 0),
@@ -248,7 +286,73 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   pilgrim: legendary('pilgrim', 'armor', 'cloth', 'Gray Shroud of the Pilgrim', 'forgive', '', { speed: -1 }),
   fenrir: legendary('fenrir', 'amulet', null, "Fenrir's Tooth", 'howl', '+20 max HP.', { maxHp: 20 }),
   silva: legendary('silva', 'ring', null, 'Signet of Saint Silva', 'waystep', '', { speed: -0.5 }),
+  // Issued (M15): the plain amulet and ring every hero gets for free if they bring nothing better.
+  tincharm: jewel('tincharm', 'amulet', 'Tin Charm', '○', 'Issued: nothing special.', { issued: true }),
+  copperband: jewel('copperband', 'ring', 'Copper Band', '◦', 'Issued: nothing special.', { issued: true }),
 };
+
+/** Rares' own cards (M15). */
+const RARE_CARDS: Partial<Record<ItemId, CardId>> = {
+  misericorde: 'mercy', whisperblade: 'whispercut', bonebreaker: 'shatter', giantmaul: 'earthblow',
+  twinned: 'doublehex', evergreen: 'bloom', hourglass: 'glass',
+  drakehide: 'scaleward', shadowskin: 'fade', wardmail: 'runeward', bulwark: 'bulwark',
+  gravecloth: 'liestill', softstep: 'slipaway', blinkcloth: 'blink', gossamer: 'veil',
+  harefoot: 'luckybreak', fever: 'feverdream', quickblood: 'bloodrush', ashen: 'ashes',
+};
+for (const [id, c] of Object.entries(RARE_CARDS)) ITEMS[id as ItemId].card = c;
+
+/** Card passives (M15) for the Uncommons and Rares that only had numbers. */
+const PASSIVES: Partial<Record<ItemId, { stats: Partial<ItemDef>; text: string }>> = {
+  stiletto: { stats: { poisonTurns: 1 }, text: 'Poison you place lasts 1 turn longer.' },
+  kris: { stats: { poisonedBonus: 2 }, text: 'Your Strike cards deal +2 to Poisoned enemies.' },
+  misericorde: { stats: { lowCrit: 0.25 }, text: 'Your hits crit (×2) on enemies below 25% HP.' },
+  whisperblade: { stats: { venomCut: 1 }, text: 'Your Venom cards take 1s less.' },
+  warhammer: { stats: { delayBonus: 1 }, text: '+1s on every Delay you deal.' },
+  ironmaul: { stats: { hinderDmg: 2 }, text: 'Your Hinder cards deal +2 damage.' },
+  bonebreaker: { stats: { delayBonus: 2 }, text: '+2s on every Delay you deal.' },
+  giantmaul: { stats: { stunnedMult: 0.5 }, text: 'Stunned enemies take +50% from your hits.' },
+  studded: { stats: { firstCardCut: 1 }, text: 'Your first card in each fight takes 1s less.' },
+  drakehide: { stats: { dotMult: 0.5 }, text: 'Poison and Bleed on you deal half damage.' },
+  shadowskin: { stats: { dodge: 0.1 }, text: 'Always 10% Dodge.' },
+  hauberk: { stats: { guardShield: 1 }, text: 'Your Guard cards give +1 Shield.' },
+  brigandine: { stats: { startShield: 3 }, text: 'You start every fight with 3 Shield.' },
+  wardmail: { stats: { debuffResist: 1 }, text: 'Debuffs on you last 1 turn (or 2s) less.' },
+  bulwark: { stats: { frontBlock: 2 }, text: '+2 Block while you stand nearest the enemy.' },
+  hourglass: { stats: { tempo: -0.5 }, text: '' },
+};
+for (const [id, p] of Object.entries(PASSIVES)) {
+  const def = ITEMS[id as ItemId];
+  Object.assign(def, p.stats);
+  if (p.text) def.desc += ` ${p.text}`;
+}
+
+/** Issued Gear (M15): each class's free weapon and armor; everyone gets the Tin Charm and the Copper Band. */
+export const ISSUED_KIT: Record<ClassId, Record<GearSlot, ItemId>> = {
+  warden: { weapon: 'cudgel', armor: 'ringmail', amulet: 'tincharm', ring: 'copperband' },
+  cutthroat: { weapon: 'dirk', armor: 'jerkin', amulet: 'tincharm', ring: 'copperband' },
+  lampbearer: { weapon: 'crook', armor: 'patchwork', amulet: 'tincharm', ring: 'copperband' },
+  sorceress: { weapon: 'censer', armor: 'patchwork', amulet: 'tincharm', ring: 'copperband' },
+  undertaker: { weapon: 'cudgel', armor: 'jerkin', amulet: 'tincharm', ring: 'copperband' },
+  bellwright: { weapon: 'sledge', armor: 'ringmail', amulet: 'tincharm', ring: 'copperband' },
+  zealot: { weapon: 'knife', armor: 'patchwork', amulet: 'tincharm', ring: 'copperband' },
+  alchemist: { weapon: 'knife', armor: 'jerkin', amulet: 'tincharm', ring: 'copperband' },
+};
+/** Issued Gear is crude and heavy: each piece worn adds this much Speed. */
+export const ISSUED_WEIGHT = 0.25;
+
+/** Commons and Uncommons share their kind's card; Rares and Legendaries bring their own. */
+export function gearCard(item: ItemId): CardId {
+  const def = ITEMS[item];
+  if (def.legend) return def.legend;
+  if (def.card) return def.card;
+  const kind: CardKind = def.gearType ?? (def.kind === 'amulet' ? 'amulet' : 'ring');
+  return TYPE_CARDS[kind][itemTier(item) >= 2 ? 1 : 0];
+}
+
+/** "Card: Stab · 2s · ⚔: 3 dmg." — what a piece of Gear adds to the deck, for its text. */
+export function gearCardNote(item: ItemId): string {
+  return `Card: ${cardText(gearCard(item))}`;
+}
 
 /** Every Legendary, in slot order (the Dead King's treasure holds one at random). */
 export const LEGENDARY_IDS: readonly ItemId[] = ['alastor', 'earthsplitter', 'hollowrod', 'daystar', 'durance', 'pilgrim', 'fenrir', 'silva'];
@@ -492,3 +596,6 @@ export const LOOT = {
   /** Most items a room's floor holds from finds (the loot panel lays out up to this many cards). */
   maxDrops: 6,
 };
+
+// Every piece of Gear says which card it puts in the deck (Legendaries already do).
+for (const def of Object.values(ITEMS)) if (slotOf(def.id) && !def.legend) def.desc += ` ${gearCardNote(def.id)}`;

@@ -1,7 +1,7 @@
 import type { Rng } from '../rng';
 import type { ShardId } from './regalia';
 
-export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich' | 'king' | 'wolf';
+export type EnemyId = 'ghoul' | 'crawler' | 'acolyte' | 'giant' | 'wight' | 'queen' | 'zombie' | 'lich' | 'king' | 'wolf' | 'rat' | 'shade' | 'imp';
 
 /**
  * Power tier: 0 the common dead, 4 the worst there is. Which units of tiers 0–3 a run uses is rolled (see `Roster`);
@@ -60,6 +60,13 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- Allies: Howl (Fenrir's Tooth, a Legendary) calls them (user, 2026-10-11) ----
   wolf: { id: 'wolf', name: 'Wolf', tier: 0, maxHp: 15, speed: 5, dmg: 2, block: 0, undead: false, glyph: 'ᴥ', eventOnly: true, ally: true,
     desc: 'Fights at the side of whoever howled for it, from fight to fight. Bite: 2 dmg to the nearest enemy, and −1 Block on it until the fight ends.' },
+  // ---- Summons (M15): cards call them for one fight; they're gone when it ends ----
+  rat: { id: 'rat', name: 'Rat', tier: 0, maxHp: 3, speed: 5, dmg: 1, block: 0, undead: false, glyph: 'ʚ', eventOnly: true, ally: true,
+    desc: 'Summoned for one fight (Mutter, Raise). Bite: 1 dmg to the nearest enemy.' },
+  shade: { id: 'shade', name: 'Shade', tier: 0, maxHp: 8, speed: 4, dmg: 2, block: 0, undead: true, glyph: '◐', eventOnly: true, ally: true,
+    desc: 'Summoned for one fight (Mutter). Claw: 2 dmg to the nearest enemy.' },
+  imp: { id: 'imp', name: 'Imp', tier: 0, maxHp: 8, speed: 3, dmg: 2, block: 0, undead: false, glyph: 'ɤ', eventOnly: true, ally: true,
+    desc: 'Summoned for one fight (Bound Familiar). Bite: 2 dmg to the nearest enemy, and a Hexed stack.' },
 };
 
 export const TIERS: RosterTier[] = [0, 1, 2, 3];

@@ -1,6 +1,6 @@
 import { CLASSES, CLASS_IDS, type ClassId } from './content/classes';
 import { TALENTS, talentsFor, type TalentId } from './content/talents';
-import { isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlot, type ItemId, type ResourceId } from './content/items';
+import { GEAR_SLOTS, isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlot, type ItemId, type ResourceId } from './content/items';
 import type { Rng } from './rng';
 import { gearKind, type GearKind } from './content/forge';
 import { EMERGENCIES, emergencyBans, type EmergencyId } from './content/emergencies';
@@ -191,6 +191,8 @@ export interface Kit {
   gear: Partial<Record<GearSlot, ItemId>>;
   consumables: ItemId[];
   rites: ResourceId[];
+  /** Slots to go without (M15): no Issued Gear there either, so a little quicker, but a Fumble in the deck. */
+  bare?: GearSlot[];
 }
 
 export function emptyKit(): Kit {
@@ -242,6 +244,10 @@ export function kitError(kit: Kit, stash: readonly ItemId[], resources: Record<R
     if (!take(it)) return `Your Stash has no ${ITEMS[it].name}.`;
   }
   if (Object.values(kit.gear).filter((it) => it && ITEMS[it].legend).length > 1) return 'Only one Legendary can be worn at a time.';
+  for (const slot of kit.bare ?? []) {
+    if (!GEAR_SLOTS.includes(slot)) return 'No such slot.';
+    if (kit.gear[slot]) return 'You can’t both wear something there and go without.';
+  }
   if (kit.consumables.length > KIT_RULES.consumables) return `At most ${KIT_RULES.consumables} consumables.`;
   if (kit.rites.includes('gem') && kit.consumables.length) return 'The Gem Rite forbids consumables: leave them at home.';
   // What the Emergency needs carried out can't be carried in.

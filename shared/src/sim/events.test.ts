@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
 import { CLASS_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
 import { monstersIn, spawnGroup } from './combat';

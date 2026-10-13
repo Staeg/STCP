@@ -174,19 +174,18 @@ describe("Smith's Anvil", () => {
 });
 
 describe('The Loom', () => {
-  it('mends spent Cloth, Call for Help and Iron Oath', () => {
+  it('mends spent Cloth, Call for Help and burned cards', () => {
     const { world, h } = withEvent('loom');
     equip(h, 'armor', 'gravecloth');
     wornCharge(h, 'armor')!.usesLeft = 0;
     h.calledAt = world.time;
-    h.talents = ['ironOath'];
-    h.oathUsed = true;
-    expect(buildView(world, 'h').event!.choices[0].label).toMatch(/Gravecloth, Call for Help, Iron Oath/);
+    h.burned = ['dance'];
+    expect(buildView(world, 'h').event!.choices[0].label).toMatch(/Gravecloth, Call for Help, burned cards \(Blade Dance\)/);
     choose(world, 'h', 'weave');
     run(world, 6.5);
     expect(wornCharge(h, 'armor')!.usesLeft).toBe(1);
     expect(h.calledAt).toBeNull();
-    expect(h.oathUsed).toBe(false);
+    expect(h.burned).toEqual([]);
   });
 
   it('is refused when nothing is worn thin', () => {

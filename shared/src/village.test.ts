@@ -66,13 +66,13 @@ describe('Stash villages', () => {
   it('only lets an earned Talent of the right class be chosen', () => {
     const stash = new Stash(null);
     const c = stash.characterFor('Ann', 'warden');
-    expect(stash.chooseTalent('Ann', c.id, 'ironOath')).toMatch(/XP first/);
+    expect(stash.chooseTalent('Ann', c.id, 'shieldwall')).toMatch(/XP first/);
     stash.recordCharacter('Ann', c.id, ok);
     stash.recordCharacter('Ann', c.id, ok);
-    expect(stash.chooseTalent('Ann', c.id, 'ghostStep')).toMatch(/not a Warden Talent/);
-    expect(stash.chooseTalent('Ann', c.id, 'ironOath')).toBeNull();
-    expect(stash.characterFor('Ann', 'warden').talent).toBe('ironOath');
-    expect(stash.chooseTalent('Ann', c.id, 'unyielding')).toMatch(/already/);
+    expect(stash.chooseTalent('Ann', c.id, 'sleightOfHand')).toMatch(/not a Warden Talent/);
+    expect(stash.chooseTalent('Ann', c.id, 'shieldwall')).toBeNull();
+    expect(stash.characterFor('Ann', 'warden').talent).toBe('shieldwall');
+    expect(stash.chooseTalent('Ann', c.id, 'unbrokenLine')).toMatch(/already/);
   });
 
   it('replaces a Character who dies with a fresh recruit', () => {

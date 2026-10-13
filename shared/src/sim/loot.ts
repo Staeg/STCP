@@ -275,7 +275,7 @@ export function wornDefs(h: Hero): ItemDef[] {
   return GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x).map((x) => ITEMS[x]);
 }
 
-type WornNumber = 'maxHp' | 'block' | 'thorns' | 'regen' | 'stressMult' | 'lightDrainMult';
+type WornNumber = 'maxHp' | 'block' | 'thorns' | 'regen' | 'stressMult' | 'lightDrainMult' | 'tempo' | 'delayBonus' | 'poisonTurns' | 'poisonedBonus' | 'lowCrit' | 'venomCut' | 'hinderDmg' | 'stunnedMult' | 'firstCardCut' | 'dotMult' | 'dodge' | 'guardShield' | 'startShield' | 'debuffResist' | 'frontBlock';
 
 /** A worn bonus that adds up (Thorn Ring's damage back, Bloodstone's regen…). */
 export function wornStat(h: Hero, key: WornNumber): number {

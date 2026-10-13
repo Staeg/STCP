@@ -37,7 +37,7 @@ export class Game {
     const emergencies = opts.emergencies ?? slots.flatMap((s) => (!s.isBot && s.loadout?.emergency ? [s.loadout.emergency] : []));
     this.world = createWorld(seed, { ...opts, cr, emergencies, relicRite: relic, startEscalation: opts.startEscalation ?? (relic ? KIT_RULES.relicEscalation : 0) });
     slots.forEach((slot, i) => {
-      addHero(this.world, slot);
+      addHero(this.world, { ...slot, issue: true });
       if (slot.isBot) this.bots.set(slot.id, createBotMemory((seed ^ 0x9e3779b9) + i * 7919, this.world.startTime));
     });
     // Relic Rite: it also wakes the Dead King as the run begins (Crowned in Dread; user, 2026-10-11).

@@ -127,7 +127,12 @@ export interface EmergencyProgress {
 
 /** What this hero would bring home: pack and Gear, plus what an Undertaker or the Tome Rite is carrying for them. */
 export function carriedHome(h: Hero): ItemId[] {
-  const own = h.dead ? [] : [...h.items, ...GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x)];
+  const own = h.dead ? [] : [...GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x), ...h.items];
+  // Issued Gear (M15) goes back to the quartermaster, not to the Village: one copy of each piece they were given.
+  for (const item of Object.values(h.issued ?? {})) {
+    const i = item ? own.indexOf(item) : -1;
+    if (i >= 0) own.splice(i, 1);
+  }
   return [...own, ...h.legacyItems];
 }
 

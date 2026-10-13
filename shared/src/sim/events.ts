@@ -1,5 +1,6 @@
 import { CLASSES, type ClassId } from '../content/classes';
-import { hasTalent } from '../content/talents';
+import { CARDS } from '../content/cards';
+import { unburn } from './deck';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
@@ -273,7 +274,7 @@ function spent(item: ItemId, c: ItemCharge): boolean {
   return c.cdLeft > 0 || c.usedThisFight || (c.usesLeft ?? Infinity) < (freshCharge(item).usesLeft ?? Infinity);
 }
 
-/** The Loom: what it would make whole again for this hero (Cloth worn or carried, Call for Help, Iron Oath). */
+/** The Loom: what it would make whole again for this hero (Cloth worn or carried, Call for Help, the Toll, burned cards). */
 function loomMends(world: World, h: Hero): string[] {
   const out: string[] = [];
   for (const slot of GEAR_SLOTS) {
@@ -283,7 +284,7 @@ function loomMends(world: World, h: Hero): string[] {
   for (const p of h.packCharges) if (spent(p.item, p.charge)) out.push(ITEMS[p.item].name);
   if (callReadyIn(world, h) > 0) out.push('Call for Help');
   if (h.tolled) out.push('Toll');
-  if (hasTalent(h, 'ironOath') && h.oathUsed) out.push('Iron Oath');
+  if (h.burned.length) out.push(`burned cards (${h.burned.map((c) => CARDS[c].name).join(', ')})`);
   return out;
 }
 
@@ -603,7 +604,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       for (const p of h.packCharges) p.charge = freshCharge(p.item);
       h.calledAt = null;
       h.tolled = false;
-      h.oathUsed = false;
+      unburn(h);
       notify(world, h, mended.length
         ? `The grey thread runs through your things, and they are whole again: ${mended.join(', ')}.`
         : 'The loom clacks, but nothing of yours needed it.');

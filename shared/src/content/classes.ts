@@ -1,4 +1,4 @@
-import { CLASS_RULES } from './abilities';
+import { CLASS_RULES } from './innates';
 
 export type ClassId = 'warden' | 'cutthroat' | 'lampbearer' | 'sorceress' | 'undertaker' | 'bellwright' | 'zealot' | 'alchemist';
 
@@ -8,7 +8,7 @@ export interface ClassDef {
   role: string;
   color: string;
   maxHp: number;
-  /** Speed: seconds between this hero's turns in a fight, and to walk a tunnel. Lower is faster. */
+  /** Speed: seconds to walk a tunnel, and before their first action in a fight (cards set the rest). Lower is faster. */
   speed: number;
   /** The class's Innate ability (always on, or the Bellwright's Toll), for the class picker. */
   innate: { name: string; desc: string };

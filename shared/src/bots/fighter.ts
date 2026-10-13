@@ -1,13 +1,15 @@
 import type { ItemId } from '../content/items';
 import type { Rng } from '../rng';
 import { BOTS } from './tuning';
-import { abilitiesOf, type Choice, type CombatAction } from '../sim/combat';
-import type { EncounterView, PlayerView } from '../sim/views';
-
+import { CARDS } from '../content/cards';
+import type { Choice } from '../sim/combat';
+import type { CardView, EncounterView, PlayerView } from '../sim/views';
+import { cardValue, type BotFight } from './cards';
 
 /**
- * Combat brain for bots: a sensible heuristic, deliberately flawed by random blunders
- * ("mediocre" per the plan). Uses only the encounter as the bot's hero sees it.
+ * Combat brain for bots: a sensible heuristic, deliberately flawed by random blunders ("mediocre" per the plan).
+ * Uses only the encounter as the bot's hero sees it. Since M15 it weighs each card in hand by what it would do for
+ * the time it takes, and never plays one the fight screen marks as useless unless it has nothing else.
  */
 export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const enc = view.encounter;
@@ -15,112 +17,84 @@ export function chooseCombatAction(view: PlayerView, rng: Rng): Choice | null {
   const me = enc.heroes.find((h) => h.id === view.you.id);
   if (!me || me.downed) return null;
 
-  const options = legalChoices(view, enc);
-  if (options.length === 0) return { action: 'brace' };
-  if (rng.chance(BOTS.blunder)) return rng.pick(options);
-
   const allies = enc.heroes.filter((h) => !h.downed);
   const downed = enc.heroes.filter((h) => h.downed);
   const enemies = enc.monsters;
-  const abilities = abilitiesOf(view.you);
-  const ready = (i: 0 | 1 | 2) => {
-    const opt = enc.yourOptions[`a${i}` as CombatAction];
-    return (view.you.cooldowns[abilities[i].id] ?? 0) === 0 && !!opt && !opt.blocked && (opt.targets.length > 0 || !needsPick(i));
-  };
-  const needsPick = (i: 0 | 1 | 2) => ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(abilities[i].target);
-  // The Forsaken Queen heals and hastens the rest, the Lich sears everyone every turn: kill them first, else the weakest.
-  const weakestEnemy = enemies.find((m) => m.enemy === 'queen') ?? enemies.find((m) => m.enemy === 'lich') ?? minBy(enemies, (m) => m.hp);
-  const softTarget = enemies.find((m) => m.st.stun || !m.st.acted);
-
   const slot = (id: ItemId) => view.you.items.indexOf(id);
   if (downed.length && slot('salts') >= 0) return { action: 'item', item: slot('salts'), target: downed[0].id };
-  if (downed.length && rng.chance(0.7)) return { action: 'revive', target: minBy(downed, (d) => d.dying ?? 99)!.id };
+  if (downed.length && enc.reviveTargets.length && rng.chance(0.7)) return { action: 'revive', target: minBy(downed, (d) => d.dying ?? 99)!.id };
   if (me.hp / me.maxHp <= 1 - BOTS.consumeAt && slot('bandage') >= 0) return { action: 'item', item: slot('bandage'), target: me.id };
   if (enemies.length > BOTS.firebombAbove && slot('firebomb') >= 0) return { action: 'item', item: slot('firebomb') };
   if (view.you.light <= 0 && slot('torch') >= 0) return { action: 'item', item: slot('torch') };
   // Retreat when the fight is clearly being lost and nobody can patch us up.
-  const enemyHp = enc.monsters.reduce((sum, m) => sum + m.hp, 0);
+  const enemyHp = enemies.reduce((sum, m) => sum + m.hp, 0);
   const healer = enc.heroes.some((h) => h.cls === 'lampbearer' && !h.downed && h.id !== me.id);
   // At the exit, fleeing means escaping the dungeon: do it when hurt, out of time, or losing the fight.
   const atOpenExit = enc.room === view.exitRoom;
   const ourHp = allies.reduce((sum, h) => sum + h.hp, 0);
-  if (atOpenExit && (me.hp / me.maxHp < BOTS.exitFleeAt || enemyHp > ourHp || view.time > view.collapseAt - 90)) return { action: 'flee' };
-  if (me.hp / me.maxHp < BOTS.fleeAt && enemyHp > me.hp && !healer && !downed.length && rng.chance(0.6)) return { action: 'flee' };
-
-  switch (view.you.cls) {
-    case 'warden':
-      if (ready(1) && (enemies.length >= 2 || me.hp / me.maxHp < 0.6)) return { action: 'a1' };
-      if (ready(0)) return { action: 'a0', target: enemies[0].id };
-      if (ready(2) && (view.you.stress > 20 || allies.length > 1)) return { action: 'a2' };
-      break;
-    case 'cutthroat':
-      if (softTarget) return { action: 'a0', target: softTarget.id };
-      if (ready(1)) return { action: 'a1', target: maxBy(enemies, (m) => m.hp)!.id };
-      if (me.hp / me.maxHp < 0.35 && ready(2)) return { action: 'a2' };
-      return { action: 'a0', target: weakestEnemy!.id };
-    case 'lampbearer': {
-      // Triage: Mend only works on yourself.
-      if (abilities[2].target === 'self') {
-        if (me.hp / me.maxHp < 0.6 && ready(2)) return { action: 'a2' };
-      } else {
-        const hurtOther = minBy(allies.filter((a) => a.id !== me.id && a.hp / a.maxHp < 0.5), (a) => a.hp / a.maxHp);
-        if (hurtOther && ready(2)) return { action: 'a2', target: hurtOther.id };
-      }
-      // Alone, Vigil turns every enemy move into a Flare. Bots only know their own stress, so it's self-care.
-      if (ready(1) && (allies.length === 1 || view.you.stress > 30)) return { action: 'a1', target: me.id };
-      if (ready(0)) return { action: 'a0' };
-      break;
-    }
-    case 'sorceress': {
-      if (enemies.length >= 2 && ready(1) && allies.every((a) => a.hp > 12)) return { action: 'a1' };
-      if (enemies.length >= 2 && ready(2)) return { action: 'a2' };
-      const hexed = maxBy(enemies.filter((m) => m.st.hexed?.length), (m) => m.st.hexed!.length);
-      return { action: 'a0', target: (hexed ?? weakestEnemy)!.id };
-    }
-    case 'undertaker': {
-      // Finish off the toughest wounded enemy; raise the dead when the fight is still on.
-      const wounded = enc.yourOptions.a1?.targets ?? [];
-      if (ready(1) && wounded.length) return { action: 'a1', target: maxBy(enemies.filter((m) => wounded.includes(m.id)), (m) => m.hp)!.id };
-      if (ready(2)) return { action: 'a2' };
-      return { action: 'a0', target: weakestEnemy!.id };
-    }
-    case 'bellwright':
-      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
-      if (ready(2) && allies.length >= 2) return { action: 'a2' };
-      return { action: 'a0', target: enemies[0].id };
-    case 'zealot': {
-      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
-      const burdened = maxBy(allies.filter((a) => a.id !== me.id && (a.stress ?? 0) >= 30), (a) => a.stress ?? 0);
-      if (ready(2) && burdened && view.you.stress < 90) return { action: 'a2', target: burdened.id };
-      return { action: 'a0', target: (softTarget ?? weakestEnemy)!.id };
-    }
-    case 'alchemist':
-      if (ready(1) && enemies.length >= 2) return { action: 'a1' };
-      if (ready(2) && view.you.items.some((it) => it === 'firebomb' || it === 'bandage') && !view.you.elixir) return { action: 'a2', target: me.id };
-      return { action: 'a0', target: maxBy(enemies, (m) => m.hp)!.id };
+  const leave = (atOpenExit && (me.hp / me.maxHp < BOTS.exitFleeAt || enemyHp > ourHp || view.time > view.collapseAt - 90))
+    || (me.hp / me.maxHp < BOTS.fleeAt && enemyHp > me.hp && !healer && !downed.length && rng.chance(0.6));
+  if (leave) {
+    // A sure way out in hand beats a coin toss.
+    const out = enc.yourHand.find((c) => c.card === 'slipaway' || c.card === 'waystep');
+    if (out) return { action: 'card', card: out.card, ...(out.card === 'waystep' ? { room: view.exitRoom } : {}) };
+    return { action: 'flee' };
   }
-  // Fallback: any legal attack, else brace.
-  const attack = options.find((o) => o.action.startsWith('a'));
-  return attack ?? { action: 'brace' };
+  if (!enc.yourHand.length) return { action: 'brace' };
+
+  const fight: BotFight = { view, enc, me, allies, enemies, losing: enemyHp > ourHp, rng };
+  const useful = enc.yourHand.filter((c) => !c.weak);
+  const pool = useful.length ? useful : enc.yourHand;
+  if (rng.chance(BOTS.blunder)) {
+    // A blunder: some other card in hand, but never one that would do nothing at all.
+    const c = rng.pick(pool);
+    return aim(fight, c);
+  }
+  let best: { c: CardView; v: number } | null = null;
+  for (const c of pool) {
+    const v = cardValue(fight, c.card) / Math.max(1, c.time);
+    if (!best || v > best.v) best = { c, v };
+  }
+  return aim(fight, best!.c);
 }
 
-/** Every legal choice with a sensible target, used for blunders and fallbacks. */
-function legalChoices(view: PlayerView, enc: EncounterView): Choice[] {
-  const out: Choice[] = [];
-  const me = view.you;
-  abilitiesOf(me).forEach((ab, i) => {
-    if ((me.cooldowns[ab.id] ?? 0) > 0) return;
-    const action = `a${i}` as CombatAction;
-    const opt = enc.yourOptions[action];
-    if (!opt || opt.blocked) return;
-    const targeted = ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
-    if (!targeted) out.push({ action });
-    else for (const t of opt.targets) out.push({ action, target: t });
-  });
-  return out;
+/** The card, aimed as the bot would: its value function's pick, else the sensible default. */
+function aim(f: BotFight, c: CardView): Choice {
+  const def = CARDS[c.card];
+  if (def.target === 'room') return { action: 'card', card: c.card, room: f.view.exitRoom };
+  if (def.target === 'enemy') return { action: 'card', card: c.card, target: enemyFor(f, c.card) ?? c.targets[0] };
+  if (def.target === 'ally') return { action: 'card', card: c.card, target: allyFor(f, c.card) ?? c.targets[0] };
+  return { action: 'card', card: c.card };
 }
 
-function minBy<T>(arr: T[], f: (x: T) => number): T | undefined {
+/** Who a bot hits: Backstab what's open, Cheap Shot the hardest hitter, finishers the most hurt, else Queen, Lich, weakest. */
+function enemyFor(f: BotFight, card: Choice['card']): string | undefined {
+  const { enemies } = f;
+  const soft = enemies.find((m) => m.st.stun || m.st.exposed || !m.st.acted);
+  if (card === 'backstab' && soft) return soft.id;
+  if (card === 'cheap') return maxBy(enemies, (m) => m.maxHp)?.id;
+  if (card === 'rites' || card === 'mercy') return minBy(enemies, (m) => m.hp / m.maxHp)?.id;
+  if (card === 'hex') return (maxBy(enemies.filter((m) => m.st.hexed?.length), (m) => m.st.hexed!.length) ?? priority(f))?.id;
+  if (card === 'acid' || card === 'envenom') return maxBy(enemies, (m) => m.hp)?.id;
+  return priority(f)?.id;
+}
+
+/** The Forsaken Queen heals and hastens the rest, the Lich sears everyone every turn: kill them first, else the weakest. */
+function priority(f: BotFight) {
+  return f.enemies.find((m) => m.enemy === 'queen') ?? f.enemies.find((m) => m.enemy === 'lich') ?? minBy(f.enemies, (m) => m.hp);
+}
+
+/** Who a bot helps: the most stressed for stress cards, whoever carries items for Elixir, else the most hurt. */
+function allyFor(f: BotFight, card: Choice['card']): string | undefined {
+  const { allies, me } = f;
+  if (card === 'sins') return maxBy(allies.filter((a) => a.id !== me.id), (a) => a.stress ?? 0)?.id ?? me.id;
+  if (card === 'vigil' || card === 'shrug2') return maxBy(allies, (a) => a.stress ?? 0)?.id;
+  if (card === 'elixir') return me.id;
+  if (card === 'signal') return maxBy(allies.filter((a) => a.id !== me.id), (a) => a.nextIn ?? 0)?.id ?? me.id;
+  return minBy(allies, (a) => a.hp / a.maxHp)?.id;
+}
+
+export function minBy<T>(arr: T[], f: (x: T) => number): T | undefined {
   let best: T | undefined;
   let bestV = Infinity;
   for (const x of arr) {
@@ -130,6 +104,8 @@ function minBy<T>(arr: T[], f: (x: T) => number): T | undefined {
   return best;
 }
 
-function maxBy<T>(arr: T[], f: (x: T) => number): T | undefined {
+export function maxBy<T>(arr: T[], f: (x: T) => number): T | undefined {
   return minBy(arr, (x) => -f(x));
 }
+
+export type { EncounterView };

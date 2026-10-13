@@ -209,14 +209,14 @@ describe('LobbyManager', () => {
     const warden = stash.characterFor('Ann', 'warden');
     stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
     stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
-    expect(stash.chooseTalent('Ann', warden.id, 'ironOath')).toBeNull();
+    expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
 
     const mgr = new LobbyManager(stash);
     const a = client(mgr, 'tokenAAAA', 'Ann');
     a.say({ t: 'create' });
     a.say({ t: 'pickClass', cls: 'warden' });
     expect(a.ws.lastLobby()!.cr).toBe(1);
-    expect(a.ws.lastLobby()!.members[0].character?.talent).toBe('ironOath');
+    expect(a.ws.lastLobby()!.members[0].character?.talent).toBe('shieldwall');
     a.say({ t: 'ready', ready: true });
     a.say({ t: 'start' });
 
@@ -224,7 +224,7 @@ describe('LobbyManager', () => {
     const heroes = Object.values(lobby.game.world.heroes);
     const you = heroes.find((h) => !h.isBot)!;
     expect(you.name).toBe(`${warden.name} (Ann)`);
-    expect(you.talents).toEqual(['ironOath']);
+    expect(you.talents).toEqual(['shieldwall']);
     const bots = heroes.filter((h) => h.isBot);
     // The two healthy ones first (Sorceress, Zealot), then a hurt one, since nobody healthy is left.
     expect(bots.map((h) => h.cls).slice(0, 2).sort()).toEqual(['sorceress', 'zealot']);

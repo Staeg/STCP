@@ -1,13 +1,13 @@
-import { CLASS_RULES } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
 import { CLASSES } from '../content/classes';
 import { MIN_SPEED } from '../content/constants';
 import { CLASS_EVENTS, ELITE_EVENTS, EVENTS, EVENT_SEEDING } from '../content/events';
-import { ITEMS } from '../content/items';
+import { GEAR_SLOTS, ISSUED_WEIGHT, ITEMS } from '../content/items';
 import type { Hero } from './world';
 
 /**
- * Speed: a hero's personal timer. It's the seconds between their turns in a fight and the
- * seconds they take to walk a tunnel. Lower is faster. Class sets the base; worn weapons and
+ * Speed: a hero's personal timer. It's the seconds they take to walk a tunnel, and (M15) the wait before their first
+ * action in a fight; after that, each card they play says how long until the next. Lower is faster. Class sets the base; worn weapons and
  * armor slow you, cursed amulets and rings quicken you, and some events add to it or take from it.
  */
 export interface SpeedMod {
@@ -27,9 +27,12 @@ export interface SpeedPart {
 /** Everything that makes up a hero's Speed right now: class base first, then what you wear, then effects. */
 export function speedParts(h: Hero, now: number): SpeedPart[] {
   const parts: SpeedPart[] = [{ label: CLASSES[h.cls].name, amount: CLASSES[h.cls].speed }];
-  for (const id of [h.weapon, h.armor, h.amulet, h.ring]) {
-    const cost = id ? ITEMS[id].speed : undefined;
-    if (cost) parts.push({ label: ITEMS[id!].name, amount: cost });
+  for (const slot of GEAR_SLOTS) {
+    const id = h[slot];
+    if (!id) continue;
+    // Issued Gear (M15) is crude and heavy: taking it off makes you a little quicker.
+    const cost = (ITEMS[id].speed ?? 0) + (h.issued?.[slot] === id ? ISSUED_WEIGHT : 0);
+    if (cost) parts.push({ label: ITEMS[id].name, amount: cost });
   }
   // Valuables weigh you down while you carry them.
   for (const id of h.items) {
@@ -39,7 +42,6 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   for (const m of h.speedMods ?? []) {
     if (m.until === null || m.until > now) parts.push({ label: m.label, amount: m.amount });
   }
-  if (h.st?.clang) parts.push({ label: 'Clang', amount: -h.st.clang.stacks * CLASS_RULES.clangHaste });
   const led = h.leading.length;
   if (led) parts.push({ label: led > 1 ? `Escorting ${led} villagers` : 'Escorting a villager', amount: led * escortSpeed(h) });
   if (h.cls === 'sorceress' && h.insane) parts.push({ label: 'Insane Sorceress', amount: CLASS_RULES.sorceressInsaneSpeed });

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { abilitiesFor } from '../content/talents';
 import { REGALIA_RULES, specsUnlocked, talentsOf, type ShardId } from '../content/regalia';
 import { Stash } from '../stash';
 import { chooseSpec, heroCr, loadoutOf, newCharacter, type Character } from '../village';
@@ -124,21 +123,19 @@ describe('Specializations', () => {
   const char = (talent: Character['talent']): Character => ({ ...newCharacter('c1', 'warden', new Rng(1), []), talent });
 
   it('Seasoned gives the class’s other Talent too, and counts for CR', () => {
-    const c = char('ironOath');
-    expect(talentsOf(c)).toEqual(['ironOath']);
+    const c = char('shieldwall');
+    expect(talentsOf(c)).toEqual(['shieldwall']);
     expect(chooseSpec(c, 'seasoned', ['crown'], 300)).toBeNull();
-    expect(talentsOf(c)).toEqual(['ironOath', 'unyielding']);
-    expect(loadoutOf('Ann', c).talents).toEqual(['ironOath', 'unyielding']);
+    expect(talentsOf(c)).toEqual(['shieldwall', 'unbrokenLine']);
+    expect(loadoutOf('Ann', c).talents).toEqual(['shieldwall', 'unbrokenLine']);
     expect(heroCr(talentsOf(c), undefined)).toBe(2);
-    // Unyielding's Vengeance, on top of Iron Oath.
-    expect(abilitiesFor('warden', talentsOf(c))[1].field).toBe(true);
   });
 
   it('needs the Shard, a Talent and the gold; one Spec for good', () => {
-    expect(chooseSpec(char('ironOath'), 'seasoned', [], 300)).toMatch(/Shard/);
+    expect(chooseSpec(char('shieldwall'), 'seasoned', [], 300)).toMatch(/Shard/);
     expect(chooseSpec(char(null), 'seasoned', ['crown'], 300)).toMatch(/Talent first/);
-    expect(chooseSpec(char('ironOath'), 'seasoned', ['crown'], 249)).toMatch(/250 gold/);
-    const c = char('ironOath');
+    expect(chooseSpec(char('shieldwall'), 'seasoned', ['crown'], 249)).toMatch(/250 gold/);
+    const c = char('shieldwall');
     chooseSpec(c, 'seasoned', ['crown'], 300);
     expect(chooseSpec(c, 'seasoned', ['crown'], 300)).toMatch(/already/);
   });
@@ -157,7 +154,7 @@ describe('Specializations', () => {
     // Fast-track a Talent.
     stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
     stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
-    expect(stash.chooseTalent('Ann', warden.id, 'ironOath')).toBeNull();
+    expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
     expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toBeNull();
     expect(stash.purse('Ann')).toBe(50);
     expect(stash.characterFor('Ann', 'warden').spec).toBe('seasoned');

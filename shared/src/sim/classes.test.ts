@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLASS_RULES, abilityById } from '../content/abilities';
+import { CLASS_RULES } from '../content/innates';
+import { CARD_RULES } from '../content/cards';
+import { setHand } from './testkit';
 import { CLASSES } from '../content/classes';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { dieOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { dieOut, combatOrder, damageMult, fieldTurn, spawnGroup } from './combat';
 import { carriedHome } from './emergency';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
@@ -65,8 +67,9 @@ describe('line-ups and targeting', () => {
     const { world, ids, room, monsters } = arena(['cutthroat', 'sorceress', 'warden'], ['ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
+    for (const id of ids) enc.next[id] = world.time + 999; // the heroes hold still (and summon nothing)
     for (let k = 0; k < 3; k++) untilTurn(world, room, monsters[0].id);
-    const hits = enc.events.filter((e) => e.actor === monsters[0].id && e.kind === 'damage').map((e) => e.target);
+    const hits = enc.events.filter((e) => e.actor === monsters[0].id && e.kind === 'damage' && e.target !== monsters[0].id).map((e) => e.target);
     expect(hits.length).toBeGreaterThan(0);
     expect(new Set(hits)).toEqual(new Set(['h2']));
   });
@@ -82,10 +85,10 @@ describe('poison and acid', () => {
     const enc = world.encounters[room];
     untilTurn(world, room, m.id);
     const ticks = enc.events.filter((e) => e.actor === m.id && e.text.includes('poison damage')).map((e) => e.amount);
-    expect(ticks).toEqual([2 + 2 * CLASS_RULES.acidBonus, 3 + 2 * CLASS_RULES.acidBonus]);
+    expect(ticks).toEqual([2 + 2 * CARD_RULES.acidBonus, 3 + 2 * CARD_RULES.acidBonus]);
     expect(m.st.poison).toEqual([{ dmg: 2, rounds: 1 }]);
     // The timer ran out: one stack fades and the other gets a fresh timer.
-    expect(m.st.acid).toEqual({ stacks: 1, turns: CLASS_RULES.acidTurns });
+    expect(m.st.acid).toEqual({ stacks: 1, turns: CARD_RULES.acidTurns });
   });
 });
 
@@ -95,10 +98,11 @@ describe('monster armor', () => {
     const { world, ids, room, monsters } = arena(['warden'], ['giant']);
     walkIn(world, ids, room);
     const giant = monsters[0];
-    applyIntent(world, ids[0], { type: 'combat', choice: { action: 'a0', target: giant.id } });
+    setHand(world.heroes[ids[0]], ['bash']);
+    applyIntent(world, ids[0], { type: 'combat', choice: { action: 'card', card: 'bash' } });
     untilTurn(world, room, ids[0]);
     const hit = world.encounters[room].events.find((e) => e.actor === ids[0] && e.kind === 'damage' && e.target === giant.id)!;
-    expect(hit.amount).toBe(abilityById('bash')!.power - 3);
+    expect(hit.amount).toBe(CARD_RULES.bash - 3);
   });
 
   it("a risen keeps its kind's armor, and a Risen ally's armor counts", () => {
@@ -127,28 +131,6 @@ describe('monster armor', () => {
 });
 
 describe('Undertaker', () => {
-  it('Last Rites only targets the wounded and kills outright; Raise brings the dead back to soak hits', () => {
-    const { world, ids, room, monsters } = arena(['undertaker'], ['ghoul', 'ghoul']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    expect(buildView(world, 'h0').encounter!.yourOptions.a1!.targets).toEqual([]);
-    monsters[0].hp = 998;
-    expect(buildView(world, 'h0').encounter!.yourOptions.a1!.targets).toEqual([monsters[0].id]);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: monsters[0].id } });
-    untilTurn(world, room, 'h0');
-    expect(world.monsters[monsters[0].id]).toBeUndefined();
-    expect(enc.lastSlain?.type).toBe('ghoul');
-
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
-    untilTurn(world, room, 'h0');
-    expect(enc.risen?.type).toBe('ghoul');
-    const risen = enc.risen!;
-    expect(buildView(world, 'h0').encounter!.risen?.id).toBe(risen.id);
-    untilTurn(world, room, monsters[1].id);
-    const last = enc.events.filter((e) => e.actor === monsters[1].id && e.kind === 'damage').at(-1);
-    expect(last?.target).toBe(risen.id);
-  });
-
   it('digs through rubble in one turn of their own; others take the full dig time', () => {
     const { world, heroes } = quiet(['undertaker', 'warden']);
     expect(digTime(heroes[0], world.time)).toBe(CLASSES.undertaker.speed);
@@ -190,7 +172,13 @@ describe('Undertaker', () => {
     expect(buildView(world, u.id).encounter!.legion[0]).toMatchObject({ name: `Risen ${c.name}`, cls: 'cutthroat' });
     expect(enc.next[c.id]).toBeCloseTo(world.time + speedOf(c, world.time) - (world.time - enc.startedAt), 0);
     untilTurn(world, room, c.id);
-    expect(enc.events.some((e) => e.actor === c.id && e.kind === 'damage' && e.text.includes('Backstab'))).toBe(true);
+    // It plays its hero's deck as an undecided hero would.
+    expect(c.deck).not.toBeNull();
+    expect(enc.events.some((e) => e.actor === c.id)).toBe(true);
+    // From here on only the Ghoul moves, and nothing else stands in front of the Risen ally.
+    for (const id of [u.id, w.id, c.id]) enc.next[id] = world.time + 999;
+    enc.legion = enc.legion!.filter((x) => x === r);
+    monsters[0].st = {}; // whatever it played on the Ghoul (a Stun, a Blind) is shaken off
     r.hp = 1;
     untilTurn(world, room, monsters[0].id);
     expect(r.hp).toBe(0);
@@ -225,42 +213,10 @@ describe('Undertaker', () => {
 });
 
 describe('Bellwright', () => {
-  it('Clang pushes the target back; Knell weakens with every ally and is blocked with 3', () => {
-    const { world, ids, room, monsters } = arena(['bellwright'], ['ghoul']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0' } });
-    untilTurn(world, room, monsters[0].id); // the Ghoul (Speed 5) goes before the Bellwright (Speed 7)
-    const before = enc.next[monsters[0].id];
-    untilTurn(world, room, 'h0');
-    expect(enc.next[monsters[0].id]).toBeCloseTo(before + CLASS_RULES.clangDelay);
-    const knell = abilityById('knell')!.power;
-    expect(knellDamage(knell, 0)).toBe(knell);
-    expect(knellDamage(knell, 2)).toBe(knell - 2 * CLASS_RULES.knellPerAlly);
-    expect(knellDamage(knell, 3)).toBe(0);
-
-    const four = arena(['bellwright', 'warden', 'sorceress', 'cutthroat'], ['ghoul']);
-    walkIn(four.world, four.ids, four.room);
-    expect(buildView(four.world, 'h0').encounter!.yourOptions.a1!.blocked).toBeTruthy();
-  });
-
-  it('Clang stacks −1s Speed on the Bellwright; each 2 turns without Clanging one stack fades', () => {
-    const { world, ids, room } = arena(['bellwright'], ['ghoul']);
-    walkIn(world, ids, room);
-    const h = world.heroes.h0;
-    h.st.clang = { stacks: 2, turns: 1 };
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0' } });
-    untilTurn(world, room, 'h0');
-    // Its turn started (one stack faded) and the Clang added one back, with a fresh timer.
-    expect(h.st.clang).toEqual({ stacks: 2, turns: CLASS_RULES.clangTurns });
-    expect(speedOf(h, world.time)).toBeCloseTo(CLASSES.bellwright.speed - 2 * CLASS_RULES.clangHaste);
-  });
-
   it('timed statuses outlast the fight and tick in the field; Poison keeps hurting', () => {
     const { world, ids } = arena(['bellwright'], ['ghoul']);
     const h = world.heroes[ids[0]];
     h.st = { clang: { stacks: 1, turns: 2 }, poison: [{ dmg: 3, rounds: 2 }], weak: { stacks: 1, turns: 1 }, stun: true, shield: 5 };
-    h.cooldowns = {};
     const hp = h.hp;
     fieldTurn(world, h);
     expect(h.hp).toBe(hp - 3);
@@ -304,7 +260,7 @@ describe('Bellwright', () => {
     expect(world.monsters[ghoul.id].room).toBe(-1);
     run(world, CLASS_RULES.tollDaze + 10);
     expect(hops[world.monsters[ghoul.id].room]).toBe(hops[far] - 1);
-    expect(checkSkill(world, heroes[0], 'toll', null)).toMatch(/already/);
+    expect(checkSkill(world, heroes[0], 'toll')).toMatch(/already/);
     const room = heroes[0].pos.kind === 'room' ? heroes[0].pos.room : -1;
     world.events[room] = { room, kind: 'loom', done: false, progress: 0, by: null, spawned: false };
     expect(eventChoices(world, heroes[0])?.choices.some((c) => c.label.includes('Toll'))).toBe(true);
@@ -324,33 +280,9 @@ describe('Zealot', () => {
     expect(z.downedAt).toBeNull();
   });
 
-  it('Take Their Sins works outside a fight, using up a turn', () => {
-    const { world, heroes } = quiet(['zealot', 'warden']);
-    heroes[1].stress = 40;
-    applyIntent(world, 'h0', { type: 'skill', target: 'h1' });
-    expect(heroes[1].stress).toBe(40);
-    run(world, CLASSES.zealot.speed + 0.2);
-    expect(heroes[1].stress).toBe(40 - 17);
-    expect(heroes[0].stress).toBe(17);
-    expect(heroes[0].cooldowns.sins).toBe(2); // the same cooldown as in a fight
-  });
 });
 
 describe('Alchemist', () => {
-  it('Elixir (out of a fight, on herself) doubles the next item', () => {
-    const { world, heroes } = quiet(['alchemist']);
-    const a = heroes[0];
-    a.hp = 10;
-    applyIntent(world, 'h0', { type: 'skill', target: 'h0' });
-    run(world, CLASSES.alchemist.speed + 0.2);
-    expect(a.elixir).toBe(true);
-    a.items = ['bandage'];
-    applyIntent(world, 'h0', { type: 'useItem', index: 0 });
-    while (a.queuedItem) run(world, 0.1);
-    expect(a.hp).toBe(34);
-    expect(a.elixir).toBe(false);
-  });
-
   it('brews a consumable every minute while there is room in the pack', () => {
     const { world, heroes } = quiet(['alchemist']);
     run(world, CLASS_RULES.brewEvery - 1);
@@ -365,114 +297,5 @@ describe('party', () => {
     const { heroes } = quiet(['warden', 'warden']);
     expect(heroes[0].color).toBe(CLASSES.warden.color);
     expect(heroes[1].color).not.toBe(heroes[0].color);
-  });
-});
-
-describe('reworked kits', () => {
-  it('Backstab crits an enemy that has not acted yet; Cheap Shot always stuns', () => {
-    const { world, ids, room, monsters } = arena(['cutthroat'], ['giant', 'ghoul']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    const [giant, ghoul] = monsters;
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: giant.id } });
-    untilTurn(world, room, 'h0');
-    expect(enc.events.find((e) => e.actor === 'h0' && e.kind === 'damage')).toMatchObject({ amount: 2 * abilityById('backstab')!.power - ENEMIES.giant.block, crit: true });
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: ghoul.id } });
-    untilTurn(world, room, 'h0');
-    expect(ghoul.st.stun).toBe(true);
-  });
-
-  it('Smoke Bomb covers every ally for 6 seconds, not turns', () => {
-    const { world, ids, room } = arena(['cutthroat', 'warden'], ['ghoul']);
-    walkIn(world, ids, room);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
-    untilTurn(world, room, 'h0');
-    const until = world.time + CLASS_RULES.smokeSecs;
-    for (const id of ids) expect(world.heroes[id].st.dodge).toBeCloseTo(until, 1);
-  });
-
-  it('Hex stacks: each Hexed adds +100% to the next Hex, for 2 of the target\'s turns', () => {
-    const { world, ids, room, monsters } = arena(['sorceress'], ['giant']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    const hexes = () => enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').map((e) => e.amount);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-    untilTurn(world, room, 'h0');
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: monsters[0].id } });
-    untilTurn(world, room, 'h0');
-    const hex = abilityById('hex')!.power;
-    expect(hexes()).toEqual([hex, 2 * hex].map((n) => n - ENEMIES.giant.block));
-    // The Giant (Speed 8) took its turn right after the second Hex (same moment): both stacks ticked once.
-    expect(monsters[0].st.hexed).toEqual([1, 1]);
-    world.heroes.h0.cooldowns = { hex: 99, pact: 99, wither: 99 }; // just brace from here
-    untilTurn(world, room, monsters[0].id);
-    expect(monsters[0].st.hexed).toBeUndefined();
-  });
-
-  it('Wither weakens every enemy; Blood Pact hits every enemy for 16, wounds every ally (never below 1) and stresses them', () => {
-    const { world, ids, room, monsters } = arena(['sorceress', 'warden'], ['ghoul', 'ghoul']);
-    walkIn(world, ids, room);
-    const [sorceress, warden] = ids.map((id) => world.heroes[id]);
-    warden.hp = 3;
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1' } });
-    untilTurn(world, room, 'h0');
-    expect(monsters.map((m) => m.hp)).toEqual([999 - 16, 999 - 16]);
-    expect(sorceress.hp).toBe(sorceress.maxHp - CLASS_RULES.pactCost);
-    expect(warden.hp).toBe(1);
-    expect(sorceress.stress).toBeGreaterThanOrEqual(CLASS_RULES.pactStress);
-    expect(warden.stress).toBeGreaterThanOrEqual(CLASS_RULES.pactStress);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
-    untilTurn(world, room, 'h0');
-    for (const m of monsters) expect(m.st.weak?.stacks).toBe(1);
-  });
-
-  it('Mend cannot target the Lampbearer; a lone Vigil answers every enemy action with a free Flare', () => {
-    const { world, ids, room, monsters } = arena(['lampbearer'], ['ghoul']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    expect(buildView(world, 'h0').encounter!.yourOptions.a2!.targets).toEqual([]);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: 'h0' } });
-    untilTurn(world, room, 'h0'); // the Ghoul (also Speed 5) acts right after, at the same moment
-    expect(world.heroes.h0.st.vigil).toBe('h0');
-    expect(enc.events.some((e) => e.text.includes('answers with a flare'))).toBe(true);
-    expect(monsters[0].hp).toBe(999 - abilityById('flare')!.power);
-    expect(world.heroes.h0.cooldowns.flare).toBeUndefined(); // free
-  });
-
-  it('the Lampbearer uses Mend, Vigil and Flare outside fights, on the shared cooldowns, and their light fades at half rate', () => {
-    const { world, heroes } = quiet(['lampbearer', 'warden']);
-    const [lamp, warden] = heroes;
-    warden.hp = 20;
-    lamp.stress = 30;
-    applyIntent(world, 'h0', { type: 'skill', skill: 'mend', target: 'h0' });
-    expect(lamp.queuedSkill).toBeNull(); // not on yourself
-    applyIntent(world, 'h0', { type: 'skill', skill: 'mend', target: 'h1' });
-    run(world, CLASSES.lampbearer.speed + 0.2);
-    expect(warden.hp).toBe(20 + abilityById('mend')!.power);
-    expect(lamp.cooldowns.mend).toBe(1);
-    applyIntent(world, 'h0', { type: 'skill', skill: 'vigil', target: 'h0' });
-    run(world, CLASSES.lampbearer.speed);
-    expect(lamp.stress).toBe(30 - abilityById('vigil')!.power);
-    expect(lamp.cooldowns.mend).toBeUndefined(); // ticked off by a turn's worth of time
-    expect(lamp.light).toBeGreaterThan(warden.light);
-    const dark = warden.light;
-    applyIntent(world, 'h0', { type: 'skill', skill: 'flare' });
-    run(world, CLASSES.lampbearer.speed);
-    expect(warden.light).toBeGreaterThan(dark);
-  });
-
-  it('every Last Rites kill makes the Spade hit 1 harder for the rest of the run', () => {
-    const { world, ids, room, monsters } = arena(['undertaker'], ['ghoul', 'ghoul']);
-    walkIn(world, ids, room);
-    const enc = world.encounters[room];
-    const [a, b] = monsters;
-    a.hp = 500;
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a1', target: a.id } });
-    untilTurn(world, room, 'h0');
-    expect(world.monsters[a.id]).toBeUndefined();
-    expect(world.heroes.h0.spadeBonus).toBe(1);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a0', target: b.id } });
-    untilTurn(world, room, 'h0');
-    expect(enc.events.filter((e) => e.actor === 'h0' && e.kind === 'damage').at(-1)!.amount).toBe(abilityById('spade')!.power + 1);
   });
 });

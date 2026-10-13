@@ -22,7 +22,8 @@ function place(world: World, id: string, room: number) {
 describe('escalation', () => {
   it('raises the Escalation every two minutes and writes it into the chronicle', () => {
     const world = createWorld(9, { monsters: false, loot: false });
-    addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    h.maxHp = h.hp = 1e9; // only the clock matters here, not what wanders by
     run(world, ESCALATION_INTERVAL * 2 + 1);
     expect(world.escalation).toBe(2);
     expect(world.chronicle.filter((c) => c.text.startsWith('Escalation')).length).toBe(2);
@@ -38,8 +39,9 @@ describe('escalation', () => {
 
   it('tunnels collapse from Escalation 3, and rubble can be dug through', () => {
     const world = createWorld(9, { monsters: false, loot: false });
-    const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
-    h.immuneUntil = Infinity; // only the tunnels matter here, not what wanders by
+    // A Warden: no card of theirs adds stress, so nothing but the tunnels matters here.
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    h.maxHp = h.hp = 1e9;
     const d = world.dungeon;
     run(world, ESCALATION_INTERVAL * 3 + 50);
     expect(world.collapsed.length).toBeGreaterThan(0);
@@ -189,7 +191,7 @@ describe('extraction and the end', () => {
     const world = createWorld(77, { monsters: false });
     const d = world.dungeon;
     const h = addHero(world, { id: 'a', name: 'A', cls: 'sorceress' });
-    h.immuneUntil = Infinity; // only the tunnels matter here, not what wanders by
+    h.maxHp = h.hp = 1e9; // only the tunnels matter here, not what wanders by
     expect(h.pos).toEqual({ kind: 'room', room: d.exit });
     expect(Math.max(...hopDistances(d, d.exit))).toBeGreaterThanOrEqual(5);
   });

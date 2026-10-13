@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { play } from './testkit';
 import { STRESS } from '../content/events';
 import type { ClassId } from '../content/classes';
 import { CR_RULES, crUnitChance, ENEMIES, rollRoster, UNITS_BY_TIER, type EnemyId, type Roster } from '../content/enemies';
@@ -117,10 +118,9 @@ describe('Zombie', () => {
     const { world: w, ids, room, monsters } = arena(['undertaker'], ['zombie']);
     walkIn(w, ids, room);
     const z = monsters[0];
-    z.hp = 998;
-    // Last Rites kills it outright.
-    applyIntent(w, 'h0', { type: 'combat', choice: { action: 'a1', target: z.id } });
-    untilTurn(w, room, 'h0');
+    z.hp = 100;
+    // Last Rites kills it outright (it's below 40%).
+    play(w, w.heroes.h0, 'rites', z.id);
     expect(w.monsters[z.id]).toBeUndefined();
     expect(w.risings).toHaveLength(1);
     expect(w.encounters[room]).toBeUndefined();
@@ -136,13 +136,11 @@ describe('Zombie', () => {
     const { world: w, ids, room, monsters } = arena(['undertaker'], ['zombie', 'ghoul']);
     walkIn(w, ids, room);
     const z = monsters[0];
-    z.hp = 998;
-    applyIntent(w, 'h0', { type: 'combat', choice: { action: 'a1', target: z.id } });
-    untilTurn(w, room, 'h0');
+    z.hp = 100;
+    play(w, w.heroes.h0, 'rites', z.id);
     expect(w.risings).toHaveLength(1);
-    applyIntent(w, 'h0', { type: 'combat', choice: { action: 'a2' } });
-    untilTurn(w, room, 'h0');
-    expect(w.encounters[room].risen?.type).toBe('zombie');
+    play(w, w.heroes.h0, 'raise');
+    expect(w.encounters[room].legion?.some((r) => r.type === 'zombie' && r.hp > 0)).toBe(true);
     expect(w.risings).toHaveLength(0);
   });
 });
@@ -184,13 +182,11 @@ describe('Lich', () => {
     walkIn(w, ids, room);
     const h = w.heroes.h0;
     h.st.doom = 3;
-    applyIntent(w, 'h0', { type: 'combat', choice: { action: 'a0' } });
-    untilTurn(w, room, 'h0');
+    play(w, h, 'bash');
     expect(h.st.doom).toBe(2);
     delete w.monsters[monsters[0].id];
     h.encounter = null;
     h.st = { doom: 2 };
-    h.cooldowns = {};
     fieldTurn(w, h);
     expect(h.st.doom).toBe(1);
     fieldTurn(w, h);

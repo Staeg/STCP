@@ -1,19 +1,19 @@
-import { ABILITIES, CLASS_RULES, type AbilityDef } from './abilities';
+import { CARDS } from './cards';
 import type { ClassId } from './classes';
 
 /**
- * Talents (M12): a Character who has survived enough runs picks one of their class's two. Each changes a
- * perk or an existing ability; none adds a new button. Numbers live in TALENT_RULES.
+ * Talents (M12; rewritten around cards in M15, user 2026-10-13): a Character who has survived enough runs picks one
+ * of their class's two. Each changes how their deck plays; none adds a card. Numbers live in TALENT_RULES.
  */
 export type TalentId =
-  | 'ironOath' | 'unyielding'
-  | 'ghostStep' | 'openingAct'
-  | 'everflame' | 'triage'
-  | 'sanguine' | 'evilEye'
-  | 'restlessDead' | 'pallbearer'
-  | 'greatBell' | 'resonance'
-  | 'martyr' | 'penitent'
-  | 'volatile' | 'quickHands';
+  | 'shieldwall' | 'unbrokenLine'
+  | 'sleightOfHand' | 'openingAct'
+  | 'steadyHands' | 'undyingFlame'
+  | 'bloodPrice' | 'grimoire'
+  | 'gravedigger' | 'restlessDead'
+  | 'resounding' | 'carillon'
+  | 'scourged' | 'penitent'
+  | 'volatile' | 'prepared';
 
 export interface TalentDef {
   id: TalentId;
@@ -23,67 +23,81 @@ export interface TalentDef {
 }
 
 export const TALENT_RULES = {
-  /** Iron Oath: once per run, a blow that would drop the Warden leaves them at 1 HP, untouchable for this long (seconds). */
-  oathImmune: 6,
-  /** Unyielding: Vengeance lasts this many more turns and cools down this many more. */
-  unyieldingTurns: 1,
-  unyieldingCooldown: 1,
-  /** Opening Act: the Cutthroat's first turn in a fight comes after this fraction of their Speed. */
+  /** Shieldwall: every Guard card the Warden plays Delays the nearest enemy this long. */
+  shieldwallDelay: 1,
+  /** Sleight of Hand, Grimoire: hand size. */
+  bigHand: 4,
+  /** Opening Act: the first action comes after this fraction of Speed, and the first card takes this long. */
   openingFraction: 0.5,
-  /** Everflame: +this much damage (0.0033 = 0.33%) per point of every ally's light. */
-  everflamePerLight: 0.0033,
-  /** Triage: Mend's healing (and it only targets the Lampbearer). */
-  triageHeal: 12,
-  /** Sanguine: HP the Sorceress heals per Hexed stack on whatever she damages. */
-  sanguineHeal: 2,
-  /** Restless Dead: the risen fight this many turns. */
-  restlessTurns: 6,
-  /** Great Bell: Clang stacks the Toll gives the Bellwright (its stun became the Toll's own, 2026-10-11). */
-  greatBellClang: 5,
-  /** Resonance: Peal also lifts this much stress from, and heals, every ally it hastens. */
-  resonanceStress: 3, // 5 until the stress rework (×⅔)
-  resonanceHeal: 3,
-  /** Martyr: Take Their Sins moves up to this much and heals the ally. */
-  martyrSins: 27, // 40
-  martyrHeal: 5,
+  openingCard: 1,
+  /** Steady Hands: Mend and Sanctuary take this much less. */
+  steadyCut: 1,
+  /** Blood Price: the Sorceress pays the whole Blood Pact herself, this many times over. */
+  bloodPriceMult: 2,
+  /** Gravedigger: Corpses lying ready when the Undertaker joins a fight. */
+  gravediggerCorpses: 1,
+  /** Carillon: after each Hinder card, the Bellwright's next card takes this much less. */
+  carillonCut: 1,
+  /** Prepared: items in a fight take this long. */
+  preparedItemTime: 1,
 };
 
 export const TALENTS: Record<TalentId, TalentDef> = {
-  ironOath: { id: 'ironOath', cls: 'warden', name: 'Iron Oath',
-    desc: `Once per run, a blow that would drop you leaves you at 1 HP instead, and nothing can hurt you for ${TALENT_RULES.oathImmune}s.` },
-  unyielding: { id: 'unyielding', cls: 'warden', name: 'Unyielding',
-    desc: `Vengeance lasts ${CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns} turns and works out of combat, but its cooldown is ${TALENT_RULES.unyieldingCooldown} longer.` },
-  ghostStep: { id: 'ghostStep', cls: 'cutthroat', name: 'Ghost Step',
-    desc: 'Your own Flee always succeeds, costs no stress, and takes you down a random tunnel, not just the way you came.' },
+  shieldwall: { id: 'shieldwall', cls: 'warden', name: 'Shieldwall',
+    desc: `Every Guard card you play Delays the nearest enemy ${TALENT_RULES.shieldwallDelay}s.` },
+  unbrokenLine: { id: 'unbrokenLine', cls: 'warden', name: 'Unbroken Line',
+    desc: `Every fight starts with ${CARDS.cover.name} and ${CARDS.bash.name} in your hand.` },
+  sleightOfHand: { id: 'sleightOfHand', cls: 'cutthroat', name: 'Sleight of Hand',
+    desc: `You hold ${TALENT_RULES.bigHand} cards instead of 3.` },
   openingAct: { id: 'openingAct', cls: 'cutthroat', name: 'Opening Act',
-    desc: 'Your first turn in every fight comes after half your Speed.' },
-  everflame: { id: 'everflame', cls: 'lampbearer', name: 'Everflame',
-    desc: '+0.33% damage for every 1% of light your allies still carry (all three at full light: about double damage).' },
-  triage: { id: 'triage', cls: 'lampbearer', name: 'Triage',
-    desc: `Mend heals ${TALENT_RULES.triageHeal}, but only yourself.` },
-  sanguine: { id: 'sanguine', cls: 'sorceress', name: 'Sanguine',
-    desc: `Whenever you damage a Hexed enemy, heal ${TALENT_RULES.sanguineHeal} per Hex on it.` },
-  evilEye: { id: 'evilEye', cls: 'sorceress', name: 'Evil Eye',
-    desc: 'Put a Hexed stack on all enemies when joining a fight.' },
+    desc: `Your first action in every fight comes after half your Speed, and your first card takes ${TALENT_RULES.openingCard}s.` },
+  steadyHands: { id: 'steadyHands', cls: 'lampbearer', name: 'Steady Hands',
+    desc: `${CARDS.mend.name} and ${CARDS.sanctuary.name} take ${TALENT_RULES.steadyCut}s less.` },
+  undyingFlame: { id: 'undyingFlame', cls: 'lampbearer', name: 'Undying Flame',
+    desc: `${CARDS.dawn.name} comes back to your deck after any fight that ends with every ally still standing.` },
+  bloodPrice: { id: 'bloodPrice', cls: 'sorceress', name: 'Blood Price',
+    desc: `${CARDS.pact.name} costs your allies nothing: you pay it ${TALENT_RULES.bloodPriceMult} times over (HP and stress).` },
+  grimoire: { id: 'grimoire', cls: 'sorceress', name: 'Grimoire',
+    desc: `You hold ${TALENT_RULES.bigHand} cards instead of 3.` },
+  gravedigger: { id: 'gravedigger', cls: 'undertaker', name: 'Gravedigger',
+    desc: `Every fight you join has ${TALENT_RULES.gravediggerCorpses} Corpse more lying ready.` },
   restlessDead: { id: 'restlessDead', cls: 'undertaker', name: 'Restless Dead',
-    desc: `The risen fight for ${TALENT_RULES.restlessTurns} turns, and follow you out of the fight into the next one.` },
-  pallbearer: { id: 'pallbearer', cls: 'undertaker', name: 'Pallbearer',
-    desc: 'You always know where Downed allies are. Allies you revive come back at full HP, and going down then costs them no Major Injury.' },
-  greatBell: { id: 'greatBell', cls: 'bellwright', name: 'Great Bell',
-    desc: `Your Toll gives you ${TALENT_RULES.greatBellClang} Clang stacks.` },
-  resonance: { id: 'resonance', cls: 'bellwright', name: 'Resonance',
-    desc: `Peal also lifts ${TALENT_RULES.resonanceStress} stress from every ally it hastens and heals them ${TALENT_RULES.resonanceHeal}, and gives you a Clang stack.` },
-  martyr: { id: 'martyr', cls: 'zealot', name: 'Martyr',
-    desc: `Take Their Sins moves up to ${TALENT_RULES.martyrSins} stress and heals the ally ${TALENT_RULES.martyrHeal}.` },
+    desc: `What you ${CARDS.raise.name} never crumbles, and follows you out of the fight into the next one.` },
+  resounding: { id: 'resounding', cls: 'bellwright', name: 'Resounding',
+    desc: `${CARDS.echo.name} repeats your last card at full power.` },
+  carillon: { id: 'carillon', cls: 'bellwright', name: 'Carillon',
+    desc: `After each Hinder card you play, your next card takes ${TALENT_RULES.carillonCut}s less.` },
+  scourged: { id: 'scourged', cls: 'zealot', name: 'Scourged',
+    desc: `${CARDS.flagellate.name} goes back into your hand when you play it, never to the discard.` },
   penitent: { id: 'penitent', cls: 'zealot', name: 'Penitent',
-    desc: 'Absolution spends only half the stress it turns into damage.' },
+    desc: `${CARDS.absolution.name} spends only half the stress it turns into damage.` },
   volatile: { id: 'volatile', cls: 'alchemist', name: 'Volatile',
-    desc: 'Using an item in a fight also sets off a free Fumes.' },
-  quickHands: { id: 'quickHands', cls: 'alchemist', name: 'Quick Hands',
-    desc: 'Items in a fight are used at once and don\'t take your turn.' },
+    desc: `Using an item in a fight also sets off a free ${CARDS.catalyst.name}.` },
+  prepared: { id: 'prepared', cls: 'alchemist', name: 'Prepared',
+    desc: `Every fight starts with ${CARDS.elixir.name} in your hand, and your items take ${TALENT_RULES.preparedItemTime}s.` },
 };
 
 export const TALENT_IDS = Object.keys(TALENTS) as TalentId[];
+
+/**
+ * Talents from before the cards (M15): a Character who had one has the same class's new one in its place (one kept
+ * its name; the other takes the remaining one).
+ */
+export const OLD_TALENT_IDS: Record<string, TalentId> = {
+  ironOath: 'shieldwall', unyielding: 'unbrokenLine',
+  ghostStep: 'sleightOfHand',
+  everflame: 'steadyHands', triage: 'undyingFlame',
+  sanguine: 'bloodPrice', evilEye: 'grimoire',
+  pallbearer: 'gravedigger',
+  greatBell: 'resounding', resonance: 'carillon',
+  martyr: 'scourged',
+  quickHands: 'prepared',
+};
+
+/** A Talent id as saved before the cards, read as today's. */
+export function migrateTalentId(id: string): TalentId {
+  return OLD_TALENT_IDS[id] ?? (id as TalentId);
+}
 
 /** The two talents a Character of this class chooses between. */
 export function talentsFor(cls: ClassId): [TalentId, TalentId] {
@@ -93,33 +107,4 @@ export function talentsFor(cls: ClassId): [TalentId, TalentId] {
 /** Does this hero (or Character) have this Talent? A Seasoned one has both of their class's. */
 export function hasTalent(h: { talents: readonly TalentId[] } | null | undefined, talent: TalentId): boolean {
   return !!h && h.talents.includes(talent);
-}
-
-/** A class's abilities as a hero with these talents has them (cooldowns, field use, numbers and text). */
-export function abilitiesFor(cls: ClassId, talents: readonly TalentId[] | null | undefined): [AbilityDef, AbilityDef, AbilityDef] {
-  return (talents ?? []).reduce((abs, t) => withTalent(abs, t), ABILITIES[cls]);
-}
-
-function withTalent(base: [AbilityDef, AbilityDef, AbilityDef], talent: TalentId): [AbilityDef, AbilityDef, AbilityDef] {
-  return base.map((ab): AbilityDef => {
-    switch (`${talent}:${ab.id}`) {
-      case 'unyielding:vengeance': {
-        const turns = CLASS_RULES.vengeanceTurns + TALENT_RULES.unyieldingTurns;
-        return { ...ab, cooldown: ab.cooldown + TALENT_RULES.unyieldingCooldown, field: true,
-          desc: ab.desc.replace(`next ${CLASS_RULES.vengeanceTurns} turns`, `next ${turns} turns`) + ' Works out of combat too.' };
-      }
-      case 'triage:mend':
-        return { ...ab, target: 'self', power: TALENT_RULES.triageHeal, desc: `Heal yourself ${TALENT_RULES.triageHeal} and cure Poison.` };
-      case 'restlessDead:raise':
-        return { ...ab, desc: `The last enemy slain in this fight rises on your side at full HP, for ${TALENT_RULES.restlessTurns} of its turns, and follows you into your next fight.` };
-      case 'resonance:peal':
-        return { ...ab, desc: `${ab.desc} They also get −${TALENT_RULES.resonanceStress} stress and +${TALENT_RULES.resonanceHeal} HP, and you gain a Clang stack.` };
-      case 'martyr:sins':
-        return { ...ab, power: TALENT_RULES.martyrSins, desc: `Take up to ${TALENT_RULES.martyrSins} stress off an ally onto yourself, and heal them ${TALENT_RULES.martyrHeal}.` };
-      case 'penitent:absolution':
-        return { ...ab, desc: 'Spend half your stress above 50; it all becomes damage, split across enemies.' };
-      default:
-        return ab;
-    }
-  }) as [AbilityDef, AbilityDef, AbilityDef];
 }

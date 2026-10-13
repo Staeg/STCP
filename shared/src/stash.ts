@@ -1,6 +1,6 @@
 import { titleFor, type CareerStats, type LeaderboardEntry } from './content/titles';
 import { CLASSES, type ClassId } from './content/classes';
-import type { TalentId } from './content/talents';
+import { migrateTalentId, type TalentId } from './content/talents';
 import { Rng } from './rng';
 import { emptyCodex, mergeCodex, type Codex } from './content/codex';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
@@ -134,6 +134,8 @@ export class Stash {
             delete c.affliction;
           }
           c.insane ??= false;
+          // Talents were rewritten around cards (M15): an old one loads as its class's new one.
+          if (c.talent) c.talent = migrateTalentId(c.talent);
         }
       }
     } catch {

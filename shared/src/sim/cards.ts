@@ -1,0 +1,1006 @@
+import { CARD_RULES, CARDS, MIN_CARD_TIME, type CardId } from '../content/cards';
+import { ENEMIES, type EnemyId } from '../content/enemies';
+import { LIGHT_MAX } from '../content/constants';
+import { ITEMS } from '../content/items';
+import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
+import { hasTalent, TALENT_RULES } from '../content/talents';
+import {
+  addClang, addPoison, addStress, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, heal, heroBlock, heroHits,
+  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, stepToEnd, takeSins,
+  type CombatEvent, type Encounter, type Monster, type Risen, type Slain,
+} from './combat';
+import { cycle, returnLast } from './deck';
+import { buffLength, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, ward } from './gear';
+import { forgive, unmakeFight, waystep, wolvesOf, summonWolf } from './legends';
+import { giveItem, hasSpace, wornStat } from './loot';
+import { brewRoll } from './skills';
+import { extractHero, type Hero, type World } from './world';
+
+/**
+ * Card effects (M15). `playCard` resolves one card on its player's turn; every card does something whatever the board
+ * looks like (the conditional ones fall back on something weaker). Numbers live in CARD_RULES.
+ */
+
+/** Debuffs Double Hex can copy: the last one each hero placed in this fight. */
+export type DebuffKind = 'hexed' | 'weak' | 'acid' | 'poison' | 'bleed' | 'stun' | 'exposed' | 'slow' | 'blind';
+
+export interface CardCtx {
+  world: World;
+  enc: Encounter;
+  h: Hero;
+  card: CardId;
+  target?: string;
+  room?: number;
+  events: CombatEvent[];
+  /** 1, or less for Echo. */
+  power: number;
+  /** The card played before this one in this fight (Turn the Glass). */
+  prev: CardId | null;
+  /** Seconds this hero's own next action comes sooner (Hand Signal or Peal on themself). */
+  selfHurry: number;
+}
+
+const R = CARD_RULES;
+
+// ---------------------------------------------------------------------------
+// Timing
+
+/** Tempo from what the hero wears (the Hourglass Staff). */
+function wornTempo(h: Hero): number {
+  let t = 0;
+  for (const id of [h.weapon, h.armor, h.amulet, h.ring]) if (id) t += ITEMS[id].tempo ?? 0;
+  return t;
+}
+
+/** Cards this hero has played in this fight so far. */
+function playedIn(enc: Encounter, h: Hero): number {
+  return enc.played?.[h.id] ?? 0;
+}
+
+/**
+ * Seconds until this hero's next action if they play `card` now: its time, then Tempo, Clang, Haste, the next-card
+ * effects (Mad Bargain, Fade…), first-card effects and passives. Never below MIN_CARD_TIME. `consume`: the next-card
+ * effects are used up (when it's actually played).
+ */
+export function cardTime(world: World, enc: Encounter | null, h: Hero, card: CardId, consume = false): number {
+  const def = CARDS[card];
+  const st = h.st;
+  let t = def.time;
+  if ((st.dance ?? 0) > world.time) t = 1;
+  if (def.schools.includes('conjure') && st.conjureHalf) t /= 2;
+  if (def.schools.includes('venom')) t -= wornStat(h, 'venomCut');
+  if ((card === 'mend' || card === 'sanctuary') && hasTalent(h, 'steadyHands')) t -= TALENT_RULES.steadyCut;
+  t += wornTempo(h);
+  t -= (st.clang?.stacks ?? 0) * R.clangHaste;
+  if (st.haste && st.haste.until > world.time) t -= st.haste.amount;
+  if (st.slow && st.slow.until > world.time) t += st.slow.amount;
+  if (st.quick) {
+    if (st.quick.set !== undefined) t = Math.min(t, st.quick.set);
+    t -= st.quick.cut;
+    if (consume) delete st.quick;
+  }
+  if (enc && playedIn(enc, h) === 0) {
+    if (hasTalent(h, 'openingAct')) t = Math.min(t, TALENT_RULES.openingCard);
+    t -= wornStat(h, 'firstCardCut');
+  }
+  return Math.max(MIN_CARD_TIME, Math.round(t * 10) / 10);
+}
+
+/** How long a basic action takes: Brace, Flee, Revive, or using an item (Opus Magnum and Prepared make items quick). */
+export function actionTime(h: Hero, action: 'brace' | 'flee' | 'revive' | 'item'): number {
+  if (action === 'brace') return R.braceTime;
+  if (action === 'flee') return R.fleeTime;
+  if (action === 'revive') return R.reviveTime;
+  return h.st.quickItems || hasTalent(h, 'prepared') ? TALENT_RULES.preparedItemTime : R.itemTime;
+}
+
+/**
+ * Why playing `card` now would do nothing useful (it can still be played: every card always does something), or null.
+ * The fight screen dims such cards and bots skip them.
+ */
+export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardId): string | null {
+  const allies = enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  const hurt = allies.some((a) => a.hp < a.maxHp);
+  const others = allies.filter((a) => a !== h);
+  switch (card) {
+    case 'fumble':
+      return 'It does nothing.';
+    case 'mend':
+      return hurt || allies.some((a) => a.st.poison || a.st.bleed) ? null : 'Nobody is hurt.';
+    case 'soothe1':
+    case 'soothe2':
+    case 'mist':
+    case 'sanctuary':
+    case 'bloom':
+      return hurt ? null : 'Nobody is hurt.';
+    case 'vigil':
+    case 'shrug2':
+      return allies.some((a) => a.stress > 0) || others.length === 0 ? null : 'Nobody is shaken.';
+    case 'shrug1':
+      return h.stress > 0 ? null : 'You are calm already.';
+    case 'sins':
+      return others.some((a) => a.stress > 0) || h.cls === 'zealot' ? null : 'Nobody has sins to give.';
+    case 'elixir':
+      return allies.some((a) => a.items.some((i) => ITEMS[i].kind === 'consumable')) ? null : 'Nobody has an item to drink.';
+    case 'redeem':
+      return allies.some((a) => a.hp < a.maxHp || a.stress > 0) ? null : 'Nobody needs redeeming.';
+    case 'forgive':
+      return hurt || Object.values(world.heroes).some((o) => o !== h && !o.extracted && (o.dead ? !o.raised : o.downedAt !== null) && bodyHere(o, enc.room)) ? null : 'Nobody here needs forgiving.';
+    default:
+      return null;
+  }
+}
+
+/** "Your next card takes this much less" (cumulative until a card is played). */
+function quicken(h: Hero, cut: number) {
+  h.st.quick = { ...(h.st.quick ?? { cut: 0 }), cut: (h.st.quick?.cut ?? 0) + cut };
+}
+
+// ---------------------------------------------------------------------------
+// Corpses and summons
+
+/** Corpses lying in this fight: every monster slain here, plus a Gravedigger's. */
+export function corpses(enc: Encounter): number {
+  return enc.slain?.length ?? 0;
+}
+
+/** Use up the newest Corpse here (a Zombie won't get back up from it, nor the Lich raise it). */
+export function takeCorpse(world: World, enc: Encounter): Slain | null {
+  const dead = enc.slain?.pop() ?? null;
+  if (!dead) return null;
+  if (enc.lastSlain === dead || (dead.id && enc.lastSlain?.id === dead.id)) enc.lastSlain = null;
+  if (dead.id) world.risings = world.risings.filter((r) => r.id !== dead.id);
+  return dead;
+}
+
+/** A unit that fights for `h` in this fight: `summon` ones are gone when it ends. */
+function addAlly(ctx: CardCtx, type: EnemyId, r: Partial<Risen> = {}): Risen {
+  const { world, enc, h } = ctx;
+  const scale = r.dmgMult ?? monsterScale(world, type, world.escalation);
+  const hp = r.maxHp ?? Math.round(ENEMIES[type].maxHp * scale);
+  const unit: Risen = { id: `r${world.nextId++}`, type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true, summon: true, by: h.id, ...r };
+  (enc.legion ??= []).push(unit);
+  return unit;
+}
+
+/** Summon one more of a kind (at most CARD_RULES.summonMax each); with that many already, heal them to full instead. */
+function summon(ctx: CardCtx, type: EnemyId, verb: string) {
+  const { enc, h, events } = ctx;
+  const mine = (enc.legion ?? []).filter((r) => r.by === h.id && r.type === type && r.hp > 0);
+  const name = ENEMIES[type].name;
+  if (mine.length >= R.summonMax) {
+    for (const r of mine) r.hp = r.maxHp;
+    events.push({ actor: h.id, kind: 'heal', text: `${h.name}'s ${name}s are made whole again.` });
+    return;
+  }
+  const unit = addAlly(ctx, type);
+  events.push({ actor: h.id, kind: 'status', target: unit.id, text: `${h.name} ${verb} a ${name}.` });
+}
+
+// ---------------------------------------------------------------------------
+// Small effects
+
+/** Push an enemy's next action back (hammers make it longer). Returns the seconds added. */
+export function delay(ctx: CardCtx, m: Monster, secs: number): number {
+  const { world, enc, h, events } = ctx;
+  if (!world.monsters[m.id] || enc.next[m.id] === undefined) return 0;
+  const total = Math.round((secs * ctx.power + wornStat(h, 'delayBonus')) * 10) / 10;
+  if (total <= 0) return 0;
+  enc.next[m.id] = at(enc.next[m.id] + total);
+  events.push({ actor: h.id, kind: 'status', target: m.id, text: `${ENEMIES[m.type].name} is Delayed ${total}s.` });
+  return total;
+}
+
+/** An ally's next action comes `secs` sooner (never before now). The player's own is applied after their card. */
+export function hurry(ctx: CardCtx, a: Hero, secs: number) {
+  const { world, enc, h } = ctx;
+  const s = secs * ctx.power;
+  if (a === h) {
+    ctx.selfHurry += s;
+    return;
+  }
+  if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - s));
+}
+
+/** Shield for an ally (Guard cards get a Chain Hauberk's bonus; a Warding Staff adds its own). */
+function shieldOf(ctx: CardCtx, t: Hero, n: number) {
+  const guard = CARDS[ctx.card].schools.includes('guard') ? wornStat(ctx.h, 'guardShield') : 0;
+  const add = Math.max(0, Math.round(n * ctx.power)) + guard;
+  t.st.shield = (t.st.shield ?? 0) + add;
+  return add + ward(ctx.h, t);
+}
+
+/** Note the debuff this hero just placed (Double Hex copies it). */
+function placed(ctx: CardCtx, kind: DebuffKind, m: Monster) {
+  (ctx.enc.lastDebuff ??= {})[ctx.h.id] = kind;
+  markWitchwood(ctx.h, m.st);
+}
+
+/** Lay a debuff of this kind on an enemy (as its card would: stacks, turns and a Twinned Staff's second copy). */
+export function debuff(ctx: CardCtx, m: Monster, kind: DebuffKind, turns = 2, amount = 0) {
+  const { world, h } = ctx;
+  if (!world.monsters[m.id]) return;
+  const st = m.st;
+  const copies = debuffCopies(h);
+  const t = debuffTurns(h, turns);
+  switch (kind) {
+    case 'hexed':
+      for (let i = 0; i < copies; i++) (st.hexed ??= []).push(t);
+      break;
+    case 'weak':
+      st.weak = { stacks: (st.weak?.stacks ?? 0) + copies, turns: t };
+      break;
+    case 'acid':
+      st.acid = { stacks: (st.acid?.stacks ?? 0) + copies, turns: t };
+      break;
+    case 'poison': {
+      const dmg = Math.max(1, Math.round((amount || 1) * damageMult(h, world) * ctx.power));
+      for (let i = 0; i < copies; i++) addPoison(st, dmg, t + wornStat(h, 'poisonTurns'));
+      break;
+    }
+    case 'bleed': {
+      const dmg = Math.max(1, Math.round((amount || 1) * damageMult(h, world) * ctx.power));
+      for (let i = 0; i < copies; i++) (st.bleed ??= []).push({ dmg, until: world.time + t, next: world.time + R.pulse });
+      break;
+    }
+    case 'stun':
+      st.stun = true;
+      break;
+    case 'exposed':
+      st.exposed = Math.max(st.exposed ?? 0, amount || R.exposed);
+      break;
+    case 'slow':
+      st.slow = { amount: amount || 1, until: world.time + t };
+      break;
+    case 'blind':
+      st.blind = true;
+      break;
+  }
+  placed(ctx, kind, m);
+}
+
+/** A hit from a card: Strike cards add a Kris's bonus against the Poisoned, Hinder cards an Iron Maul's. */
+function strike(ctx: CardCtx, m: Monster | null | undefined, base: number, opts: { crit?: boolean; name?: string } = {}): boolean {
+  const { world, enc, h, events } = ctx;
+  if (!m || !world.monsters[m.id]) return false;
+  const schools = CARDS[ctx.card].schools;
+  let n = base * ctx.power;
+  if (schools.includes('strike') && m.st.poison?.length) n += wornStat(h, 'poisonedBonus');
+  if (schools.includes('hinder')) n += wornStat(h, 'hinderDmg');
+  if (opts.crit) n *= 2;
+  return heroHits(world, enc, h, m, Math.max(1, Math.round(n)), events, opts.name ?? CARDS[ctx.card].name, !!opts.crit);
+}
+
+function allyText(ctx: CardCtx, t: Hero) {
+  return t === ctx.h ? 'themself' : t.name;
+}
+
+// ---------------------------------------------------------------------------
+// Playing a card
+
+/**
+ * Resolve `card` for `h`. Targets the player picked are honoured while they still make sense; otherwise a sensible one
+ * is chosen (the frontmost enemy, the most hurt ally). Returns the CardCtx (for the self-Hurry it added).
+ */
+export function playCard(world: World, enc: Encounter, h: Hero, card: CardId, target: string | undefined, room: number | undefined, events: CombatEvent[], power = 1, prev: CardId | null = null): CardCtx {
+  const ctx: CardCtx = { world, enc, h, card, target, room, events, power, prev, selfHurry: 0 };
+  resolve(ctx);
+  // A hit set up by a Hand Signal Exposes what it lands on (handled in heroHits); nothing to do here.
+  return ctx;
+}
+
+function resolve(ctx: CardCtx) {
+  const { world, enc, h, events } = ctx;
+  const rng = world.rng;
+  const p = (n: number) => Math.max(1, Math.round(n * ctx.power));
+  const enemies = () => monstersIn(world, enc.room);
+  const front = () => combatOrder(world, enc).monsters[0] ?? null;
+  const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  const others = () => allies().filter((a) => a !== h);
+  /** The picked enemy if it's still here, else the frontmost. */
+  const foe = (): Monster | null => {
+    const m = ctx.target ? world.monsters[ctx.target] : undefined;
+    return m && m.room === enc.room ? m : front();
+  };
+  /** The picked ally if they're still standing here, else the most hurt one (you, if alone). */
+  const friend = (): Hero => {
+    const t = ctx.target ? world.heroes[ctx.target] : undefined;
+    if (t && isConscious(t) && t.encounter === enc.room) return t;
+    return allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0] ?? h;
+  };
+  const name = (m: Monster) => ENEMIES[m.type].name;
+  const tell = (text: string, kind: CombatEvent['kind'] = 'status', target?: string, amount?: number) =>
+    events.push({ actor: h.id, kind, text, target, amount });
+
+  switch (ctx.card) {
+    // ---- Warden ----
+    case 'bash': {
+      const m = front();
+      if (strike(ctx, m, R.bash) && m) delay(ctx, m, R.bashDelay);
+      return;
+    }
+    case 'cover': {
+      const t = friend();
+      const got = shieldOf(ctx, t, R.coverShield);
+      stepToEnd(world, h, 'front');
+      tell(`${h.name} covers ${allyText(ctx, t)}. (+${got} Shield)`, 'status', t.id);
+      return;
+    }
+    case 'vengeance':
+      h.st.vengeance = buffLength(h, R.vengeanceTurns);
+      ward(h, h);
+      tell(`${h.name} swears vengeance. Whoever strikes them will feel it.`, 'status', h.id);
+      return;
+    case 'rally': {
+      const eased = Math.round(reliefBy(h, R.rallyStress) * ctx.power);
+      let got = 0;
+      for (const a of allies()) {
+        got = shieldOf(ctx, a, R.rallyShield);
+        addStress(a, -eased);
+      }
+      tell(`${h.name} rallies the party! (+${got} Shield, −${eased} stress)`);
+      return;
+    }
+    case 'slam': {
+      const m = front();
+      if (!m) return;
+      const base = Math.max(R.slamMin, heroBlock(h) + (h.st.shield ?? 0));
+      const before = m.hp;
+      strike(ctx, m, base);
+      const dealt = Math.max(0, before - Math.max(0, world.monsters[m.id]?.hp ?? 0));
+      const secs = Math.floor(dealt / R.slamDelayPer);
+      if (secs > 0) delay(ctx, m, secs / ctx.power);
+      return;
+    }
+    case 'gate':
+      h.st.gate = world.time + buffLength(h, R.gateSecs);
+      tell(`${h.name} holds the gate! (${R.gateSecs}s: half damage, Vengeance, every attacker Delayed ${R.gateDelay}s)`, 'status', h.id);
+      return;
+    // ---- Cutthroat ----
+    case 'backstab': {
+      const m = foe();
+      if (!m) return;
+      const crit = !!(m.st.stun || m.st.exposed || !m.st.acted || (h.st.dance ?? 0) > world.time);
+      strike(ctx, m, R.backstab, { crit });
+      return;
+    }
+    case 'cheap': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.cheap);
+      if (world.monsters[m.id]) {
+        debuff(ctx, m, 'stun');
+        tell(`${name(m)} is stunned.`, 'status', m.id);
+      }
+      return;
+    }
+    case 'envenom': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.envenom);
+      debuff(ctx, m, 'poison', R.envenomTurns, R.envenomPoison);
+      if (world.monsters[m.id]) tell(`${name(m)} is poisoned.`, 'status', m.id);
+      return;
+    }
+    case 'signal': {
+      const t = friend();
+      hurry(ctx, t, R.signalHurry);
+      t.st.expose = true;
+      tell(`${h.name} signals ${allyText(ctx, t)}: now! (${R.signalHurry}s sooner; their next hit Exposes)`, 'status', t.id);
+      return;
+    }
+    case 'smoke': {
+      const until = world.time + buffLength(h, R.smokeSecs);
+      for (const a of allies()) {
+        a.st.dodge = until;
+        a.st.fleeSure = until;
+        ward(h, a);
+      }
+      tell(`${h.name} hurls a smoke bomb! (${Math.round(until - world.time)}s)`);
+      return;
+    }
+    case 'dance':
+      h.st.dance = world.time + buffLength(h, R.danceSecs);
+      tell(`${h.name} starts the blade dance! (${R.danceSecs}s: every card 1s, Backstab always crits)`, 'status', h.id);
+      return;
+    // ---- Lampbearer ----
+    case 'flare':
+      flare(world, enc, h, events, false, p(R.flare));
+      return;
+    case 'mend': {
+      const t = friend();
+      const healed = heal(t, healBy(h, p(R.mend)));
+      delete t.st.poison;
+      delete t.st.bleed;
+      ward(h, t);
+      tell(`${h.name} mends ${allyText(ctx, t)} (+${healed}).`, 'heal', t.id, healed);
+      return;
+    }
+    case 'vigil': {
+      const t = friend();
+      const eased = Math.round(reliefBy(h, R.vigil) * ctx.power);
+      addStress(t, -eased);
+      ward(h, t);
+      tell(`${h.name} keeps vigil over ${allyText(ctx, t)}. (−${eased} stress)`, 'status', t.id);
+      if (others().length === 0) {
+        h.st.vigil = h.id;
+        h.st.vigilMore = buffLength(h, 1) - 1;
+        tell(`${h.name} stands alone, lamp raised. Any move against them will meet the light.`, 'status', h.id);
+      }
+      return;
+    }
+    case 'kindle': {
+      const m = foe();
+      const spent = Math.min(R.kindleLight, Math.floor(h.light));
+      h.light -= spent;
+      if (!m) return;
+      strike(ctx, m, Math.min(R.kindleMax, R.kindleBase + Math.floor(spent / 2)));
+      if (spent >= R.kindleLight && world.monsters[m.id]) {
+        debuff(ctx, m, 'blind');
+        tell(`${name(m)} is blinded by the light.`, 'status', m.id);
+      }
+      return;
+    }
+    case 'sanctuary':
+    case 'bloom': {
+      const secs = buffLength(h, ctx.card === 'bloom' ? R.bloomSecs : R.sanctuarySecs);
+      const amount = p(ctx.card === 'bloom' ? R.bloomRegen : R.sanctuaryRegen);
+      for (const a of allies()) {
+        a.st.regen = { amount: Math.max(amount, a.st.regen?.amount ?? 0), until: world.time + secs, next: world.time + R.pulse };
+        ward(h, a);
+      }
+      tell(`${h.name} ${ctx.card === 'bloom' ? 'calls up a green bloom' : 'hallows the ground'}. (Regen ${amount} every ${R.pulse}s for ${secs}s)`);
+      return;
+    }
+    case 'dawn':
+      for (const a of allies()) {
+        a.light = LIGHT_MAX;
+        heal(a, healBy(h, p(R.dawnHeal)));
+        addStress(a, -reliefBy(h, p(R.dawnStress)));
+        ward(h, a);
+      }
+      for (const m of enemies()) debuff(ctx, m, 'blind');
+      tell(`${h.name} brings the dawn! Every ally is healed and lit; every foe is blinded.`);
+      return;
+    // ---- Sorceress ----
+    case 'hex': {
+      const m = foe();
+      if (!m) return;
+      const stacks = m.st.hexed?.length ?? 0;
+      strike(ctx, m, R.hex * (1 + R.hexedBonus * stacks));
+      debuff(ctx, m, 'hexed', R.hexedTurns);
+      if (world.monsters[m.id]) tell(`${name(m)} is Hexed (×${m.st.hexed?.length ?? 0}).`, 'status', m.id);
+      return;
+    }
+    case 'wither':
+      for (const m of enemies()) debuff(ctx, m, 'weak', R.witherTurns);
+      tell(`${h.name} withers every foe. (−50% damage per stack)`);
+      return;
+    case 'pact': {
+      const price = hasTalent(h, 'bloodPrice');
+      const payers = price ? [h] : allies();
+      const mult = price ? TALENT_RULES.bloodPriceMult : 1;
+      for (const a of payers) {
+        const cost = Math.min(a.hp - 1, afterBlock(a, R.pactCost * mult));
+        if (cost > 0) {
+          a.hp -= cost;
+          tell(a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.`, 'damage', a.id, cost);
+        }
+        const added = Math.round(addStress(a, R.pactStress * mult));
+        if (added > 0) tell(`The pact gnaws at ${a.name}'s mind. (+${added} stress)`, 'stress', a.id, added);
+      }
+      for (const m of enemies()) strike(ctx, m, R.pact);
+      return;
+    }
+    case 'familiar':
+      summon(ctx, 'imp', 'binds');
+      return;
+    case 'bargain': {
+      const added = Math.round(addStress(h, R.bargainStress));
+      h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
+      tell(`${h.name} strikes a mad bargain. (+${added} stress; next card 1s)`, 'stress', h.id, added);
+      return;
+    }
+    case 'ages':
+      for (const m of enemies()) {
+        for (let i = 0; i < R.agesStacks; i++) (m.st.hexed ??= []).push(debuffTurns(h, R.hexedTurns));
+        placed(ctx, 'hexed', m);
+        delay(ctx, m, R.agesDelayPer * (m.st.hexed?.length ?? 0));
+      }
+      tell(`${h.name} lays the curse of ages on every foe.`);
+      return;
+    // ---- Undertaker ----
+    case 'spade':
+      strike(ctx, foe(), R.spade + h.spadeBonus);
+      return;
+    case 'rites': {
+      const m = foe();
+      if (!m) return;
+      if (ENEMIES[m.type].tier < BOSS_TIER && m.hp < m.maxHp * R.ritesBelow) {
+        tell(`${h.name} reads the Last Rites over the ${name(m)}.`, 'damage', m.id, m.hp);
+        applyKill(ctx, m);
+        h.spadeBonus += R.spadePerRites;
+        tell(`${h.name}'s spade grows heavier. (Spade +${h.spadeBonus})`, 'status', h.id);
+      } else strike(ctx, m, R.rites);
+      return;
+    }
+    case 'raise': {
+      const dead = takeCorpse(world, enc);
+      if (!dead) {
+        summon(ctx, 'rat', 'calls up');
+        return;
+      }
+      const restless = hasTalent(h, 'restlessDead');
+      const unit = addAlly(ctx, dead.type, {
+        maxHp: dead.maxHp, hp: dead.maxHp, dmgMult: dead.dmgMult,
+        turns: buffLength(h, R.raiseTurns), permanent: restless || undefined, summon: restless ? undefined : true,
+      });
+      if (!restless) unit.permanent = undefined;
+      tell(`${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.`, 'status', unit.id);
+      return;
+    }
+    case 'explode': {
+      const dead = takeCorpse(world, enc);
+      tell(dead ? `${h.name} bursts the fallen ${ENEMIES[dead.type].name}!` : `${h.name} stirs the grave dust into a choking cloud.`);
+      for (const m of enemies()) strike(ctx, m, dead ? R.explode : R.explodeBare);
+      return;
+    }
+    case 'graveward': {
+      const t = friend();
+      const dead = takeCorpse(world, enc);
+      const got = shieldOf(ctx, t, dead ? R.graveWardCorpse : R.graveWard);
+      tell(`${h.name} wards ${allyText(ctx, t)}${dead ? ' with grave earth' : ''}. (+${got} Shield)`, 'status', t.id);
+      return;
+    }
+    case 'graves': {
+      let n = 0;
+      for (let dead = takeCorpse(world, enc); dead; dead = takeCorpse(world, enc)) {
+        addAlly(ctx, dead.type, { maxHp: dead.maxHp, hp: dead.maxHp, dmgMult: dead.dmgMult });
+        n++;
+      }
+      if (!n) addAlly(ctx, 'ghoul');
+      tell(`${h.name} opens the graves: ${n > 1 ? `${n} of the dead rise` : n ? 'the dead rise' : 'a Ghoul claws its way up'} to fight for them!`);
+      return;
+    }
+    // ---- Bellwright ----
+    case 'clang': {
+      const m = front();
+      if (strike(ctx, m, R.clang) && m) delay(ctx, m, R.clangDelay * debuffCopies(h));
+      addClang(h, 1);
+      return;
+    }
+    case 'knell': {
+      const dmg = Math.max(R.knellMin, R.knell - R.knellPerAlly * others().length);
+      tell(`${h.name} tolls the knell.`);
+      for (const m of enemies()) strike(ctx, m, dmg);
+      return;
+    }
+    case 'peal': {
+      const rest = others();
+      for (const a of rest) {
+        hurry(ctx, a, R.pealHurry);
+        ward(h, a);
+      }
+      if (!rest.length) hurry(ctx, h, R.pealAlone);
+      tell(rest.length ? `${h.name} rings a bright peal! (allies act ${R.pealHurry}s sooner)` : `${h.name} rings a bright peal and quickens. (${R.pealAlone}s sooner)`);
+      return;
+    }
+    case 'ringout': {
+      const secs = R.ringOutDelay + R.ringOutPerClang * (h.st.clang?.stacks ?? 0);
+      tell(`${h.name} rings out over the din!`);
+      for (const m of enemies()) delay(ctx, m, secs);
+      return;
+    }
+    case 'echo': {
+      const last = h.lastCard;
+      if (!last) {
+        tell(`${h.name}'s bell answers with a dull ring.`);
+        strike(ctx, front(), R.echoBare);
+        return;
+      }
+      tell(`${h.name}'s ${CARDS[last].name} echoes!`);
+      const mult = hasTalent(h, 'resounding') ? 1 : R.echoMult;
+      const inner = { ...ctx, card: last, power: ctx.power * mult, target: undefined, selfHurry: 0 };
+      resolve(inner);
+      ctx.selfHurry += inner.selfHurry;
+      return;
+    }
+    case 'reverberate':
+      for (const m of enemies()) debuff(ctx, m, 'stun');
+      for (const a of others()) if (enc.next[a.id] !== undefined) enc.next[a.id] = at(world.time);
+      tell(`${h.name}'s bell reverberates through the stone! Every foe reels; every ally moves now.`);
+      return;
+    // ---- Zealot ----
+    case 'scourge':
+      strike(ctx, foe(), R.scourge);
+      return;
+    case 'absolution': {
+      const spend = Math.max(0, h.stress - R.absolutionFloor);
+      const paid = hasTalent(h, 'penitent') ? Math.floor(spend / 2) : spend;
+      const targets = enemies();
+      const each = Math.ceil((R.absolutionBase + spend) / Math.max(1, targets.length));
+      tell(`${h.name} pours out their torment!${paid ? ` (−${paid} stress)` : ''}`);
+      for (const m of targets) strike(ctx, m, each);
+      h.stress -= paid;
+      return;
+    }
+    case 'sins': {
+      const t = friend();
+      if (t === h) {
+        const added = Math.round(addStress(h, p(R.sinsSelf)));
+        tell(`${h.name} dwells on their own sins. (+${added} stress)`, 'stress', h.id, added);
+        return;
+      }
+      const moved = takeSins(h, t, Math.round(reliefBy(h, R.sins) * ctx.power));
+      ward(h, t);
+      tell(`${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)`, 'stress', h.id, moved);
+      return;
+    }
+    case 'flagellate': {
+      const cost = Math.min(h.hp - 1, R.flagellateHp);
+      if (cost > 0) h.hp -= cost;
+      const added = Math.round(addStress(h, p(R.flagellateStress)));
+      tell(`${h.name} scourges their own back. (−${cost} HP, +${added} stress)`, 'stress', h.id, added);
+      return;
+    }
+    case 'penance': {
+      const added = Math.round(addStress(h, p(R.penanceStress)));
+      const got = shieldOf(ctx, h, Math.floor(h.stress / R.penanceDiv) / ctx.power);
+      tell(`${h.name} does penance. (+${added} stress, +${got} Shield)`, 'status', h.id);
+      return;
+    }
+    case 'rapture': {
+      let moved = 0;
+      for (const a of others()) moved += takeSins(h, a, a.stress);
+      tell(`${h.name} draws every sin in the room into themself! (${moved} stress)`, 'stress', h.id, moved);
+      strike(ctx, foe(), R.rapture + moved);
+      return;
+    }
+    // ---- Alchemist ----
+    case 'acid': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.acid);
+      debuff(ctx, m, 'acid', R.acidTurns);
+      if (world.monsters[m.id]) tell(`${name(m)} is burned by acid.${(m.st.acid?.stacks ?? 0) > 1 ? ` (×${m.st.acid!.stacks})` : ''}`, 'status', m.id);
+      return;
+    }
+    case 'fumes':
+      fumes(world, enc, h, events, false, (m) => debuff(ctx, m, 'poison', R.fumesTurns, R.fumesPoison));
+      return;
+    case 'mist': {
+      for (const a of allies()) {
+        heal(a, healBy(h, p(R.mist)));
+        ward(h, a);
+      }
+      tell(`${h.name} sprays a healing mist. (+${healBy(h, p(R.mist))} each)`, 'heal');
+      return;
+    }
+    case 'elixir': {
+      const t = friend();
+      t.elixir = true;
+      ward(h, t);
+      tell(`${h.name} hands ${allyText(ctx, t)} an elixir. (next item ×2)`, 'status', t.id);
+      return;
+    }
+    case 'catalyst':
+      catalyst(ctx);
+      return;
+    case 'opus': {
+      let made = 0;
+      while (made < R.opusItems && hasSpace(h) && !h.rites.includes('gem')) {
+        giveItem(h, brewRoll(world));
+        made++;
+      }
+      h.st.quickItems = true;
+      tell(`${h.name} completes the Opus Magnum! (${made} brew${made === 1 ? '' : 's'}; items take 1s this fight)`, 'status', h.id);
+      return;
+    }
+    // ---- Gear types ----
+    case 'stab1':
+    case 'stab2':
+      strike(ctx, foe(), ctx.card === 'stab1' ? R.stab1 : R.stab2);
+      return;
+    case 'thump1':
+    case 'thump2': {
+      const m = front();
+      const two = ctx.card === 'thump2';
+      if (strike(ctx, m, two ? R.thump2 : R.thump1) && m) delay(ctx, m, two ? R.thump2Delay : R.thump1Delay);
+      return;
+    }
+    case 'soothe1':
+    case 'soothe2': {
+      const t = friend();
+      const healed = heal(t, healBy(h, p(ctx.card === 'soothe1' ? R.soothe1 : R.soothe2)));
+      ward(h, t);
+      tell(`${h.name} soothes ${allyText(ctx, t)} (+${healed}).`, 'heal', t.id, healed);
+      return;
+    }
+    case 'sidestep1':
+      h.st.sidestep = Math.max(h.st.sidestep ?? 0, R.sidestep1);
+      tell(`${h.name} watches for the blow. (${R.sidestep1 * 100}% Dodge until their next turn)`, 'status', h.id);
+      return;
+    case 'sidestep2':
+      h.st.dodge = Math.max(h.st.dodge ?? 0, world.time + buffLength(h, R.sidestep2Secs));
+      tell(`${h.name} is light on their feet. (${R.sidestep2 * 100}% Dodge for ${R.sidestep2Secs}s)`, 'status', h.id);
+      return;
+    case 'braceup1':
+    case 'braceup2': {
+      const got = shieldOf(ctx, h, ctx.card === 'braceup1' ? R.braceup1 : R.braceup2);
+      tell(`${h.name} braces behind their armour. (+${got} Shield)`, 'status', h.id);
+      return;
+    }
+    case 'shrug1': {
+      const eased = Math.round(reliefBy(h, R.shrug1) * ctx.power);
+      addStress(h, -eased);
+      tell(`${h.name} shrugs it off. (−${eased} stress)`, 'status', h.id);
+      return;
+    }
+    case 'shrug2': {
+      const t = friend();
+      const eased = Math.round(reliefBy(h, R.shrug2) * ctx.power);
+      addStress(t, -eased);
+      ward(h, t);
+      tell(`${h.name} steadies ${allyText(ctx, t)}. (−${eased} stress)`, 'status', t.id);
+      return;
+    }
+    case 'mutter1':
+      summon(ctx, 'rat', 'mutters up');
+      return;
+    case 'mutter2':
+      summon(ctx, 'shade', 'mutters up');
+      return;
+    case 'evillook1':
+    case 'evillook2': {
+      const m = foe();
+      if (!m) return;
+      const two = ctx.card === 'evillook2';
+      if (two) strike(ctx, m, R.evillook2Dmg);
+      debuff(ctx, m, 'exposed', 0, two ? R.evillook2 : R.evillook1);
+      if (world.monsters[m.id]) tell(`${name(m)} is Exposed.`, 'status', m.id);
+      return;
+    }
+    // ---- Rare Gear ----
+    case 'mercy': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.mercy);
+      if (world.monsters[m.id] && ENEMIES[m.type].tier < BOSS_TIER && m.hp < m.maxHp * R.mercyBelow) {
+        tell(`${h.name} grants the ${name(m)} mercy.`, 'damage', m.id, m.hp);
+        applyKill(ctx, m);
+      }
+      return;
+    }
+    case 'whispercut': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.whispercut);
+      debuff(ctx, m, 'bleed', R.whispercutSecs, R.whispercutBleed);
+      quicken(h, R.whispercutCut);
+      if (world.monsters[m.id]) tell(`${name(m)} bleeds.`, 'status', m.id);
+      return;
+    }
+    case 'shatter': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.shatter);
+      if (world.monsters[m.id]) {
+        m.st.sunder = (m.st.sunder ?? 0) + R.shatterSunder;
+        delay(ctx, m, R.shatterDelay);
+      }
+      return;
+    }
+    case 'earthblow':
+      for (const m of combatOrder(world, enc).monsters.slice(0, 2)) {
+        strike(ctx, m, R.earthblow);
+        debuff(ctx, m, 'slow', R.earthblowSecs, R.earthblowSlow);
+      }
+      tell(`${h.name}'s blow shakes the floor. (Slowed ${R.earthblowSlow}s for ${R.earthblowSecs}s)`);
+      return;
+    case 'doublehex': {
+      const m = foe();
+      if (!m) return;
+      const kind = enc.lastDebuff?.[h.id] ?? 'exposed';
+      const amount = kind === 'poison' ? R.envenomPoison : kind === 'bleed' ? R.whispercutBleed : kind === 'slow' ? R.earthblowSlow : 0;
+      const turns = kind === 'bleed' ? R.whispercutSecs : kind === 'slow' ? R.earthblowSecs : 2;
+      debuff(ctx, m, kind, turns, amount);
+      tell(`${h.name} doubles the curse onto the ${name(m)}. (${kind})`, 'status', m.id);
+      return;
+    }
+    case 'glass': {
+      const back = ctx.prev ? returnLast(h) : null;
+      if (back) tell(`${h.name} turns the glass: ${CARDS[back].name} is back in hand.`, 'status', h.id);
+      else {
+        cycle(h, rng, 1);
+        tell(`${h.name} turns the glass and draws again.`, 'status', h.id);
+      }
+      return;
+    }
+    case 'scaleward': {
+      const got = shieldOf(ctx, h, R.scaleWard);
+      h.st.spikes = p(R.scaleWardSpikes);
+      tell(`${h.name} raises their scales. (+${got} Shield; attackers take ${h.st.spikes})`, 'status', h.id);
+      return;
+    }
+    case 'fade':
+      h.st.evade = (h.st.evade ?? 0) + 1;
+      quicken(h, R.fadeCut);
+      tell(`${h.name} fades into the shadows.`, 'status', h.id);
+      return;
+    case 'runeward': {
+      let got = 0;
+      for (const a of allies()) got = shieldOf(ctx, a, R.runeWard);
+      tell(`${h.name}'s runes flare. (every ally +${got} Shield)`);
+      return;
+    }
+    case 'bulwark': {
+      const got = shieldOf(ctx, h, R.bulwark);
+      stepToEnd(world, h, 'front');
+      tell(`${h.name} plants their bulwark. (+${got} Shield)`, 'status', h.id);
+      const m = front();
+      if (m) delay(ctx, m, R.bulwarkDelay);
+      return;
+    }
+    case 'liestill': {
+      const healed = heal(h, healBy(h, p(R.lieStillHeal)));
+      const added = Math.round(addStress(h, R.lieStillStress));
+      stepToEnd(world, h, 'back');
+      tell(`${h.name} lies still among the dead. (+${healed} HP, +${added} stress)`, 'heal', h.id, healed);
+      return;
+    }
+    case 'slipaway':
+      if (enc.room === world.dungeon.exit) {
+        leaveEncounter(world, enc, h);
+        extractHero(world, h);
+        tell(`${h.name} slips out through the exit!`, 'flee', h.id);
+        return;
+      }
+      flee(world, enc, h, true);
+      tell(`${h.name} slips away like a ghost.`, 'flee', h.id);
+      return;
+    case 'blink':
+      stepToEnd(world, h, 'back');
+      h.st.evade = (h.st.evade ?? 0) + 1;
+      tell(`${h.name} blinks to the back of the line.`, 'status', h.id);
+      return;
+    case 'veil': {
+      const t = friend();
+      t.st.evade = (t.st.evade ?? 0) + 1;
+      ward(h, t);
+      tell(`${h.name} draws a veil over ${allyText(ctx, t)}.`, 'status', t.id);
+      return;
+    }
+    case 'luckybreak':
+      cycle(h, rng);
+      tell(`${h.name} gets a lucky break: a whole new hand.`, 'status', h.id);
+      return;
+    case 'feverdream': {
+      const added = Math.round(addStress(h, R.feverStress));
+      h.st.conjureHalf = true;
+      tell(`${h.name} sinks into a fever dream. (+${added} stress; Conjure cards take half the time)`, 'stress', h.id, added);
+      return;
+    }
+    case 'bloodrush': {
+      const cost = Math.min(h.hp - 1, R.bloodRushHp);
+      if (cost > 0) h.hp -= cost;
+      h.st.haste = { amount: R.bloodRushHaste, until: world.time + buffLength(h, R.bloodRushSecs) };
+      tell(`${h.name}'s blood races. (−${cost} HP; cards ${R.bloodRushHaste}s quicker for ${R.bloodRushSecs}s)`, 'status', h.id);
+      return;
+    }
+    case 'ashes': {
+      const spent = Math.min(R.ashesLight, Math.floor(h.light));
+      h.light -= spent;
+      for (const m of enemies()) debuff(ctx, m, 'weak', spent >= R.ashesLight ? 2 : 1);
+      tell(`${h.name} scatters ashes. Every foe is Weakened.`);
+      return;
+    }
+    // ---- Legendary ----
+    case 'promise': {
+      const foes = enemies().filter((m) => ENEMIES[m.type].tier < BOSS_TIER);
+      if (!foes.length) {
+        strike(ctx, front(), R.promiseBoss);
+        return;
+      }
+      const top = Math.max(...foes.map((m) => ENEMIES[m.type].tier));
+      const m = rng.pick(foes.filter((x) => ENEMIES[x.type].tier === top));
+      tell(`${h.name} keeps a promise.`, 'info', m.id);
+      const before = events.length;
+      applyKill(ctx, m);
+      const death = events.slice(before).find((e) => e.kind === 'death' && e.target === m.id);
+      if (death) death.text = `The ${name(m)} dies as faint laughter echoes.`;
+      return;
+    }
+    case 'quake':
+      tell(`${h.name} brings the earth itself down on every foe!`, 'info');
+      for (const m of enemies()) {
+        strike(ctx, m, R.thump2);
+        if (world.monsters[m.id]) {
+          debuff(ctx, m, 'stun');
+          tell(`${name(m)} is stunned.`, 'status', m.id);
+        }
+      }
+      return;
+    case 'unmake':
+      tell(`${h.name} unmakes every foe here. They are simply gone.`);
+      unmakeFight(world, h, enc);
+      return;
+    case 'redeem': {
+      const t = friend();
+      const healed = t.maxHp - t.hp;
+      t.hp = t.maxHp;
+      t.stress = 0;
+      t.light = 0;
+      tell(`${t === h ? `${h.name} finds` : `${h.name} grants ${t.name}`} redemption: whole again, untroubled, and in the dark.`, 'heal', t.id, healed);
+      return;
+    }
+    case 'bastion': {
+      const got = shieldOf(ctx, h, Math.max(1, heroBlock(h)) * R.bastionPerBlock);
+      tell(`${h.name} sets their feet like a wall. (+${got} Shield)`, 'status', h.id);
+      return;
+    }
+    case 'forgive': {
+      const fallen = Object.values(world.heroes).find((o) => o !== h && !o.extracted && (o.dead ? !o.raised : o.downedAt !== null) && bodyHere(o, enc.room));
+      if (fallen) {
+        forgive(world, h, fallen, (text, kind, who, amount) => tell(text, kind, who, amount));
+        return;
+      }
+      const t = friend();
+      const healed = heal(t, healBy(h, p(R.forgiveHeal)));
+      tell(`${h.name} forgives ${allyText(ctx, t)} their wounds. (+${healed})`, 'heal', t.id, healed);
+      return;
+    }
+    case 'howl': {
+      if (wolvesOf(world, h) >= LEGEND_RULES.maxWolves) {
+        for (const r of (enc.legion ?? []).filter((x) => x.by === h.id && x.type === 'wolf' && x.hp > 0)) r.hp = r.maxHp;
+        tell(`${h.name} howls, and the pack's wounds close.`, 'heal');
+        return;
+      }
+      (enc.legion ??= []).push({ ...summonWolf(world), id: `r${world.nextId++}`, by: h.id });
+      tell(`${h.name} howls, and a wolf answers. (${wolvesOf(world, h)}/${LEGEND_RULES.maxWolves})`);
+      return;
+    }
+    case 'waystep': {
+      const room = ctx.room !== undefined && world.dungeon.rooms[ctx.room] && h.seen.includes(ctx.room) && ctx.room !== enc.room ? ctx.room : world.dungeon.exit;
+      if (room === enc.room) {
+        tell(`${h.name} reaches for another place, but is already there.`, 'info');
+        return;
+      }
+      waystep(world, h, room, enc, events);
+      return;
+    }
+    case 'fumble':
+      tell(`${h.name} fumbles with an empty hand.`, 'info');
+      return;
+  }
+}
+
+/** Is `o`'s body (downed or dead) lying in `room`? */
+function bodyHere(o: Hero, room: number): boolean {
+  return o.pos.kind === 'room' && o.pos.room === room;
+}
+
+/** Kill a monster outright (Last Rites, Mercy Stroke, Promise). */
+function applyKill(ctx: CardCtx, m: Monster) {
+  if (ctx.world.monsters[m.id]) applyMonsterDamage(ctx.world, m, m.hp, ctx.events);
+}
+
+/** One Poison or Bleed tick of `dmg` on a monster (its Block and Acid count). */
+export function tickOn(world: World, m: Monster, dmg: number, events: CombatEvent[], what: string) {
+  const taken = monsterTakes(world, m, dmg);
+  events.push({ actor: m.id, kind: 'damage', target: m.id, amount: taken, text: `${ENEMIES[m.type].name} takes ${taken} ${what} damage.` });
+  applyMonsterDamage(world, m, taken, events);
+}
+
+/** Catalyst: a little Poison on everything, then every Poison and Bleed ticks once at once. */
+function catalyst(ctx: CardCtx) {
+  const { world, enc, h, events } = ctx;
+  events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a catalyst! Every poison burns at once.` });
+  for (const m of monstersIn(world, enc.room)) {
+    debuff(ctx, m, 'poison', R.catalystTurns, R.catalystPoison);
+    const ticks = [...(m.st.poison ?? []).map((x) => x.dmg), ...(m.st.bleed ?? []).map((x) => x.dmg)];
+    for (const dmg of ticks) {
+      if (!world.monsters[m.id]) break;
+      tickOn(world, m, dmg, events, 'catalysed');
+    }
+  }
+}
