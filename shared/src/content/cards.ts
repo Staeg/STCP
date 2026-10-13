@@ -12,17 +12,18 @@ import type { GearSlot, GearType } from './items';
 /** Card schools: an icon on the card. Gear passives and Talents key off them. */
 export type School = 'strike' | 'guard' | 'hinder' | 'hasten' | 'venom' | 'mend' | 'dread' | 'conjure' | 'hex' | 'light';
 
-export const SCHOOLS: Record<School, { name: string; glyph: string; desc: string }> = {
-  strike: { name: 'Strike', glyph: '⚔', desc: 'Plain damage.' },
-  guard: { name: 'Guard', glyph: '⛨', desc: 'Shield, Dodge, and holding the front.' },
-  hinder: { name: 'Hinder', glyph: '⏳', desc: "Delay, Slow and Stun: the enemy's tempo." },
-  hasten: { name: 'Hasten', glyph: '➶', desc: "Hurry and Haste: your side's tempo." },
-  venom: { name: 'Venom', glyph: '☣', desc: 'Poison, Bleed and Acid.' },
-  mend: { name: 'Mend', glyph: '✚', desc: 'Healing and Regen.' },
-  dread: { name: 'Dread', glyph: '☁', desc: 'Stress, taken on or taken away.' },
-  conjure: { name: 'Conjure', glyph: '✦', desc: 'Summons and Corpses.' },
-  hex: { name: 'Hex', glyph: '⛧', desc: 'Hexed, Weak and Exposed.' },
-  light: { name: 'Light', glyph: '☀', desc: 'Light, spent or shared.' },
+/** `tint`: a card picture's background (dark, then the lighter disc behind its motif), by its first school. */
+export const SCHOOLS: Record<School, { name: string; glyph: string; tint: [string, string]; desc: string }> = {
+  strike: { name: 'Strike', glyph: '⚔', tint: ['#3a1614', '#6a2a24'], desc: 'Plain damage.' },
+  guard: { name: 'Guard', glyph: '⛨', tint: ['#16243a', '#2c4a6e'], desc: 'Shield, Dodge, and holding the front.' },
+  hinder: { name: 'Hinder', glyph: '⏳', tint: ['#3a2c10', '#6a5222'], desc: "Delay, Slow and Stun: the enemy's tempo." },
+  hasten: { name: 'Hasten', glyph: '➶', tint: ['#0e2e36', '#1e5a68'], desc: "Hurry and Haste: your side's tempo." },
+  venom: { name: 'Venom', glyph: '☣', tint: ['#16300f', '#2e5a22'], desc: 'Poison, Bleed and Acid.' },
+  mend: { name: 'Mend', glyph: '✚', tint: ['#1a3422', '#356446'], desc: 'Healing and Regen.' },
+  dread: { name: 'Dread', glyph: '☁', tint: ['#241e38', '#443a64'], desc: 'Stress, taken on or taken away.' },
+  conjure: { name: 'Conjure', glyph: '✦', tint: ['#2a1636', '#6a4486'], desc: 'Summons and Corpses.' },
+  hex: { name: 'Hex', glyph: '⛧', tint: ['#36122c', '#642452'], desc: 'Hexed, Weak and Exposed.' },
+  light: { name: 'Light', glyph: '☀', tint: ['#363010', '#68591e'], desc: 'Light, spent or shared.' },
 };
 
 /**
@@ -281,6 +282,119 @@ export const CARDS: Record<CardId, CardDef> = {
   howl: card('howl', 'Howl', 4, ['conjure'], 'none', 'A Wolf joins you for the rest of the run (at most 4; with more, heal them instead).'),
   waystep: card('waystep', 'Waystep', 1, ['hasten'], 'room', 'Leave the fight for any room on your map.'),
   fumble: card('fumble', 'Fumble', 3, [], 'none', 'Nothing: an empty Gear slot.'),
+};
+
+/** A card picture's main motif: one per kind of effect (tools/card_art.py draws them), or a summon's own sprite. */
+export type CardMotif =
+  | 'shield' | 'crack' | 'spikes' | 'gate' | 'dagger' | 'hammer' | 'stun' | 'hand' | 'smoke' | 'flame' | 'heal' | 'lamp' | 'leaf'
+  | 'sun' | 'eye' | 'wilt' | 'blood' | 'swirl' | 'hourglass' | 'spade' | 'skull' | 'grave' | 'burst' | 'bell' | 'waves' | 'whip'
+  | 'flask' | 'venom' | 'dodge' | 'target' | 'veil' | 'door' | 'cards' | 'void'
+  | 'rat' | 'shade' | 'imp' | 'ghoul' | 'wolf';
+/** The small badge for a card's second effect. */
+export type CardMark =
+  | 'hourglass' | 'front' | 'back' | 'swirl' | 'shield' | 'spikes' | 'sword' | 'venom' | 'wing' | 'sun' | 'heal' | 'eye' | 'star'
+  | 'bone' | 'skull' | 'blood' | 'cards' | 'crack' | 'flask' | 'flame';
+
+const art = (motif: CardMotif, mark?: CardMark) => ({ motif, ...(mark ? { mark } : {}) });
+
+/**
+ * Card pictures (user, 2026-10-13): the motif is the card's main effect, the mark its second, so alike cards look alike
+ * (every Shield card shows the shield, every Hurry the wing…). The background is the first school's tint. Only a
+ * Common and Uncommon of one kind share a picture (their frames differ).
+ */
+export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
+  bash: art('shield', 'hourglass'),
+  cover: art('shield', 'front'),
+  vengeance: art('spikes'),
+  rally: art('shield', 'swirl'),
+  slam: art('crack', 'shield'),
+  gate: art('gate', 'spikes'),
+  backstab: art('dagger', 'back'),
+  cheap: art('stun', 'sword'),
+  envenom: art('dagger', 'venom'),
+  signal: art('hand', 'wing'),
+  smoke: art('smoke'),
+  dance: art('dagger', 'wing'),
+  flare: art('flame', 'sun'),
+  mend: art('heal', 'sun'),
+  vigil: art('lamp', 'swirl'),
+  kindle: art('lamp', 'flame'),
+  sanctuary: art('leaf', 'sun'),
+  dawn: art('sun', 'heal'),
+  hex: art('eye', 'sword'),
+  wither: art('wilt'),
+  pact: art('blood', 'sword'),
+  familiar: art('imp'),
+  bargain: art('swirl', 'wing'),
+  ages: art('hourglass', 'eye'),
+  spade: art('spade'),
+  rites: art('skull', 'sword'),
+  raise: art('grave'),
+  explode: art('burst', 'bone'),
+  graveward: art('shield', 'bone'),
+  graves: art('ghoul', 'bone'),
+  clang: art('bell', 'hourglass'),
+  knell: art('bell', 'skull'),
+  peal: art('bell', 'wing'),
+  ringout: art('waves', 'hourglass'),
+  echo: art('waves', 'cards'),
+  reverberate: art('bell', 'star'),
+  scourge: art('whip'),
+  absolution: art('swirl', 'sword'),
+  sins: art('hand', 'swirl'),
+  flagellate: art('whip', 'blood'),
+  penance: art('swirl', 'shield'),
+  rapture: art('swirl', 'sun'),
+  acid: art('flask', 'venom'),
+  fumes: art('venom'),
+  mist: art('heal', 'flask'),
+  elixir: art('flask', 'star'),
+  catalyst: art('venom', 'star'),
+  opus: art('flask', 'cards'),
+  stab1: art('dagger'),
+  stab2: art('dagger'),
+  thump1: art('hammer', 'hourglass'),
+  thump2: art('hammer', 'hourglass'),
+  soothe1: art('heal'),
+  soothe2: art('heal'),
+  sidestep1: art('dodge'),
+  sidestep2: art('dodge'),
+  braceup1: art('shield'),
+  braceup2: art('shield'),
+  shrug1: art('swirl'),
+  shrug2: art('swirl'),
+  mutter1: art('rat'),
+  mutter2: art('shade'),
+  evillook1: art('target'),
+  evillook2: art('target', 'sword'),
+  mercy: art('dagger', 'skull'),
+  whispercut: art('dagger', 'blood'),
+  shatter: art('crack', 'hourglass'),
+  earthblow: art('hammer', 'crack'),
+  doublehex: art('eye', 'cards'),
+  bloom: art('leaf'),
+  glass: art('hourglass', 'cards'),
+  scaleward: art('shield', 'spikes'),
+  fade: art('veil', 'wing'),
+  runeward: art('shield', 'sun'),
+  bulwark: art('gate', 'shield'),
+  liestill: art('heal', 'back'),
+  slipaway: art('door', 'wing'),
+  blink: art('veil', 'back'),
+  veil: art('veil'),
+  luckybreak: art('cards'),
+  feverdream: art('swirl', 'bone'),
+  bloodrush: art('blood', 'wing'),
+  ashes: art('wilt', 'sun'),
+  promise: art('skull'),
+  quake: art('crack', 'star'),
+  unmake: art('void'),
+  redeem: art('heal', 'swirl'),
+  bastion: art('gate'),
+  forgive: art('grave', 'heal'),
+  howl: art('wolf'),
+  waystep: art('door'),
+  fumble: art('hand'),
 };
 
 export const CARD_IDS = Object.keys(CARDS) as CardId[];

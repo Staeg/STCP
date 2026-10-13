@@ -10,6 +10,7 @@ import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleBare, toggleRite, v
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
+import { cardArtUrl } from './render/card-art';
 import { iconize, iconNum, talentStars } from './icons';
 
 declare const __BUILD__: string;
@@ -393,7 +394,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     <ul class="class-cards">${CLASS_CARDS[id].map((cd) => {
       const def = CARDS[cd];
       const schools = def.schools.map((x) => `<span title="${SCHOOLS[x].name}">${SCHOOLS[x].glyph}</span>`).join('');
-      return `<li><b>${esc(def.name)}</b> <span class="muted">${def.time}s</span> ${schools}${def.burn ? ' <span title="Burn: once a run (a Loom brings it back).">🔥</span>' : ''}<br>${iconize(def.desc)}</li>`;
+      return `<li><img class="card-art" src="${cardArtUrl(cd, id)}" alt=""><b>${esc(def.name)}</b> <span class="muted">${def.time}s</span> ${schools}${def.burn ? ' <span title="Burn: once a run (a Loom brings it back).">🔥</span>' : ''}<br>${iconize(def.desc)}</li>`;
     }).join('')}</ul>
     <div class="small muted">Speed sets how soon you act first in a fight (and how fast you walk); after that, each card sets the wait for the next. Each piece of Gear adds a card too.</div>
   </div>`;

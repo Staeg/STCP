@@ -875,12 +875,20 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 .cb-act.cb-card.burning { border-color: #8a4a20; }
 .cb-act.cb-card.weak:not(.sel) { opacity: 0.55; }
 .cb-act.cb-card.burned { text-decoration: line-through; opacity: 0.45; }
+.cb-act.cb-card .card-art { width: 52px; height: 52px; image-rendering: pixelated; align-self: center; flex: 0 0 auto; }
+/* Frames (user, 2026-10-13): class cards in the class colour, Gear cards in their tier colour with a double (riveted) edge. */
+.cb-act.cb-card.from-class { border: 2px solid var(--frame); }
+.cb-act.cb-card.from-gear { border: 3px double var(--frame); }
+.cb-act.cb-card.sel, #combat.idle .cb-act.cb-card.pinned { border-color: var(--gold); }
+.class-cards .card-art { width: 26px; height: 26px; image-rendering: pixelated; float: left; margin: 1px 6px 0 0; }
+.class-cards li { overflow: hidden; }
 .cb-deck { align-self: center; white-space: nowrap; color: var(--muted); font-size: 18px; padding: 0 6px; cursor: help; }
 .cb-actions.basics { margin-top: 6px; }
 #combat.idle .cb-actions.deck { flex-wrap: wrap; gap: 3px 4px; }
 #combat.idle .cb-act.cb-card { display: inline-block; flex: 0 0 auto; min-width: 0; white-space: nowrap; font-size: 15px; padding: 0 6px; }
 #combat.idle .cb-act.cb-card .cd-time { margin-left: 4px; }
 #combat.idle .cb-act.cb-card .schools { display: none; }
+#combat.idle .cb-act.cb-card .card-art { width: 26px; height: 26px; vertical-align: middle; margin: -2px 4px 0 -4px; }
 .kit-slot.issued { color: var(--muted); font-style: italic; cursor: pointer; }
 .kit-slot.issued.bare { color: var(--danger); }
 .ab-chip.burn { border-color: #8a4a20; }

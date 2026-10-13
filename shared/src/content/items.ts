@@ -15,7 +15,7 @@ export type ItemId =
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
 import { legendNote, type LegendId } from './legends';
-import { cardText, TYPE_CARDS, type CardId, type CardKind } from './cards';
+import { cardText, CLASS_CARDS, TYPE_CARDS, type CardId, type CardKind } from './cards';
 import type { ClassId } from './classes';
 
 export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
@@ -575,6 +575,18 @@ export function itemTier(item: ItemId): ItemTier {
   if (ITEMS[item].legend) return 4;
   if (item === 'relic') return 3;
   return (LOOT_TABLE.find((e) => e.item === item) ?? RESOURCE_TABLE.find((e) => e.item === item))?.rarity ?? 1;
+}
+
+/**
+ * Where a card comes from, for its frame (user, 2026-10-13): 'class' for a class's own cards, otherwise the tier of the
+ * Gear that brings it (a Common and an Uncommon share their kind's card; 0 is an empty slot's Fumble).
+ */
+export function cardSource(card: CardId): 'class' | ItemTier | 0 {
+  if (Object.values(CLASS_CARDS).some((cards) => cards.includes(card))) return 'class';
+  if (card === 'fumble') return 0;
+  for (const pair of Object.values(TYPE_CARDS)) if (pair.includes(card)) return pair[0] === card ? 1 : 2;
+  const item = (Object.keys(ITEMS) as ItemId[]).find((id) => ITEMS[id].card === card || ITEMS[id].legend === card);
+  return item ? itemTier(item) : 3;
 }
 
 /** Loot seeding per room, and what monsters drop. */

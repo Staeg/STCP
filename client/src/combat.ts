@@ -1,9 +1,10 @@
 import {
-  CARD_RULES, CARDS, deckList, FLEE_CHANCE, handSize, INSANITY, INSANITY_RULES, SCHOOLS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
-  skillInfo, type CardId, type CardView, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
+  CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, INSANITY, INSANITY_RULES, SCHOOLS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
+  skillInfo, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
+import { cardArtUrl, cardFrameColor } from './render/card-art';
 import { juice } from './juice';
 import { itemName, useFromField } from './loot';
 import { icon, iconize, iconNum, type IconId } from './icons';
@@ -252,18 +253,24 @@ export class CombatUi {
     for (const b of $('combat').querySelectorAll<HTMLElement>('button.cb-act')) b.classList.toggle('pinned', CombatUi.pinKey(b) === this.pinned && this.pinned !== null);
   }
 
-  /** A card's face: name, its time, school icons and 🔥 for a Burn. `time` is what it would take you now. */
-  private static cardFace(card: CardId, time: number): string {
+  /** A card's face: its picture, name, its time, school icons and 🔥 for a Burn. `time` is what it would take you now. */
+  private static cardFace(card: CardId, time: number, cls: ClassId): string {
     const def = CARDS[card];
     const schools = def.schools.map((s) => `<span title="${SCHOOLS[s].name}: ${esc(SCHOOLS[s].desc)}">${SCHOOLS[s].glyph}</span>`).join('');
-    return `${esc(def.name)} <span class="cd-time">${fmtSpeed(time)}</span><span class="schools">${schools}</span>${def.burn ? '<span class="burn" title="Burn: gone for the rest of the run once played (a Loom brings it back).">🔥</span>' : ''}`;
+    return `<img class="card-art" src="${cardArtUrl(card, cls)}" alt="">${esc(def.name)} <span class="cd-time">${fmtSpeed(time)}</span><span class="schools">${schools}</span>${def.burn ? '<span class="burn" title="Burn: gone for the rest of the run once played (a Loom brings it back).">🔥</span>' : ''}`;
+  }
+
+  /** A card button's frame: the class colour for class cards, the Gear's tier colour for the rest. */
+  private static cardFrame(card: CardId, cls: ClassId): string {
+    return `${cardSource(card) === 'class' ? 'from-class' : 'from-gear'}" style="--frame:${cardFrameColor(card, cls)}`;
   }
 
   /** A card's text, for its hover box. */
   private static cardDesc(card: CardId, time: number, extra = ''): string {
     const def = CARDS[card];
     const schools = def.schools.map((s) => SCHOOLS[s].name).join(', ');
-    return `<b>${esc(def.name)}</b> · ${fmtSpeed(time)} until your next action${schools ? ` · ${schools}` : ''}${def.burn ? ' · <b>Burn</b>' : ''}<br>${iconize(def.desc)}${extra}`;
+    const from = cardSource(card) === 'class' ? 'Class card' : card === 'fumble' ? 'Empty Gear slot' : 'Gear card';
+    return `<b>${esc(def.name)}</b> · ${fmtSpeed(time)} until your next action${schools ? ` · ${schools}` : ''}${def.burn ? ' · <b>Burn</b>' : ''} · <span class="muted">${from}</span><br>${iconize(def.desc)}${extra}`;
   }
 
   /**
@@ -283,8 +290,8 @@ export class CombatUi {
     const cards = enc.yourHand.map((c, i) => {
       const sel = (chosen?.action === 'card' && chosen.card === c.card) || (this.targeting === 'card' && this.targetingCard === c.card) || this.aimRoom === c.card;
       const why = c.weak ? `<br><span class="muted">Now: ${esc(c.weak)}</span>` : '';
-      return `<button class="cb-act cb-card ${sel ? 'sel' : ''} ${c.weak ? 'weak' : ''} ${CARDS[c.card].burn ? 'burning' : ''}" data-card="${c.card}" ${canAct ? '' : 'disabled'}>
-        <kbd>${i + 1}</kbd> ${CombatUi.cardFace(c.card, c.time)}
+      return `<button class="cb-act cb-card ${sel ? 'sel' : ''} ${c.weak ? 'weak' : ''} ${CARDS[c.card].burn ? 'burning' : ''} ${CombatUi.cardFrame(c.card, you.cls)}" data-card="${c.card}" ${canAct ? '' : 'disabled'}>
+        <kbd>${i + 1}</kbd> ${CombatUi.cardFace(c.card, c.time, you.cls)}
         <div class="cb-desc">${CombatUi.cardDesc(c.card, c.time, why)}</div></button>`;
     }).join('');
     const burned = enc.burned.map((c) => CARDS[c].name).join(', ');
@@ -308,8 +315,8 @@ export class CombatUi {
       const b = left.indexOf(c);
       const burned = b >= 0;
       if (burned) left.splice(b, 1);
-      return `<button class="cb-act cb-card ${burned ? 'burned' : ''} ${CARDS[c].burn ? 'burning' : ''}" data-pin="card${i}" aria-disabled="true">
-        ${CombatUi.cardFace(c, CARDS[c].time)}
+      return `<button class="cb-act cb-card ${burned ? 'burned' : ''} ${CARDS[c].burn ? 'burning' : ''} ${CombatUi.cardFrame(c, you.cls)}" data-pin="card${i}" aria-disabled="true">
+        ${CombatUi.cardFace(c, CARDS[c].time, you.cls)}
         <div class="cb-desc">${CombatUi.cardDesc(c, CARDS[c].time, burned ? '<br><span class="muted">Burned this run.</span>' : '')}</div></button>`;
     }).join('');
     return `<div class="cb-actions deck">${cards}${you.cls === 'bellwright' ? this.tollBtn(view) : ''}</div>`;

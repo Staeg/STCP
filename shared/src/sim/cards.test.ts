@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, TYPE_CARDS } from '../content/cards';
+import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, TYPE_CARDS } from '../content/cards';
+import { MARK_ROWS, MOTIF_ROWS } from '../../../client/src/render/card-art-data';
+import { SPRITES } from '../../../client/src/render/sprite-data';
 import { ENEMIES } from '../content/enemies';
 import { STRESS } from '../content/events';
-import { gearCard, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, ITEMS } from '../content/items';
+import { cardSource, gearCard, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, ITEMS } from '../content/items';
 import { combatOrder, monstersIn } from './combat';
 import { cardTime, corpses, uselessReason } from './cards';
 import { deckList, liveCards } from './deck';
@@ -521,5 +523,31 @@ describe('summoned and risen allies', () => {
     rat.st = { regen: { amount: 2, until: world.time + 10, next: world.time + R.pulse } };
     run(world, R.pulse + 0.2);
     expect(rat.hp).toBe(3);
+  });
+});
+
+describe('card art', () => {
+  it('every card has its own picture (only a Common and Uncommon of one kind share), drawn from parts that exist', () => {
+    const seen = new Map<string, string>();
+    for (const id of CARD_IDS) {
+      const { motif, mark } = CARD_ART[id];
+      expect(MOTIF_ROWS[motif] ?? SPRITES[motif], `${id}: ${motif}`).toBeDefined();
+      if (mark) expect(MARK_ROWS[mark], `${id}: ${mark}`).toBeDefined();
+      const key = `${motif}/${mark ?? ''}`;
+      const other = seen.get(key);
+      if (other) expect(Object.values(TYPE_CARDS).some((pair) => pair.includes(id) && pair.includes(other as never)), `${id} looks like ${other}`).toBe(true);
+      seen.set(key, id);
+    }
+  });
+
+  it('frames tell class cards from Gear cards, and Gear cards by tier', () => {
+    expect(cardSource('bash')).toBe('class');
+    expect(cardSource('stab1')).toBe(1);
+    expect(cardSource('stab2')).toBe(2);
+    expect(cardSource('mercy')).toBe(3);
+    expect(cardSource('howl')).toBe(4);
+    expect(cardSource('fumble')).toBe(0);
+    // A class card that a Gear piece also names is still a class card; every card has some source.
+    for (const id of CARD_IDS) expect(cardSource(id)).toBeDefined();
   });
 });
