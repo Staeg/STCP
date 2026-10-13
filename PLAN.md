@@ -443,7 +443,7 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
 
-- 2026-10-13 · **Summons count as allies (user request).** See the new Decisions row. 364 tests (2 new in `classes.test.ts`). Not checked in the browser (sim-only change; the risen's Shield shows through the statuses it now sends).
+- 2026-10-13 · **Summons count as allies (user request).** See the new Decisions row. 362 tests (2 new in `classes.test.ts`). Not checked in the browser (sim-only change; the risen's Shield shows through the statuses it now sends).
   - Next: nothing planned. No known bugs.
 
 - 2026-10-13 · **Pause with three bots (user request).** See the new Decisions row "Pause, Space". `world.paused`, intent `pause`, `canPause`; the view carries `paused`/`canPause`; the lobby sends refused intents back as an error toast. Calling off a walk moved from Space to X. 360 tests (2 new in `game.test.ts`). Checked in the browser (`dev-alt3`): the Pause button shows with three bots; paused, the clock, the bots and a fight's turn timers held for 3s and carried on from the same point; W gave the "Paused" toast; the Escalation tooltip still opened under the PAUSED notice; X brought me back from mid-tunnel.
