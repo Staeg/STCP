@@ -514,7 +514,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
   const risen = risenOf(enc);
   const risenUnit: CombatUnitView | null = risen
     ? {
-        id: risen.id, kind: 'risen', name: risenName(world, risen), hp: risen.hp, maxHp: risen.maxHp, st: {}, enemy: risen.type,
+        id: risen.id, kind: 'risen', name: risenName(world, risen), hp: risen.hp, maxHp: risen.maxHp, st: { ...(risen.st ?? {}) }, enemy: risen.type,
         speed: risenSpeed(world, risen), nextIn: nextIn(risen.id), turnsLeft: risen.turns,
       }
     : null;
@@ -522,7 +522,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     // A Risen ally shows as its hero (class sprite), with its own statuses (Clang, Vengeance…).
     const ally = r.hero ? world.heroes[r.hero] : undefined;
     return {
-      id: r.id, kind: 'risen', name: risenName(world, r), hp: r.hp, maxHp: r.maxHp, st: ally ? { ...ally.st } : {}, enemy: r.type,
+      id: r.id, kind: 'risen', name: risenName(world, r), hp: r.hp, maxHp: r.maxHp, st: ally ? { ...ally.st } : { ...(r.st ?? {}) }, enemy: r.type,
       cls: ally?.cls, color: ally?.color, speed: risenSpeed(world, r), nextIn: nextIn(r.id),
     };
   });

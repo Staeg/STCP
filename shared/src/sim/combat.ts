@@ -123,6 +123,8 @@ export interface Risen {
   by: string;
   /** Unholy Uprising: never crumbles; only falls when its HP runs out. */
   permanent?: boolean;
+  /** What "every ally" effects left on it this fight (Shield, Dodge). A Risen ally uses its hero's instead. */
+  st?: Statuses;
 }
 
 export type CombatAction = 'a0' | 'a1' | 'a2' | 'flee' | 'revive' | 'brace' | 'item' | 'legend';
@@ -476,7 +478,8 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
 function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
     const mine = enc.legion.filter((r) => r.by === h.id);
-    for (const { id: _id, by: _by, ...r } of mine) if (r.hp > 0) h.legion.push(r);
+    // Like a monster's, its statuses end with the fight.
+    for (const { id: _id, by: _by, st: _st, ...r } of mine) if (r.hp > 0) h.legion.push(r);
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
   const r = risenOf(enc);
@@ -675,6 +678,12 @@ export function risenName(world: World, r: Pick<Risen, 'type' | 'hero'>): string
 export function risenSpeed(world: World, r: Pick<Risen, 'type' | 'hero'>): number {
   const h = r.hero ? world.heroes[r.hero] : undefined;
   return h ? speedOf(h, world.time) : ENEMIES[r.type!].speed;
+}
+
+/** Where a risen keeps its statuses: a Risen ally on its hero, the rest on themselves. */
+export function risenSt(world: World, r: Risen): Statuses {
+  const ally = r.hero ? world.heroes[r.hero] : undefined;
+  return ally ? ally.st : (r.st ??= {});
 }
 
 /** Every risen ally still standing here: the Uprising's dead, then the one Raised (nearest the enemy). */
@@ -1317,6 +1326,12 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         ward(h, a);
         addStress(a, -eased);
       }
+      // The risen and the wolves are allies too (they have no nerves to steady).
+      for (const r of risenAll(enc)) {
+        const st = risenSt(world, r);
+        st.shield = (st.shield ?? 0) + ab.power;
+        ward(h, { st });
+      }
       events.push({ actor: h.id, kind: 'status', text: `${h.name} rallies the party! (+${shield} Shield, −${eased} stress)` });
       return;
     }
@@ -1343,6 +1358,11 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       for (const a of allies()) {
         a.st.dodge = world.time + secs;
         ward(h, a);
+      }
+      for (const r of risenAll(enc)) {
+        const st = risenSt(world, r);
+        st.dodge = world.time + secs;
+        ward(h, { st });
       }
       events.push({ actor: h.id, kind: 'status', text: `${h.name} hurls a smoke bomb! (${secs}s)` });
       return;
@@ -1404,6 +1424,13 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         const added = Math.round(addStress(a, CLASS_RULES.pactStress));
         if (added > 0) events.push({ actor: h.id, kind: 'stress', target: a.id, amount: added, text: `The pact gnaws at ${a.name}'s mind. (+${added} stress)` });
       }
+      // The risen and the wolves pay in blood too (they have no minds to gnaw at).
+      for (const r of risenAll(enc)) {
+        const cost = Math.min(r.hp - 1, risenTakes(world, r, CLASS_RULES.pactCost));
+        if (cost <= 0) continue;
+        r.hp -= cost;
+        events.push({ actor: h.id, kind: 'damage', target: r.id, amount: cost, text: `The pact takes its due from the ${risenName(world, r)}.` });
+      }
       for (const m of enemies()) heroHits(world, enc, h, m, ab.power, events, ab.name);
       return;
     }
@@ -1464,6 +1491,16 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
           addStress(a, -reliefBy(h, TALENT_RULES.resonanceStress));
           const healed = heal(a, healBy(h, TALENT_RULES.resonanceHeal));
           if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
+        }
+      }
+      // The risen and the wolves hear it too.
+      for (const r of risenAll(enc)) {
+        if (enc.next[r.id] !== undefined) enc.next[r.id] = at(Math.max(world.time, enc.next[r.id] - CLASS_RULES.pealHaste));
+        ward(h, { st: risenSt(world, r) });
+        if (hasTalent(h, 'resonance')) {
+          const healed = Math.min(r.maxHp - r.hp, healBy(h, TALENT_RULES.resonanceHeal));
+          r.hp += healed;
+          if (healed) events.push({ actor: h.id, kind: 'heal', target: r.id, amount: healed, text: `The peal steadies the ${risenName(world, r)}. (+${healed})` });
         }
       }
       // Resonance: the peal rings on in the Bellwright too.
@@ -1795,10 +1832,22 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   }
   if (victim.kind === 'risen') {
     const r = victim.r;
-    const dmg = risenTakes(world, r, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
-    r.hp = Math.max(0, r.hp - dmg);
     const rname = risenName(world, r);
-    events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
+    // Smoke and Shield from "every ally" effects cover the risen too.
+    const st = risenSt(world, r);
+    if (inSmoke(world, st) && world.rng.chance(0.5)) {
+      events.push({ actor: m.id, kind: 'miss', target: r.id, text: `${name} ${verb} at ${rname} — dodged!` });
+      return null;
+    }
+    let dmg = risenTakes(world, r, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
+    if (st.shield) {
+      const absorbed = Math.min(st.shield, dmg);
+      st.shield -= absorbed;
+      dmg -= absorbed;
+      if (st.shield <= 0) delete st.shield;
+    }
+    r.hp = Math.max(0, r.hp - dmg);
+    events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: dmg > 0 ? `${name} ${verb} ${rname} for ${dmg}.` : `${name} ${verb} ${rname}, but its Shield soaks it up.` });
     if (r.hp <= 0) {
       events.push({ actor: r.id, kind: 'death', target: r.id, text: r.type === 'wolf' ? `${rname} yelps and falls.` : `${rname} falls apart.` });
       delete enc.next[r.id];

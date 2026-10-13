@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLASS_RULES, abilityById } from '../content/abilities';
 import { CLASSES } from '../content/classes';
 import { hopDistances, neighbours } from '../dungeon/gen';
-import { dieOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup } from './combat';
+import { dieOut, combatOrder, damageMult, fieldTurn, knellDamage, spawnGroup, type Risen } from './combat';
 import { carriedHome } from './emergency';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
@@ -389,6 +389,39 @@ describe('reworked kits', () => {
     untilTurn(world, room, 'h0');
     const until = world.time + CLASS_RULES.smokeSecs;
     for (const id of ids) expect(world.heroes[id].st.dodge).toBeCloseTo(until, 1);
+  });
+
+  it('"every ally" effects reach the risen and wolves too: Smoke, Rally, Peal and Blood Pact', () => {
+    const { world, ids, room } = arena(['cutthroat', 'warden', 'bellwright', 'sorceress'], ['ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    const wolf: Risen = { id: 'rw', by: 'h0', type: 'wolf', hp: 20, maxHp: 20, dmgMult: 1, turns: 1, permanent: true };
+    (enc.legion ??= []).push(wolf);
+    enc.next.rw = world.time + 50;
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'a2' } });
+    untilTurn(world, room, 'h0');
+    expect(wolf.st?.dodge).toBeCloseTo(world.time + CLASS_RULES.smokeSecs, 1);
+    applyIntent(world, 'h1', { type: 'combat', choice: { action: 'a2' } });
+    untilTurn(world, room, 'h1');
+    expect(wolf.st?.shield).toBe(abilityById('rally')!.power);
+    const before = enc.next.rw;
+    applyIntent(world, 'h2', { type: 'combat', choice: { action: 'a2' } });
+    untilTurn(world, room, 'h2');
+    expect(enc.next.rw).toBeCloseTo(before - CLASS_RULES.pealHaste, 1);
+    applyIntent(world, 'h3', { type: 'combat', choice: { action: 'a1' } });
+    untilTurn(world, room, 'h3');
+    expect(wolf.hp).toBeLessThan(20);
+  });
+
+  it("a risen's Shield soaks blows like a hero's", () => {
+    const { world, ids, room, monsters } = arena(['warden'], ['ghoul']);
+    walkIn(world, ids, room);
+    const enc = world.encounters[room];
+    (enc.legion ??= []).push({ id: 'rw', by: 'h0', type: 'wolf', hp: 20, maxHp: 20, dmgMult: 1, turns: 1, permanent: true, st: { shield: 99 } });
+    const ghoul = monsters[0];
+    for (let i = 0; i < 3; i++) untilTurn(world, room, ghoul.id);
+    expect(enc.events.some((e) => e.actor === ghoul.id && e.target === 'rw' && e.amount === 0)).toBe(true);
+    expect(enc.legion![0].hp).toBe(20);
   });
 
   it('Hex stacks: each Hexed adds +100% to the next Hex, for 2 of the target\'s turns', () => {
