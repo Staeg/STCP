@@ -6,8 +6,8 @@ import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
 import { hasTalent, TALENT_RULES } from '../content/talents';
 import {
   addClang, addPoison, addStress, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, heal, heroBlock, heroHits,
-  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, stepToEnd, takeSins,
-  type CombatEvent, type Encounter, type Monster, type Risen, type Slain,
+  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, stepToEnd, takeSins,
+  type CombatEvent, type Encounter, type Monster, type Risen, type Slain, type Statuses,
 } from './combat';
 import { cycle, returnLast } from './deck';
 import { buffLength, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, ward } from './gear';
@@ -192,7 +192,7 @@ export function delay(ctx: CardCtx, m: Monster, secs: number): number {
 }
 
 /** An ally's next action comes `secs` sooner (never before now). The player's own is applied after their card. */
-export function hurry(ctx: CardCtx, a: Hero, secs: number) {
+export function hurry(ctx: CardCtx, a: Hero | Risen, secs: number) {
   const { world, enc, h } = ctx;
   const s = secs * ctx.power;
   if (a === h) {
@@ -203,7 +203,7 @@ export function hurry(ctx: CardCtx, a: Hero, secs: number) {
 }
 
 /** Shield for an ally (Guard cards get a Chain Hauberk's bonus; a Warding Staff adds its own). */
-function shieldOf(ctx: CardCtx, t: Hero, n: number) {
+function shieldOf(ctx: CardCtx, t: { st: Statuses }, n: number) {
   const guard = CARDS[ctx.card].schools.includes('guard') ? wornStat(ctx.h, 'guardShield') : 0;
   const add = Math.max(0, Math.round(n * ctx.power)) + guard;
   t.st.shield = (t.st.shield ?? 0) + add;
@@ -297,6 +297,9 @@ function resolve(ctx: CardCtx) {
   const front = () => combatOrder(world, enc).monsters[0] ?? null;
   const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
   const others = () => allies().filter((a) => a !== h);
+  /** The summoned and risen on the heroes' side: "every ally" cards reach them too (they have no light, stress or items). */
+  const risen = () => risenAll(enc);
+  const risenSt_ = (r: Risen) => ({ st: risenSt(world, r) });
   /** The picked enemy if it's still here, else the frontmost. */
   const foe = (): Monster | null => {
     const m = ctx.target ? world.monsters[ctx.target] : undefined;
@@ -338,6 +341,7 @@ function resolve(ctx: CardCtx) {
         got = shieldOf(ctx, a, R.rallyShield);
         addStress(a, -eased);
       }
+      for (const r of risen()) shieldOf(ctx, risenSt_(r), R.rallyShield);
       tell(`${h.name} rallies the party! (+${got} Shield, −${eased} stress)`);
       return;
     }
@@ -396,6 +400,11 @@ function resolve(ctx: CardCtx) {
         a.st.fleeSure = until;
         ward(h, a);
       }
+      for (const r of risen()) {
+        const t = risenSt_(r);
+        t.st.dodge = until;
+        ward(h, t);
+      }
       tell(`${h.name} hurls a smoke bomb! (${Math.round(until - world.time)}s)`);
       return;
     }
@@ -445,7 +454,7 @@ function resolve(ctx: CardCtx) {
     case 'bloom': {
       const secs = buffLength(h, ctx.card === 'bloom' ? R.bloomSecs : R.sanctuarySecs);
       const amount = p(ctx.card === 'bloom' ? R.bloomRegen : R.sanctuaryRegen);
-      for (const a of allies()) {
+      for (const a of [...allies(), ...risen().map(risenSt_)]) {
         a.st.regen = { amount: Math.max(amount, a.st.regen?.amount ?? 0), until: world.time + secs, next: world.time + R.pulse };
         ward(h, a);
       }
@@ -458,6 +467,10 @@ function resolve(ctx: CardCtx) {
         heal(a, healBy(h, p(R.dawnHeal)));
         addStress(a, -reliefBy(h, p(R.dawnStress)));
         ward(h, a);
+      }
+      for (const r of risen()) {
+        heal(r, healBy(h, p(R.dawnHeal)));
+        ward(h, risenSt_(r));
       }
       for (const m of enemies()) debuff(ctx, m, 'blind');
       tell(`${h.name} brings the dawn! Every ally is healed and lit; every foe is blinded.`);
@@ -488,6 +501,15 @@ function resolve(ctx: CardCtx) {
         }
         const added = Math.round(addStress(a, R.pactStress * mult));
         if (added > 0) tell(`The pact gnaws at ${a.name}'s mind. (+${added} stress)`, 'stress', a.id, added);
+      }
+      // The summoned and risen pay in blood too (Blood Price spares them like everyone else).
+      if (!price) {
+        for (const r of risen()) {
+          const cost = Math.min(r.hp - 1, risenTakes(world, r, R.pactCost));
+          if (cost <= 0) continue;
+          r.hp -= cost;
+          tell(`The pact takes its due from the ${risenName(world, r)}.`, 'damage', r.id, cost);
+        }
       }
       for (const m of enemies()) strike(ctx, m, R.pact);
       return;
@@ -581,6 +603,10 @@ function resolve(ctx: CardCtx) {
         hurry(ctx, a, R.pealHurry);
         ward(h, a);
       }
+      for (const r of risen()) {
+        hurry(ctx, r, R.pealHurry);
+        ward(h, risenSt_(r));
+      }
       if (!rest.length) hurry(ctx, h, R.pealAlone);
       tell(rest.length ? `${h.name} rings a bright peal! (allies act ${R.pealHurry}s sooner)` : `${h.name} rings a bright peal and quickens. (${R.pealAlone}s sooner)`);
       return;
@@ -607,7 +633,7 @@ function resolve(ctx: CardCtx) {
     }
     case 'reverberate':
       for (const m of enemies()) debuff(ctx, m, 'stun');
-      for (const a of others()) if (enc.next[a.id] !== undefined) enc.next[a.id] = at(world.time);
+      for (const a of [...others(), ...risen()]) if (enc.next[a.id] !== undefined) enc.next[a.id] = at(world.time);
       tell(`${h.name}'s bell reverberates through the stone! Every foe reels; every ally moves now.`);
       return;
     // ---- Zealot ----
@@ -672,6 +698,10 @@ function resolve(ctx: CardCtx) {
       for (const a of allies()) {
         heal(a, healBy(h, p(R.mist)));
         ward(h, a);
+      }
+      for (const r of risen()) {
+        heal(r, healBy(h, p(R.mist)));
+        ward(h, risenSt_(r));
       }
       tell(`${h.name} sprays a healing mist. (+${healBy(h, p(R.mist))} each)`, 'heal');
       return;
@@ -830,6 +860,7 @@ function resolve(ctx: CardCtx) {
     case 'runeward': {
       let got = 0;
       for (const a of allies()) got = shieldOf(ctx, a, R.runeWard);
+      for (const r of risen()) shieldOf(ctx, risenSt_(r), R.runeWard);
       tell(`${h.name}'s runes flare. (every ally +${got} Shield)`);
       return;
     }

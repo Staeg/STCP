@@ -340,6 +340,17 @@ export const ISSUED_KIT: Record<ClassId, Record<GearSlot, ItemId>> = {
 /** Issued Gear: each piece worn adds this much Speed, whatever it would weigh if found (so going without is a little quicker). */
 export const ISSUED_WEIGHT = 0.15;
 
+/** An Issued piece's text: its own, but with the Speed it really costs (ISSUED_WEIGHT, whatever it would weigh if found). */
+export function issuedDesc(item: ItemId): string {
+  const def = ITEMS[item];
+  const own = speedNote(def.speed ?? 0);
+  const real = speedNote(ISSUED_WEIGHT);
+  const card = ` ${gearCardNote(item)}`;
+  if (own && def.desc.includes(own)) return def.desc.replace(own, real);
+  // No Speed of its own: put the Issued weight before the card it adds.
+  return def.desc.endsWith(card) ? `${def.desc.slice(0, -card.length)}${real}${card}` : `${def.desc}${real}`;
+}
+
 /** Commons and Uncommons share their kind's card; Rares and Legendaries bring their own. */
 export function gearCard(item: ItemId): CardId {
   const def = ITEMS[item];

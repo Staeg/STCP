@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, TYPE_CARDS } from '../content/cards';
 import { ENEMIES } from '../content/enemies';
 import { STRESS } from '../content/events';
-import { gearCard, ISSUED_KIT, ISSUED_WEIGHT, ITEMS } from '../content/items';
+import { gearCard, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, ITEMS } from '../content/items';
 import { combatOrder, monstersIn } from './combat';
 import { cardTime, corpses, uselessReason } from './cards';
 import { deckList, liveCards } from './deck';
@@ -68,6 +68,14 @@ describe('the deck', () => {
     expect(speedParts(a, game.world.time).find((p) => p.label === ITEMS.copperband.name)?.amount).toBe(ISSUED_WEIGHT);
     a.ring = null;
     expect(speedParts(a, game.world.time).find((p) => p.label === ITEMS.copperband.name)).toBeUndefined();
+  });
+
+  it("an Issued piece's text gives the Speed it really costs", () => {
+    expect(ITEMS.ringmail.speed).toBeGreaterThan(0);
+    expect(issuedDesc('ringmail')).toContain(`+${ISSUED_WEIGHT}s Speed.`);
+    expect(issuedDesc('ringmail')).not.toContain(`+${ITEMS.ringmail.speed}s Speed.`);
+    expect(issuedDesc('ringmail')).toContain('Card: ');
+    expect(issuedDesc('copperband')).toContain(`+${ISSUED_WEIGHT}s Speed. Card: `);
   });
 
   it('a kit can leave slots bare: nothing issued there, and a Fumble in the deck', () => {
@@ -464,5 +472,54 @@ describe('Burned cards', () => {
     play(world, h, 'dance');
     expect(liveCards(h)).not.toContain('dance');
     expect(liveCards(h)).toHaveLength(9);
+  });
+});
+
+describe('summoned and risen allies', () => {
+  it('"every ally" cards reach them too: Shield, Dodge, Regen, healing, Hurry, Now, and the Pact price', () => {
+    const { world, h, enc } = fight(['warden', 'bellwright']);
+    play(world, h, 'mutter1');
+    const rat = enc.legion!.find((r) => r.type === 'rat')!;
+    expect(rat).toBeDefined();
+    const st = () => rat.st ?? {};
+    play(world, h, 'rally');
+    expect(st().shield).toBe(R.rallyShield);
+    play(world, h, 'runeward');
+    expect(st().shield).toBe(R.rallyShield + R.runeWard);
+    play(world, h, 'smoke');
+    expect(st().dodge).toBeGreaterThan(world.time);
+    play(world, h, 'sanctuary');
+    expect(st().regen?.amount).toBe(R.sanctuaryRegen);
+    rat.hp = 1;
+    play(world, h, 'mist');
+    expect(rat.hp).toBe(Math.min(rat.maxHp, 1 + R.mist));
+    rat.hp = 1;
+    play(world, h, 'dawn');
+    expect(rat.hp).toBe(Math.min(rat.maxHp, 1 + R.dawnHeal));
+    rat.hp = rat.maxHp;
+    play(world, h, 'pact');
+    expect(rat.hp).toBeLessThan(rat.maxHp);
+    const before = enc.next[rat.id];
+    play(world, h, 'peal');
+    expect(enc.next[rat.id]).toBeCloseTo(before - R.pealHurry, 1);
+    // Its action came at once (it has already acted again: its next is a Speed away, not 999s).
+    play(world, h, 'reverberate');
+    expect(enc.next[rat.id]).toBeLessThan(world.time + 30);
+  });
+
+  it('their Shield soaks blows and Regen ticks on them', () => {
+    const { world, h, enc, monsters } = fight(['warden']);
+    play(world, h, 'mutter1');
+    const rat = enc.legion!.find((r) => r.type === 'rat')!;
+    rat.st = { shield: 99 };
+    enc.next[h.id] = world.time + 999;
+    enc.next[monsters[0].id] = world.time;
+    untilTurn(world, enc.room, monsters[0].id);
+    expect(enc.events.some((e) => e.actor === monsters[0].id && e.target === rat.id && e.amount === 0)).toBe(true);
+    expect(rat.hp).toBe(rat.maxHp);
+    rat.hp = 1;
+    rat.st = { regen: { amount: 2, until: world.time + 10, next: world.time + R.pulse } };
+    run(world, R.pulse + 0.2);
+    expect(rat.hp).toBe(3);
   });
 });

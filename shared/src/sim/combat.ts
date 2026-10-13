@@ -159,6 +159,8 @@ export interface Risen {
   permanent?: boolean;
   /** Called up by a card for this fight only: gone when it ends (M15). */
   summon?: boolean;
+  /** What "every ally" cards left on it this fight (Shield, Dodge, Regen…). A Risen ally uses its hero's instead. */
+  st?: Statuses;
 }
 
 /** A hero's move: a card from their hand, or one of the basic actions beside it. */
@@ -499,7 +501,8 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
 function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
     const mine = enc.legion.filter((r) => r.by === h.id);
-    for (const { id: _id, by: _by, ...r } of mine) if (r.hp > 0 && !r.summon) h.legion.push(r);
+    // Like a monster's, its statuses end with the fight.
+    for (const { id: _id, by: _by, st: _st, ...r } of mine) if (r.hp > 0 && !r.summon) h.legion.push(r);
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
 }
@@ -711,6 +714,12 @@ export function risenSpeed(world: World, r: Pick<Risen, 'type' | 'hero'>): numbe
 }
 
 /** Every risen ally still standing here: the Uprising's dead, then the one Raised (nearest the enemy). */
+/** Where a risen keeps its statuses: a Risen ally on its hero, the rest on themselves. */
+export function risenSt(world: World, r: Risen): Statuses {
+  const ally = r.hero ? world.heroes[r.hero] : undefined;
+  return ally ? ally.st : (r.st ??= {});
+}
+
 export function risenAll(enc: Encounter): Risen[] {
   const r = risenOf(enc);
   return [...(enc.legion ?? []).filter((x) => x.hp > 0), ...(r ? [r] : [])];
@@ -1049,6 +1058,18 @@ export function tickClocks(world: World) {
       }
       if (m.st.slow && m.st.slow.until <= now) delete m.st.slow;
     }
+    // Regen an "every ally" card left on the risen (a Risen ally's is on its hero, who isn't conscious to tick it).
+    for (const r of risenAll(enc)) {
+      const st = risenSt(world, r);
+      const g = st.regen;
+      if (!g) continue;
+      while (g.next <= now && g.next <= g.until + 1e-6) {
+        g.next += CARD_RULES.pulse;
+        const healed = heal(r, g.amount);
+        if (healed) events.push({ actor: r.id, kind: 'heal', target: r.id, amount: healed, text: `${risenName(world, r)} regenerates ${healed}.` });
+      }
+      if (g.until <= now) delete st.regen;
+    }
     if (events.length) record(world, enc, events);
   }
 }
@@ -1102,7 +1123,7 @@ export function monsterTakes(world: World, m: Monster, dmg: number): number {
 }
 
 /** What a risen takes from a blow: a Risen ally's own Block counts, a risen monster's its kind's. */
-function risenTakes(world: World, r: Risen, dmg: number): number {
+export function risenTakes(world: World, r: Risen, dmg: number): number {
   const ally = r.hero ? world.heroes[r.hero] : undefined;
   if (ally) return afterBlock(ally, dmg);
   return Math.max(1, dmg - ENEMIES[r.type!].block);
@@ -1389,7 +1410,7 @@ function vigilFlares(world: World, enc: Encounter, events: CombatEvent[]) {
   }
 }
 
-export function heal(h: Hero, n: number): number {
+export function heal(h: { hp: number; maxHp: number }, n: number): number {
   const before = h.hp;
   h.hp = Math.min(h.maxHp, h.hp + n);
   return h.hp - before;
@@ -1633,10 +1654,28 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   }
   if (victim.kind === 'risen') {
     const r = victim.r;
-    const dmg = risenTakes(world, r, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
-    r.hp = Math.max(0, r.hp - dmg);
     const rname = risenName(world, r);
-    events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: `${name} ${verb} ${rname} for ${dmg}.` });
+    // What "every ally" cards gave it covers it like a hero: Veil-like evades, Smoke, Shield.
+    const st = risenSt(world, r);
+    if (st.evade) {
+      if (--st.evade <= 0) delete st.evade;
+      events.push({ actor: m.id, kind: 'miss', target: r.id, text: `${name} ${verb} at ${rname}, who is not quite there.` });
+      return null;
+    }
+    const dodge = Math.max(inSmoke(world, st) ? 0.5 : 0, st.sidestep ?? 0);
+    if (dodge > 0 && world.rng.chance(dodge)) {
+      events.push({ actor: m.id, kind: 'miss', target: r.id, text: `${name} ${verb} at ${rname} — dodged!` });
+      return null;
+    }
+    let dmg = risenTakes(world, r, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
+    if (st.shield) {
+      const absorbed = Math.min(st.shield, dmg);
+      st.shield -= absorbed;
+      dmg -= absorbed;
+      if (st.shield <= 0) delete st.shield;
+    }
+    r.hp = Math.max(0, r.hp - dmg);
+    events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: dmg > 0 ? `${name} ${verb} ${rname} for ${dmg}.` : `${name} ${verb} ${rname}, but its Shield soaks it up.` });
     if (r.hp <= 0) {
       events.push({ actor: r.id, kind: 'death', target: r.id, text: r.type === 'wolf' ? `${rname} yelps and falls.` : `${rname} falls apart.` });
       delete enc.next[r.id];

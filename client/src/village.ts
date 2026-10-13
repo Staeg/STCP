@@ -1,5 +1,5 @@
 import {
-  BUILDING_IDS, BUILDINGS, ISSUED_KIT, ISSUED_WEIGHT, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
+  BUILDING_IDS, BUILDINGS, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
   LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
   REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf,
   type BuildingId, type ClassId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
@@ -263,7 +263,7 @@ export function loadoutHtml(v: VillageView, cls: ClassId | null = null): string 
       const what = issued ? `Issued ${itemName(issued)}` : `Issued ${SLOT_NAMES[s].toLowerCase()}`;
       const tip = bare
         ? `Going without: no ${SLOT_NAMES[s].toLowerCase()}, so ${ISSUED_WEIGHT}s quicker, but a Fumble in your deck. Click to take the Issued one.`
-        : `${issued ? `${ITEMS[issued].desc} ` : ''}Free, worth no CR, and it stays behind when you leave (+${ISSUED_WEIGHT}s Speed, whatever it is). Click to go without it instead.`;
+        : `${issued ? `${issuedDesc(issued)} ` : `+${ISSUED_WEIGHT}s Speed. `}Free and ephemeral.`;
       return `<button class="kit-slot issued ${bare ? 'bare' : ''}" data-act="kit-bare" data-slot="${s}" title="${esc(tip)}">${bare ? `<s>${SLOT_NAMES[s]}</s>` : what}</button>`;
     }),
     ...(gem ? ['<div class="kit-slot" title="The Gem Rite forbids consumables.">no consumables</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
