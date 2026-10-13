@@ -1,14 +1,14 @@
 import {
-  abilitiesOf, FLEE_CHANCE, INSANITY, INSANITY_RULES, LEGENDS, legendsOf, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
-  skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type LegendId, type PlayerView,
+  CARD_RULES, CARDS, deckList, FLEE_CHANCE, handSize, INSANITY, INSANITY_RULES, SCHOOLS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
+  skillInfo, type CardId, type CardView, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { spriteUrl } from './render/sprites';
 import { juice } from './juice';
 import { itemName, useFromField } from './loot';
-import { cooldownIcon, icon, iconize, iconNum, type IconId } from './icons';
+import { icon, iconize, iconNum, type IconId } from './icons';
 import { statusIcons } from './statuses';
-import { digitClaimed, digitKey } from './events';
+import { digitKey } from './events';
 
 const $ = (id: string) => document.getElementById(id)!;
 /** Events from one turn play out this far apart; a busy fight queues them up. */
@@ -30,6 +30,10 @@ export class CombatUi {
   private targeting: CombatAction | null = null;
   /** Inventory slot being aimed, when targeting === 'item'. */
   private targetingItem: number | null = null;
+  /** The card being aimed, when targeting === 'card'. */
+  private targetingCard: CardId | null = null;
+  /** A card waiting for a room to be clicked on the map (Waystep). */
+  private aimRoom: CardId | null = null;
   /** Fight (room) and the last event seq already queued for replay. */
   private seen: { room: number; seq: number } | null = null;
   /** When the replay queue runs dry (performance.now()). */
@@ -51,13 +55,8 @@ export class CombatUi {
   private aimedBy = new Map<string, string[]>();
   /** Your turn is close and you haven't picked: your ring turns red. */
   private hurry = false;
-  /** Out of a fight: the action whose description was clicked open, so its icons can be hovered. */
+  /** Out of a fight: the card or action whose description was clicked open, so its icons can be hovered. */
   private pinned: string | null = null;
-  /**
-   * An ability waiting for its target: someone from the strip of names above the bar, or (`room`) a room clicked on
-   * the map. A field skill out of a fight, or a Legendary ability in or out of one.
-   */
-  private aim: { skill: FieldSkill; legend: boolean; room: boolean } | null = null;
   private fighting = false;
   private pinTouched = false;
 
@@ -77,7 +76,7 @@ export class CombatUi {
     const panel = $('combat');
     const enc = view?.encounter ?? null;
     // A fight starting or ending calls off whatever was being aimed.
-    if (!!enc !== this.fighting) this.aim = null;
+    if (!!enc !== this.fighting) this.aimRoom = null;
     this.fighting = !!enc;
     if (!view || !enc) {
       this.targeting = null;
@@ -95,7 +94,7 @@ export class CombatUi {
     panel.hidden = false;
     panel.classList.remove('idle');
     // Picking a room on the map: the fight stage folds away so the map shows.
-    panel.classList.toggle('aim-room', !!this.aim?.room);
+    panel.classList.toggle('aim-room', !!this.aimRoom);
     this.onNewEvents(enc);
     this.render(view, enc);
     for (const m of enc.monsters) this.prevMonsters.set(m.id, m);
@@ -173,11 +172,12 @@ export class CombatUi {
     const left = me?.nextIn ?? null;
     let status: string;
     if (me?.downed) status = 'You are down! An ally must revive you.';
+    else if (this.aimRoom) status = `${CARDS[this.aimRoom].name}: click a room on the map.`;
     else if (this.targeting) status = 'Choose a target (defaults to the leftmost)';
-    else if (enc.yourChoice) status = `Next turn: ${me?.choice ?? 'ready'}. You can change it until then.`;
-    else status = `Pick your next move! (defaults to ${this.fallbackName(view)})`;
+    else if (enc.yourChoice) status = `Next: ${me?.choice ?? 'ready'}. You can change it until then.`;
+    else status = `Pick your next card! (defaults to ${this.fallbackName(enc)})`;
     const header = `<div class="cb-head">
-      <span>${me ? iconNum('speed', fmtSpeed(me.speed)) : ''}${enc.doom ? ` <span class="danger" title="The Lich's Doom on you: you take this much more from every blow, aura and poison. It holds while a Lich stands in your fight; otherwise it drops by 1 at the end of each of your turns, even after the fight.">☠ Doom +${enc.doom}</span>` : ''}</span>
+      <span>${me ? iconNum('speed', fmtSpeed(me.speed), `This wait: ${fmtSpeed(me.speed)} (what your last card took)`) : ''}${enc.doom ? ` <span class="danger" title="The Lich's Doom on you: you take this much more from every blow, aura and poison. It holds while a Lich stands in your fight; otherwise it drops by 1 at the end of each of your turns, even after the fight.">☠ Doom +${enc.doom}</span>` : ''}</span>
       <span class="cb-status ${canAct && !enc.yourChoice ? 'urgent' : ''}">${esc(status)}</span>
       <span>${left !== null ? `your turn in ${left.toFixed(1)}s` : ''}</span>
     </div>`;
@@ -208,24 +208,26 @@ export class CombatUi {
 
     const log = `<div class="cb-log">${this.shownLog.slice(-7).map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
 
-    const html = header + `<div class="cb-body">${stage}${log}</div>` + this.aimHtml(view) + this.actionsHtml(view, enc, canAct);
+    const html = header + `<div class="cb-body">${stage}${log}</div>` + this.actionsHtml(view, enc, canAct);
     this.setHtml(html);
   }
 
-  /** Out of combat: the same action bar, greyed out, so you always know what you'll have to hand. */
+  /** Out of combat: your deck (greyed, to read) and the Toll, then the pack items that work while exploring. */
   private renderIdle(view: PlayerView) {
     const items = this.itemsHtml(view, null, false);
     this.setHtml(`<div class="cb-group">
-        <div class="cb-idle-head">Abilities <span class="muted">· bright ones work now too, as your turn · in a fight you default to your first one that's ready</span></div>
-        ${this.aimHtml(view)}${this.actionsHtml(view, null, false)}
+        <div class="cb-idle-head">Your deck <span class="muted">· a fight deals you ${handSize(view.you)} of these; each card says how long until your next action</span></div>
+        ${this.deckHtml(view)}
       </div>`
       + (items ? `<div class="cb-group items"><div class="cb-idle-head">Items <span class="muted">· usable now (as your turn), or in a fight</span></div>${items}</div>` : ''));
   }
 
-  /** What the sim does for you if you don't pick: your first ability that's ready, or Brace if none is. */
-  private fallbackName(view: PlayerView): string {
-    const i = readyAbilities(view.you)[0];
-    return i === undefined ? 'Brace' : abilitiesOf(view.you)[i].name;
+  /** What the sim plays for you if you don't pick: your leftmost card that isn't a Burn (and would do something). */
+  private fallbackName(enc: EncounterView): string {
+    const hand = enc.yourHand;
+    const plain = (c: CardView) => !CARDS[c.card].burn && CARDS[c.card].target !== 'room';
+    const c = hand.find((x) => plain(x) && !x.weak) ?? hand.find(plain) ?? hand[0];
+    return c ? CARDS[c.card].name : 'Brace';
   }
 
   private setHtml(html: string) {
@@ -236,7 +238,7 @@ export class CombatUi {
     this.applyPin();
   }
 
-  /** Which button an out-of-fight click pins: an ability or other action, or a pack item that can't be used now. */
+  /** Which button an out-of-fight click pins: a card or other action, or a pack item that can't be used now. */
   private static pinKey(el: HTMLElement): string | null {
     if (el.dataset.pin) return el.dataset.pin;
     if (el.dataset.action) return el.dataset.action;
@@ -250,208 +252,108 @@ export class CombatUi {
     for (const b of $('combat').querySelectorAll<HTMLElement>('button.cb-act')) b.classList.toggle('pinned', CombatUi.pinKey(b) === this.pinned && this.pinned !== null);
   }
 
-  /**
-   * Abilities, Revive/Flee/Brace and combat items. Everything is shown; what you can't use right now is disabled.
-   * Out of combat the buttons are only greyed (not `disabled`), so hovering still shows what they do.
-   */
-  private actionsHtml(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
-    const you = view.you;
-    const abilities = abilitiesOf(you);
-    const chosen = enc?.yourChoice ?? null;
-    const off = (disabled: boolean) => (!disabled ? '' : enc ? 'disabled' : 'aria-disabled="true"');
-    /** `desc` is HTML. Revive, Flee and Brace are just an icon (`body`), their name in the description. */
-    const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false, body?: IconId) => {
-      const sel = chosen?.action === action || this.targeting === action;
-      return `<button class="cb-act ${body ? 'mini' : ''} ${sel ? 'sel' : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
-        <kbd>${key}</kbd> ${body ? icon(body, label) : esc(label)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
-        <div class="cb-desc">${body ? `<b>${esc(label)}</b>: ` : ''}${desc}</div></button>`;
-    };
-    const anyDowned = !!enc?.heroes.some((h) => h.downed);
-    const ability = (i: number) => {
-      const ab = abilities[i];
-      const action = `a${i}` as CombatAction;
-      const opt = enc?.yourOptions[action];
-      const blocked = !!opt && (opt.blocked !== null || (this.needsTarget(view, action) && opt.targets.length === 0));
-      // Cooldowns carry over between fights, so they show out of one too.
-      const cd = you.cooldowns[ab.id] ?? 0;
-      // The cooldown already says why; otherwise explain what's stopping it.
-      const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
-      const extra = ab.id === 'spade' && you.spadeBonus ? ` Now ${ab.power + you.spadeBonus} dmg.` : '';
-      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc + extra, ab.cooldown, !!ab.field) + why, cd, blocked);
-    };
-    const actions = `<div class="cb-actions">
-      ${enc ? abilities.map((_, i) => ability(i)).join('') : abilities.map((ab, i) => (ab.field ? this.fieldBtn(view, ab.id as FieldSkill, String(i + 1)) : ability(i))).join('')}
-      ${this.extraBtns(view, enc, canAct)}
-      ${!enc ? '' : `${btn('revive', 'R', 'Revive', iconize('Get a downed ally back up (30% HP).'), 0, !anyDowned, 'revive')}
-      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +${STRESS.flee} stress.`), 0, false, 'flee')}
-      ${btn('brace', 'B', 'Brace', iconize('Take 30% less damage until your next turn. (Automatic if your turn comes while all your abilities are cooling down.)'), 0, false, 'brace')}`}
-    </div>`;
-
-    if (!enc) return actions;
-    const items = this.itemsHtml(view, enc, canAct);
-    return actions + items;
+  /** A card's face: name, its time, school icons and 🔥 for a Burn. `time` is what it would take you now. */
+  private static cardFace(card: CardId, time: number): string {
+    const def = CARDS[card];
+    const schools = def.schools.map((s) => `<span title="${SCHOOLS[s].name}: ${esc(SCHOOLS[s].desc)}">${SCHOOLS[s].glyph}</span>`).join('');
+    return `${esc(def.name)} <span class="cd-time">${fmtSpeed(time)}</span><span class="schools">${schools}</span>${def.burn ? '<span class="burn" title="Burn: gone for the rest of the run once played (a Loom brings it back).">🔥</span>' : ''}`;
   }
 
-  /** The Bellwright's Toll and Legendary abilities: after the class's three, in the same bar. */
-  private extraBtns(view: PlayerView, enc: EncounterView | null, canAct: boolean): string {
+  /** A card's text, for its hover box. */
+  private static cardDesc(card: CardId, time: number, extra = ''): string {
+    const def = CARDS[card];
+    const schools = def.schools.map((s) => SCHOOLS[s].name).join(', ');
+    return `<b>${esc(def.name)}</b> · ${fmtSpeed(time)} until your next action${schools ? ` · ${schools}` : ''}${def.burn ? ' · <b>Burn</b>' : ''}<br>${iconize(def.desc)}${extra}`;
+  }
+
+  /**
+   * In a fight: your hand of cards (keys 1–4), then Revive/Flee/Brace and the Toll, then combat items.
+   * What you can't use right now is disabled; a card that would do nothing useful is dimmed (it still plays).
+   */
+  private actionsHtml(view: PlayerView, enc: EncounterView, canAct: boolean): string {
     const you = view.you;
-    const out: string[] = [];
-    if (you.cls === 'bellwright') {
-      out.push(enc ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} Only out of a fight.`, you.cooldowns.toll ?? 0, false, true)
-        : this.fieldBtn(view, 'toll', 'M'));
-    }
-    for (const l of legendsOf(you)) {
-      const key = LEGEND_KEY;
-      const def = LEGENDS[l];
-      if (!enc) {
-        out.push(def.field ? this.fieldBtn(view, l, key) : this.greyBtn(l, key, def.name, `${iconize(def.desc)} ${cooldownIcon(def.cooldown)} Only in a fight.`, you.cooldowns[l] ?? 0, true));
-        continue;
-      }
-      if (!def.combat) {
-        out.push(this.greyBtn(l, key, def.name, `${iconize(def.desc)} ${cooldownIcon(def.cooldown)} Only out of a fight.`, you.cooldowns[l] ?? 0, true, true));
-        continue;
-      }
-      const cd = you.cooldowns[l] ?? 0;
-      const opt = enc.legendOptions?.[l];
-      const blocked = !canAct || cd > 0 || !!opt?.blocked;
-      const sel = (enc.yourChoice?.action === 'legend' && enc.yourChoice.legend === l) || (this.aim?.legend && this.aim.skill === l);
-      const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
-      out.push(`<button class="cb-act legend ${sel ? 'sel' : ''}" data-legend="${l}" ${blocked ? 'disabled' : ''}>
-        <kbd>${key}</kbd> ${esc(def.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
-        <div class="cb-desc">${iconize(def.desc)} ${cooldownIcon(def.cooldown)}${def.field ? ` ${icon('field')}` : ''}${why}</div></button>`);
-    }
-    return out.join('');
+    const chosen = enc.yourChoice;
+    /** `desc` is HTML. Revive, Flee and Brace are just an icon (`body`), their name in the description. */
+    const btn = (action: CombatAction, key: string, label: string, desc: string, disabled = false, body?: IconId) => {
+      const sel = chosen?.action === action || this.targeting === action;
+      return `<button class="cb-act ${body ? 'mini' : ''} ${sel ? 'sel' : ''}" data-action="${action}" ${!canAct || disabled ? 'disabled' : ''}>
+        <kbd>${key}</kbd> ${body ? icon(body, label) : esc(label)}
+        <div class="cb-desc">${body ? `<b>${esc(label)}</b>: ` : ''}${desc}</div></button>`;
+    };
+    const cards = enc.yourHand.map((c, i) => {
+      const sel = (chosen?.action === 'card' && chosen.card === c.card) || (this.targeting === 'card' && this.targetingCard === c.card) || this.aimRoom === c.card;
+      const why = c.weak ? `<br><span class="muted">Now: ${esc(c.weak)}</span>` : '';
+      return `<button class="cb-act cb-card ${sel ? 'sel' : ''} ${c.weak ? 'weak' : ''} ${CARDS[c.card].burn ? 'burning' : ''}" data-card="${c.card}" ${canAct ? '' : 'disabled'}>
+        <kbd>${i + 1}</kbd> ${CombatUi.cardFace(c.card, c.time)}
+        <div class="cb-desc">${CombatUi.cardDesc(c.card, c.time, why)}</div></button>`;
+    }).join('');
+    const burned = enc.burned.map((c) => CARDS[c].name).join(', ');
+    const pile = `<span class="cb-deck" title="${esc(`Draw pile ${enc.deckCount} · discard ${enc.discardCount}${burned ? ` · burned: ${burned}` : ''}. The discard is shuffled back in when the draw pile runs out, and every fight starts from a full shuffle.`)}">🂠 ${enc.deckCount} · ♻ ${enc.discardCount}${enc.burned.length ? ` · 🔥 ${enc.burned.length}` : ''}${enc.corpses ? ` · ⚰ ${enc.corpses}` : ''}</span>`;
+    const toll = you.cls === 'bellwright' ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} Only out of a fight.`, true) : '';
+    const actions = `<div class="cb-actions hand">${cards}${pile}</div>
+      <div class="cb-actions basics">
+      ${btn('revive', 'R', 'Revive', iconize(`Get a downed ally back up (30% HP). ${CARD_RULES.reviveTime}s.`), !enc.reviveTargets.length, 'revive')}
+      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +${STRESS.flee} stress. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
+      ${btn('brace', 'B', 'Brace', iconize(`Take 30% less damage until your next action. ${CARD_RULES.braceTime}s.`), false, 'brace')}
+      ${toll}
+    </div>`;
+    return actions + this.itemsHtml(view, enc, canAct);
+  }
+
+  /** Out of a fight: every card in your deck, greyed (hover or click to read), burned ones struck through; then the Toll. */
+  private deckHtml(view: PlayerView): string {
+    const you = view.you;
+    const left = [...you.burned];
+    const cards = deckList(you).map((c, i) => {
+      const b = left.indexOf(c);
+      const burned = b >= 0;
+      if (burned) left.splice(b, 1);
+      return `<button class="cb-act cb-card ${burned ? 'burned' : ''} ${CARDS[c].burn ? 'burning' : ''}" data-pin="card${i}" aria-disabled="true">
+        ${CombatUi.cardFace(c, CARDS[c].time)}
+        <div class="cb-desc">${CombatUi.cardDesc(c, CARDS[c].time, burned ? '<br><span class="muted">Burned this run.</span>' : '')}</div></button>`;
+    }).join('');
+    return `<div class="cb-actions deck">${cards}${you.cls === 'bellwright' ? this.tollBtn(view) : ''}</div>`;
   }
 
   /** An action that can't be used here (in a fight, or out of one): greyed, its description on hover or click. */
-  private greyBtn(pin: string, key: string, name: string, desc: string, cd: number, legend = false, fight = false): string {
+  private greyBtn(pin: string, key: string, name: string, desc: string, fight = false): string {
     // In a fight it's just its key and name (what it does on hover), so the usable ones keep the room.
-    return `<button class="cb-act ${legend ? 'legend' : ''} ${fight ? 'mini' : ''}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
-      <kbd>${key}</kbd> ${esc(name)}${cd > 0 && !fight ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+    return `<button class="cb-act ${fight ? 'mini' : ''}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
+      <kbd>${key}</kbd> ${esc(name)}
       <div class="cb-desc"><b>${esc(name)}</b>: ${desc}</div></button>`;
   }
 
-  /**
-   * Out of a fight, one button for an ability that works there (a field skill): bright when it's ready, used with a
-   * click (as your turn), its cooldown on it. Targets are picked from a strip above the bar, or on the map.
-   */
-  private fieldBtn(view: PlayerView, skill: FieldSkill, key: string): string {
+  /** Out of a fight, the Bellwright's Toll (once a run): bright when it can be rung, used with a click as your turn. */
+  private tollBtn(view: PlayerView): string {
     const you = view.you;
-    const legend = skill in LEGENDS;
-    const info = skillInfo(you, skill);
-    const cd = you.cooldowns[skill] ?? 0;
-    const ab = abilitiesOf(you).find((a) => a.id === skill);
-    const cooldown = legend ? LEGENDS[skill as LegendId].cooldown : skill === 'toll' ? 0 : ab?.cooldown ?? 0;
-    const queued = you.queuedSkill?.skill === skill;
-    const aiming = this.aim?.skill === skill;
-    // The Toll is once a run (a Loom weaves it back).
-    const rung = skill === 'toll' && you.tolled;
+    const info = skillInfo(you, 'toll');
+    const queued = you.queuedSkill?.skill === 'toll';
+    const rung = you.tolled;
     const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung;
-    const inFights = legend ? LEGENDS[skill as LegendId].combat : !!ab;
-    return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''}" data-skill="${skill}">
-      <kbd>${key}</kbd> ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}${rung ? ' <span class="cd">rung</span>' : ''}
-      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)}${cooldown ? ` ${cooldownIcon(cooldown)}` : ''}${inFights ? ` ${icon('field')}` : ' Only out of a fight.'}</div></button>`;
+    return `<button class="cb-act live ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="toll">
+      <kbd>M</kbd> ${esc(info.name)}${rung ? ' <span class="cd">rung</span>' : ''}
+      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)} Only out of a fight.</div></button>`;
   }
 
-  /** Who an ability being aimed can go to, as name buttons (or a "click a room" note), above the bar. */
-  private aimHtml(view: PlayerView): string {
-    const aim = this.aim;
-    if (!aim) return '';
-    const name = skillInfo(view.you, aim.skill).name;
-    const cancel = '<button class="aim-chip cancel" data-aim-cancel>✕ <kbd>Esc</kbd></button>';
-    if (aim.room) return `<div class="cb-aim"><b>${esc(name)}</b>: click a room on the map. ${cancel}</div>`;
-    const chips = this.aimTargets(view).map((t) => `<button class="aim-chip" data-aim-target="${t.id}">${t.label}</button>`).join('');
-    return `<div class="cb-aim"><b>${esc(name)}</b> on: ${chips || '<span class="muted">nobody here</span>'} ${cancel}</div>`;
-  }
-
-  /** Who the ability being aimed can go to now (labels are HTML). */
-  private aimTargets(view: PlayerView): { id: string; label: string }[] {
-    const aim = this.aim;
-    if (!aim) return [];
-    const you = view.you;
-    const enc = view.encounter;
-    type Person = { id: string; name: string; hp: number; maxHp: number; stress?: number; downed?: boolean; dead: boolean };
-    const label = (a: Person) => a.dead ? `${esc(a.name)} <span class="muted">dead</span>` : a.downed ? `${esc(a.name)} <span class="muted">down</span>`
-      : `${a.id === you.id ? 'yourself' : esc(a.name)} <span class="muted">${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}${a.stress !== undefined ? ` ${Math.round(a.stress)}${icon('stress')}` : ''}</span>`;
-    const people: Person[] = [{ id: you.id, name: you.name, hp: you.hp, maxHp: you.maxHp, stress: you.stress, dead: you.dead }, ...view.allies];
-    if (enc && aim.legend) {
-      const ids = enc.legendOptions?.[aim.skill as LegendId]?.targets ?? [];
-      return ids.flatMap((id) => people.filter((p) => p.id === id)).map((p) => ({ id: p.id, label: label(p) }));
-    }
-    const here = you.pos.kind === 'room' ? you.pos.room : -1;
-    const kind = skillTarget(you, aim.skill);
-    const inRoom = view.allies.filter((a) => a.live && !a.extracted && a.pos.kind === 'room' && a.pos.room === here);
-    if (kind === 'fallen') return inRoom.filter((a) => a.downed || a.dead).map((a) => ({ id: a.id, label: label(a) }));
-    let list: Person[] = [...(kind === 'any' ? [people[0]] : []), ...inRoom.filter((a) => !a.downed && !a.dead)];
-    if (aim.skill === 'sins') list = list.filter((a) => (a.stress ?? 0) > 0);
-    if (aim.skill === 'mend') list = list.filter((a) => a.hp < a.maxHp);
-    return list.map((a) => ({ id: a.id, label: label(a) }));
-  }
-
-  /** Clicked (or its key pressed): a field skill out of a fight. Untargeted ones go at once; others want a target. */
-  private useField(skill: FieldSkill) {
+  /** The Toll, clicked or M pressed out of a fight. */
+  private useToll() {
     const view = this.net.cur;
-    if (!view || view.encounter) return;
-    if ((view.you.cooldowns[skill] ?? 0) > 0) return;
-    const kind = skillTarget(view.you, skill);
-    if (kind === 'none') {
-      this.aim = null;
-      this.net.intent({ type: 'skill', skill });
-      return;
-    }
-    this.aim = { skill, legend: skill in LEGENDS, room: kind === 'room' };
-    if (kind === 'room') return;
-    const targets = this.aimTargets(view);
-    // Only one who it could be: no need to ask.
-    if (targets.length === 1) this.aimAt(targets[0].id);
-    else if (targets.length === 0) {
-      this.aim = null;
-      this.net.intent({ type: 'skill', skill }); // the server says why not
-    }
+    if (!view || view.encounter || view.you.tolled || !fieldSkillsOf(view.you).includes('toll')) return;
+    this.net.intent({ type: 'skill', skill: 'toll' });
   }
 
-  /** A Legendary ability in a fight: picked now, done on your turn. */
-  private pickLegend(l: LegendId) {
-    const view = this.net.cur;
-    const enc = view?.encounter;
-    if (!view || !enc) return;
-    const opt = enc.legendOptions?.[l];
-    if (!opt || opt.blocked || (view.you.cooldowns[l] ?? 0) > 0) return;
-    this.targeting = null;
-    const kind = LEGENDS[l].target;
-    if (kind === 'none') {
-      this.aim = null;
-      this.net.intent({ type: 'combat', choice: { action: 'legend', legend: l } });
-      return;
-    }
-    this.aim = { skill: l, legend: true, room: kind === 'room' };
-    if (kind === 'room') return;
-    if (opt.targets.length === 1) this.aimAt(opt.targets[0]);
-  }
-
-  /** The target of the ability being aimed was picked. */
-  private aimAt(target: string) {
-    const aim = this.aim;
-    if (!aim) return;
-    this.aim = null;
-    if (this.net.cur?.encounter && aim.legend) this.net.intent({ type: 'combat', choice: { action: 'legend', legend: aim.skill as LegendId, target } });
-    else this.net.intent({ type: 'skill', skill: aim.skill, target });
-  }
-
-  /** A room was clicked on the map: true if an ability was waiting for one (and took it), so the click isn't a walk. */
+  /** A room was clicked on the map: true if a card was waiting for one (Waystep), so the click isn't a walk. */
   pickRoom(room: number): boolean {
-    const aim = this.aim;
-    if (!aim?.room) return false;
-    this.aim = null;
-    if (this.net.cur?.encounter && aim.legend) this.net.intent({ type: 'combat', choice: { action: 'legend', legend: aim.skill as LegendId, room } });
-    else this.net.intent({ type: 'skill', skill: aim.skill, room });
+    const card = this.aimRoom;
+    if (!card) return false;
+    this.aimRoom = null;
+    if (this.net.cur?.encounter) this.net.intent({ type: 'combat', choice: { action: 'card', card, room } });
     return true;
   }
 
-  /** Waiting for a room to be clicked: the ability's name (the map says so by the pointer). */
+  /** Waiting for a room to be clicked: the card's name (the map says so by the pointer). */
   get pickingRoom(): string | null {
-    const view = this.net.cur;
-    return this.aim?.room && view ? skillInfo(view.you, this.aim.skill).name : null;
+    return this.aimRoom ? CARDS[this.aimRoom].name : null;
   }
 
   /**
@@ -463,6 +365,8 @@ export class CombatUi {
     if (view.you.rites?.includes('gem')) return '';
     const chosen = enc?.yourChoice ?? null;
     const elixir = view.you.elixir ? '<span class="elixir" title="Elixir: your next item has double effect.">⚗×2</span>' : '';
+    // In a fight the item keys come after the cards (4–7 with a hand of three); out of one they're 4–7.
+    const base = Math.max(3, enc?.yourHand.length ?? 3);
     const btns = elixir + view.you.items.map((it, i) => {
       const def = ITEMS[it];
       if (!def.combat && !def.field) return '';
@@ -476,7 +380,7 @@ export class CombatUi {
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
       return `<button class="cb-act item ${sel ? 'sel' : ''}" data-action="item" data-item="${i}" ${canAct ? '' : 'disabled'}>
-        <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}</div></button>`;
+        <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + base + 1}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${iconize(def.desc)}</div></button>`;
     }).filter(Boolean).join('');
     return btns ? `<div class="cb-actions items">${btns}</div>` : '';
   }
@@ -507,10 +411,13 @@ export class CombatUi {
       .join('');
     const classes = ['cb-unit', u.kind, valid.includes(u.id) ? 'targetable' : '', flash ? 'flash' : '', dying ? 'dying' : '',
       u.downed ? 'downed' : '', u.id === youId ? 'you' : ''].join(' ');
+    const summoned = u.enemy === 'rat' || u.enemy === 'shade' || u.enemy === 'imp';
     const sub = u.downed ? `DOWN · ${Math.ceil(u.dying ?? 0)}s`
       : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
-      : u.enemy === 'wolf' ? 'wolf · runs with you' : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
-    // Speed timer: a ring round the sprite (like on the map) that fills up as their turn approaches.
+      : u.enemy === 'wolf' ? 'wolf · runs with you'
+      : summoned ? 'summoned · this fight'
+      : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
+    // Turn timer: a ring round the sprite (like on the map) that fills up as their next action approaches.
     const timed = u.nextIn !== null && !dying;
     const fill = timed ? Math.max(0, Math.min(1, 1 - u.nextIn! / u.speed)) : 0;
     const ringColor = u.id === youId && this.hurry ? 'var(--danger)' : color;
@@ -520,7 +427,7 @@ export class CombatUi {
           <circle cx="50" cy="50" r="46" pathLength="100" stroke="${ringColor}" stroke-dasharray="${(fill * 100).toFixed(1)} 100"/></svg>`
       : '';
     const turn = timed
-      ? `<div class="spd">${iconNum('speed', fmtSpeed(u.speed), `Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next turn in ${u.nextIn!.toFixed(1)}s`)} · ${u.nextIn!.toFixed(1)}s</div>`
+      ? `<div class="spd">${iconNum('speed', fmtSpeed(u.speed), u.kind === 'monster' ? `Speed ${fmtSpeed(u.speed)}: acts every ${fmtSpeed(u.speed)} · next in ${u.nextIn!.toFixed(1)}s` : `This wait ${fmtSpeed(u.speed)} · next in ${u.nextIn!.toFixed(1)}s`)} · ${u.nextIn!.toFixed(1)}s</div>`
       : '';
     const target = u.choiceTarget ? this.names.get(u.choiceTarget) : undefined;
     const pick = u.kind === 'hero' && u.choice
@@ -544,7 +451,7 @@ export class CombatUi {
 
   private validTargets(view: PlayerView, enc: EncounterView, action: CombatAction): string[] {
     const allies = enc.heroes.filter((h) => !h.downed);
-    if (action === 'revive') return enc.heroes.filter((h) => h.downed).map((h) => h.id);
+    if (action === 'revive') return enc.reviveTargets;
     if (action === 'item') {
       const def = ITEMS[view.you.items[this.targetingItem ?? -1]];
       if (!def) return [];
@@ -552,61 +459,58 @@ export class CombatUi {
       if (def.target === 'downed') return enc.heroes.filter((h) => h.downed).map((h) => h.id);
       return [];
     }
-    // Abilities: the server says who each can be aimed at.
-    return enc.yourOptions[action]?.targets ?? [];
+    // Cards: the server says who each can be aimed at.
+    if (action === 'card') return enc.yourHand.find((c) => c.card === this.targetingCard)?.targets ?? [];
+    return [];
   }
 
-  private needsTarget(view: PlayerView, action: CombatAction) {
+  private needsTarget(view: PlayerView, action: CombatAction, card?: CardId) {
     if (action === 'revive') return true;
     if (action === 'item') {
       const def = ITEMS[view.you.items[this.targetingItem ?? -1]];
       return !!def && (def.target === 'ally' || def.target === 'downed');
     }
-    if (!action.startsWith('a')) return false;
-    const ab = abilitiesOf(view.you)[Number(action.slice(1))];
-    return ['enemy', 'enemyFirst', 'damagedEnemy', 'ally', 'otherAlly'].includes(ab.target);
+    if (action === 'card' && card) return CARDS[card].target === 'enemy' || CARDS[card].target === 'ally';
+    return false;
   }
 
-  private pick(action: CombatAction, item?: number) {
+  private pick(action: CombatAction, item?: number, card?: CardId) {
     const view = this.net.cur;
     const enc = view?.encounter;
     if (!view || !enc) return;
+    this.aimRoom = null;
     this.targetingItem = action === 'item' ? item ?? null : null;
-    if (!this.needsTarget(view, action)) {
+    this.targetingCard = action === 'card' ? card ?? null : null;
+    // Waystep: the room is clicked on the map (the fight stage folds away meanwhile).
+    if (card && CARDS[card].target === 'room') {
       this.targeting = null;
-      this.net.intent({ type: 'combat', choice: { action, item } });
+      this.aimRoom = card;
+      return;
+    }
+    if (!this.needsTarget(view, action, card)) {
+      this.targeting = null;
+      this.net.intent({ type: 'combat', choice: { action, item, card } });
       return;
     }
     const targets = this.validTargets(view, enc, action);
     if (targets.length === 1) {
       this.targeting = null;
-      this.net.intent({ type: 'combat', choice: { action, target: targets[0], item } });
+      this.net.intent({ type: 'combat', choice: { action, target: targets[0], item, card } });
     } else if (targets.length > 1) {
       // Lock the move in now; if the turn comes before a target is clicked, it goes to the leftmost one.
       this.targeting = action;
-      this.net.intent({ type: 'combat', choice: { action, item } });
+      this.net.intent({ type: 'combat', choice: { action, item, card } });
     }
   }
 
   private onClick(e: Event) {
     const el = e.target as HTMLElement;
-    const chip = el.closest('button.aim-chip') as HTMLElement | null;
-    if (chip) {
-      if (chip.dataset.aimCancel !== undefined) this.aim = null;
-      else if (chip.dataset.aimTarget) this.aimAt(chip.dataset.aimTarget);
-      return;
-    }
     const live = el.closest('button[data-skill]') as HTMLElement | null;
     if (live) {
-      if (!live.classList.contains('cooling')) this.useField(live.dataset.skill as FieldSkill);
+      if (!live.classList.contains('cooling')) this.useToll();
       return;
     }
-    const leg = el.closest('button[data-legend]') as HTMLButtonElement | null;
-    if (leg) {
-      if (!leg.disabled) this.pickLegend(leg.dataset.legend as LegendId);
-      return;
-    }
-    // Exploring: clicking a greyed action keeps its description open (click it again, or anywhere, to close).
+    // Exploring: clicking a greyed card or action keeps its description open (click it again, or anywhere, to close).
     const pinBtn = !this.net.cur?.encounter ? (el.closest('button.cb-act') as HTMLElement | null) : null;
     const key = pinBtn && CombatUi.pinKey(pinBtn);
     if (key) {
@@ -620,6 +524,12 @@ export class CombatUi {
       if (!this.net.cur?.encounter && field.classList.contains('usable')) useFromField(this.net, Number(field.dataset.fieldItem));
       return;
     }
+    const cardBtn = el.closest('button[data-card]') as HTMLButtonElement | null;
+    if (cardBtn) {
+      const card = cardBtn.dataset.card as CardId;
+      if (this.canUse('card')) this.pick('card', undefined, card);
+      return;
+    }
     const btn = el.closest('button[data-action]') as HTMLButtonElement | null;
     if (btn) {
       const action = btn.dataset.action as CombatAction;
@@ -630,7 +540,7 @@ export class CombatUi {
     const unit = el.closest('[data-unit]') as HTMLElement | null;
     const view = this.net.cur;
     if (unit && this.targeting && view?.encounter && this.validTargets(view, view.encounter, this.targeting).includes(unit.dataset.unit!)) {
-      this.net.intent({ type: 'combat', choice: { action: this.targeting, target: unit.dataset.unit, item: this.targetingItem ?? undefined } });
+      this.net.intent({ type: 'combat', choice: { action: this.targeting, target: unit.dataset.unit, item: this.targetingItem ?? undefined, card: this.targetingCard ?? undefined } });
       this.targeting = null;
     }
   }
@@ -638,34 +548,31 @@ export class CombatUi {
   private onKey(e: KeyboardEvent) {
     const view = this.net.cur;
     if (!view || (e.target as HTMLElement).tagName === 'INPUT' || e.repeat) return;
-    if (e.code === 'Escape' && this.aim) {
-      this.aim = null;
+    if (e.code === 'Escape' && this.aimRoom) {
+      this.aimRoom = null;
       e.stopImmediatePropagation();
       return;
     }
     if (view.phase !== 'running' || view.you.dead || view.you.extracted) return;
-    // Your Legendary's ability is on Q, in a fight or out.
-    const l = e.code === `Key${LEGEND_KEY}` ? legendsOf(view.you)[0] : undefined;
-    if (l) {
-      if (view.encounter) this.pickLegend(l);
-      else if (LEGENDS[l].field) this.useField(l);
-      return;
-    }
     if (!view.encounter) {
-      // Out of a fight, your abilities keep their keys (1–3) unless an event or a loot vote is using that number; M tolls.
-      const digit = digitKey(e.code);
-      const ab = digit !== null && digit < 3 && !digitClaimed(view, digit) ? abilitiesOf(view.you)[digit] : undefined;
-      if (ab?.field) this.useField(ab.id as FieldSkill);
-      if (e.code === 'KeyM' && fieldSkillsOf(view.you).includes('toll')) this.useField('toll');
+      // Out of a fight: M tolls.
+      if (e.code === 'KeyM') this.useToll();
       return;
     }
-    const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
-    const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].slice(0, HOTKEY_ITEMS).indexOf(e.code);
+    const enc = view.encounter;
+    const basics: Record<string, CombatAction> = { KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
+    // Cards on 1–3 (1–4 with a bigger hand); items after them.
+    const digit = digitKey(e.code);
+    const handLen = enc.yourHand.length;
     if (e.code === 'Escape') this.targeting = null;
     // A / D: step to the very back / front of the heroes' side (the server ignores it if you're already there).
     else if (e.code === 'KeyA' || e.code === 'KeyD') this.net.intent({ type: 'stepTo', to: e.code === 'KeyD' ? 'front' : 'back' });
-    else if (slot >= 0 && this.canUse('item', slot)) this.pick('item', slot);
-    else if (map[e.code] && this.canUse(map[e.code])) this.pick(map[e.code]);
+    else if (digit !== null && digit < handLen) {
+      if (this.canUse('card')) this.pick('card', undefined, enc.yourHand[digit].card);
+    } else if (digit !== null && digit >= Math.max(3, handLen) && digit - Math.max(3, handLen) < HOTKEY_ITEMS) {
+      const slot = digit - Math.max(3, handLen);
+      if (this.canUse('item', slot)) this.pick('item', slot);
+    } else if (basics[e.code] && this.canUse(basics[e.code])) this.pick(basics[e.code]);
   }
 
   /** Decided from game state, not the DOM (which may lag a frame behind). */
@@ -675,13 +582,8 @@ export class CombatUi {
     if (!view || !enc) return false;
     const me = enc.heroes.find((h) => h.id === view.you.id);
     if (!me || me.downed) return false;
-    if (action.startsWith('a')) {
-      const ab = abilitiesOf(view.you)[Number(action.slice(1))];
-      if ((view.you.cooldowns[ab.id] ?? 0) > 0) return false;
-      const opt = enc.yourOptions[action];
-      if (opt?.blocked || (this.needsTarget(view, action) && !opt?.targets.length)) return false;
-    }
-    if (action === 'revive') return enc.heroes.some((h) => h.downed);
+    if (action === 'card') return enc.yourHand.length > 0;
+    if (action === 'revive') return enc.reviveTargets.length > 0;
     if (action === 'item') {
       const def = ITEMS[view.you.items[item ?? -1]];
       if (!def?.combat) return false;
@@ -689,12 +591,4 @@ export class CombatUi {
     }
     return true;
   }
-}
-
-/** Your Legendary's ability (you can wear only one) is on this key. */
-const LEGEND_KEY = 'Q';
-
-/** Ability text (HTML) with icons for its cooldown and whether it works outside fights. */
-function abilityDesc(desc: string, cooldown: number, field: boolean): string {
-  return iconize(desc) + (cooldown ? ` ${cooldownIcon(cooldown)}` : '') + (field ? ` ${icon('field')}` : '');
 }

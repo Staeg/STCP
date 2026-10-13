@@ -337,8 +337,8 @@ export const ISSUED_KIT: Record<ClassId, Record<GearSlot, ItemId>> = {
   zealot: { weapon: 'knife', armor: 'patchwork', amulet: 'tincharm', ring: 'copperband' },
   alchemist: { weapon: 'knife', armor: 'jerkin', amulet: 'tincharm', ring: 'copperband' },
 };
-/** Issued Gear is crude and heavy: each piece worn adds this much Speed. */
-export const ISSUED_WEIGHT = 0.25;
+/** Issued Gear: each piece worn adds this much Speed, whatever it would weigh if found (so going without is a little quicker). */
+export const ISSUED_WEIGHT = 0.15;
 
 /** Commons and Uncommons share their kind's card; Rares and Legendaries bring their own. */
 export function gearCard(item: ItemId): CardId {

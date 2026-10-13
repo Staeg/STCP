@@ -1,6 +1,6 @@
 /**
  * The game's stat and keyword icons: little pixel-art SVGs, each with a hover explanation. `iconize` swaps the
- * words in a rules text (ability and item descriptions, event choices) for them.
+ * words in a rules text (card and item descriptions, event choices) for them.
  */
 import { FORGETTING_RULES, STRESS, TALENTS, type TalentId } from '@stcp/shared';
 

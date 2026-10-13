@@ -699,7 +699,8 @@ export function risenOf(enc: Encounter): Risen | null {
 
 /** "Risen Ghoul", or a Risen ally's own name ("Risen Mara"). Howl's wolves are just "Wolf". */
 export function risenName(world: World, r: Pick<Risen, 'type' | 'hero'>): string {
-  if (r.type === 'wolf') return ENEMIES.wolf.name;
+  // Howl's wolves and what cards summon (Rats, Shades, Imps) are just themselves.
+  if (r.type && ENEMIES[r.type].ally) return ENEMIES[r.type].name;
   return `Risen ${r.hero ? world.heroes[r.hero]?.name ?? 'ally' : ENEMIES[r.type!].name}`;
 }
 
@@ -1566,7 +1567,7 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'acolyte':
       if (rng.chance(0.5)) {
         const t = rng.pick(heroes);
-        const added = addStress(t, STRESS.whisper);
+        const added = Math.round(addStress(t, STRESS.whisper));
         events.push({
           actor: m.id, kind: 'stress', target: t.id, amount: added,
           text: added > 0 ? `${name} whispers to ${t.name}. (+${added} stress)` : `${name} whispers, but ${t.name} is unshaken.`,

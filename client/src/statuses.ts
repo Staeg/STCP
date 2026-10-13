@@ -1,4 +1,4 @@
-import type { Statuses } from '@stcp/shared';
+import { CARD_RULES, type Statuses } from '@stcp/shared';
 import { icon, iconNum } from './icons';
 
 function esc(s: string) {
@@ -29,9 +29,26 @@ export function statusIcons(st: Statuses, time: number): string[] {
     st.doom && sym(`☠${st.doom > 1 ? `×${st.doom}` : ''}`,
       `Doom ×${st.doom}: takes +${st.doom} from every blow, aura and poison tick. Holds while a Lich stands in their fight; otherwise one stack fades at the end of each of their turns.`),
     st.clang && sym(`🔔${st.clang.stacks > 1 ? `×${st.clang.stacks}` : ''}`,
-      `Clang ×${st.clang.stacks}: −${st.clang.stacks}s Speed. One stack fades in ${rounds(st.clang.turns)}; Clanging adds one and starts it over.`),
+      `Clang ×${st.clang.stacks}: every card takes ${st.clang.stacks * CARD_RULES.clangHaste}s less. One stack fades in ${rounds(st.clang.turns)}; Clanging adds one and starts it over.`),
     st.vigil && sym('☀', `Lone Vigil: every enemy action sets off a free Flare, until their ${st.vigilMore ? `turn after next` : 'next turn'}.`),
-    st.dodge !== undefined && st.dodge > time && sym('☁', `Smoke: 50% chance to dodge each attack, and fleeing always works (${Math.ceil(st.dodge - time)}s).`),
+    st.dodge !== undefined && st.dodge > time && sym('☁', `Dodging: 50% chance to dodge each attack (${Math.ceil(st.dodge - time)}s).${st.fleeSure !== undefined && st.fleeSure > time ? ' Fleeing always works.' : ''}`),
     st.brace && sym('▣', 'Bracing: takes 30% less damage until their next turn.'),
+    // ---- Card statuses (M15) ----
+    st.bleed && sym(`🩸${st.bleed.length > 1 ? `×${st.bleed.length}` : ''}`,
+      `Bleeding: ${st.bleed.map((b) => `${b.dmg} every ${CARD_RULES.pulse}s for ${Math.max(0, Math.ceil(b.until - time))}s`).join('; ')}. Mend cures it.`),
+    st.regen && st.regen.until > time && sym('❀', `Regen: +${st.regen.amount} HP every ${CARD_RULES.pulse}s (${Math.ceil(st.regen.until - time)}s).`),
+    st.slow && st.slow.until > time && sym('🐌', `Slowed: every action takes ${st.slow.amount}s longer (${Math.ceil(st.slow.until - time)}s).`),
+    st.haste && st.haste.until > time && sym('»', `Haste: every card takes ${st.haste.amount}s less (${Math.ceil(st.haste.until - time)}s).`),
+    st.blind && sym('◎', 'Blinded: its next attack misses.'),
+    st.exposed && sym('◇', `Exposed: the next hit it takes does +${Math.round(st.exposed * 100)}%.`),
+    st.expose && sym('☞', 'Their next hit Exposes what it lands on (Hand Signal).'),
+    st.evade && sym(`◌${st.evade > 1 ? `×${st.evade}` : ''}`, `The next ${st.evade > 1 ? `${st.evade} attacks` : 'attack'} aimed at them ${st.evade > 1 ? 'miss' : 'misses'}.`),
+    st.sidestep && sym('↯', `Sidestepping: ${Math.round(st.sidestep * 100)}% chance to dodge until their next turn.`),
+    st.spikes && sym('✧', `Scale Ward: whatever hits them takes ${st.spikes}, until their next turn.`),
+    st.gate !== undefined && st.gate > time && sym('⛩', `Holding the Gate: half damage, Vengeance, and every attacker is Delayed (${Math.ceil(st.gate - time)}s).`),
+    st.dance !== undefined && st.dance > time && sym('⚔', `Blade Dance: every card takes 1s and Backstab always crits (${Math.ceil(st.dance - time)}s).`),
+    st.quick && sym('⏩', `Next card: ${st.quick.set !== undefined ? `takes at most ${st.quick.set}s` : ''}${st.quick.set !== undefined && st.quick.cut ? ', then ' : ''}${st.quick.cut ? `${st.quick.cut}s less` : ''}.`),
+    st.conjureHalf && sym('✦', 'Fever Dream: Conjure cards take half their time this fight.'),
+    st.quickItems && sym('⚗', 'Opus Magnum: items take 1s this fight.'),
   ].filter((x): x is string => !!x);
 }

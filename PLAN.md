@@ -116,6 +116,9 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Regalia, Shards & Specializations (user, 2026-10-13) | **Every Boss carries regalia** (`EnemyDef.regalia`; the Dead King's is the **Shard of the Crown**, `crown`). When one is killed (`dropRegalia` in `sim/loot.ts`, from the monster-death hook in `combat.ts`), it drops one Shard for every **player still inside** (alive, downed counts, not escaped) whose Village lacks it, **up to 4** (`REGALIA_RULES.maxShards`), less any of that Shard already carried or lying about (mine: so a Boss raised and slain again adds none). Bots never count and never carry one (`hero.villageShards` null). **Auto-claimed** (user's pick): Shards lie in the pile (`Pile.shards`) and each goes by itself, once the room is quiet, to a conscious hero out of a fight who may carry it (`canCarryShard`: empty hands, Village lacks it); leftovers wait for whoever arrives. **One Shard to a hero** (`hero.shard`), no pack slot (mine). It falls where its carrier dies; a Risen ally walked out by its Undertaker brings it home too (`shardSaved`, mine). Carried out in a real run, it's the Village's for good (`Stash.storeShard`, `Record_.shards`; Start Over clears them, mine). **Specializations**: the first Shard home unlocks them; each Shard unlocks a Spec (`SHARDS[].spec`, `content/regalia.ts`). A Character with a Talent can take one for **250 gold** (`REGALIA_RULES.specCost`), **for good** (user's pick; `Character.spec`, `chooseSpec`, intent `chooseSpec`), lost with the Character on death. **Seasoned** (Crown): the class's other Talent too (`talentsOf`). Heroes, loadouts and views now carry `talents: TalentId[]` (`hasTalent`, `abilitiesFor(cls, talents)`), and **each Talent is 1 CR** (user's pick: a Seasoned Character is 2). Unmake removing a Boss drops nothing (mine: it isn't a kill). UI: the Village's Regalia line, "Seasoned 250g" on Characters with a Talent (confirm first), one ★ per Talent everywhere, the carried Shard beside your gold, Shards on the floor in the loot panel. |
 | After you leave the run | Once you escape, your token leaves the map and the loot panel is gone (you can no longer claim anything). With 3 bots and no other players, once you're out (escaped or dead) two buttons appear: **Reveal map** lifts the fog (the whole dungeon and its contents, fitted to the screen) and shows everything live while the bots play on: the bots where they really are, and monster groups walking the tunnels, and **Kill the bots** (after a confirm) abandons them where they stand and ends the run at once (`soloOut`, intents `revealMap`/`killBots`). User, 2026-10-12. |
 
+| Card combat (M15; user, 2026-10-13; branch `cards`) | **Replaces the three abilities with cooldowns.** Every hero fights from a deck (6 class cards, 1 of them a Burn, plus 1 card per Gear slot; Fumble for an empty one); a fight deals a hand of 3 and playing a card draws the next; the discard reshuffles when the draw pile runs out and at every fight's end; Burn cards are out for the run (a Loom brings them back). **Each card sets the wait until the next action; Speed only sets the first** (and walking). Every card always does something. Cards are combat-only (the Toll is the only field skill left). Full rules and roster: M15. |
+| Status clocks (user, 2026-10-13) | Statuses run on one of three clocks: seconds (Bleed and Regen tick every 2s; Slow, Haste, Dodge, Hold the Gate, Blade Dance), the bearer's own turns (Poison, Acid, Hexed, Weak, Vengeance, Clang), or a charge used up by an event (Stun, Blind, Exposed, evade, Shield). No Taunt or Intercept (user). |
+| Issued Gear (M15) | In a real run every Gear slot the kit leaves empty gets the class's free Common piece; it weighs a flat +0.15s Speed, adds no CR and never goes home. The New Run loadout can leave a slot bare (`Kit.bare`): a little quicker, a Fumble in the deck. |
 ---
 
 ## 3. Game Design Spec (v1 numbers are starting points; tune in M8)
@@ -147,6 +150,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 - Cooldowns are counted in the hero's own turns. *(User, 2026-10-09.)* They are shared between fights and the field and no longer reset after a fight: outside one they tick down once per Speed's worth of time (`hero.cdClock`), and using an ability out of combat puts it on cooldown too.
 
 ### 3.4 Classes (HP / Speed / Perk / 3 abilities)
+*(Abilities superseded by cards in M15, 2026-10-13: each class's six cards are in M15. The Innates below still hold; the ability lines are kept for history.)*
 Current numbers (the v1 draft is in git history). *Slot order (user, 2026-10-09): 1 = the basic attack, 2 = the best ability alone, 3 = the best ability with a team.* The class picker lists every ability. Max HP = 9 × Speed. CD = cooldown in the hero's own turns. "Nearest" = the enemy at the front of their line-up. Numbers live in `content/classes.ts`, `content/abilities.ts` (`ABILITIES`, `CLASS_RULES`). Players may pick the same class (user, 2026-10-09); a second hero of a class gets a spare colour.
 
 **Warden** (tank). 54 HP, Speed 6. *Perk: Stalwart. Takes 20% less damage while the rightmost (nearest) hero.*
@@ -356,7 +360,7 @@ User brief and decisions (2026-10-10). Code: `shared/src/village.ts` (Characters
   1. **Lantern Wight** (T1; undead; HP 16, Speed 5, dmg 3). *Snuff:* 3 damage to the nearest hero and −15 of their light.
   2. **Forsaken Queen** (T2; HP 32, Speed 6). *Hymn:* every other monster heals 4 and gets its next turn 2s sooner. Last one standing: *Dirge*, +5 stress to every hero in the fight. At most one per room. Bots focus her first.
 
-**Talents** (user's picks and rewrites; numbers in `TALENT_RULES`). Each one changes something that already exists, with no new buttons. `abilitiesOf(hero)` returns a hero's abilities as changed by their talent, and every ability lookup (combat, field skills, bots, client) goes through it.
+**Talents** *(superseded by the card Talents in M15, 2026-10-13; old ones migrate)* (user's picks and rewrites; numbers in `TALENT_RULES`). Each one changes something that already exists, with no new buttons. `abilitiesOf(hero)` returns a hero's abilities as changed by their talent, and every ability lookup (combat, field skills, bots, client) goes through it.
 
 | Class | Talent | Effect |
 |---|---|---|
@@ -425,6 +429,78 @@ Weapons are **Daggers** (damage only, light), **Hammers** (more damage plus flat
 - [x] Cloth (8) with per-copy charges (cooldowns tick only while worn), click-to-disable for auto-trigger gear.
 - [x] Client: type tags, Speed ±, charge pips, disabled look, trigger log lines; bots value gear by class fit.
 
+### M15. Card combat (branch `cards`; user, 2026-10-13)
+The user's pick from the combat-redesign brainstorm: "a hand of three". It replaces the three fixed abilities with cooldowns. The work is on its own branch and worktree (`C:\Users\staeg\stcp-cards`) until the user has playtested it. Code: `content/cards.ts` (every card, `CARD_RULES`, `CLASS_CARDS`, `TYPE_CARDS`), `sim/deck.ts` (dealing, playing, Burn), `sim/cards.ts` (card effects, `cardTime`, `uselessReason`), `bots/cards.ts` (bot card values), `content/innates.ts` (was `abilities.ts`; only the Innates' numbers now).
+
+**Rules**
+- **The deck** holds 6 class cards (5 reshuffle, 1 Burn) plus 1 card per Gear slot. Commons and Uncommons share their kind's card (the Uncommon is the stronger one); Rares and Legendaries bring their own. An empty slot is a **Fumble** (3s: nothing).
+- **A fight deals a hand of 3** (4 with Sleight of Hand or Grimoire) from a fresh shuffle of every card not burned. Playing a card puts it in the discard and draws the next. The discard is shuffled back in when the draw pile runs out, and every fight starts from a full shuffle.
+- **Burn** cards are out for the rest of the run once played. The Loom brings them back, and so does Undying Flame for Dawn.
+- **Timing.** Each card says how long until your next action (`CardDef.time`). Tempo, Clang, Haste, next-card effects, first-card effects and passives change it; it's never below 1s (`MIN_CARD_TIME`). **Speed only sets the wait for your first action** (and joiners'), plus walking. Basic actions: Brace 2s (−30% damage until your next action), Flee 3s, Revive 5s, an item 2s. A stunned hero loses the action and goes again 3s later. Monsters still act every Speed.
+- **Every card can always be played and always does something** (user). Conditional cards have a weaker fallback in their text. The view flags useless plays (`CardView.weak`: healing nobody hurt, Fumble…), the hand dims them, and bots skip them.
+- **Undecided** heroes play the leftmost card that isn't a Burn (nor Waystep) and would do something useful; failing that, the leftmost that isn't a Burn. Risen allies play their own deck the same way.
+- **Cards are combat-only** (user). Field skills are gone except the Bellwright's Toll. The out-of-fight bar shows your deck greyed, with the Toll.
+- **Statuses** (user: some run on the clock, some count turns). Clock ones run on game time: Bleed and Regen tick every 2s (`CARD_RULES.pulse`); Slow, Haste, Dodge, Hold the Gate and Blade Dance last a number of seconds. Turn ones keep counting the bearer's own actions: Poison, Acid, Hexed, Weak, Vengeance, Clang. Charges are used up by an event: Stun, Blind (next attack misses), Exposed (next hit taken +50%), evade (next attack aimed at you misses), Shield. Hero statuses outlast fights as before.
+- **No Taunt or Intercept** (user). Protection is Shield, Dodge, Blind, misses and stepping to the front.
+- **Corpses**: monsters slain in this fight (`enc.slain`). Raise, Corpse Explosion, Grave Ward and Open the Graves use them up.
+- **Summons** (Rat, Shade, Imp) fight beside their caller for one fight (`Risen.summon`; gone when it ends), at most 2 of each per hero. Summoning more heals the ones you have.
+- **Issued Gear**: in a real run every Gear slot the kit leaves empty gets the class's free Common piece (`ISSUED_KIT`; Tin Charm and Copper Band for jewellery). It weighs a flat +0.15s Speed each (`ISSUED_WEIGHT`, whatever it would weigh if found), is worth no CR, and never goes home (`hero.issued`, `carriedHome`). The New Run loadout can leave a slot bare (`Kit.bare`): no Issued piece there, a little quicker, and a Fumble in the deck.
+
+**Class cards** (time · schools; Burn last). Numbers live in `CARD_RULES`.
+
+| Class | Cards |
+|---|---|
+| Warden | Shield Bash 5s (9, Delay 2s) · Cover 3s (+6 Shield to an ally, step to the front) · Vengeance 5s · Rally 6s (−7 stress, +3 Shield all) · Shield Slam 6s (Block + Shield damage, Delay 1s per 3) · **Hold the Gate** 6s (12s: half damage, Vengeance, attackers Delayed 2s) |
+| Cutthroat | Backstab 2.5s (6, ×2 vs Stunned/Exposed/unacted) · Cheap Shot 3s (2 + Stun) · Envenom 2s (2 + Poison 3×3) · Hand Signal 1s (Hurry an ally 3s; their next hit Exposes) · Smoke Bomb 3s (Dodge and sure flee 6s) · **Blade Dance** 1s (10s: every card 1s, Backstab always crits) |
+| Lampbearer | Flare 4s (3 to all, +10 light) · Mend 4s (heal 8, cure Poison and Bleed) · Vigil 4s (−5 stress; alone: free Flares) · Kindle 5s (spend up to 20 light: 4 + 1 per 2, Blind at 20) · Sanctuary 5s (Regen 1/2s for 10s, all) · **Dawn** 6s (light full, heal 15, −10 stress all; Blind all enemies) |
+| Sorceress | Hex 3.5s (4 + Hexed) · Wither 4s · Blood Pact 6s (−5 HP, +5 stress each; 14 to all) · Bound Familiar 5s (an Imp) · Mad Bargain 1s (+8 stress; next card 1s) · **Curse of Ages** 4s (+2 Hexed each, Delay 1s per stack) |
+| Undertaker | Spade 5.5s (9 + Rites kills) · Last Rites 5s (kill below 40%, else 8) · Raise 6s (Corpse rises 4 turns; none: a Rat) · Corpse Explosion 4s (8 to all; none: 3) · Grave Ward 1s (+3 Shield, +8 with a Corpse) · **Open the Graves** 6s (every Corpse rises for the fight; none: a Ghoul) |
+| Bellwright | Clang 6s (8, Delay 4s, +1 Clang: cards −0.5s per stack) · Knell 8s (15 to all, −5 per ally, at least 3) · Peal 5s (Hurry others 3s; alone yourself 2s) · Ring Out 6s (Delay all 2s + 1 per Clang) · Echo 2s (last card again at half power; none: 3 dmg) · **Reverberate** 7s (Stun all; allies act now) |
+| Zealot | Scourge 3.5s (7) · Absolution 5s (4 + stress above 50, split) · Take Their Sins 3s (move 17; on yourself +10) · Flagellate 1s (−4 HP, +12 stress) · Penance 2s (+8 stress, Shield = stress ÷ 3) · **Rapture** 5s (take everyone's stress; 5 + that to one enemy) |
+| Alchemist | Acid Flask 4s · Fumes 5s (Poison 3×3 all) · Healing Mist 6s (heal 5 all) · Elixir 2s · Catalyst 4s (Poison 1×2 all, then every Poison and Bleed ticks once) · **Opus Magnum** 4s (up to 4 brews; items 1s this fight) |
+
+**Gear cards.** Type cards, Common / Uncommon:
+
+| Kind | Common | Uncommon |
+|---|---|---|
+| Dagger | Stab 2s: 3 | Stab 2.5s: 6 |
+| Hammer | Thump 5s: 4, Delay 1s | Thump 5s: 9, Delay 2s |
+| Staff | Soothe 4s: heal 3 | Soothe 4s: heal 8 |
+| Leather | Sidestep 2s: 25% dodge till your next turn | Sidestep 2s: 50% dodge 6s |
+| Mail | Brace Up 4s: +2 Shield | Brace Up 3s: +6 Shield |
+| Cloth | Shrug 3s: −2 stress | Shrug 4s: an ally −5 stress |
+| Amulet | Mutter 5s: a Rat | Mutter 5s: a Shade |
+| Ring | Evil Look 2s: Exposed +25% | Evil Look 3.5s: 4 + Exposed +50% |
+
+Rares: Mercy Stroke (Misericorde), Whisper Cut (Whisperblade, Bleed), Shatter (Bonebreaker), Earthblow (Giant's Maul, Slow), Double Hex (Twinned), Verdant Bloom (Evergreen), Turn the Glass (Hourglass), Scale Ward (Drakehide), Fade (Shadowskin), Rune Ward (Warded Mail), Bulwark (Bulwark Plate), Lie Still (Gravecloth), Slip Away (Softstep), Blink (Blinkcloth), Veil (Gossamer), Lucky Break (Hare's Foot), Fever Dream (Fever Charm), Blood Rush (Quickblood), Ashes (Ashen Band). Legendaries' cards keep their old names (combat only now): Promise, Unmake, Redeem and Forgive burn; Quake, Bastion, Howl and Waystep reshuffle.
+
+**Card passives** on every stats-only Uncommon and Rare (user): Stiletto (Poison +1 turn), Kris (Strike +2 vs Poisoned), Misericorde (crit below 25%), Whisperblade (Venom cards −1s), Warhammer (+1s Delay), Iron Maul (Hinder cards +2), Bonebreaker (+2s Delay), Giant's Maul (+50% vs Stunned), Studded Leather (first card −1s), Drakehide (half Poison and Bleed), Shadowskin (10% dodge), Chain Hauberk (Guard cards +1 Shield), Brigandine (start fights with 3 Shield), Warded Mail (debuffs on you 1 turn shorter), Bulwark Plate (+2 Block at the front). The Hourglass Staff is Tempo −0.5s now (it cut cooldowns).
+
+**Talents, rewritten around cards** (user). Old ones migrate to the same class (`OLD_TALENT_IDS`; Opening Act, Restless Dead, Penitent and Volatile keep their names):
+
+| Class | | |
+|---|---|---|
+| Warden | Shieldwall: Guard cards Delay the nearest 1s | Unbroken Line: start every fight with Cover and Shield Bash in hand |
+| Cutthroat | Sleight of Hand: hand of 4 | Opening Act: first action at half Speed; first card 1s |
+| Lampbearer | Steady Hands: Mend and Sanctuary −1s | Undying Flame: Dawn returns after a fight everyone survives |
+| Sorceress | Blood Price: the Pact costs only her, twice over | Grimoire: hand of 4 |
+| Undertaker | Gravedigger: a Corpse ready in every fight | Restless Dead: what you Raise never crumbles and follows you |
+| Bellwright | Resounding: Echo at full power | Carillon: after a Hinder card, the next −1s |
+| Zealot | Scourged: Flagellate goes back into your hand | Penitent: Absolution spends half |
+| Alchemist | Volatile: an item in a fight sets off a free Catalyst | Prepared: Elixir in your opening hand; items 1s |
+
+Gone with the rewrite: Iron Oath, Unyielding, Ghost Step, Everflame, Triage, Sanguine, Evil Eye, Pallbearer, Great Bell, Resonance, Martyr, Quick Hands.
+
+My calls (not in the approved plan): Whisper Cut applies Bleed and Earthblow applies Slow, so both clock debuffs are on a card. Issued Gear weighs a flat 0.15s per piece instead of its own Speed (Sledge and Ring Mail made an issued Bellwright walk at about 9.5s). Undecided heroes skip useless plays when they can. Echo repeats the last card of the run (not just of this fight). Your own draw pile isn't sent to the client.
+
+- [x] Content: cards, card rules, passives, Issued Gear, summons, talents (+ migration).
+- [x] Engine: deck, card timing, effects, clock statuses, Corpses, summons, Burn, Loom, Undying Flame.
+- [x] Bots: card values per second; never a useless play when there's another.
+- [x] Client: the hand (keys 1–3/4), deck/discard/burned/Corpse counters, card text on hover, Waystep's room pick, the deck bar out of fights, class cards in the lobby, Issued Gear and "go without" in the loadout, status icons, summon sprites.
+- [x] Tests: `cards.test.ts` (every card does something; each class and Gear card), rewritten `talents`, `legends`, `combat`, `classes` and `gear` tests (`sim/testkit.ts` helpers).
+- [ ] The user's playtest; prune the roster; then merge `main` in and merge the branch.
+- [ ] Later (user): enemy cards and room cards.
+
 ### Later / parking lot
 Deploying to a public host, more classes and enemies, multiple floors, controller support, a real art pass, music. (In-game pings were removed from this list: they break the no-communication rule.)
 
@@ -441,6 +517,11 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 ## 7. Progress Log
 
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-13 · **M15 card combat built on branch `cards` (user request).** Worktree `C:\Users\staeg\stcp-cards`, branched from `main` at `bebe1c2`. Decks, a hand of three, card times, Burn, 48 class cards, 8 shared Gear-type cards (Common/Uncommon), 19 Rare and 8 Legendary cards, card passives, clock statuses (Bleed, Regen, Slow, Haste, Blind, Exposed…), Corpses and summons, Issued Gear with "go without", 16 card Talents (old ones migrate), bots that weigh cards per second, and the client hand. 377 tests (new `cards.test.ts`, `sim/testkit.ts`; the ability tests were rewritten against cards). Checked in the browser: the lobby's class cards and chips, Issued slots in the loadout, the hand (draw, play, refill, default, targeting, Burn mark, deck counters), summons on the stage, the deck bar out of fights, and phone width.
+  - Sim, 80 games seed 1, `main` → `cards`: escape 41% → 47%, wipes 9% → 8%, fight 11.2s → 15.6s (2.3 → 4.2 hero turns), gold per escaper 148 → 121, drama at 10:00 13% → 8%. Classes even out (31–57% → 39–59%). No tuning pass yet.
+  - Next: the user plays it and prunes the roster; then merge `main` into `cards` (expect conflicts in `combat.ts`), and merge. Later: enemy and room cards.
+  - Known: the preview tool only starts servers from the main checkout's launch config, so the branch was run by hand on ports 3051/5251 (`STASH_PATH=data/stash-cards.json`). Poison ticks per own turn, so quick-card heroes shed it (and suffer it) faster; Bleed is the clock-based alternative.
 
 - 2026-10-13 · **Pause with three bots (user request).** See the new Decisions row "Pause, Space". `world.paused`, intent `pause`, `canPause`; the view carries `paused`/`canPause`; the lobby sends refused intents back as an error toast. Calling off a walk moved from Space to X. 360 tests (2 new in `game.test.ts`). Checked in the browser (`dev-alt3`): the Pause button shows with three bots; paused, the clock, the bots and a fight's turn timers held for 3s and carried on from the same point; W gave the "Paused" toast; the Escalation tooltip still opened under the PAUSED notice; X brought me back from mid-tunnel.
   - Next: nothing planned. Not seen in play: a second player joining mid-run (can't happen today) or a paused player disconnecting (the run stays paused until they're back or the lobby is abandoned).

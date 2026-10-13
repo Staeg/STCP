@@ -1,16 +1,16 @@
 import {
   REGALIA_RULES, SPECS, talentsOf, type SpecId,
-  abilitiesFor, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
+  CARDS, CLASS_CARDS, SCHOOLS, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
   ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
   type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
-  type ServiceId, type TalentId, type VillageView,
+  type GearSlot, type ServiceId, type TalentId, type VillageView,
 } from '@stcp/shared';
 import { codexHtml, type CodexTab } from './codex';
-import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleRite, villageHtml } from './village';
+import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleBare, toggleRite, villageHtml } from './village';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
-import { cooldownIcon, icon, iconize, iconNum, talentStars } from './icons';
+import { iconize, iconNum, talentStars } from './icons';
 
 declare const __BUILD__: string;
 /** Built by vite.config.ts: one group per deploy, newest first; `at` is the push time (null = not pushed yet). */
@@ -194,7 +194,7 @@ export class Screens {
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <span class="cr-name">${c.name}${ch ? talentStars(talentsOf(ch)) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
-        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
+        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${CLASS_CARDS[id].map((cd) => `<span class="ab-chip ${CARDS[cd].burn ? 'burn' : ''}" title="${esc(`${CARDS[cd].name} · ${CARDS[cd].time}s${CARDS[cd].burn ? ' · Burn' : ''}: ${CARDS[cd].desc}`)}">${esc(CARDS[cd].name)}</span>`).join('')}</span>
         ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
@@ -221,7 +221,7 @@ export class Screens {
         <div class="class-focus">${focus}</div>
         <div class="lb-side">
           ${village ? lobbyEmergencyHtml(village, lobby.cr, you.kit) : ''}
-          ${village ? loadoutHtml(village) : ''}
+          ${village ? loadoutHtml(village, you.cls ?? null) : ''}
         </div>
       </div>
       <div class="row">
@@ -333,12 +333,14 @@ export class Screens {
         break;
       case 'kit-add':
       case 'kit-remove':
+      case 'kit-bare':
       case 'rite': {
         const v = net.village;
         if (!v) break;
         const kit = structuredClone(v.kit);
         if (btn.dataset.act === 'rite') toggleRite(kit, btn.dataset.rite as ResourceId);
         else if (btn.dataset.act === 'kit-add') addToKit(kit, btn.dataset.item as ItemId);
+        else if (btn.dataset.act === 'kit-bare') toggleBare(kit, btn.dataset.slot as GearSlot);
         else removeFromKit(kit, btn.dataset.slot!);
         net.send({ t: 'setKit', kit });
         break;
@@ -372,7 +374,7 @@ function wellbeingPips(w: number): string {
   return `<span class="wb-pips" title="Wellbeing ${w}: at ${WELLBEING.win} you win, at ${WELLBEING.lose} you lose.">${Array.from({ length: WELLBEING.max }, (_, i) => (i < w ? '●' : '○')).join('')}</span>`;
 }
 
-/** The full card for the class you picked: stats, your Character, perk and abilities. */
+/** The full card for the class you picked: stats, your Character, Innate and the six class cards. */
 function classCard(id: ClassId, ch: Character | undefined): string {
   const c = CLASSES[id];
   const hp = ch ? injuredMaxHp(id, ch.injuries) : c.maxHp;
@@ -388,7 +390,12 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
-    <ul class="class-abilities">${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
+    <ul class="class-cards">${CLASS_CARDS[id].map((cd) => {
+      const def = CARDS[cd];
+      const schools = def.schools.map((x) => `<span title="${SCHOOLS[x].name}">${SCHOOLS[x].glyph}</span>`).join('');
+      return `<li><b>${esc(def.name)}</b> <span class="muted">${def.time}s</span> ${schools}${def.burn ? ' <span title="Burn: once a run (a Loom brings it back).">🔥</span>' : ''}<br>${iconize(def.desc)}</li>`;
+    }).join('')}</ul>
+    <div class="small muted">Speed sets how soon you act first in a fight (and how fast you walk); after that, each card sets the wait for the next. Each piece of Gear adds a card too.</div>
   </div>`;
 }
 

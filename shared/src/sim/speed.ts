@@ -30,8 +30,8 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   for (const slot of GEAR_SLOTS) {
     const id = h[slot];
     if (!id) continue;
-    // Issued Gear (M15) is crude and heavy: taking it off makes you a little quicker.
-    const cost = (ITEMS[id].speed ?? 0) + (h.issued?.[slot] === id ? ISSUED_WEIGHT : 0);
+    // Issued Gear (M15) weighs the same whatever it is: taking it off makes you a little quicker.
+    const cost = h.issued?.[slot] === id ? ISSUED_WEIGHT : ITEMS[id].speed ?? 0;
     if (cost) parts.push({ label: ITEMS[id].name, amount: cost });
   }
   // Valuables weigh you down while you carry them.

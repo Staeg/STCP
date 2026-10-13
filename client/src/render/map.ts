@@ -43,7 +43,7 @@ export class MapRenderer {
   private locked: number | null = null;
   private lockEl: HTMLDivElement;
   private lockHtml = '';
-  /** An ability waiting for a room (Unmake, Waystep): a clicked room goes to it, not to walking. Its name, or null. */
+  /** A card waiting for a room (Waystep): a clicked room goes to it, not to walking. Its name, or null. */
   roomPicker: { picking: () => string | null; pick: (room: number) => boolean } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private net: Net) {

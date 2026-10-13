@@ -266,7 +266,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .class-row.selected { background: #3a2c20; border-color: var(--cls); box-shadow: inset 0 0 0 1px var(--cls); }
 .cr-sprite { width: 48px; height: 48px; image-rendering: pixelated; }
 .cr-name { color: var(--cls); font-size: 23px; min-width: 5.6em; white-space: nowrap; }
-.cr-abs { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cr-abs { display: flex; flex-wrap: wrap; gap: 2px 3px; min-width: 0; }
+.cr-abs .ab-chip { font-size: 13px; padding: 0 4px; line-height: 1.15; }
 .ab-chip { font-size: 16px; padding: 2px 6px; border: 1px solid #3a2e24; background: #15110d; white-space: nowrap; cursor: help; }
 .ab-chip.innate { font-style: italic; border-style: dashed; color: var(--muted); }
 .cr-others { font-size: 13px; color: var(--muted); letter-spacing: 1px; cursor: help; }
@@ -278,8 +279,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .class-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4em; }
 .class-name { font-size: 1.45em; line-height: 1; color: var(--cls); }
 .blurb { margin-top: 0.35em; }
-.class-abilities { list-style: none; margin: 0.4em 0 0; padding: 0; font-size: 0.85em; line-height: 1.15; }
-.class-abilities li { margin-top: 0.4em; }
+.class-cards { list-style: none; margin: 0.4em 0 0; padding: 0; font-size: 0.85em; line-height: 1.15; }
+.class-cards li { margin-top: 0.4em; }
 .class-focus.scroll .class-card { overflow: auto; }
 .lb-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
 .lb-panel { border: 1px solid #2a2018; padding: 6px 10px; font-size: 19px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -598,7 +599,7 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #escort { color: #9fe0ff; font-size: 17px; }
 .insane { color: #ff8a6a; font-size: 15px; pointer-events: auto; cursor: help; }
 .icons span, #light-text { cursor: help; }
-/* One button per ability, in a fight or out (2026-10-11): out of one, those that work there are bright. */
+/* The fight bar: your hand of cards; out of a fight, your deck greyed and the Toll bright. */
 #combat.idle .cb-act.live { color: var(--text); cursor: pointer; border-color: #6a5a3a; }
 #combat.idle .cb-act.live:hover { border-color: var(--gold); }
 #combat.idle .cb-act.live.cooling { color: var(--muted); cursor: default; border-color: var(--border); }
@@ -864,3 +865,25 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 }
 .cx-twist { display: flex; gap: 6px; align-items: center; margin-top: 4px; padding: 2px 4px; border-left: 3px solid var(--cls); font-size: 15px; }
 .cx-twist img { width: 24px; height: 24px; image-rendering: pixelated; }
+
+/* ---- Card combat (M15): the hand, the deck, issued Gear ---- */
+.cb-actions.hand { align-items: stretch; }
+.cb-act.cb-card { flex: 1 1 0; min-width: 150px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.cb-act.cb-card .cd-time { color: var(--gold); font-size: 0.85em; margin-left: auto; }
+.cb-act.cb-card .schools { font-size: 0.85em; opacity: 0.85; }
+.cb-act.cb-card .burn { font-size: 0.85em; }
+.cb-act.cb-card.burning { border-color: #8a4a20; }
+.cb-act.cb-card.weak:not(.sel) { opacity: 0.55; }
+.cb-act.cb-card.burned { text-decoration: line-through; opacity: 0.45; }
+.cb-deck { align-self: center; white-space: nowrap; color: var(--muted); font-size: 18px; padding: 0 6px; cursor: help; }
+.cb-actions.basics { margin-top: 6px; }
+#combat.idle .cb-actions.deck { flex-wrap: wrap; gap: 3px 4px; }
+#combat.idle .cb-act.cb-card { display: inline-block; flex: 0 0 auto; min-width: 0; white-space: nowrap; font-size: 15px; padding: 0 6px; }
+#combat.idle .cb-act.cb-card .cd-time { margin-left: 4px; }
+#combat.idle .cb-act.cb-card .schools { display: none; }
+.kit-slot.issued { color: var(--muted); font-style: italic; cursor: pointer; }
+.kit-slot.issued.bare { color: var(--danger); }
+.ab-chip.burn { border-color: #8a4a20; }
+@media (max-width: 700px) {
+  .cb-act.cb-card { min-width: 0; flex-basis: 30%; font-size: 16px; }
+}

@@ -1,8 +1,8 @@
 import {
-  BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
+  BUILDING_IDS, BUILDINGS, ISSUED_KIT, ISSUED_WEIGHT, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
   LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
   REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf,
-  type BuildingId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
+  type BuildingId, type ClassId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
 import { CODEX_TABS } from './codex';
@@ -250,15 +250,21 @@ function stashHtml(v: VillageView, picking: ServiceId | null, locked: boolean): 
 }
 
 /** The New Run screen's loadout: Gear slots, free consumables, Rites, and the Stash to fill it from. */
-export function loadoutHtml(v: VillageView): string {
+export function loadoutHtml(v: VillageView, cls: ClassId | null = null): string {
   const kit = v.kit;
   const gem = kit.rites.includes('gem');
   const slots = [
     ...GEAR_SLOTS.map((s) => {
       const it = kit.gear[s];
-      return it
-        ? `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" title="${esc(`${ITEMS[it].desc} ${gearCrText(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`
-        : `<div class="kit-slot">${SLOT_NAMES[s]}</div>`;
+      if (it) return `<button class="kit-slot full" data-act="kit-remove" data-slot="${s}" title="${esc(`${ITEMS[it].desc} ${gearCrText(it)}. Click to leave it at home.`)}">${ITEMS[it].glyph} ${itemName(it)}</button>`;
+      // An empty slot gets free Issued Gear in the dungeon, unless you choose to go without (quicker, but a Fumble in your deck).
+      const bare = kit.bare?.includes(s);
+      const issued = cls ? ISSUED_KIT[cls][s] : null;
+      const what = issued ? `Issued ${itemName(issued)}` : `Issued ${SLOT_NAMES[s].toLowerCase()}`;
+      const tip = bare
+        ? `Going without: no ${SLOT_NAMES[s].toLowerCase()}, so ${ISSUED_WEIGHT}s quicker, but a Fumble in your deck. Click to take the Issued one.`
+        : `${issued ? `${ITEMS[issued].desc} ` : ''}Free, worth no CR, and it stays behind when you leave (+${ISSUED_WEIGHT}s Speed, whatever it is). Click to go without it instead.`;
+      return `<button class="kit-slot issued ${bare ? 'bare' : ''}" data-act="kit-bare" data-slot="${s}" title="${esc(tip)}">${bare ? `<s>${SLOT_NAMES[s]}</s>` : what}</button>`;
     }),
     ...(gem ? ['<div class="kit-slot" title="The Gem Rite forbids consumables.">no consumables</div>'] : Array.from({ length: KIT_RULES.consumables }, (_, i) => {
       const it = kit.consumables[i];
@@ -297,6 +303,12 @@ export function addToKit(kit: Kit, item: ItemId) {
 export function removeFromKit(kit: Kit, slot: string) {
   if (slot.startsWith('c')) kit.consumables.splice(Number(slot.slice(1)), 1);
   else delete kit.gear[slot as GearSlot];
+}
+
+/** Go without a Gear slot's Issued piece, or take it again. */
+export function toggleBare(kit: Kit, slot: GearSlot) {
+  const bare = kit.bare ?? [];
+  kit.bare = bare.includes(slot) ? bare.filter((x) => x !== slot) : [...bare, slot];
 }
 
 export function toggleRite(kit: Kit, r: ResourceId) {
