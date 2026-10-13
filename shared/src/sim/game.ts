@@ -20,7 +20,7 @@ export interface PlayerSlot {
 
 /** The party's combined CR before the roll: a point per Talent, plus each player's Gear and Rites. */
 export function combinedCr(slots: PlayerSlot[]): number {
-  return Math.round(slots.reduce((s, x) => s + heroCr(x.loadout?.talent, x.loadout?.kit), 0) * 100) / 100;
+  return Math.round(slots.reduce((s, x) => s + heroCr(x.loadout?.talents, x.loadout?.kit), 0) * 100) / 100;
 }
 
 /** A running expedition: the world plus the bots that inhabit it. Shared by the server and the headless sim. */

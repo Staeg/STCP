@@ -224,7 +224,7 @@ describe('LobbyManager', () => {
     const heroes = Object.values(lobby.game.world.heroes);
     const you = heroes.find((h) => !h.isBot)!;
     expect(you.name).toBe(`${warden.name} (Ann)`);
-    expect(you.talent).toBe('ironOath');
+    expect(you.talents).toEqual(['ironOath']);
     const bots = heroes.filter((h) => h.isBot);
     // The two healthy ones first (Sorceress, Zealot), then a hurt one, since nobody healthy is left.
     expect(bots.map((h) => h.cls).slice(0, 2).sort()).toEqual(['sorceress', 'zealot']);

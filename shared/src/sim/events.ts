@@ -1,4 +1,5 @@
 import { CLASSES, type ClassId } from '../content/classes';
+import { hasTalent } from '../content/talents';
 import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
@@ -282,7 +283,7 @@ function loomMends(world: World, h: Hero): string[] {
   for (const p of h.packCharges) if (spent(p.item, p.charge)) out.push(ITEMS[p.item].name);
   if (callReadyIn(world, h) > 0) out.push('Call for Help');
   if (h.tolled) out.push('Toll');
-  if (h.talent === 'ironOath' && h.oathUsed) out.push('Iron Oath');
+  if (hasTalent(h, 'ironOath') && h.oathUsed) out.push('Iron Oath');
   return out;
 }
 

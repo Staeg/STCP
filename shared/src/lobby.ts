@@ -1,13 +1,14 @@
 import { GEAR_SLOTS } from './content/items';
 import { Stash } from './stash';
 import { heroCr, isHealthy, loadoutOf, type Character } from './village';
+import { talentsOf } from './content/regalia';
 import { Rng } from './rng';
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { titleFor } from './content/titles';
 import { SERVER_TICK, escalationAt } from './content/constants';
 import { combinedCr, Game, type PlayerSlot } from './sim/game';
 import { buildView } from './sim/views';
-import { addToPile } from './sim/loot';
+import { addToPile, shardHome } from './sim/loot';
 import { carriedHome, emergencyDone } from './sim/emergency';
 import { onHeroInRoom, spawnGroup } from './sim/combat';
 import { MAX_PLAYERS, type ClientMsg, type LobbyState, type LobbyView, type ServerMsg } from './protocol';
@@ -89,17 +90,17 @@ export class Lobby {
         const c = m.cls ? this.stash.characterFor(m.name, m.cls) : null;
         return {
           id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
-          character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, insane: c.insane },
+          character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, insane: c.insane },
           kit: this.stash.kitOf(m.name),
           emergency: this.stash.emergencyOf(m.name),
         };
       }),
       bots: this.bots.map((b) => {
         const c = this.botCharacter(b);
-        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, xp: c.xp, injuries: c.injuries, insane: c.insane } };
+        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, insane: c.insane } };
       }),
-      cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? this.stash.characterFor(m.name, m.cls).talent : null, this.stash.kitOf(m.name)), 0)
-        + this.bots.reduce((s, b) => s + heroCr(this.botCharacter(b)?.talent, undefined), 0)) * 100) / 100,
+      cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? talentsOf(this.stash.characterFor(m.name, m.cls)) : [], this.stash.kitOf(m.name)), 0)
+        + this.bots.reduce((s, b) => s + heroCr(talentsOf(this.botCharacter(b) ?? { cls: b.cls, talent: null }), undefined), 0)) * 100) / 100,
       relic: this.members.some((m) => this.stash.kitOf(m.name).rites.includes('relic')),
     };
   }
@@ -117,7 +118,7 @@ export class Lobby {
     const slots: PlayerSlot[] = this.members.map((m) => {
       const c = this.stash.characterFor(m.name, m.cls!);
       // What they chose in the Village leaves the Stash now (Rites spend their Resources).
-      const loadout = { ...loadoutOf(m.name, c), kit: this.stash.takeKit(m.name), emergency: this.stash.emergencyOf(m.name), sight: this.stash.takeSight(m.name) };
+      const loadout = { ...loadoutOf(m.name, c), shards: this.stash.shardsOf(m.name), kit: this.stash.takeKit(m.name), emergency: this.stash.emergencyOf(m.name), sight: this.stash.takeSight(m.name) };
       return { id: m.id, name: `${c.name} (${m.name})`, cls: m.cls!, isBot: false, loadout };
     });
     this.roster = slots.map((s) => ({ heroId: s.id, owner: s.loadout!.owner, charId: s.loadout!.charId }));
@@ -226,6 +227,9 @@ export class Lobby {
           // or the Tome Rite brought home for a hero who fell.
           const line = this.stash.storeLoot(r.owner, carriedHome(h));
           if (line) this.stash.addReport(r.owner, line);
+          // A Shard carried out is the Village's for good.
+          const shard = shardHome(h);
+          if (shard) this.stash.storeShard(r.owner, shard);
           // The Emergency: +1 Wellbeing if done, −1 if not.
           if (h.emergency) this.stash.settleEmergency(r.owner, h.emergency, emergencyDone(this.game.world, h));
           // The buildings' upkeep comes out of the purse, haul included.
@@ -270,6 +274,7 @@ export class LobbyManager {
         send(ws, { t: 'village', village: this.stash.village(name) });
         return;
       case 'chooseTalent':
+      case 'chooseSpec':
       case 'build':
       case 'demolish':
       case 'service':
@@ -283,6 +288,7 @@ export class LobbyManager {
           : msg.t === 'chooseEmergency' ? (busy ?? this.stash.chooseEmergency(name, msg.id))
           : msg.t === 'chooseFate' ? (busy ?? this.stash.chooseFate(name, msg.choice))
           : msg.t === 'setKit' ? (found?.lobby.state === 'game' ? 'Not while your expedition is underway.' : this.stash.setKit(name, msg.kit))
+          : msg.t === 'chooseSpec' ? (busy ?? this.stash.chooseSpec(name, msg.charId, msg.spec))
           : this.stash.chooseTalent(name, msg.charId, msg.talent);
         if (problem) err(problem);
         send(ws, { t: 'village', village: this.stash.village(name) });

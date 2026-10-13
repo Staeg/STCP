@@ -1,4 +1,5 @@
 import {
+  REGALIA_RULES, SPECS, talentsOf, type SpecId,
   abilitiesFor, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
   ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
   type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
@@ -9,7 +10,7 @@ import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleRite, villageHtml }
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
-import { cooldownIcon, icon, iconize, iconNum } from './icons';
+import { cooldownIcon, icon, iconize, iconNum, talentStars } from './icons';
 
 declare const __BUILD__: string;
 /** Built by vite.config.ts: one group per deploy, newest first; `at` is the push time (null = not pushed yet). */
@@ -167,7 +168,7 @@ export class Screens {
         const bch = bot.character;
         slots.push(`<li class="slot bot">
           <span class="swatch" style="background:${bc.color}"></span>
-          <span class="slot-name">${esc(bot.name)}${bch?.talent ? ` <span class="talent-star" title="${esc(TALENTS[bch.talent].name)}">★</span>` : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
+          <span class="slot-name">${esc(bot.name)}${bch ? talentStars(talentsOf({ ...bch, cls: bot.cls })) : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
           ${bch && (bch.injuries.length || bch.insane) ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
           <span class="slot-meta"><span class="muted">${bc.name}</span> · <span class="muted">BOT</span></span>
         </li>`);
@@ -175,7 +176,7 @@ export class Screens {
       }
       const cls = m.cls ? CLASSES[m.cls] : null;
       const ch = m.character;
-      const who = ch ? `${esc(ch.name)}${ch.talent ? ` <span class="talent-star" title="${esc(TALENTS[ch.talent].name)}">★</span>` : ''} <span class="muted">(${esc(m.name)})</span>` : esc(m.name);
+      const who = ch ? `${esc(ch.name)}${m.cls ? talentStars(talentsOf({ ...ch, cls: m.cls })) : ''} <span class="muted">(${esc(m.name)})</span>` : esc(m.name);
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
@@ -192,8 +193,8 @@ export class Screens {
       const hurt = ch && (ch.injuries.length || ch.insane);
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
-        <span class="cr-name">${c.name}${ch?.talent ? ' <span class="talent-star">★</span>' : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
-        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${abilitiesFor(id, ch?.talent).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
+        <span class="cr-name">${c.name}${ch ? talentStars(talentsOf(ch)) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
+        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab) => `<span class="ab-chip" title="${esc(ab.desc)}">${esc(ab.name)}</span>`).join('')}</span>
         ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
@@ -318,6 +319,12 @@ export class Screens {
       case 'talent':
         net.send({ t: 'chooseTalent', charId: btn.dataset.char!, talent: btn.dataset.talent as TalentId });
         break;
+      case 'spec': {
+        const spec = btn.dataset.spec as SpecId;
+        const who = this.net.village?.characters.find((c) => c.id === btn.dataset.char)?.name ?? 'This Character';
+        if (confirm(`Make ${who} ${SPECS[spec].name} for ${REGALIA_RULES.specCost} gold? It's for good.`)) net.send({ t: 'chooseSpec', charId: btn.dataset.char!, spec });
+        break;
+      }
       case 'emergency':
         net.send({ t: 'chooseEmergency', id: btn.dataset.id as EmergencyId });
         break;
@@ -381,7 +388,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
-    <ul class="class-abilities">${abilitiesFor(id, ch?.talent).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
+    <ul class="class-abilities">${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
   </div>`;
 }
 
@@ -436,10 +443,11 @@ function fateHtml(v: VillageView): string {
 /** "Ilse · XP 1/2 · ★ Iron Oath · Minor Injury" for a Character on a lobby class card. */
 function characterLine(c: Character): string {
   const bits = [`<b>${esc(c.name)}</b>`];
-  if (c.talent) bits.push(`<span class="talent-star" title="${esc(TALENTS[c.talent].desc)}">★ ${esc(TALENTS[c.talent].name)}</span>`);
+  if (c.talent) bits.push(...talentsOf(c).map((t) => `<span class="talent-star" title="${esc(TALENTS[t].desc)}">★ ${esc(TALENTS[t].name)}</span>`));
   else bits.push(talentPending(c) ? '<span class="gold">Talent ready!</span>' : `XP ${c.xp}/${VILLAGE_RULES.xpForTalent}`);
   for (const i of c.injuries) bits.push(`<span class="injury ${i}">${INJURY_NAMES[i]}</span>`);
   if (c.insane) bits.push('<span class="injury major">Insane</span>');
+  if (c.spec) bits.push(`<span class="spec-tag" title="${esc(SPECS[c.spec].desc)}">${esc(SPECS[c.spec].name)}</span>`);
   return bits.join(' · ');
 }
 

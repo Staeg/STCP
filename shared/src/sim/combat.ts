@@ -3,11 +3,11 @@ import { escalationAt, LIGHT_MAX, MIN_SPEED } from '../content/constants';
 import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
-import { abilitiesFor, TALENT_RULES, type TalentId } from '../content/talents';
+import { abilitiesFor, hasTalent, TALENT_RULES, type TalentId } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, STAFF, isGear, type ItemId } from '../content/items';
 import { chargesForFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
-import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
+import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
@@ -330,14 +330,14 @@ export function riteMult(h: { rites: readonly string[] }): number {
 
 /** Everflame: the Lampbearer burns brighter the more light their allies still carry. */
 export function everflame(h: Hero, world?: World): number {
-  if (h.talent !== 'everflame' || !world) return 1;
+  if (!hasTalent(h, 'everflame') || !world) return 1;
   const light = Object.values(world.heroes).filter((o) => o !== h && inDungeon(o)).reduce((s, o) => s + o.light, 0);
   return 1 + TALENT_RULES.everflamePerLight * light;
 }
 
-/** A hero's three abilities, as their Talent has changed them. */
-export function abilitiesOf(h: { cls: Hero['cls']; talent?: TalentId | null }): [AbilityDef, AbilityDef, AbilityDef] {
-  return abilitiesFor(h.cls, h.talent);
+/** A hero's three abilities, as their Talents have changed them. */
+export function abilitiesOf(h: { cls: Hero['cls']; talents?: readonly TalentId[] }): [AbilityDef, AbilityDef, AbilityDef] {
+  return abilitiesFor(h.cls, h.talents);
 }
 
 /** Zealot: move up to `max` stress from an ally onto yourself (ignores Calm and Ward Charm). Returns how much moved. */
@@ -374,7 +374,7 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
   if (world) world.stats.revives++;
   if (world) chronicle(world, by ? `${by.name} got ${h.name} back on their feet.` : `${h.name} got back up.`);
   // Pallbearer: the Undertaker brings them back whole, and spares them the lasting wound of going down.
-  if (by?.talent === 'pallbearer' && by !== h) {
+  if (hasTalent(by, 'pallbearer') && by !== h) {
     fraction = 1;
     h.downedMajor = false;
     syncInjuries(h);
@@ -443,7 +443,7 @@ export function addClang(h: Hero, stacks: number) {
 function onEnlist(world: World, enc: Encounter, h: Hero) {
   if (!isConscious(h)) return;
   // Evil Eye: every enemy here starts the fight Hexed.
-  if (h.talent === 'evilEye') {
+  if (hasTalent(h, 'evilEye')) {
     for (const m of monstersIn(world, enc.room)) (m.st.hexed ??= []).push(CLASS_RULES.hexedTurns);
     say(world, enc, `${h.name}'s evil eye falls on every foe. (Hexed)`);
   }
@@ -475,7 +475,7 @@ function keepRisen(enc: Encounter, h: Hero) {
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
   const r = risenOf(enc);
-  if (!r || r.by !== h.id || h.talent !== 'restlessDead' || !isConscious(h)) return;
+  if (!r || r.by !== h.id || !hasTalent(h, 'restlessDead') || !isConscious(h)) return;
   h.risen = { type: r.type, hp: r.hp, maxHp: r.maxHp, dmgMult: r.dmgMult, turns: r.turns };
   enc.risen = null;
 }
@@ -599,7 +599,7 @@ function startTimers(world: World, enc: Encounter) {
       // Opening Act: the Cutthroat's first turn of the fight comes at half their Speed.
       const first = !(enc.opened ??= []).includes(id);
       if (first) enc.opened.push(id);
-      const wait = speedOf(h, world.time) * (first && h.talent === 'openingAct' ? TALENT_RULES.openingFraction : 1);
+      const wait = speedOf(h, world.time) * (first && hasTalent(h, 'openingAct') ? TALENT_RULES.openingFraction : 1);
       enc.next[id] = at(world.time + wait);
     }
   }
@@ -800,7 +800,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     }
     const pick: Choice = { action: 'item', item: idx, target: def.target === 'ally' || def.target === 'downed' ? choice.target : undefined };
     // Quick Hands: the Alchemist uses it there and then, and keeps their turn.
-    if (h.talent === 'quickHands') {
+    if (hasTalent(h, 'quickHands')) {
       const target = pick.target ?? leftmostTarget(world, enc, h, pick);
       const events: CombatEvent[] = [];
       heroAct(world, enc, h, { ...pick, target }, events);
@@ -1201,7 +1201,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     return;
   }
   if (c.action === 'flee') {
-    const ghost = h.talent === 'ghostStep';
+    const ghost = hasTalent(h, 'ghostStep');
     if (ghost || inSmoke(world, h.st) || rng.chance(FLEE_CHANCE)) {
       if (enc.room === world.dungeon.exit) {
         leaveEncounter(world, enc, h);
@@ -1234,7 +1234,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       events.push({ actor: h.id, kind: item === 'bandage' || item === 'salts' ? 'heal' : 'status', target: t, text: result });
     }
     // Volatile: every flask the Alchemist opens in a fight leaks fumes.
-    if (h.talent === 'volatile') fumes(world, enc, h, events, true);
+    if (hasTalent(h, 'volatile')) fumes(world, enc, h, events, true);
     return;
   }
   if (c.action === 'legend') {
@@ -1275,7 +1275,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       return;
     }
     case 'vengeance':
-      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + (h.talent === 'unyielding' ? TALENT_RULES.unyieldingTurns : 0));
+      h.st.vengeance = buffLength(h, CLASS_RULES.vengeanceTurns + (hasTalent(h, 'unyielding') ? TALENT_RULES.unyieldingTurns : 0));
       ward(h, h);
       events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} swears vengeance. Whoever strikes them will feel it.` });
       return;
@@ -1402,7 +1402,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const hp = Math.max(1, Math.round(dead.maxHp * CLASS_RULES.raiseHp));
       enc.risen = {
         id: `r${world.nextId++}`, type: dead.type, hp, maxHp: hp, dmgMult: dead.dmgMult, by: h.id,
-        turns: buffLength(h, h.talent === 'restlessDead' ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns),
+        turns: buffLength(h, hasTalent(h, 'restlessDead') ? TALENT_RULES.restlessTurns : CLASS_RULES.raiseTurns),
       };
       enc.lastSlain = null;
       // Raised, it's the Undertaker's: a Zombie won't get back up for the enemy, nor the Lich call it back.
@@ -1430,15 +1430,15 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         if (enc.next[a.id] !== undefined) enc.next[a.id] = at(Math.max(world.time, enc.next[a.id] - CLASS_RULES.pealHaste));
         ward(h, a);
         // Resonance: the note settles nerves and knits wounds.
-        if (h.talent === 'resonance') {
+        if (hasTalent(h, 'resonance')) {
           addStress(a, -reliefBy(h, TALENT_RULES.resonanceStress));
           const healed = heal(a, healBy(h, TALENT_RULES.resonanceHeal));
           if (healed) events.push({ actor: h.id, kind: 'heal', target: a.id, amount: healed, text: `The peal steadies ${a.name}. (+${healed})` });
         }
       }
       // Resonance: the peal rings on in the Bellwright too.
-      if (h.talent === 'resonance') addClang(h, 1);
-      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${h.talent === 'resonance' ? `, −${TALENT_RULES.resonanceStress} stress, +1 Clang` : ''})` });
+      if (hasTalent(h, 'resonance')) addClang(h, 1);
+      events.push({ actor: h.id, kind: 'status', text: `${h.name} rings a bright peal! (allies act ${CLASS_RULES.pealHaste}s sooner${hasTalent(h, 'resonance') ? `, −${TALENT_RULES.resonanceStress} stress, +1 Clang` : ''})` });
       return;
     case 'knell': {
       const dmg = knellDamage(ab.power, othersIn(world, enc, h).length);
@@ -1459,7 +1459,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       ward(h, t);
       events.push({ actor: h.id, kind: 'stress', target: h.id, amount: moved, text: `${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)` });
       // Martyr: and eases their wounds.
-      if (h.talent === 'martyr') {
+      if (hasTalent(h, 'martyr')) {
         const healed = heal(t, healBy(h, TALENT_RULES.martyrHeal));
         if (healed) events.push({ actor: h.id, kind: 'heal', target: t.id, amount: healed, text: `${t.name} is soothed. (+${healed})` });
       }
@@ -1468,7 +1468,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     case 'absolution': {
       const spend = h.stress - CLASS_RULES.absolutionFloor;
       // Penitent: all of it becomes damage, but only half of it leaves.
-      const paid = h.talent === 'penitent' ? Math.floor(spend / 2) : spend;
+      const paid = hasTalent(h, 'penitent') ? Math.floor(spend / 2) : spend;
       const targets = enemies();
       const each = Math.ceil(spend / Math.max(1, targets.length));
       events.push({ actor: h.id, kind: 'status', text: `${h.name} pours out their torment! (−${paid} stress)` });
@@ -1562,7 +1562,7 @@ export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base
   });
   // Sanguine: the Sorceress drinks from every Hex on what she hurts.
   const hexes = m.st.hexed?.length ?? 0;
-  if (h.talent === 'sanguine' && hexes > 0 && dmg > 0 && isConscious(h)) {
+  if (hasTalent(h, 'sanguine') && hexes > 0 && dmg > 0 && isConscious(h)) {
     const healed = heal(h, TALENT_RULES.sanguineHeal * hexes);
     if (healed) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} drinks from the hex. (+${healed})` });
   }
@@ -1601,6 +1601,11 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
     if (m.carry && m.room >= 0) {
       addToPile(world, m.room, 0, [m.carry], null, true);
       events.push({ actor: m.id, kind: 'info', text: `${ENEMIES[m.type].name} drops ${ITEMS[m.carry].name}.` });
+    }
+    // A Boss's regalia breaks into Shards for the players who still need one.
+    const regalia = ENEMIES[m.type].regalia;
+    if (regalia && m.room >= 0 && dropRegalia(world, m.room, regalia) > 0) {
+      events.push({ actor: m.id, kind: 'info', text: `The ${ENEMIES[m.type].name}'s regalia shatters into Shards.` });
     }
     // The last of the Dead King's procession: his treasure spills where they fell.
     if (m.procession && m.room >= 0 && !Object.values(world.monsters).some((o) => o.procession)) {
@@ -1840,7 +1845,7 @@ export function hurtHero(world: World, h: Hero, dmg: number, events: CombatEvent
   if (!isConscious(h) || dmg <= 0) return false;
   if (h.immuneUntil > world.time) return false;
   h.hp -= dmg;
-  if (h.hp <= 0 && h.talent === 'ironOath' && !h.oathUsed) {
+  if (h.hp <= 0 && hasTalent(h, 'ironOath') && !h.oathUsed) {
     h.oathUsed = true;
     h.hp = 1;
     h.immuneUntil = world.time + TALENT_RULES.oathImmune;
@@ -1966,7 +1971,7 @@ function flee(world: World, enc: Encounter, h: Hero) {
   const d = world.dungeon;
   const from = enc.room;
   // Ghost Step: slip out by any tunnel, not just the one you came in by.
-  let to = h.talent === 'ghostStep' ? null : h.prevRoom;
+  let to = hasTalent(h, 'ghostStep') ? null : h.prevRoom;
   if (to === null || !corridorBetween(d, from, to)) to = world.rng.pick(neighbours(d, from));
   const c = corridorBetween(d, from, to)!;
   h.pos = { kind: 'corridor', corridor: c.id, from, to, t: 0, dur: speedOf(h, world.time) };

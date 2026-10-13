@@ -9,6 +9,7 @@ import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 import { LEGENDS, type LegendId } from './content/legends';
 import { TALENTS, type TalentId } from './content/talents';
+import { SPECS, type SpecId } from './content/regalia';
 import type { FateChoice, ServiceRequest, VillageView } from './stash';
 import { EMERGENCIES, type EmergencyId } from './content/emergencies';
 import { BUILDINGS, emptyKit, SERVICES, type BuildingId, type Character, type Kit, type ServiceId } from './village';
@@ -26,7 +27,7 @@ export interface LobbyMemberView {
   stash: number;
   title: string;
   /** The Village Character they bring (for the class they picked). */
-  character: Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'insane'> | null;
+  character: (Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'insane'> & { spec: SpecId | null }) | null;
   /** What they're bringing from their Village Stash. */
   kit: Kit;
   /** Their Village's Emergency for this run (M13), if picked. */
@@ -64,6 +65,8 @@ export type ClientMsg =
   /** The Village (keyed by your name): ask for it, pick an earned Talent. */
   | { t: 'village' }
   | { t: 'chooseTalent'; charId: string; talent: TalentId }
+  /** Give a Character a Specialization (once the Village's Shards unlock it). */
+  | { t: 'chooseSpec'; charId: string; spec: SpecId }
   /** Build a building's next level, or tear its top level down. */
   | { t: 'build'; building: BuildingId }
   | { t: 'demolish'; building: BuildingId }
@@ -143,6 +146,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'chooseTalent':
       return str(msg.charId, 16) && typeof msg.talent === 'string' && msg.talent in TALENTS
         ? { t: 'chooseTalent', charId: msg.charId as string, talent: msg.talent as TalentId }
+        : null;
+    case 'chooseSpec':
+      return str(msg.charId, 16) && typeof msg.spec === 'string' && msg.spec in SPECS
+        ? { t: 'chooseSpec', charId: msg.charId as string, spec: msg.spec as SpecId }
         : null;
     case 'build':
     case 'demolish':

@@ -90,10 +90,17 @@ export function talentsFor(cls: ClassId): [TalentId, TalentId] {
   return TALENT_IDS.filter((t) => TALENTS[t].cls === cls) as [TalentId, TalentId];
 }
 
-/** A class's abilities as a hero with this talent has them (cooldowns, field use, numbers and text). */
-export function abilitiesFor(cls: ClassId, talent: TalentId | null | undefined): [AbilityDef, AbilityDef, AbilityDef] {
-  const base = ABILITIES[cls];
-  if (!talent) return base;
+/** Does this hero (or Character) have this Talent? A Seasoned one has both of their class's. */
+export function hasTalent(h: { talents: readonly TalentId[] } | null | undefined, talent: TalentId): boolean {
+  return !!h && h.talents.includes(talent);
+}
+
+/** A class's abilities as a hero with these talents has them (cooldowns, field use, numbers and text). */
+export function abilitiesFor(cls: ClassId, talents: readonly TalentId[] | null | undefined): [AbilityDef, AbilityDef, AbilityDef] {
+  return (talents ?? []).reduce((abs, t) => withTalent(abs, t), ABILITIES[cls]);
+}
+
+function withTalent(base: [AbilityDef, AbilityDef, AbilityDef], talent: TalentId): [AbilityDef, AbilityDef, AbilityDef] {
   return base.map((ab): AbilityDef => {
     switch (`${talent}:${ab.id}`) {
       case 'unyielding:vengeance': {

@@ -1,12 +1,12 @@
 import {
   DEATH_TIMER, INSANITY, INSANITY_RULES, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
-  skillInfo, TALENTS, skillTargeted, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
+  skillInfo, skillTargeted, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
-import { icon, ICON_TIPS, type IconId } from './icons';
+import { icon, ICON_TIPS, talentStars, type IconId } from './icons';
 import { statusIcons } from './statuses';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -107,7 +107,7 @@ export class Hud {
 
     const you = view.you;
     const cls = CLASSES[you.cls];
-    const talent = you.talent ? ` <span class="talent-star" title="${escape(TALENTS[you.talent].name)}: ${escape(TALENTS[you.talent].desc)}">★</span>` : '';
+    const talent = talentStars(you.talents);
     // Village Rites for this run: the Resource's glyph, hover for what it does.
     const rites = (you.rites ?? []).map((r) => ` <span class="rite-tag" title="${escape(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`).join('');
     // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does).

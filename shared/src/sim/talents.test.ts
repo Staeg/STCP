@@ -22,7 +22,7 @@ function hero(world: World, i: number, spec: Spec, injuries: Injury[] = []) {
   const [cls, talent] = typeof spec === 'string' ? [spec, null] : spec;
   return addHero(world, {
     id: `h${i}`, name: `H${i}`, cls,
-    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talent, injuries, insane: false },
+    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talents: talent ? [talent] : [], injuries, insane: false },
   });
 }
 
@@ -319,7 +319,7 @@ describe('Challenge Rating', () => {
 
   it('counts the Talents in a Game', async () => {
     const { Game } = await import('./game');
-    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talent, injuries: [], insane: false });
+    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talents: talent ? [talent] : [], injuries: [], insane: false });
     const game = new Game(9, [
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('ironOath') },
       { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('sanguine') },

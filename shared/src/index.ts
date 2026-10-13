@@ -25,6 +25,7 @@ export * from './sim/skills';
 export * from './sim/gear';
 export * from './sim/call';
 export * from './content/talents';
+export * from './content/regalia';
 export * from './village';
 export * from './content/emergencies';
 export * from './sim/emergency';

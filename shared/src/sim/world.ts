@@ -3,7 +3,8 @@ import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MA
 import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../content/enemies';
 import type { EmergencyId } from '../content/emergencies';
 import { forceRoster, seedEmergencies } from './emergency';
-import type { TalentId } from '../content/talents';
+import { hasTalent, type TalentId } from '../content/talents';
+import type { ShardId } from '../content/regalia';
 import { injuredMaxHp, KIT_RULES, RITES, sightMatches, VILLAGE_RULES, type Injury, type Loadout, type Sight } from '../village';
 import { GEAR_KIND_PLURALS } from '../content/forge';
 import { CLASS_RULES } from '../content/abilities';
@@ -169,7 +170,14 @@ export interface Hero {
   charId: string | null;
   /** The player whose Village it came from. */
   owner: string | null;
-  talent: TalentId | null;
+  /** Every Talent the Character has (two if Seasoned). */
+  talents: TalentId[];
+  /** The Shards the player's Village already has; null for bots, who have no Village and can't carry one. */
+  villageShards: ShardId[] | null;
+  /** The Shard this hero carries (one at most): carried out, it's their Village's. */
+  shard: ShardId | null;
+  /** A Risen ally walked its Shard out with its Undertaker: it reaches the Village all the same. */
+  shardSaved: boolean;
   /** Injuries brought in from the Village (already applied to max HP and Speed). */
   injuries: Injury[];
   /** Village Rites active for this run (Effigy, Tome, Gem, Relic). */
@@ -470,7 +478,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     seen: [d.exit],
     charId: loadout?.charId ?? null,
     owner: loadout?.owner ?? null,
-    talent: loadout?.talent ?? null,
+    talents: [...(loadout?.talents ?? [])],
+    villageShards: opts.isBot ? null : [...(loadout?.shards ?? [])],
+    shard: null,
+    shardSaved: false,
     injuries: [...(loadout?.injuries ?? [])],
     rites,
     runInjuries: [],
@@ -1039,7 +1050,7 @@ function updateKnowledge(world: World) {
     for (const b of heroes) {
       const scrying = world.time < a.scryUntil;
       // Pallbearer: the Undertaker always knows where the Downed lie.
-      const pallbearer = a.talent === 'pallbearer' && inDungeon(b) && b.downedAt !== null;
+      const pallbearer = hasTalent(a, 'pallbearer') && inDungeon(b) && b.downedAt !== null;
       if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying || pallbearer)) {
         if (pallbearer && b.pos.kind === 'room' && !a.seen.includes(b.pos.room)) a.seen.push(b.pos.room);
         a.lastKnown[b.id] = {

@@ -747,6 +747,11 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .card.village button.chip { font-size: 14px; padding: 0 4px; border-color: currentColor; }
 .vv-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
 .vv-res { display: flex; align-items: center; gap: 6px; }
+.vv-regalia { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.shard-tile, .shard-carried { color: #d9b8ff; cursor: help; }
+.shard-carried { margin-left: 8px; }
+.spec-tag { color: #d9b8ff; border: 1px solid #5a4470; border-radius: 3px; padding: 0 4px; cursor: help; }
+.spec-buy { color: #d9b8ff; }
 .vv-buildings { display: flex; flex-direction: column; gap: 4px; }
 .vb { border: 1px solid #2a2018; padding: 3px 6px; }
 .vb.unbuilt { border-style: dashed; }

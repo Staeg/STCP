@@ -1,6 +1,7 @@
 import {
   BUILDING_IDS, BUILDINGS, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
   LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
+  REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf,
   type BuildingId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
@@ -62,6 +63,7 @@ export function villageHtml(v: VillageView, lobby: LobbyView | null, picking: Se
       <div class="vv-chars">${v.characters.map((c) => characterCard(v, c, lobby)).join('')}</div>
       <div class="vv-side">
         ${resourcesHtml(v)}
+        ${regaliaHtml(v)}
         <div class="vv-buildings">${BUILDING_IDS.map((id) => buildingHtml(v, id, picking, locked)).join('')}</div>
         ${stashHtml(v, picking, locked)}
       </div>
@@ -72,6 +74,7 @@ export function villageHtml(v: VillageView, lobby: LobbyView | null, picking: Se
 /** A Character: name, class, HP and Speed, XP or Talent, and wounds (the Elder's services work right on them). */
 function characterCard(v: VillageView, c: VillageView['characters'][number], lobby: LobbyView | null): string {
   const cls = CLASSES[c.cls];
+  const locked = lobby?.state === 'game';
   const coming = lobby?.members.find((m) => m.id === lobby.youId)?.cls === c.cls;
   const hp = injuredMaxHp(c.cls, c.injuries);
   const majors = c.injuries.filter((i) => i === 'major').length;
@@ -81,7 +84,18 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
   let growth: string;
   // Talents show by name (hover for what they do), except when one is waiting to be chosen.
   if (c.talent) {
-    growth = `<span class="talent-star" title="${esc(TALENTS[c.talent].desc)}">★ ${esc(TALENTS[c.talent].name)}</span>`;
+    growth = talentsOf(c).map((t) => `<span class="talent-star" title="${esc(TALENTS[t].desc)}">★ ${esc(TALENTS[t].name)}</span>`).join(' ');
+    if (c.spec) {
+      growth += ` <span class="spec-tag" title="${esc(`Specialization: ${SPECS[c.spec].desc}`)}">${esc(SPECS[c.spec].name)}</span>`;
+    } else {
+      // Specializations, once the Village's Shards unlock them: gold, for good.
+      const fits = v.specs.filter((sp) => specFits(sp, c.cls));
+      growth += fits.map((sp) => {
+        const short = v.purse < REGALIA_RULES.specCost;
+        const tip = `Specialization: ${SPECS[sp].desc} ${REGALIA_RULES.specCost} gold, for good.${short ? ` You have ${v.purse}.` : ''}`;
+        return ` <button class="mini spec-buy" data-act="spec" data-char="${c.id}" data-spec="${sp}" ${short || locked ? 'disabled' : ''} title="${esc(tip)}">${esc(SPECS[sp].name)} ${REGALIA_RULES.specCost}g</button>`;
+      }).join('');
+    }
   } else if (talentPending(c)) {
     growth = `<div class="vc-pick">${talentsFor(c.cls).map((t) =>
       `<button data-act="talent" data-char="${c.id}" data-talent="${t}"><span class="gold">★ ${esc(TALENTS[t].name)}</span><span class="vc-desc">${esc(TALENTS[t].desc)}</span></button>`).join('')}</div>`;
@@ -121,6 +135,15 @@ function resourcesHtml(v: VillageView): string {
     return `<span class="rite ${on ? 'on' : ''}" title="${esc(tip)}"><span class="rite-glyph">${ITEMS[r].glyph}</span><span class="rite-count">${have}${on ? ' ✦' : ''}</span></span>`;
   }).join('');
   return `<div class="vv-res"><span class="muted" title="Resources build buildings; ${KIT_RULES.riteCost} of one (1 Relic) power a Rite for your next run.">Resources</span>${tiles}</div>`;
+}
+
+/** Shards of Bosses' regalia brought home, and what they unlock. */
+function regaliaHtml(v: VillageView): string {
+  if (!v.shards.length) {
+    return `<div class="vv-regalia muted small" title="A Boss killed drops a Shard of its regalia for every player inside whose Village lacks it. Carry one out: the first unlocks Specializations.">Regalia: none yet. Bosses carry Shards.</div>`;
+  }
+  const tiles = v.shards.map((x) => `<span class="shard-tile" title="${esc(`${SHARDS[x].name}: unlocks the ${SPECS[SHARDS[x].spec].name} Specialization (${SPECS[SHARDS[x].spec].desc})`)}">${SHARDS[x].glyph} ${esc(SHARDS[x].name)}</span>`).join('');
+  return `<div class="vv-regalia"><span class="muted" title="Specializations: a Character with a Talent can take one, for ${REGALIA_RULES.specCost} gold, for good.">Regalia</span>${tiles}</div>`;
 }
 
 /** Rite toggles for the New Run loadout: a click performs (or cancels) one for the next run. */

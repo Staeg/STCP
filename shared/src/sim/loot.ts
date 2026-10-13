@@ -3,13 +3,14 @@ import {
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
-import { neighbours } from '../dungeon/gen';
+import { neighbours, theRoom } from '../dungeon/gen';
 import { addStress, carryItem, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
 import { ENEMIES, ESCALATION } from '../content/enemies';
 import { notify } from './notify';
 import { chargeable, healBy, moveCharges, pullPackCharge, reliefBy, ward, type ItemCharge } from './gear';
 import { CROWNED, STRESS } from '../content/events';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
+import { REGALIA_RULES, SHARDS, type ShardId } from '../content/regalia';
 
 export const LEAVE = 'leave';
 /** Bots defer to the humans' majority after this many seconds. */
@@ -43,6 +44,8 @@ export interface Pile {
   corpseGold?: Record<string, number>;
   /** Gold a hero put down (user, 2026-10-11): split among everyone else present, never back to them. */
   dropped?: { by: string; gold: number }[];
+  /** Shards of a Boss's regalia: each goes by itself to the first hero here who may carry it (no vote). */
+  shards?: ShardId[];
 }
 
 /** All the loose gold in a pile (what's split, and what someone put down). */
@@ -58,7 +61,7 @@ export function goldFor(h: Hero, pile: Pile | undefined): number {
 
 /** A pile with nothing left in it. */
 function emptyPile(pile: Pile): boolean {
-  return pile.gold === 0 && !pile.corpseGold && !pile.dropped && pile.items.length === 0;
+  return pile.gold === 0 && !pile.corpseGold && !pile.dropped && pile.items.length === 0 && !pile.shards?.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +151,51 @@ export function dropKingsTreasure(world: World, room: number) {
   addToPile(world, room, gold, items);
   addToPile(world, room, 0, legends, null, true);
   world.bounty[room] = (world.bounty[room] ?? 0) + CROWNED.lairs * LOOT.lairBounty;
+}
+
+// ---------------------------------------------------------------------------
+// Regalia (2026-10-13)
+
+/** May this hero pick up this Shard? A player's hero with empty hands whose Village lacks it. */
+export function canCarryShard(h: Hero, shard: ShardId): boolean {
+  return h.shard === null && h.villageShards !== null && !h.villageShards.includes(shard);
+}
+
+/**
+ * A Boss fell: its regalia breaks into one Shard for each player still inside (downed counts) whose Village lacks
+ * it, up to 4, less any of that Shard already carried or lying about (so a Boss raised and slain again adds none).
+ */
+export function dropRegalia(world: World, room: number, shard: ShardId): number {
+  const needy = Object.values(world.heroes).filter((h) => inDungeon(h) && h.villageShards !== null && !h.villageShards.includes(shard)).length;
+  const about = Object.values(world.heroes).filter((h) => h.shard === shard && !h.dead).length
+    + Object.values(world.piles).reduce((n, p) => n + (p.shards ?? []).filter((x) => x === shard).length, 0);
+  const count = Math.max(0, Math.min(REGALIA_RULES.maxShards, needy) - about);
+  if (count <= 0) return 0;
+  const pile = (world.piles[room] ??= { gold: 0, items: [] });
+  (pile.shards ??= []).push(...Array<ShardId>(count).fill(shard));
+  const what = count === 1 ? `a ${SHARDS[shard].name}` : `${count} ${SHARDS[shard].name.replace('Shard', 'Shards')}`;
+  chronicle(world, `The regalia broke into ${what} in ${theRoom(world.dungeon.rooms[room].name)}.`);
+  for (const h of presentIn(world, room)) notify(world, h, `The regalia breaks: ${what} lie${count === 1 ? 's' : ''} here, for those whose Village lacks one.`);
+  return count;
+}
+
+/** The Shard this hero brought home to their Village: carried out, or walked out as a Risen ally. */
+export function shardHome(h: Hero): ShardId | null {
+  return h.shard && (h.extracted || h.shardSaved) ? h.shard : null;
+}
+
+/** Shards on a quiet floor go by themselves, one each, to the heroes here who may carry them. */
+function giveShards(world: World, room: number, pile: Pile, voters: Hero[]) {
+  if (!pile.shards?.length) return;
+  for (const h of voters) {
+    const i = pile.shards.findIndex((x) => canCarryShard(h, x));
+    if (i < 0) continue;
+    const [shard] = pile.shards.splice(i, 1);
+    h.shard = shard;
+    chronicle(world, `${h.name} took up a ${SHARDS[shard].name}.`);
+    for (const x of presentIn(world, room)) notify(world, x, x === h ? `You take up a ${SHARDS[shard].name}. Carry it out and your Village has it for good.` : `${h.name} takes up a ${SHARDS[shard].name}.`);
+  }
+  if (!pile.shards.length) delete pile.shards;
 }
 
 /**
@@ -333,6 +381,7 @@ export function tickLoot(world: World) {
 
     if (pile.corpseGold) claimCorpseGold(pile);
     if (pile.gold > 0 || pile.dropped) splitGold(world, room, pile);
+    giveShards(world, room, pile, voters);
     for (const f of pile.items) {
       if (f.seen.length === 0) f.startedAt = world.time;
       for (const v of voters) if (!f.seen.includes(v.id)) f.seen.push(v.id);
@@ -432,6 +481,7 @@ export function risenAllyEscapes(world: World, u: Hero, dead: Hero) {
   dead.legacy += dead.gold;
   dead.gold = 0;
   dead.legacyItems.push(...dead.items.splice(0));
+  if (dead.shard) dead.shardSaved = true;
   for (const slot of GEAR_SLOTS) {
     const worn = equip(dead, slot, null);
     if (worn) dead.legacyItems.push(worn);
@@ -610,7 +660,11 @@ export function dropEverything(world: World, h: Hero) {
     if (worn) items.push(worn);
   }
   addToPile(world, room, 0, items, h.id);
-  const pile = world.piles[room];
+  const pile = (world.piles[room] ??= { gold: 0, items: [] });
+  if (h.shard) {
+    (pile.shards ??= []).push(h.shard);
+    h.shard = null;
+  }
   if (h.gold > 0) (pile.corpseGold ??= {})[h.id] = (pile.corpseGold?.[h.id] ?? 0) + h.gold;
   h.gold = 0;
 }

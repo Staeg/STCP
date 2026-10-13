@@ -4,6 +4,7 @@ import { isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlo
 import type { Rng } from './rng';
 import { gearKind, type GearKind } from './content/forge';
 import { EMERGENCIES, emergencyBans, type EmergencyId } from './content/emergencies';
+import { REGALIA_RULES, SPECS, specFits, specsUnlocked, talentsOf, type ShardId, type SpecId } from './content/regalia';
 
 /**
  * The Village (M12): every player keeps a roster of Characters, one per class for now (stored as a list so
@@ -21,6 +22,8 @@ export interface Character {
   /** Runs survived in total, for the record. */
   survived: number;
   talent: TalentId | null;
+  /** Their Specialization (bought in the Village once Shards unlock it; needs a Talent; for good). */
+  spec?: SpecId | null;
   injuries: Injury[];
   /** Went Insane in an earlier run, and not yet cured. */
   insane: boolean;
@@ -209,9 +212,9 @@ export function kitCr(kit: Kit | undefined): number {
   return Math.round(cr * 100) / 100;
 }
 
-/** A hero's CR: 1 for a Talent, plus what their kit adds. */
-export function heroCr(talent: TalentId | null | undefined, kit: Kit | undefined): number {
-  return (talent ? 1 : 0) + kitCr(kit);
+/** A hero's CR: 1 per Talent (a Seasoned Character has two), plus what their kit adds. */
+export function heroCr(talents: readonly TalentId[] | undefined, kit: Kit | undefined): number {
+  return (talents?.length ?? 0) + kitCr(kit);
 }
 
 /**
@@ -264,9 +267,12 @@ export interface Loadout {
   charName: string;
   /** The player whose Village it is. */
   owner: string;
-  talent: TalentId | null;
+  /** Every Talent they have (their own, and the other one if Seasoned). */
+  talents: TalentId[];
   injuries: Injury[];
   insane: boolean;
+  /** The Shards their player's Village already has: a player's hero may carry one Shard it lacks. Bots have none. */
+  shards?: ShardId[];
   /** Gear, consumables and Rites taken from the player's Village Stash for this run. */
   kit?: Kit;
   /** The player's Emergency this run (M13); bots have none. */
@@ -295,7 +301,7 @@ const NAMES = [
 export function newCharacter(id: string, cls: ClassId, rng: Rng, taken: string[]): Character {
   const free = NAMES.filter((n) => !taken.includes(n));
   const name = free.length ? rng.pick(free) : `${rng.pick(NAMES)} ${taken.length + 1}`;
-  return { id, name, cls, xp: 0, survived: 0, talent: null, injuries: [], insane: false };
+  return { id, name, cls, xp: 0, survived: 0, talent: null, spec: null, injuries: [], insane: false };
 }
 
 /** No injuries, not Insane: fit to go down. */
@@ -316,7 +322,7 @@ export function injuredMaxHp(cls: ClassId, injuries: Injury[]): number {
 }
 
 export function loadoutOf(owner: string, c: Character): Loadout {
-  return { charId: c.id, charName: c.name, owner, talent: c.talent, injuries: [...c.injuries], insane: c.insane };
+  return { charId: c.id, charName: c.name, owner, talents: talentsOf(c), injuries: [...c.injuries], insane: c.insane };
 }
 
 /**
@@ -350,6 +356,18 @@ export function chooseTalent(c: Character, talent: TalentId): string | null {
   if (!talentPending(c)) return `${c.name} needs ${VILLAGE_RULES.xpForTalent} XP first.`;
   if (!talentsFor(c.cls).includes(talent)) return `${TALENTS[talent].name} is not a ${CLASSES[c.cls].name} Talent.`;
   c.talent = talent;
+  return null;
+}
+
+/** Give a Character a Spec this Village's Shards unlock (needs a Talent; for good). Returns an error, or null. */
+export function chooseSpec(c: Character, spec: SpecId, shards: readonly ShardId[], purse: number): string | null {
+  if (!SPECS[spec]) return 'No such Specialization.';
+  if (!specsUnlocked(shards).includes(spec)) return `${SPECS[spec].name} isn't unlocked: bring home its Shard first.`;
+  if (!c.talent) return `${c.name} needs a Talent first.`;
+  if (c.spec) return `${c.name} is already ${SPECS[c.spec].name}.`;
+  if (!specFits(spec, c.cls)) return `A ${CLASSES[c.cls].name} can't be ${SPECS[spec].name}.`;
+  if (purse < REGALIA_RULES.specCost) return `${SPECS[spec].name} costs ${REGALIA_RULES.specCost} gold; you have ${purse}.`;
+  c.spec = spec;
   return null;
 }
 

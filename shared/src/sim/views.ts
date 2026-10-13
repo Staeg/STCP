@@ -7,6 +7,7 @@ import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
 import { CLASS_RULES } from '../content/abilities';
 import type { TalentId } from '../content/talents';
+import type { ShardId } from '../content/regalia';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { EVENTS, type EventKind } from '../content/events';
 import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } from './events';
@@ -82,6 +83,8 @@ export interface LootView {
   items: LootItemView[];
   /** Lying here, but nobody present wants it (walked past it, no better than theirs, no room): claim to bring it back. */
   ignored: { id: number; item: ItemId }[];
+  /** Shards of a Boss's regalia lying here: each goes by itself to a hero who may carry it. */
+  shards: ShardId[];
 }
 
 export interface LootItemView {
@@ -141,7 +144,7 @@ export interface ResultHero {
   cls: ClassId;
   color: string;
   isBot: boolean;
-  talent: TalentId | null;
+  talents: TalentId[];
   outcome: 'escaped' | 'dead';
   fate: string;
   gold: number;
@@ -428,7 +431,7 @@ function revealRoom(world: World, room: number): RoomReveal {
 function resultsView(world: World): ResultsView {
   return {
     heroes: Object.values(world.heroes).map((h) => ({
-      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talent: h.talent,
+      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talents: h.talents,
       outcome: h.extracted ? 'escaped' : 'dead',
       fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; ${h.legacy} of their gold went home${h.rites.includes('tome') ? ' (the Tome Rite)' : ''}` : ''),
       gold: h.extracted ? h.gold : h.legacy,
@@ -478,6 +481,7 @@ function lootView(world: World, you: Hero): LootView | null {
       };
     }),
     ignored: pile.items.filter((f) => !active.includes(f)).map((f) => ({ id: f.id, item: f.item })),
+    shards: [...(pile.shards ?? [])],
   };
 }
 

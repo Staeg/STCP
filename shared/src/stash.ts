@@ -6,10 +6,11 @@ import { emptyCodex, mergeCodex, type Codex } from './content/codex';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
 import { isResource, ITEMS, migrateItemId, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
-  applyRun, BUILDING_IDS, BUILDINGS, chooseTalent, riteCost, emptyKit, foundVillage, INJURY_NAMES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
+  applyRun, BUILDING_IDS, BUILDINGS, chooseSpec, chooseTalent, riteCost, emptyKit, foundVillage, INJURY_NAMES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
   SERVICE_RELICS, serviceHome, SERVICES, talentPending, upkeepOf, VILLAGE_RULES,
   type BuildingId, type Buildings, type Character, type Injury, type Kit, type RunOutcome, type ServiceId, type Sight,
 } from './village';
+import { REGALIA_RULES, SHARDS, SPECS, specsUnlocked, type ShardId, type SpecId } from './content/regalia';
 import { forgeable, GEAR_KINDS, GEAR_KIND_PLURALS, randomGear, reforged, rerollPool, type GearKind } from './content/forge';
 
 /** Where the stash is kept: a JSON file on the server, localStorage in solo play. */
@@ -51,6 +52,8 @@ interface Record_ extends CareerStats {
   notice?: string;
   /** Everything this player's heroes have come across (Armory, Bestiary, Archive; since 2026-10-11). */
   codex?: Codex;
+  /** Shards of Bosses' regalia brought home (2026-10-13): each unlocks something, the first Specializations. */
+  shards?: ShardId[];
 }
 
 /** A use of a building's service: on a Character (Elder), a Stash item (Blacksmith), or a pick (Seer). */
@@ -91,6 +94,9 @@ export interface VillageView {
   notice: string | null;
   /** The Armory, Bestiary and Archive: what this player has come across in their runs. */
   codex: Codex;
+  /** Shards brought home, and the Specs they unlock (none: Specializations are still locked). */
+  shards: ShardId[];
+  specs: SpecId[];
 }
 
 /** The Stash lists consumables first, then weapons, armor, amulets, rings. */
@@ -198,6 +204,7 @@ export class Stash {
       fate: r.fate ?? null,
       buildings: this.buildingsOf(r), used: [...(r.used ?? [])], sight: { ...r.sight }, upkeep: upkeepOf(this.buildingsOf(r)), notice: r.notice ?? null,
       codex: { ...emptyCodex(), ...structuredClone(r.codex) },
+      shards: [...(r.shards ?? [])], specs: specsUnlocked(r.shards ?? []),
     };
   }
 
@@ -356,6 +363,7 @@ export class Stash {
       r.buildings = undefined;
       r.used = undefined;
       r.sight = undefined;
+      r.shards = undefined;
       r.report = ['A new Village rises from the old one’s ashes.'];
     } else {
       r.report = ['The Village carries on. Wellbeing is back to 3.'];
@@ -385,6 +393,38 @@ export class Stash {
     const err = chooseTalent(c, talent);
     if (!err) this.save();
     return err;
+  }
+
+  /** The Shards this player's Village has. */
+  shardsOf(name: string): ShardId[] {
+    return [...(this.data[name.toLowerCase()]?.shards ?? [])];
+  }
+
+  /** A hero carried a Shard home: the Village has it for good. Returns the report lines (none if it had it already). */
+  storeShard(name: string, shard: ShardId): string[] {
+    const r = this.record(name);
+    const had = r.shards ?? [];
+    if (had.includes(shard)) return [];
+    const lines = [`The ${SHARDS[shard].name} is the Village's now.`];
+    if (!had.length) lines.push('Specializations are unlocked: a Character with a Talent can be given one in the Village.');
+    lines.push(`It unlocks a Specialization, ${SPECS[SHARDS[shard].spec].name}: ${SPECS[SHARDS[shard].spec].desc}`);
+    r.shards = [...had, shard];
+    (r.report ??= []).push(...lines);
+    this.save();
+    return lines;
+  }
+
+  /** Give a Character a Specialization for gold. Returns an error, or null. */
+  chooseSpec(name: string, charId: string, spec: SpecId): string | null {
+    const { r, chars } = this.villageOf(name);
+    const c = chars.find((x) => x.id === charId);
+    if (!c) return 'No such Character.';
+    const err = chooseSpec(c, spec, r.shards ?? [], r.purse ?? 0);
+    if (err) return err;
+    r.purse = (r.purse ?? 0) - REGALIA_RULES.specCost;
+    r.notice = `${c.name} is now ${SPECS[spec].name} (−${REGALIA_RULES.specCost} gold).`;
+    this.save();
+    return null;
   }
 
   /** Build the next level of a building, paying its Resources. Returns an error, or null. */

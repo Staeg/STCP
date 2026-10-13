@@ -1,5 +1,5 @@
 import { CLASS_RULES, abilityById } from '../content/abilities';
-import { TALENT_RULES } from '../content/talents';
+import { hasTalent, TALENT_RULES } from '../content/talents';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
 import { abilitiesOf, addClang, addStress, flareLight, inDungeon, isConscious, takeSins } from './combat';
@@ -39,17 +39,17 @@ export const FIELD_SKILLS: Record<ClassSkill, { name: string; target: FieldTarge
 /** Who a hero's skill can be aimed at, with their Talent (Triage turns Mend on yourself). */
 export function skillTarget(h: Hero, skill: FieldSkill): FieldTarget {
   if (isLegend(skill)) return ({ none: 'none', ally: 'any', fallen: 'fallen', room: 'room' } as const)[LEGENDS[skill].target];
-  if (skill === 'mend' && h.talent === 'triage') return 'none';
+  if (skill === 'mend' && hasTalent(h, 'triage')) return 'none';
   return FIELD_SKILLS[skill].target;
 }
 
 /** Name and text of a skill for this hero (Talents change some numbers). */
 export function skillInfo(h: Hero, skill: FieldSkill): { name: string; desc: string } {
   if (isLegend(skill)) return { name: LEGENDS[skill].name, desc: LEGENDS[skill].desc };
-  if (skill === 'toll') return h.talent === 'greatBell' ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: you gain ${TALENT_RULES.greatBellClang} Clang stacks.` } : FIELD_SKILLS.toll;
+  if (skill === 'toll') return hasTalent(h, 'greatBell') ? { name: 'Toll', desc: `${FIELD_SKILLS.toll.desc} Great Bell: you gain ${TALENT_RULES.greatBellClang} Clang stacks.` } : FIELD_SKILLS.toll;
   const ab = abilitiesOf(h).find((a) => a.id === skill);
-  if (skill === 'mend' && h.talent === 'triage') return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
-  if (skill === 'sins' && h.talent === 'martyr') return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
+  if (skill === 'mend' && hasTalent(h, 'triage')) return { name: 'Mend', desc: `Heal yourself ${ab!.power} and cure Poison.` };
+  if (skill === 'sins' && hasTalent(h, 'martyr')) return { name: FIELD_SKILLS.sins.name, desc: ab!.desc };
   return FIELD_SKILLS[skill];
 }
 
@@ -117,7 +117,7 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill, targetId: str
       const moved = takeSins(h, t, reliefBy(h, abilitiesOf(h)[2].power));
       // Martyr: and eases their wounds.
       const before = t.hp;
-      if (h.talent === 'martyr') t.hp = Math.min(t.maxHp, t.hp + healBy(h, TALENT_RULES.martyrHeal));
+      if (hasTalent(h, 'martyr')) t.hp = Math.min(t.maxHp, t.hp + healBy(h, TALENT_RULES.martyrHeal));
       const healed = t.hp > before ? `, +${t.hp - before} HP` : '';
       notify(world, h, `You take ${t.name}'s sins upon yourself. (+${moved} stress)`);
       notify(world, t, `${h.name} takes your sins upon themself. (−${moved} stress${healed})`);
@@ -173,7 +173,7 @@ export function toll(world: World, h: Hero) {
   dazeAll(world, CLASS_RULES.tollDaze);
   for (const o of Object.values(world.heroes)) if (inDungeon(o)) notify(world, o, 'The bell shakes the dungeon. Every monster reels.');
   // Great Bell: the ringing quickens the ringer.
-  if (h.talent === 'greatBell') addClang(h, TALENT_RULES.greatBellClang);
+  if (hasTalent(h, 'greatBell')) addClang(h, TALENT_RULES.greatBellClang);
 }
 
 /** Is `h` being heard right now (a toll in the last few seconds)? Allies then see them as if in sight. */

@@ -233,7 +233,7 @@ describe('Village buildings', () => {
     const far = world.dungeon.rooms.filter((r) => r.kind === 'normal').map((r) => r.id).slice(-2);
     addToPile(world, far[0], 0, ['salts']);
     addToPile(world, far[1], 0, ['torch']);
-    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talent: null, injuries: [], insane: false, sight } });
+    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talents: [], injuries: [], insane: false, sight } });
     expect(h.seen).toContain(far[0]);
     expect(h.knownContents[far[0]].items).toContain('salts');
     expect(h.knownContents[far[1]]?.items ?? []).not.toContain('torch');

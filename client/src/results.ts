@@ -1,4 +1,5 @@
-import { CLASSES, nextTitle, TALENTS, type PlayerView } from '@stcp/shared';
+import { CLASSES, nextTitle, type PlayerView } from '@stcp/shared';
+import { talentStars } from './icons';
 import { hallOfFortune } from './screens';
 import { fmtTime } from './hud';
 import type { Net } from './net';
@@ -63,7 +64,7 @@ export class ResultsUi {
       .slice()
       .sort((a, b) => Number(b.outcome === 'escaped') - Number(a.outcome === 'escaped') || b.gold - a.gold)
       .map((h) => `<tr class="${h.outcome}">
-        <td><span class="swatch" style="background:${h.color}"></span> ${esc(h.name)}${h.talent ? ` <span class="talent-star" title="${esc(TALENTS[h.talent].name)}">★</span>` : ''}${h.isBot ? ' <span class="muted">(bot)</span>' : ''}</td>
+        <td><span class="swatch" style="background:${h.color}"></span> ${esc(h.name)}${talentStars(h.talents)}${h.isBot ? ' <span class="muted">(bot)</span>' : ''}</td>
         <td class="muted">${CLASSES[h.cls].name}</td>
         <td>${h.outcome === 'escaped' ? '⚑' : '✝'} ${esc(h.fate)}</td>
         <td class="muted">${h.time !== null ? fmtTime(h.time) : ''}</td>

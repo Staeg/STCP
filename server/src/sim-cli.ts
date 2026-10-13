@@ -61,7 +61,7 @@ for (let g = 0; g < games; g++) {
   const talentRng = new Rng((seed0 + g) * 31 + 7);
   const game = new Game(seed0 + g, party.map((cls, i) => ({
     id: `b${i}`, name: cls, cls, isBot: true,
-    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talent: talentRng.pick(talentsFor(cls)), injuries: [], insane: false } : undefined,
+    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talents: [talentRng.pick(talentsFor(cls))], injuries: [], insane: false } : undefined,
   })), worldOpts);
   const w = game.world;
   // The climax check: when the waves start, is someone waiting there while someone else is still alive out there?

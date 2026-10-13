@@ -179,7 +179,7 @@ describe('The Loom', () => {
     equip(h, 'armor', 'gravecloth');
     wornCharge(h, 'armor')!.usesLeft = 0;
     h.calledAt = world.time;
-    h.talent = 'ironOath';
+    h.talents = ['ironOath'];
     h.oathUsed = true;
     expect(buildView(world, 'h').event!.choices[0].label).toMatch(/Gravecloth, Call for Help, Iron Oath/);
     choose(world, 'h', 'weave');

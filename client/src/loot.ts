@@ -1,5 +1,5 @@
 import {
-  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, goldStacks, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, slotOf, type GearSlot, type ItemCharge, type ItemId, type LootItemView, type PlayerView,
+  GEAR_SLOTS, GOLD_PER_SLOT, goldRoom, goldStacks, HOTKEY_ITEMS, INVENTORY_SLOTS, isCursed, itemTier, ITEMS, LEAVE, packSlots, SHARDS, type ShardId, slotOf, type GearSlot, type ItemCharge, type ItemId, type LootItemView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { iconize } from './icons';
@@ -154,7 +154,7 @@ export class LootUi {
     const panel = $('loot');
     const items = loot?.items ?? [];
     const ignored = loot?.ignored ?? [];
-    if (!loot || view.encounter || view.results || (items.length === 0 && ignored.length === 0 && loot.gold === 0)) {
+    if (!loot || view.encounter || view.results || (items.length === 0 && ignored.length === 0 && loot.gold === 0 && !loot.shards.length)) {
       if (!panel.hidden) {
         this.noteGone(new Set());
         panel.innerHTML = '';
@@ -208,6 +208,14 @@ export class LootUi {
     if (loot.gold > 0) {
       const why = loot.yourGold > 0 ? '' : goldRoom(view.you.items, view.you.gold) <= 0 ? ': no room in your pack (drop something to take it)' : ': you put it down, for the others';
       html += `<div class="abandoned muted">⛀ ${loot.gold} gold lies here${why}.</div>`;
+    }
+    // Shards nobody here may carry: they wait for someone whose Village lacks one.
+    if (loot.shards.length) {
+      const counts = new Map<ShardId, number>();
+      for (const s of loot.shards) counts.set(s, (counts.get(s) ?? 0) + 1);
+      const why = view.you.shard ? 'you carry one already' : view.you.villageShards === null ? 'you have no Village to bring one to'
+        : 'your Village has this one';
+      html += [...counts].map(([s, n]) => `<div class="abandoned muted">${SHARDS[s].glyph} ${n > 1 ? `${n} ${esc(SHARDS[s].name.replace('Shard', 'Shards'))} lie` : `A ${esc(SHARDS[s].name)} lies`} here, for a hero whose Village lacks one (${why}).</div>`).join('');
     }
     const rest = [...items.slice(MAX_CARDS), ...ignored];
     if (rest.length) {
@@ -345,7 +353,8 @@ export class LootUi {
         <span class="item-glyph">${def.glyph}</span><span class="item-name">${itemName(item)}</span>${c ? `<span class="charge ${c.cls}">${c.label}</span>` : ''}
         <span class="drop" title="Take it off and drop it">✕</span></div>`;
     };
-    const html = `<div class="gold">⛀ ${you.gold} gold</div>
+    const shard = you.shard ? ` <span class="shard-carried" title="${esc(`${SHARDS[you.shard].name}: carry it out and your Village has it for good. It falls where you die.`)}">${SHARDS[you.shard].glyph} ${esc(SHARDS[you.shard].name)}</span>` : '';
+    const html = `<div class="gold">⛀ ${you.gold} gold${shard}</div>
       <div class="slots-row gear-row">${worn('weapon')}${worn('armor')}</div>
       <div class="slots-row gear-row">${worn('amulet')}${worn('ring')}</div>
       <div class="slots-row pack-row">${slots.join('')}</div>`;

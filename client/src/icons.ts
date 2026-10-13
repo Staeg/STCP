@@ -2,7 +2,7 @@
  * The game's stat and keyword icons: little pixel-art SVGs, each with a hover explanation. `iconize` swaps the
  * words in a rules text (ability and item descriptions, event choices) for them.
  */
-import { FORGETTING_RULES, STRESS } from '@stcp/shared';
+import { FORGETTING_RULES, STRESS, TALENTS, type TalentId } from '@stcp/shared';
 
 export type IconId = 'hp' | 'stress' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
   | 'revive' | 'flee' | 'brace';
@@ -63,6 +63,12 @@ function attr(s: string) {
 }
 
 /** An icon with its explanation on hover (`tip` replaces the standard one). */
+/** A ★ per Talent (a Seasoned Character has two), hover for its name and what it does. */
+export function talentStars(talents: readonly TalentId[] | undefined): string {
+  const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return (talents ?? []).map((t) => ` <span class="talent-star" title="${attr(`${TALENTS[t].name}: ${TALENTS[t].desc}`)}">★</span>`).join('');
+}
+
 export function icon(id: IconId, tip = ICON_TIPS[id]): string {
   return `<span class="ic ic-${id}" title="${attr(tip)}">${GLYPH[id]}</span>`;
 }
