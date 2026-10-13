@@ -6,7 +6,8 @@ import { LobbyManager, parseClientMsg, send, SERVER_TICK, Stash, type ServerMsg,
  */
 export const SOLO = import.meta.env.VITE_SOLO === '1' || new URLSearchParams(location.search).has('solo');
 
-const STASH_KEY = 'stcp-stash';
+/** Where solo play keeps the Stash; the beta build (/beta, same origin) keeps its own so the two never mix. */
+const STASH_KEY = import.meta.env.VITE_STASH_KEY || 'stcp-stash';
 
 let manager: LobbyManager | null = null;
 
