@@ -3,6 +3,8 @@ import { hallOfFortune } from './screens';
 import { fmtTime } from './hud';
 import type { Net } from './net';
 
+declare const __BUILD__: string;
+
 const $ = (id: string) => document.getElementById(id)!;
 
 function esc(s: string) {
@@ -94,6 +96,7 @@ export class ResultsUi {
         ${this.net.reviewing ? '<button class="primary" data-act="lobby">Back to lobby</button>'
           : isHost ? '<button class="primary" data-act="lobby">Return to lobby</button>' : '<span class="muted">Waiting for the host…</span>'}
         <button class="quiet" data-act="map">Toggle map</button>
+        <span class="results-build muted" title="Branch @ commit this build came from">${esc(__BUILD__)}</span>
       </div>
     </div>`;
     if (html !== this.lastHtml) {

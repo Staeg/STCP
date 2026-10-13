@@ -545,6 +545,7 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .reveal-lock.flip .hover-tip { left: auto; right: calc(100% + 12px); }
 .results-card h1.escaped { color: #7cff6a; }
 .results-card h1.dead { color: var(--danger); }
+.results-build { font-size: 14px; opacity: 0.7; }
 .results-card h3 { margin: 14px 0 4px; font-weight: normal; color: var(--gold); }
 .fates { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .fates td { padding: 3px 8px; border-bottom: 1px solid #2a2018; }
