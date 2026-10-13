@@ -29,6 +29,11 @@ function callWait(you: PlayerView['you'], time: number): number {
   return you.calledAt === null ? 0 : Math.max(0, you.calledAt + CALL_RULES.cooldown - time);
 }
 
+/** Unplugged cord with a cross over it: shown in place of the ping while offline. */
+const PLUG_OFF = '<svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
+  + '<path d="M5 1v3M9 1v3"/><rect x="3" y="4" width="8" height="5" rx="1"/><path d="M7 9v3q0 2 2 2h1"/>'
+  + '<path d="M11 10l4 4M15 10l-4 4"/></svg>';
+
 export class Hud {
   private lastEscalation = 0;
   private bannerTimer = 0;
@@ -75,7 +80,13 @@ export class Hud {
   update() {
     const net = this.net;
     const netEl = $('net');
-    netEl.textContent = net.status === 'open' ? `connected · ${net.ping} ms` : net.status === 'connecting' ? 'connecting…' : 'disconnected — retrying';
+    if (net.status === 'open') {
+      netEl.textContent = `${net.ping} ms`;
+      netEl.title = 'Connected · ping';
+    } else if (!netEl.querySelector('svg')) {
+      netEl.innerHTML = PLUG_OFF;
+    }
+    if (net.status !== 'open') netEl.title = net.status === 'connecting' ? 'Connecting…' : 'Disconnected — retrying';
     netEl.classList.toggle('bad', net.status !== 'open');
 
     const view = net.cur;

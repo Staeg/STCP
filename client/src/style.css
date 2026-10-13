@@ -121,6 +121,7 @@ kbd { color: var(--muted); font-family: inherit; }
   color: var(--muted);
 }
 #net.bad { color: var(--danger); }
+#net svg { display: block; }
 
 .build-tag {
   position: fixed;
