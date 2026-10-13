@@ -63,7 +63,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   // ---- Summons (M15): cards call them for one fight; they're gone when it ends ----
   rat: { id: 'rat', name: 'Rat', tier: 0, maxHp: 3, speed: 5, dmg: 1, block: 0, undead: false, glyph: 'ʚ', eventOnly: true, ally: true,
     desc: 'Summoned for one fight (Mutter, Raise). Bite: 1 dmg to the nearest enemy.' },
-  shade: { id: 'shade', name: 'Shade', tier: 0, maxHp: 8, speed: 4, dmg: 2, block: 0, undead: true, glyph: '◐', eventOnly: true, ally: true,
+  shade: { id: 'shade', name: 'Shade', tier: 0, maxHp: 6, speed: 4, dmg: 2, block: 0, undead: true, glyph: '◐', eventOnly: true, ally: true,
     desc: 'Summoned for one fight (Mutter). Claw: 2 dmg to the nearest enemy.' },
   imp: { id: 'imp', name: 'Imp', tier: 0, maxHp: 8, speed: 3, dmg: 2, block: 0, undead: false, glyph: 'ɤ', eventOnly: true, ally: true,
     desc: 'Summoned for one fight (Bound Familiar). Bite: 2 dmg to the nearest enemy, and a Hexed stack.' },

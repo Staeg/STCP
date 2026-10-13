@@ -944,7 +944,7 @@ function resolve(ctx: CardCtx) {
     case 'quake':
       tell(`${h.name} brings the earth itself down on every foe!`, 'info');
       for (const m of enemies()) {
-        strike(ctx, m, R.thump2);
+        strike(ctx, m, R.quake);
         if (world.monsters[m.id]) {
           debuff(ctx, m, 'stun');
           tell(`${name(m)} is stunned.`, 'status', m.id);

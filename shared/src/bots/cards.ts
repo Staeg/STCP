@@ -134,7 +134,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'ashes': return n * 2;
     // Legendary
     case 'promise': return burn(25);
-    case 'quake': return n * (R.thump2 + 4);
+    case 'quake': return n * (R.quake + 4);
     case 'unmake': return burn(30);
     case 'redeem': return burn(heal(99) + relief(100, hurtest));
     case 'bastion': return 8;

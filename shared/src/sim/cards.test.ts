@@ -255,8 +255,8 @@ describe('Sorceress', () => {
     expect(cardTime(world, enc, h, 'pact')).toBe(1);
     const due = enc.next[monsters[0].id];
     play(world, h, 'ages');
-    expect(monsters[0].st.hexed).toHaveLength(2);
-    expect(enc.next[monsters[0].id]).toBeCloseTo(due + 2);
+    expect(monsters[0].st.hexed).toHaveLength(R.agesStacks);
+    expect(enc.next[monsters[0].id]).toBeCloseTo(due + R.agesStacks * R.agesDelayPer);
   });
 });
 

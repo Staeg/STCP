@@ -56,7 +56,7 @@ describe('Legendary cards', () => {
     walkIn(world, ids, room);
     play(world, world.heroes.h0, 'quake');
     for (const m of monsters) {
-      expect(m.hp).toBe(999 - CARD_RULES.thump2);
+      expect(m.hp).toBe(999 - CARD_RULES.quake);
       expect(m.st.stun).toBe(true);
     }
   });

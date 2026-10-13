@@ -121,6 +121,7 @@ Darkest Dungeon, but multiplayer. Up to 4 players each control one hero in a sha
 | Issued Gear (M15) | In a real run every Gear slot the kit leaves empty gets the class's free Common piece; it weighs a flat +0.15s Speed, adds no CR and never goes home. Its loadout tooltip shows that +0.15s (not the found piece's Speed, `issuedDesc`) and ends "Free and ephemeral." (user, 2026-10-13). The New Run loadout can leave a slot bare (`Kit.bare`): a little quicker, a Fumble in the deck. |
 | Card art (user, 2026-10-13) | **Every card has a pixel picture**, composed (user's pick): a 16×16 **motif** for its main effect and an 8×8 **mark** for its second (`CARD_ART` in `content/cards.ts`), on its first school's tint (`SCHOOLS[…].tint`). Alike effects share parts (every Shield card the shield, every Hurry the wing, summons their own sprite); only a Common and Uncommon of one kind share a whole picture. Motifs and marks are drawn in `tools/card_art.py` (fills only, outlined automatically; `python tools/card_art.py client/src/render/card-art-data.ts preview.png` also writes a contact sheet); `client/src/render/card-art.ts` composes them. **Frames** (user's pick): class cards in the class colour, solid; Gear cards in their tier colour (Common pale, Uncommon blue, Rare violet, Legendary orange; Fumble iron), double-edged, with rivets on the picture (`cardSource`). Shown on the hand (52px), the deck bar and the New Run class sheet (26px). |
 | Summons count as allies (user, 2026-10-13) | **"Every ally" cards reach the summoned and risen too** (Rat, Shade, Imp, Raised Corpses, Open the Graves, Howl's wolves): Shield (Rally, Rune Ward), Dodge (Smoke Bomb), Regen (Sanctuary, Verdant Bloom), healing (Healing Mist, Dawn), Hurry (Peal), "acts now" (Reverberate) and Blood Pact's HP cost (not with Blood Price). Stress, light and items don't apply. A risen keeps them in `Risen.st` (a Risen ally uses its hero's, `risenSt`); monsters' blows honour its evades, Dodge and Shield; Regen ticks on it; they end with the fight. Knell still counts only heroes. Same rule on `main` for its four abilities. |
+| Card balance pass (user, 2026-10-13; numbers only) | Targets (user): **no class card that feels bad to draw** (situational ones must be disproportionately strong when they apply); **Commons** kind of bad, but better than Brace; **Uncommons** just below an average class card; **Rares** clearly above. Method: each card's worth per second of its time, in damage-like points (1s of Delay on a monster ≈ 0.8, a skipped monster action ≈ 3.5, Shield ×0.7, healing ×0.9 when hurt, stress ×0.4), judged mainly **solo against 1–2 monsters**: sampled bot fights are 91% one hero, 8% two; 46% one monster, 34% two, 15% three or more; heroes at 77% HP and 33 stress, Escalation 2. An average class card is ≈2.1/s; Brace ≈0.45/s. Raised the floor: Rally, Shield Slam, Cover, Sanctuary, Flare, Hex, Wither, Spade, Raise, Ring Out, Healing Mist, Catalyst, Absolution, Take Their Sins (self), Smoke Bomb; Peal alone now costs nothing (its Hurry equals its time); Burns that were weak solo (Reverberate, Rapture, Curse of Ages) made worthy of a Burn. Trimmed Echo (2 → 3s: echoing Knell solo was ≈11/s). Commons up from Brace level (Sidestep, Brace Up, Shrug) or down to ≈1.1–1.3/s (Stab 2.5s, Thump 3); Uncommons to ≈1.9–2.0/s (Stab 5, Thump 8, Brace Up 7, Shrug 12 at 3s, Mutter 6s with a 6-HP Shade, Evil Look 4s); weak Rares to ≥3/s (Verdant Bloom 3/2s, Scale Ward 10 at 3s, Rune Ward 8 at 2s, Bulwark 14 + 3s Delay at 4s, Lie Still 14 at 2s, Veil 1s, Double Hex 1.5s, Turn the Glass 1s). Quake keeps its 9 (`CARD_RULES.quake`, was tied to Thump). Untouched: the strong class cards (Backstab, Envenom, Kindle, Knell, Penance, Blood Pact…), Legendaries, gear passives, Talents. Sim, 320 games over seeds 1/500/900: escape 42.5% → 41.1% (noise), 'reached the exit after 10:30' up on every seed (≈18% → 26%), fights ≈1s shorter. Full numbers in M15. |
 ---
 
 ## 3. Game Design Spec (v1 numbers are starting points; tune in M8)
@@ -452,27 +453,27 @@ The user's pick from the combat-redesign brainstorm: "a hand of three". It repla
 
 | Class | Cards |
 |---|---|
-| Warden | Shield Bash 5s (9, Delay 2s) · Cover 3s (+6 Shield to an ally, step to the front) · Vengeance 5s · Rally 6s (−7 stress, +3 Shield all) · Shield Slam 6s (Block + Shield damage, Delay 1s per 3) · **Hold the Gate** 6s (12s: half damage, Vengeance, attackers Delayed 2s) |
-| Cutthroat | Backstab 2.5s (6, ×2 vs Stunned/Exposed/unacted) · Cheap Shot 3s (2 + Stun) · Envenom 2s (2 + Poison 3×3) · Hand Signal 1s (Hurry an ally 3s; their next hit Exposes) · Smoke Bomb 3s (Dodge and sure flee 6s) · **Blade Dance** 1s (10s: every card 1s, Backstab always crits) |
-| Lampbearer | Flare 4s (3 to all, +10 light) · Mend 4s (heal 8, cure Poison and Bleed) · Vigil 4s (−5 stress; alone: free Flares) · Kindle 5s (spend up to 20 light: 4 + 1 per 2, Blind at 20) · Sanctuary 5s (Regen 1/2s for 10s, all) · **Dawn** 6s (light full, heal 15, −10 stress all; Blind all enemies) |
-| Sorceress | Hex 3.5s (4 + Hexed) · Wither 4s · Blood Pact 6s (−5 HP, +5 stress each; 14 to all) · Bound Familiar 5s (an Imp) · Mad Bargain 1s (+8 stress; next card 1s) · **Curse of Ages** 4s (+2 Hexed each, Delay 1s per stack) |
-| Undertaker | Spade 5.5s (9 + Rites kills) · Last Rites 5s (kill below 40%, else 8) · Raise 6s (Corpse rises 4 turns; none: a Rat) · Corpse Explosion 4s (8 to all; none: 3) · Grave Ward 1s (+3 Shield, +8 with a Corpse) · **Open the Graves** 6s (every Corpse rises for the fight; none: a Ghoul) |
-| Bellwright | Clang 6s (8, Delay 4s, +1 Clang: cards −0.5s per stack) · Knell 8s (15 to all, −5 per ally, at least 3) · Peal 5s (Hurry others 3s; alone yourself 2s) · Ring Out 6s (Delay all 2s + 1 per Clang) · Echo 2s (last card again at half power; none: 3 dmg) · **Reverberate** 7s (Stun all; allies act now) |
-| Zealot | Scourge 3.5s (7) · Absolution 5s (4 + stress above 50, split) · Take Their Sins 3s (move 17; on yourself +10) · Flagellate 1s (−4 HP, +12 stress) · Penance 2s (+8 stress, Shield = stress ÷ 3) · **Rapture** 5s (take everyone's stress; 5 + that to one enemy) |
-| Alchemist | Acid Flask 4s · Fumes 5s (Poison 3×3 all) · Healing Mist 6s (heal 5 all) · Elixir 2s · Catalyst 4s (Poison 1×2 all, then every Poison and Bleed ticks once) · **Opus Magnum** 4s (up to 4 brews; items 1s this fight) |
+| Warden | Shield Bash 5s (9, Delay 2s) · Cover 3s (+8 Shield to an ally, step to the front) · Vengeance 5s · Rally 4s (−7 stress, +5 Shield all) · Shield Slam 5s (Block + Shield damage, at least 6, Delay 1s per 3) · **Hold the Gate** 6s (12s: half damage, Vengeance, attackers Delayed 2s) |
+| Cutthroat | Backstab 2.5s (6, ×2 vs Stunned/Exposed/unacted) · Cheap Shot 3s (2 + Stun) · Envenom 2s (2 + Poison 3×3) · Hand Signal 1s (Hurry an ally 3s; their next hit Exposes) · Smoke Bomb 3s (Dodge and sure flee 8s) · **Blade Dance** 1s (10s: every card 1s, Backstab always crits) |
+| Lampbearer | Flare 4s (4 to all, +10 light) · Mend 4s (heal 8, cure Poison and Bleed) · Vigil 4s (−8 stress; alone: free Flares) · Kindle 5s (spend up to 20 light: 4 + 1 per 2, Blind at 20) · Sanctuary 5s (Regen 2/2s for 10s, all) · **Dawn** 6s (light full, heal 15, −10 stress all; Blind all enemies) |
+| Sorceress | Hex 3.5s (5 + Hexed) · Wither 3s · Blood Pact 6s (−5 HP, +5 stress each; 14 to all) · Bound Familiar 5s (an Imp) · Mad Bargain 1s (+8 stress; next card 1s) · **Curse of Ages** 4s (+3 Hexed each, Delay 1.5s per stack) |
+| Undertaker | Spade 5s (9 + Rites kills) · Last Rites 5s (kill below 40%, else 8) · Raise 5s (Corpse rises 4 turns; none: a Rat) · Corpse Explosion 4s (8 to all; none: 3) · Grave Ward 1s (+3 Shield, +8 with a Corpse) · **Open the Graves** 6s (every Corpse rises for the fight; none: a Ghoul) |
+| Bellwright | Clang 6s (8, Delay 4s, +1 Clang: cards −0.5s per stack) · Knell 8s (15 to all, −5 per ally, at least 3) · Peal 4s (Hurry others 4s; alone yourself 4s, so it costs nothing) · Ring Out 4s (Delay all 4s + 1 per Clang) · Echo 3s (last card again at half power; none: 3 dmg) · **Reverberate** 3s (Stun all; allies act now) |
+| Zealot | Scourge 3.5s (7) · Absolution 5s (6 + stress above 50, split) · Take Their Sins 3s (move 17; on yourself +15) · Flagellate 1s (−4 HP, +12 stress) · Penance 2s (+8 stress, Shield = stress ÷ 3) · **Rapture** 5s (take everyone's stress; 15 + that to one enemy) |
+| Alchemist | Acid Flask 4s · Fumes 5s (Poison 3×3 all) · Healing Mist 5s (heal 9 all) · Elixir 2s · Catalyst 4s (Poison 2×2 all, then every Poison and Bleed ticks once) · **Opus Magnum** 4s (up to 4 brews; items 1s this fight) |
 
 **Gear cards.** Type cards, Common / Uncommon:
 
 | Kind | Common | Uncommon |
 |---|---|---|
-| Dagger | Stab 2s: 3 | Stab 2.5s: 6 |
-| Hammer | Thump 5s: 4, Delay 1s | Thump 5s: 9, Delay 2s |
+| Dagger | Stab 2.5s: 3 | Stab 2.5s: 5 |
+| Hammer | Thump 5s: 3, Delay 1s | Thump 5s: 8, Delay 2s |
 | Staff | Soothe 4s: heal 3 | Soothe 4s: heal 8 |
-| Leather | Sidestep 2s: 25% dodge till your next turn | Sidestep 2s: 50% dodge 6s |
-| Mail | Brace Up 4s: +2 Shield | Brace Up 3s: +6 Shield |
-| Cloth | Shrug 3s: −2 stress | Shrug 4s: an ally −5 stress |
-| Amulet | Mutter 5s: a Rat | Mutter 5s: a Shade |
-| Ring | Evil Look 2s: Exposed +25% | Evil Look 3.5s: 4 + Exposed +50% |
+| Leather | Sidestep 2s: 50% dodge till your next turn | Sidestep 2s: 50% dodge 6s |
+| Mail | Brace Up 3s: +4 Shield | Brace Up 3s: +7 Shield |
+| Cloth | Shrug 2s: −4 stress | Shrug 3s: an ally −12 stress |
+| Amulet | Mutter 5s: a Rat | Mutter 6s: a Shade (6 HP) |
+| Ring | Evil Look 2s: Exposed +25% | Evil Look 4s: 4 + Exposed +50% |
 
 Rares: Mercy Stroke (Misericorde), Whisper Cut (Whisperblade, Bleed), Shatter (Bonebreaker), Earthblow (Giant's Maul, Slow), Double Hex (Twinned), Verdant Bloom (Evergreen), Turn the Glass (Hourglass), Scale Ward (Drakehide), Fade (Shadowskin), Rune Ward (Warded Mail), Bulwark (Bulwark Plate), Lie Still (Gravecloth), Slip Away (Softstep), Blink (Blinkcloth), Veil (Gossamer), Lucky Break (Hare's Foot), Fever Dream (Fever Charm), Blood Rush (Quickblood), Ashes (Ashen Band). Legendaries' cards keep their old names (combat only now): Promise, Unmake, Redeem and Forgive burn; Quake, Bastion, Howl and Waystep reshuffle.
 
@@ -519,6 +520,9 @@ Deploying to a public host, more classes and enemies, multiple floors, controlle
 ## 7. Progress Log
 
 _(Newest first. Each entry: date · milestone · what changed · what's next · known bugs.)_
+
+- 2026-10-13 · **Card balance pass (user request; numbers only).** See the new Decisions row "Card balance pass" and the M15 tables. Class cards that were dead solo or slow are up, Commons sit between Brace and a class card, Uncommons just under one, weak Rares well over. Echo trimmed; Quake gets its own number. Also fixed the Shepherd's Crook and Censer Staff text (said +50%, have been ×2 since 2026-10-11; now read from `STAFF`). 382 tests (2 updated to read the numbers from `CARD_RULES`). Sim: no change in escapes beyond noise; more late arrivals at the exit.
+  - Next: the user's playtest. Design issues I couldn't fix with numbers: **Fever Dream** (Fever Charm) only helps a deck with Conjure cards (Undertaker, Sorceress, a Mutter), so for the other six classes it's a 1s card that does almost nothing; **Slip Away** and **Lucky Break** are situational with no upside outside their case; **Vigil** with an ally in the fight is only −8 stress. No known bugs.
 
 - 2026-10-13 · **Card art (user request).** See the new Decisions row: 34 motifs and 20 marks, 92 card pictures, class/Gear frames, and a "Class card"/"Gear card" note in each card's text. 382 tests (2 new in `cards.test.ts`: every picture's parts exist and only tier pairs share one; frame sources). Checked in the browser (`cards` launch config, port 5251): the class sheet's pictures, the deck bar out of a fight, a hand of three in a debug fight (Warden blue frames, a Common Mutter's pale double frame), phone width. Also checked the Issued tooltips there.
   - Next: Legendary/Rare cards only seen in the contact sheet, not in a hand. No known bugs.
