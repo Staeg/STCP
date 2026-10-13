@@ -88,6 +88,42 @@ describe('encounters', () => {
     expect(combatOrder(world, enc).heroes.map((h) => h.id)).toEqual(['h2', 'h1', 'h0']);
   });
 
+  it('A and D step a hero to the very back or front of the heroes, whatever their Speed', () => {
+    const { world, room, monsters } = arena(['warden', 'cutthroat', 'undertaker'], ['giant']);
+    monsters[0].hp = 999;
+    walkIn(world, ['h0'], room);
+    walkIn(world, ['h1'], room);
+    walkIn(world, ['h2'], room);
+    const enc = world.encounters[room];
+    const order = () => combatOrder(world, enc).heroes.map((h) => h.id);
+    expect(order()).toEqual(['h2', 'h1', 'h0']);
+    applyIntent(world, 'h2', { type: 'stepTo', to: 'front' });
+    expect(order()).toEqual(['h1', 'h0', 'h2']);
+    applyIntent(world, 'h0', { type: 'stepTo', to: 'back' });
+    expect(order()).toEqual(['h0', 'h1', 'h2']);
+    // Already there: nothing happens, not even a line in the log.
+    const seq = enc.seq;
+    applyIntent(world, 'h0', { type: 'stepTo', to: 'back' });
+    applyIntent(world, 'h2', { type: 'stepTo', to: 'front' });
+    expect(enc.seq).toBe(seq);
+    // Each newcomer to the front stands ahead of the last.
+    applyIntent(world, 'h1', { type: 'stepTo', to: 'front' });
+    expect(order()).toEqual(['h0', 'h2', 'h1']);
+    expect(enc.log.at(-1)).toBe(`${world.heroes.h1.name} steps to the front.`);
+  });
+
+  it('a hero alone in a fight has nowhere to step', () => {
+    const { world, room, monsters } = arena(['warden'], ['giant']);
+    monsters[0].hp = 999;
+    walkIn(world, ['h0'], room);
+    const enc = world.encounters[room];
+    const seq = enc.seq;
+    applyIntent(world, 'h0', { type: 'stepTo', to: 'front' });
+    applyIntent(world, 'h0', { type: 'stepTo', to: 'back' });
+    expect(enc.seq).toBe(seq);
+    expect(enc.front).toBeUndefined();
+  });
+
   it("an undecided hero's single-target attack goes to the frontmost monster", () => {
     const { world, ids, room } = arena(['cutthroat'], ['crawler', 'ghoul', 'giant']);
     walkIn(world, ids, room);

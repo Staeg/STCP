@@ -16,7 +16,7 @@ import { hallucinate, perceive, relearnPaths, seeTruly, tickForgetting } from '.
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
+  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, stepToEnd, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldCooldowns,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
@@ -312,6 +312,8 @@ export type Intent =
   | { type: 'turnBack' }
   | { type: 'stop' }
   | { type: 'combat'; choice: Choice }
+  /** In a fight: step to the very front (D) or the very back (A) of the heroes' side. Free, any time. */
+  | { type: 'stepTo'; to: 'front' | 'back' }
   /** Out of combat: spend a few seconds getting a downed ally in your room back up. */
   | { type: 'revive'; target: string }
   /** Loot vote on one floor item (by its id): a hero id, or 'leave'. */
@@ -713,6 +715,10 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
   }
   if (intent.type === 'combat') {
     submitChoice(world, hero, intent.choice);
+    return;
+  }
+  if (intent.type === 'stepTo') {
+    stepToEnd(world, hero, intent.to);
     return;
   }
   if (hero.encounter !== null) return; // movement is locked during a fight

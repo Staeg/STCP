@@ -662,6 +662,8 @@ export class CombatUi {
     const map: Record<string, CombatAction> = { Digit1: 'a0', Digit2: 'a1', Digit3: 'a2', KeyR: 'revive', KeyF: 'flee', KeyB: 'brace' };
     const slot = ['Digit4', 'Digit5', 'Digit6', 'Digit7'].slice(0, HOTKEY_ITEMS).indexOf(e.code);
     if (e.code === 'Escape') this.targeting = null;
+    // A / D: step to the very back / front of the heroes' side (the server ignores it if you're already there).
+    else if (e.code === 'KeyA' || e.code === 'KeyD') this.net.intent({ type: 'stepTo', to: e.code === 'KeyD' ? 'front' : 'back' });
     else if (slot >= 0 && this.canUse('item', slot)) this.pick('item', slot);
     else if (map[e.code] && this.canUse(map[e.code])) this.pick(map[e.code]);
   }

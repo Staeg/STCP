@@ -175,8 +175,13 @@ export interface Encounter {
   risen?: Risen | null;
   /** Unholy Uprising: the Risen that follow an Undertaker everywhere, fighting here (fallen ones stay until it ends). */
   legion?: Risen[];
-  /** Heroes who walked in after it began, in join order: they stand at the back, whatever their Speed (user, 2026-10-12). */
-  late?: string[];
+  /**
+   * Heroes standing at the back, whatever their Speed: those who walked in after it began (user, 2026-10-12) and those
+   * who stepped back (A). Oldest first; each newcomer stands behind the last.
+   */
+  back?: string[];
+  /** Heroes who stepped to the front (D), whatever their Speed. Oldest first; each newcomer stands ahead of the last. */
+  front?: string[];
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
   /** Dead King's Charges so far: every monster in the fight is this many × KING_RULES.chargeHaste faster until it ends. */
@@ -409,7 +414,7 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     for (const id of enc.heroes) onEnlist(world, enc, world.heroes[id]);
   } else {
     // Arriving in the same moment it began isn't late.
-    if (!enc.heroes.includes(hero.id) && world.time > enc.startedAt) (enc.late ??= []).push(hero.id);
+    if (!enc.heroes.includes(hero.id) && world.time > enc.startedAt) (enc.back ??= []).push(hero.id);
     enlist(enc, hero);
     say(world, enc, `${hero.name} joins the fight.`);
     if (enc.chron !== undefined) world.chronicle[enc.chron].text = fightSummary(world, enc);
@@ -496,7 +501,7 @@ function enlist(enc: Encounter, h: Hero) {
 export function leaveEncounter(world: World, enc: Encounter, h: Hero) {
   keepRisen(enc, h);
   enc.heroes = enc.heroes.filter((id) => id !== h.id);
-  if (enc.late) enc.late = enc.late.filter((id) => id !== h.id);
+  unplace(enc, h.id);
   delete enc.choices[h.id];
   delete enc.next[h.id];
   resetAfterFight(h);
@@ -618,16 +623,41 @@ function startTimers(world: World, enc: Encounter) {
  * facing each other in the middle: the slowest of each side stands nearest the enemy.
  * Heroes go fastest → slowest, monsters slowest → fastest (ties: join order). The risen stand
  * nearest of all on the heroes' side (see `risenOf`). This is also who goes first when turns tie.
- * Heroes who joined after it began stand at the back (leftmost), whatever their Speed: each newcomer behind the last.
+ * Heroes who joined after it began, or stepped back (A), stand at the back (leftmost), whatever their Speed: each
+ * newcomer behind the last. Those who stepped to the front (D) stand nearest the enemy: each newcomer ahead of the last.
  */
 export function combatOrder(world: World, enc: Encounter): { heroes: Hero[]; monsters: Monster[] } {
-  const late = enc.late ?? [];
-  const heroes = enc.heroes.filter((id) => !late.includes(id)).map((id, i) => ({ h: world.heroes[id], s: speedOf(world.heroes[id], world.time), i }));
+  const back = enc.back ?? [];
+  const front = enc.front ?? [];
+  const heroes = enc.heroes.filter((id) => !back.includes(id) && !front.includes(id)).map((id, i) => ({ h: world.heroes[id], s: speedOf(world.heroes[id], world.time), i }));
   const monsters = monstersIn(world, enc.room).map((m, i) => ({ m, s: monsterSpeed(enc, m), i }));
   return {
-    heroes: [...[...late].reverse().map((id) => world.heroes[id]), ...heroes.sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.h)],
+    heroes: [
+      ...[...back].reverse().map((id) => world.heroes[id]),
+      ...heroes.sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.h),
+      ...front.map((id) => world.heroes[id]),
+    ],
     monsters: monsters.sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.m),
   };
+}
+
+function unplace(enc: Encounter, id: string) {
+  if (enc.back) enc.back = enc.back.filter((x) => x !== id);
+  if (enc.front) enc.front = enc.front.filter((x) => x !== id);
+}
+
+/**
+ * Step to the very front of the heroes' side (D: nearest the enemy) or the very back (A), there and then, without
+ * spending your turn. Nothing happens if you're already there or the only hero in the fight.
+ */
+export function stepToEnd(world: World, h: Hero, to: 'front' | 'back') {
+  const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+  if (!enc || !enc.heroes.includes(h.id) || !isConscious(h)) return;
+  const order = combatOrder(world, enc).heroes;
+  if (order.length < 2 || (to === 'front' ? order.at(-1) : order[0]) === h) return;
+  unplace(enc, h.id);
+  (to === 'front' ? (enc.front ??= []) : (enc.back ??= [])).push(h.id);
+  record(world, enc, [{ actor: h.id, kind: 'status', text: `${h.name} steps to the ${to}.` }]);
 }
 
 /** The risen ally in this fight, if it's still standing. */

@@ -235,6 +235,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
         return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };
       }
+      if (i.type === 'stepTo' && (i.to === 'front' || i.to === 'back')) return { t: 'intent', intent: { type: 'stepTo', to: i.to } };
       if (i.type === 'combat' && i.choice && typeof i.choice === 'object') {
         const c = i.choice as Record<string, unknown>;
         if (!COMBAT_ACTIONS.includes(c.action as CombatAction)) return null;
