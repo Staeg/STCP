@@ -58,6 +58,15 @@
         "set GAME_PORT=3041&& set CLIENT_PORT=5241&& set STASH_PATH=data/stash-alt4.json&& npm run dev"
       ],
       "port": 5241
+    },
+    {
+      "name": "cards",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "cd /d C:/Users/staeg/stcp-cards&& set GAME_PORT=3051&& set CLIENT_PORT=5251&& set STASH_PATH=data/stash-cards.json&& npm run dev"
+      ],
+      "port": 5251
     }
   ]
 }
