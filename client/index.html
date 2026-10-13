@@ -30,7 +30,8 @@
     </div>
     <div id="actions">
       <div id="autopilot" hidden>AUTOPILOT · a bot is walking for you <kbd>O</kbd> to take back</div>
-      <button id="btn-turn" hidden>⟲ Go back <kbd>Space</kbd></button>
+      <button id="btn-turn" hidden>⟲ Go back <kbd>X</kbd></button>
+      <button id="btn-pause" hidden></button>
       <button id="btn-revive" hidden></button>
       <button id="btn-ready"></button>
       <button id="btn-call" hidden></button>
@@ -43,7 +44,8 @@
       <div><b>Click a room</b>: walk there</div>
       <div><b>WASD</b>: move one room</div>
       <div><b>A / D</b> (in a fight): step to the very back / front of the heroes</div>
-      <div><b>Space</b>: call off a walk (straight back where you set out)</div>
+      <div><b>X</b>: call off a walk (straight back where you set out)</div>
+      <div><b>Space</b>: pause (only when you play with three bots)</div>
       <div><b>Esc</b>: stop walking</div>
       <div><b>C</b>: call for help (every 60s, even while down)</div>
       <div><b>1, 2, 3</b>: your abilities, in a fight or out (out of one, an event or vote on screen takes the numbers first)</div>
@@ -57,6 +59,7 @@
     </div></div>
     <div id="net"></div>
     <div id="banner" hidden></div>
+    <div id="paused" hidden>PAUSED<span class="paused-sub">Hover anything to look around · <kbd>Space</kbd> to carry on</span></div>
     <div id="combat" hidden></div>
     <div id="results" hidden></div>
     <div id="loot" hidden></div>

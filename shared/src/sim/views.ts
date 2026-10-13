@@ -18,7 +18,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
-import { headingOf, knowsCorridor, soloOut, type Hero, type Sighting, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
+import { canPause, headingOf, knowsCorridor, soloOut, type Hero, type Sighting, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
 export type RoomKnowledge = 'explored' | 'seen' | 'unknown';
@@ -248,6 +248,10 @@ export interface PlayerView {
   packs: PackView[];
   /** You're out (escaped or dead) and only bots are left inside: Reveal map and Kill the bots are on offer. */
   soloOut: boolean;
+  /** Time stands still (Space). */
+  paused: boolean;
+  /** You're the only player, with three bots: Space pauses. */
+  canPause: boolean;
   /** Only once the expedition is over: the whole truth. */
   results: ResultsView | null;
   /** Bells heard in the last few seconds: where, who, and how long ago. */
@@ -365,6 +369,8 @@ export function buildView(world: World, heroId: string): PlayerView {
     mapRevealed: over,
     packs: watching ? movingPacks(world) : [],
     soloOut: world.phase === 'running' && soloOut(world, you),
+    paused: world.paused,
+    canPause: canPause(world, you),
     exitRoom: d.exit,
     event: eventView(world, you),
     leading: you.leading.map((id) => ({ hp: world.villagers[id].hp, maxHp: world.villagers[id].maxHp })),

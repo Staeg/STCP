@@ -370,9 +370,11 @@ export class LobbyManager {
         lobby.bots = [];
         for (const m of lobby.members) m.ready = false;
         break;
-      case 'intent':
-        lobby.game?.intent(member.id, msg.intent);
+      case 'intent': {
+        const refused = lobby.game?.intent(member.id, msg.intent);
+        if (refused) err(refused);
         return;
+      }
       case 'debugSpawn': {
         if (!this.opts.debug) return err('Debug commands are disabled.');
         const w = lobby.game?.world;

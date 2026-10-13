@@ -247,6 +247,8 @@ export interface World {
   dungeon: Dungeon;
   heroes: Record<string, Hero>;
   phase: WorldPhase;
+  /** Space, with nobody but bots for company (`canPause`): time stands still and only looking around works. */
+  paused: boolean;
   /** Physical chalk marks: room → heroId → every corridor they've left it by. */
   chalk: Record<number, Record<string, number[]>>;
   monsters: Record<string, Monster>;
@@ -336,6 +338,8 @@ export type Intent =
   | { type: 'call' }
   /** Hand your hero to a bot, or take them back (O). Handled by Game; the world ignores it. */
   | { type: 'autopilot' }
+  /** Stop time, or start it again (Space), in a run with three bots (`canPause`). Handled by Game; the world ignores it. */
+  | { type: 'pause' }
   /** Pick an option of the event in your room. */
   | { type: 'event'; choice: string }
   /** Out of a bots-only run (escaped or dead): lift the fog. */
@@ -373,7 +377,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
   // A run that starts at a higher Escalation starts with the clock that far along: the exit and collapse come as usual.
   const start = Math.max(0, Math.min(MAX_ESCALATION, opts.startEscalation ?? 0)) * ESCALATION_INTERVAL;
   const world: World = {
-    seed, time: start, startTime: start, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', chalk: {},
+    seed, time: start, startTime: start, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', paused: false, chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), mindRng: new Rng(seed ^ 0x1b873593), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
     stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, insanity: 0, forgotten: 0, heartAttacks: 0, eventsUsed: 0 },
@@ -545,7 +549,7 @@ function seerReveal(world: World, h: Hero, sight: Sight) {
 }
 
 export function step(world: World, dt: number): void {
-  if (world.phase !== 'running') return;
+  if (world.phase !== 'running' || world.paused) return;
   world.time += dt;
   const drain = LIGHT_DRAIN * (world.escalation >= 4 ? ESCALATION.lateLightDrain : 1);
   for (const hero of Object.values(world.heroes)) {
@@ -680,6 +684,12 @@ export function extractHero(world: World, h: Hero) {
 export function soloOut(world: World, h: Hero): boolean {
   const others = Object.values(world.heroes).filter((o) => o !== h);
   return !inDungeon(h) && others.length === 3 && others.every((o) => o.isBot);
+}
+
+/** Only a lone player with three bots may stop time: nobody else is kept waiting. */
+export function canPause(world: World, h: Hero): boolean {
+  const others = Object.values(world.heroes).filter((o) => o !== h);
+  return world.phase === 'running' && !h.isBot && others.length === 3 && others.every((o) => o.isBot);
 }
 
 export function applyIntent(world: World, heroId: string, intent: Intent): void {

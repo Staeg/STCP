@@ -154,3 +154,31 @@ describe('sightings and chalk', () => {
     ]);
   });
 });
+
+describe('pause (Space)', () => {
+  const withBots = (humans: number) => fourBots().map((s, i) => ({ ...s, isBot: i >= humans }));
+
+  it('a lone player with three bots stops time: nothing moves, and only looking around works', () => {
+    const game = new Game(7, withBots(1));
+    for (let i = 0; i < 50; i++) game.tick(0.1);
+    expect(buildView(game.world, 'a').canPause).toBe(true);
+    game.intent('a', { type: 'pause' });
+    expect(buildView(game.world, 'a').paused).toBe(true);
+    const before = JSON.stringify([game.world.time, Object.values(game.world.heroes).map((h) => [h.pos, h.path, h.turnAt])]);
+    for (let i = 0; i < 300; i++) game.tick(0.1);
+    expect(JSON.stringify([game.world.time, Object.values(game.world.heroes).map((h) => [h.pos, h.path, h.turnAt])])).toBe(before);
+    expect(game.intent('a', { type: 'ready' })).toMatch(/Paused/);
+    expect(game.world.heroes.a.ready).toBe(false);
+    game.intent('a', { type: 'pause' });
+    game.tick(0.1);
+    expect(game.world.time).toBeGreaterThan(5);
+    expect(game.world.paused).toBe(false);
+  });
+
+  it('is not on offer with another player in the run', () => {
+    const game = new Game(7, withBots(2));
+    expect(buildView(game.world, 'a').canPause).toBe(false);
+    game.intent('a', { type: 'pause' });
+    expect(game.world.paused).toBe(false);
+  });
+});

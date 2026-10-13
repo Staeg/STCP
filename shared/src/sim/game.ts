@@ -5,7 +5,7 @@ import { heroCr, KIT_RULES, rollCr, type Loadout } from '../village';
 import { Rng } from '../rng';
 import { buildView } from './views';
 import { isConscious } from './combat';
-import { addHero, applyIntent, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
+import { addHero, applyIntent, canPause, createWorld, step, type Hero, type Intent, type World, type WorldOptions } from './world';
 import { rouseTheKing } from './events';
 import { callReadyIn } from './call';
 
@@ -79,13 +79,24 @@ export class Game {
     if (choice) applyIntent(w, id, { type: 'combat', choice });
   }
 
-  intent(heroId: string, intent: Intent) {
+  /** Returns why the intent was refused, if it was. */
+  intent(heroId: string, intent: Intent): string | void {
+    const w = this.world;
+    const hero = w.heroes[heroId];
+    if (intent.type === 'pause') {
+      if (hero && canPause(w, hero)) w.paused = !w.paused;
+      return;
+    }
+    // Paused, you can only look around (user, 2026-10-13).
+    if (w.paused) return 'Paused. Press Space to carry on.';
     if (intent.type === 'autopilot') return this.toggleAutopilot(heroId);
-    applyIntent(this.world, heroId, intent);
+    applyIntent(w, heroId, intent);
   }
 
   tick(dt: number) {
     const w = this.world;
+    // A lone player with three bots stopped time: nothing thinks, moves or counts down.
+    if (w.paused) return;
     for (const [id, mem] of this.bots) {
       const hero = w.heroes[id];
       if (hero.dead || hero.extracted) continue;

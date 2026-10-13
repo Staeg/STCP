@@ -42,6 +42,7 @@ export class Hud {
   constructor(private net: Net) {
     for (const el of document.querySelectorAll<HTMLElement>('[data-icon]')) el.outerHTML = icon(el.dataset.icon as IconId);
     $('btn-turn').addEventListener('click', () => net.intent({ type: 'turnBack' }));
+    $('btn-pause').addEventListener('click', () => net.intent({ type: 'pause' }));
     $('btn-escape').addEventListener('click', () => net.intent({ type: 'extract' }));
     $('btn-ready').addEventListener('click', () => net.intent({ type: 'ready' }));
     $('btn-call').addEventListener('click', () => net.intent({ type: 'call' }));
@@ -55,6 +56,12 @@ export class Hud {
     });
     addEventListener('keydown', (e) => {
       if (!net.cur || (e.target as HTMLElement).tagName === 'INPUT') return;
+      // Space pauses, alone with three bots, in a fight or out (and never presses a focused button).
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (!e.repeat && (net.cur.canPause || net.cur.paused)) net.intent({ type: 'pause' });
+        return;
+      }
       // E (ready to leave), O (autopilot) and C (call for help) work in a fight too, and C even while down.
       if (e.code === 'KeyE' && !e.repeat) net.intent({ type: 'ready' });
       if (e.code === 'KeyC' && !e.repeat) net.intent({ type: 'call' });
@@ -68,8 +75,7 @@ export class Hud {
         const room = roomInDir(net.cur, dir);
         if (room !== null) net.intent({ type: 'goto', room, step: true });
       }
-      if (e.code === 'Space') {
-        e.preventDefault();
+      if (e.code === 'KeyX') {
         net.intent({ type: 'turnBack' });
       } else if (e.code === 'Escape') {
         net.intent({ type: 'stop' });
@@ -92,7 +98,7 @@ export class Hud {
     const view = net.cur;
     if (!view) return;
     // Smooth the clock between 10 Hz snapshots.
-    const time = view.phase === 'running' ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
+    const time = view.phase === 'running' && !view.paused ? view.time + Math.min(0.1, (performance.now() - net.curAt) / 1000) : view.time;
 
     $('clock').textContent = fmtTime(time);
     setHtml($('escalation'), escalationHtml(view.escalation) + ` <span class="cr-tag" title="${rosterTitle(view)}">· CR ${view.cr}</span>`);
@@ -128,6 +134,10 @@ export class Hud {
       escort.textContent = `☺ Escorting ${who} (${led.map((v) => `${v.hp}/${v.maxHp}`).join(', ')}) → rendezvous · Speed ${slow < 0 ? '−' : '+'}${fmtSpeed(Math.abs(slow))}`;
     }
     $('autopilot').hidden = !you.autopilot;
+    const pause = $('btn-pause');
+    pause.hidden = !view.canPause;
+    setHtml(pause, view.paused ? '▶ Carry on <kbd>Space</kbd>' : '⏸ Pause <kbd>Space</kbd>');
+    $('paused').hidden = !view.paused;
     const { altars, villagers } = view.objectives;
     const bonus = altars * EVENT_SEEDING.altarBonus + villagers * EVENT_SEEDING.villagerBonus;
     const em = view.emergency;
