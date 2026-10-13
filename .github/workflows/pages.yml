@@ -52,6 +52,7 @@ jobs:
         env:
           VITE_SOLO: '1'
           VITE_STASH_KEY: stcp-stash-beta
+          GITHUB_REF_NAME: cards # the build tag names the branch it came from (the run itself is on main)
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - if: steps.beta.outputs.exists == 'true'
         run: rm -rf client/dist/beta && cp -r beta-src/client/dist client/dist/beta
