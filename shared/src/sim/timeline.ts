@@ -1,5 +1,9 @@
 import { Rng } from '../rng';
-import { isConscious, monstersIn, nextUp, resolveChoice, risenSt, startTimers, takeTurn, unitId, type Choice, type Encounter } from './combat';
+import type { ClassId } from '../content/classes';
+import { ENEMIES, type EnemyId } from '../content/enemies';
+import {
+  isConscious, monstersIn, nextUp, resolveChoice, risenAll, risenName, risenSt, startTimers, takeTurn, unitId, type Choice, type Encounter,
+} from './combat';
 import type { World } from './world';
 
 /** How many upcoming turns the fight's timeline shows (user, 2026-10-14: a fixed count, so the strip keeps its size). */
@@ -20,6 +24,16 @@ export interface TimelineTurn {
   stunned?: boolean;
   /** Only happens with some of the dice (a dodge, a stun, a flee): the two extremes disagree on who's still standing. */
   maybe?: boolean;
+  /** Someone not in the fight yet (summoned, raised, back on its feet on the way): enough to draw them. */
+  unit?: TimelineUnit;
+}
+
+export interface TimelineUnit {
+  side: 'monster' | 'risen';
+  name: string;
+  enemy?: EnemyId;
+  /** A Risen ally: its hero's class. */
+  cls?: ClassId;
 }
 
 /** Dice that always roll the same: every roll at its lowest (every chance comes off) or its highest (none does). */
@@ -36,6 +50,8 @@ function playOut(world: World, room: number, roll: number, count: number): Timel
   // Only this fight plays on.
   for (const k of Object.keys(sim.encounters)) if (Number(k) !== room) delete sim.encounters[Number(k)];
   const enc: Encounter = sim.encounters[room];
+  const real = world.encounters[room];
+  const there = new Set([...real.heroes, ...monstersIn(world, room).map((m) => m.id), ...risenAll(real).map((r) => r.id)]);
   const out: TimelineTurn[] = [];
   for (let guard = 0; guard < count * 4 && out.length < count; guard++) {
     if (sim.encounters[room] !== enc || monstersIn(sim, room).length === 0 || !enc.heroes.some((id) => isConscious(sim.heroes[id]))) break;
@@ -48,6 +64,10 @@ function playOut(world: World, room: number, roll: number, count: number): Timel
     const st = unit.kind === 'hero' ? unit.h.st : unit.kind === 'monster' ? unit.m.st : risenSt(sim, unit.r);
     const turn: TimelineTurn = { id, n: enc.turns?.[id] ?? 0, at };
     if (st.stun) turn.stunned = true;
+    if (!there.has(id) && unit.kind !== 'hero') {
+      turn.unit = unit.kind === 'monster' ? { side: 'monster', name: ENEMIES[unit.m.type].name, enemy: unit.m.type }
+        : { side: 'risen', name: risenName(sim, unit.r), ...(unit.r.type ? { enemy: unit.r.type } : {}), ...(unit.r.hero ? { cls: sim.heroes[unit.r.hero].cls } : {}) };
+    }
     if (unit.kind === 'hero') {
       const { choice, auto } = resolveChoice(sim, enc, unit.h);
       turn.choice = choice;

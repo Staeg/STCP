@@ -102,7 +102,8 @@ export class TimelineStrip {
     }
     enc.timeline.forEach((t, i) => {
       const k = keys[i];
-      const u = units.get(t.id);
+      // Someone the forecast brings in (a summon, the raised dead) isn't on the stage yet: drawn from what it says.
+      const u = units.get(t.id) ?? (t.unit ? { id: t.id, kind: t.unit.side, name: t.unit.name, enemy: t.unit.enemy, cls: t.unit.cls, hp: 1, maxHp: 1, st: {}, speed: 0, nextIn: null } as CombatUnitView : undefined);
       let m = this.markers.get(k);
       if (m?.leaving) {
         m.el.remove();

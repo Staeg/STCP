@@ -18,7 +18,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
-import { fightTimeline } from './timeline';
+import { fightTimeline, type TimelineUnit } from './timeline';
 import { canPause, headingOf, knowsCorridor, soloOut, type Hero, type Sighting, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
@@ -232,6 +232,8 @@ export interface TimelineTurnView {
   stunned?: boolean;
   /** Only with some of the dice. */
   maybe?: boolean;
+  /** Someone not in the fight yet (summoned, raised): how to draw them. */
+  unit?: TimelineUnit;
 }
 
 export interface ChalkView {
@@ -586,7 +588,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
           choice: t.choice, label: choiceLabel(h, t.choice), ...(t.choice.target ? { target: t.choice.target } : {}),
           ...(t.choice.action === 'item' && h.items[t.choice.item ?? -1] ? { item: h.items[t.choice.item!] } : {}),
         } : {}),
-        ...(t.auto ? { auto: true } : {}), ...(t.stunned ? { stunned: true } : {}), ...(t.maybe ? { maybe: true } : {}),
+        ...(t.auto ? { auto: true } : {}), ...(t.stunned ? { stunned: true } : {}), ...(t.maybe ? { maybe: true } : {}), ...(t.unit ? { unit: t.unit } : {}),
       };
     }),
   };
