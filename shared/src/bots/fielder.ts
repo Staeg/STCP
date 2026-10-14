@@ -1,4 +1,4 @@
-import { FIELD_RULES as F } from '../content/innates';
+import { CLASS_RULES, FIELD_RULES as F } from '../content/innates';
 import { packFree } from '../content/items';
 import { fieldSkillsOf, type FieldSkill } from '../sim/skills';
 import type { PlayerView } from '../sim/views';
@@ -19,6 +19,7 @@ export function botFieldSkill(view: PlayerView): Intent | null {
   const use = (skill: FieldSkill): Intent => ({ type: 'skill', skill });
   if (ready('formup') && (you.st.shield ?? 0) < F.formUpCap - F.formUpShield) return use('formup');
   if (ready('siphon') && you.light >= 60) return use('siphon');
+  if (ready('unearth') && you.legion.filter((r) => r.decay !== undefined).length < CLASS_RULES.followingMax) return use('unearth');
   if (ready('rekindle') && (you.light < 60 || mates.some((a) => (a.light ?? 100) < 60))) return use('rekindle');
   if (ready('ringin') && threatNext) return use('ringin');
   if (ready('flagellate') && you.hp > you.maxHp * 0.6 && you.light > 50 && (threatNext || mates.some((a) => (a.light ?? 100) < 60))) return use('flagellate');

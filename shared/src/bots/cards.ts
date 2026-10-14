@@ -77,9 +77,12 @@ export function cardValue(f: BotFight, card: CardId): number {
     // Undertaker
     case 'spade': return R.spade + view.you.spadeBonus;
     case 'rites': return enemies.some((m) => m.hp < m.maxHp * R.ritesBelow && m.enemy !== 'king') ? 18 : R.rites;
-    case 'raise': return corpses ? 10 : 3;
+    case 'raise': return corpses ? 14 : 5;
     case 'explode': return (corpses ? R.explode : R.explodeBare) * n;
-    case 'graveward': return (corpses ? R.graveWardCorpse : R.graveWard) * SHIELD_VALUE;
+    case 'embalm': {
+      const dead = (enc.legion ?? []).filter((u) => u.decay !== undefined);
+      return dead.length ? dead.reduce((s, u) => s + Math.min(R.embalmHeal, u.maxHp - u.hp) + (u.decay ? 3 : 0), 0) : R.embalmBare * SHIELD_VALUE;
+    }
     case 'graves': return burn(corpses * 10 + 6);
     // Bellwright
     case 'clang': return R.clang + R.clangDelay * TEMPO_VALUE;

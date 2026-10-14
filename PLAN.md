@@ -556,7 +556,8 @@ Sneak, my calls: it can be flipped in a tunnel too (a walk already under way kee
 - [x] Cutthroat: Sneak, Ambush, Sneak Past, the Sneaking cards.
 Anima, my calls: a card that kills before laying its Hexed (a lethal Hex) gives only the stacks already there. Curse of Ages spends all her Anima (its clause), the rest spend one. A Risen Sorceress or one at another fight gets nothing; only Sorceresses in the fight where it dies. Bots Siphon when their light is 60 or more. Bots now answer a Call for Help before using a field ability.
 - [x] Sorceress: Anima.
-- [ ] Undertaker: permanent undead, decay, Unearth, Embalm.
+Undertaker, my calls: Unearth's Ghoul is at Escalation 0 strength (the "mediocre" one). Cards the Undertaker plays that summon (Raise, Open the Graves, a Gear card's Rat or Shade) all join the following. A fight counts for decay whenever he leaves it with them, fleeing included. Corpse Explosion bursting a follower kills it. Bots Unearth while they have fewer than 4. The Uprising's dead and Risen allies (fallen heroes) neither decay nor count toward the 4.
+- [x] Undertaker: permanent undead, decay, Unearth, Embalm.
 - [ ] Bellwright: Clang as a resource, Ring In.
 - [ ] Lampbearer, Zealot, Alchemist (Long Reach, Brew, Contagion).
 - [ ] Sim check and the user's playtest.

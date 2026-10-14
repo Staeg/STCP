@@ -64,7 +64,7 @@ export const TALENTS: Record<TalentId, TalentDef> = {
   gravedigger: { id: 'gravedigger', cls: 'undertaker', name: 'Gravedigger',
     desc: `Every fight you join has ${TALENT_RULES.gravediggerCorpses} Corpse more lying ready.` },
   restlessDead: { id: 'restlessDead', cls: 'undertaker', name: 'Restless Dead',
-    desc: `What you ${CARDS.raise.name} never crumbles, and follows you out of the fight into the next one.` },
+    desc: 'Your undead decay only after every other fight.' },
   resounding: { id: 'resounding', cls: 'bellwright', name: 'Resounding',
     desc: `${CARDS.echo.name} repeats your last card at full power.` },
   carillon: { id: 'carillon', cls: 'bellwright', name: 'Carillon',

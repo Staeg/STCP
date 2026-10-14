@@ -19,6 +19,10 @@ export const CLASS_RULES = {
   sneakSpeedMult: 2,
   /** Sorceress's Anima (user, 2026-10-14): Speed per point (lasts the run, no cap; Speed never goes below 2s anyway). */
   animaSpeed: -0.5,
+  /** Undertaker's following (user, 2026-10-14): at most this many; each decay stack after a fight is +2s Speed and −2 Block. */
+  followingMax: 4,
+  decaySpeed: 2,
+  decayBlock: 2,
 };
 
 /**
@@ -33,6 +37,8 @@ export const FIELD_RULES = {
   /** Sorceress's Siphon the Flame: this much of her own light for 1 Anima. */
   siphonLight: 20,
   siphonCooldown: 20,
+  /** Undertaker's Unearth: a Ghoul (as at Escalation 0) claws up and joins his following. */
+  unearthCooldown: 60,
   /** Lampbearer's Rekindle: every hero in the room +25 light. */
   rekindleLight: 25,
   rekindleCooldown: 60,

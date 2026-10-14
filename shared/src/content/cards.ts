@@ -41,7 +41,7 @@ export type CardId =
   // Sorceress
   | 'hex' | 'wither' | 'pact' | 'familiar' | 'bargain' | 'ages'
   // Undertaker
-  | 'spade' | 'rites' | 'raise' | 'explode' | 'graveward' | 'graves'
+  | 'spade' | 'rites' | 'raise' | 'explode' | 'embalm' | 'graves'
   // Bellwright
   | 'clang' | 'knell' | 'peal' | 'ringout' | 'echo' | 'reverberate'
   // Zealot
@@ -119,9 +119,8 @@ export const CARD_RULES = {
   // ---- Undertaker ----
   spade: 9, spadePerRites: 1,
   ritesBelow: 0.4, rites: 8,
-  raiseTurns: 4,
-  explode: 8, explodeBare: 3,
-  graveWard: 3, graveWardCorpse: 8,
+  explode: 8, explodeBare: 3, explodePerDecay: 2,
+  embalmHeal: 6, embalmBare: 3,
   // ---- Bellwright ----
   clang: 8, clangDelay: 4, clangTurns: 2, clangHaste: 0.5,
   knell: 15, knellPerAlly: 5, knellMin: 3,
@@ -209,13 +208,13 @@ export const CARDS: Record<CardId, CardDef> = {
   familiar: card('familiar', 'Bound Familiar', 5, ['conjure'], 'none', `Summon an Imp for this fight (its bite adds Hexed). At most ${R.familiarMax}; with more, heal your Imps instead. Anima: two at once.`),
   bargain: card('bargain', 'Mad Bargain', 1, ['hex', 'hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1): +1 Anima, and your next card takes 1s.`),
   ages: card('ages', 'Curse of Ages', 4, ['hex', 'hinder'], 'none', `Every enemy gains ${R.agesStacks} Hexed stacks, then is Delayed ${R.agesDelayPer}s per Hexed stack it carries. Anima: spends all of it, +1 Hexed stack per Anima first.`, true),
-  // ---- Undertaker: Corpses and executions ----
+  // ---- Undertaker: Corpses, executions, and a following of the dead that decays (M16) ----
   spade: card('spade', 'Spade', 5, ['strike'], 'enemy', `${R.spade} dmg, +${R.spadePerRites} for every enemy your Last Rites has killed this run.`),
   rites: card('rites', 'Last Rites', 5, ['strike'], 'enemy', `Kill an enemy below ${R.ritesBelow * 100}% HP outright; otherwise (or a Boss) ${R.rites} dmg.`),
-  raise: card('raise', 'Raise', 5, ['conjure'], 'none', `Use up a Corpse: it rises on your side at full HP for ${R.raiseTurns} of its turns. With no Corpse, a Rat claws up for the fight.`),
-  explode: card('explode', 'Corpse Explosion', 4, ['strike', 'conjure'], 'none', `Use up a Corpse: ${R.explode} dmg to every enemy. With no Corpse, ${R.explodeBare} dmg to every enemy.`),
-  graveward: card('graveward', 'Grave Ward', 1, ['guard', 'conjure'], 'ally', `An ally (or you) +${R.graveWard} Shield, or +${R.graveWardCorpse} if you use up a Corpse.`),
-  graves: card('graves', 'Open the Graves', 6, ['conjure'], 'none', 'Every Corpse here rises on your side for the rest of the fight (at least one Ghoul claws up).', true),
+  raise: card('raise', 'Raise', 5, ['conjure'], 'none', 'Use up a Corpse: it rises at full HP and follows you for good. With no Corpse, a Rat claws up and follows you.'),
+  explode: card('explode', 'Corpse Explosion', 4, ['strike', 'conjure'], 'none', `Use up a Corpse: ${R.explode} dmg to every enemy. With no Corpse, your most decayed undead here bursts instead: ${R.explode} +${R.explodePerDecay} per decay. With neither, ${R.explodeBare}.`),
+  embalm: card('embalm', 'Embalm', 2, ['mend', 'conjure'], 'none', `Every undead of yours here heals ${R.embalmHeal} and sheds one decay. With none, +${R.embalmBare} Shield.`),
+  graves: card('graves', 'Open the Graves', 6, ['conjure'], 'none', 'Every Corpse here rises and follows you for good (at least one Ghoul claws up).', true),
   // ---- Bellwright: Clang, Echo and the tempo of both sides ----
   clang: card('clang', 'Clang', 6, ['strike', 'hinder'], 'enemyFirst', `${R.clang} dmg to the nearest enemy; Delay it ${R.clangDelay}s. You gain a Clang stack (your cards take ${R.clangHaste}s less per stack; one fades every ${R.clangTurns} turns).`),
   knell: card('knell', 'Knell', 8, ['strike'], 'none', `${R.knell} dmg to every enemy, −${R.knellPerAlly} for each other hero standing in the fight (at least ${R.knellMin}).`),
@@ -334,7 +333,7 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   rites: art('skull', 'sword'),
   raise: art('grave'),
   explode: art('burst', 'bone'),
-  graveward: art('shield', 'bone'),
+  embalm: art('heal', 'bone'),
   graves: art('ghoul', 'bone'),
   clang: art('bell', 'hourglass'),
   knell: art('bell', 'skull'),
@@ -413,7 +412,7 @@ export const CLASS_CARDS: Record<ClassId, CardId[]> = {
   cutthroat: ['backstab', 'cheap', 'envenom', 'signal', 'smoke', 'dance'],
   lampbearer: ['flare', 'mend', 'vigil', 'kindle', 'sanctuary', 'dawn'],
   sorceress: ['hex', 'wither', 'pact', 'familiar', 'bargain', 'ages'],
-  undertaker: ['spade', 'rites', 'raise', 'explode', 'graveward', 'graves'],
+  undertaker: ['spade', 'rites', 'raise', 'explode', 'embalm', 'graves'],
   bellwright: ['clang', 'knell', 'peal', 'ringout', 'echo', 'reverberate'],
   zealot: ['scourge', 'absolution', 'sins', 'martyrdom', 'penance', 'rapture'],
   alchemist: ['acid', 'fumes', 'mist', 'elixir', 'catalyst', 'opus'],

@@ -181,7 +181,7 @@ describe('Undertaker talents', () => {
     expect(corpses(world.encounters[room])).toBe(TALENT_RULES.gravediggerCorpses);
   });
 
-  it('Restless Dead: what they Raise never crumbles and follows them into the next fight', () => {
+  it('Restless Dead: their undead decay only after every other fight', () => {
     const { world, ids, room, monsters } = arena([['undertaker', 'restlessDead']], ['ghoul', 'ghoul']);
     walkIn(world, ids, room);
     const enc = world.encounters[room];
@@ -194,6 +194,7 @@ describe('Undertaker talents', () => {
     for (const m of monsters) delete world.monsters[m.id];
     step(world, 0.1);
     expect(h.legion.map((x) => x.type)).toEqual(['crawler']);
+    expect(h.legion[0].decay).toBe(0); // one fight: no decay yet
   });
 });
 

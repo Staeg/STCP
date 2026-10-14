@@ -160,6 +160,13 @@ export interface Risen {
   permanent?: boolean;
   /** Raised by the Unholy Uprising (allies fighting beside it lose light when the fight ends). */
   uprising?: true;
+  /**
+   * The Undertaker's following (M16, user): what he raises or summons stays with him for good, and decays. Each
+   * stack: +2s Speed, −2 Block. Set (0 or more) only on his following; their number is capped.
+   */
+  decay?: number;
+  /** Fights it has come through (Restless Dead decays it every other one). */
+  age?: number;
   /** Called up by a card for this fight only: gone when it ends (M15). */
   summon?: boolean;
   /** What "every ally" cards left on it this fight (Shield, Dodge, Regen…). A Risen ally uses its hero's instead. */
@@ -566,9 +573,47 @@ function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
     const mine = enc.legion.filter((r) => r.by === h.id);
     // Like a monster's, its statuses end with the fight.
-    for (const { id: _id, by: _by, st: _st, ...r } of mine) if (r.hp > 0 && !r.summon) h.legion.push(r);
+    for (const { id: _id, by: _by, st: _st, ...r } of mine) {
+      if (r.hp <= 0 || r.summon) continue;
+      // The Undertaker's following decays a little after every fight (every other one with Restless Dead).
+      if (r.decay !== undefined) {
+        r.age = (r.age ?? 0) + 1;
+        if (!hasTalent(h, 'restlessDead') || r.age % 2 === 0) r.decay++;
+      }
+      h.legion.push(r);
+    }
     enc.legion = enc.legion.filter((r) => r.by !== h.id);
   }
+}
+
+/** The Undertaker's following, wherever it is now: with him (between fights) or in his fight. */
+export function followingOf(world: World, h: Hero): Risen[] {
+  const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
+  const here = (enc?.legion ?? []).filter((r) => r.by === h.id && r.hp > 0 && r.decay !== undefined);
+  return [...(h.legion.filter((r) => r.decay !== undefined) as Risen[]), ...here];
+}
+
+/**
+ * One more joins the Undertaker's following: past the cap, the most decayed (the oldest, if alike) crumbles away.
+ * Returns the name of what crumbled, if anything did.
+ */
+export function makeRoom(world: World, h: Hero): string | null {
+  const all = followingOf(world, h);
+  if (all.length < CLASS_RULES.followingMax) return null;
+  const worst = all.reduce((a, b) => ((b.decay ?? 0) > (a.decay ?? 0) ? b : a));
+  const name = risenName(world, worst);
+  const i = h.legion.indexOf(worst);
+  if (i >= 0) h.legion.splice(i, 1);
+  else {
+    worst.hp = 0;
+    for (const enc of Object.values(world.encounters)) delete enc.next[worst.id];
+  }
+  return name;
+}
+
+/** Decay's toll on one of the Undertaker's following: Speed added, Block lost. */
+export function decayOf(r: Pick<Risen, 'decay'>): number {
+  return r.decay ?? 0;
 }
 
 function enlist(world: World, enc: Encounter, h: Hero) {
@@ -774,10 +819,10 @@ export function risenName(world: World, r: Pick<Risen, 'type' | 'hero'>): string
   return `Risen ${r.hero ? world.heroes[r.hero]?.name ?? 'ally' : ENEMIES[r.type!].name}`;
 }
 
-/** A risen monster keeps its old Speed; a Risen ally has its hero's (gear included). */
-export function risenSpeed(world: World, r: Pick<Risen, 'type' | 'hero'>): number {
+/** A risen monster keeps its old Speed (slower as it decays); a Risen ally has its hero's (gear included). */
+export function risenSpeed(world: World, r: Pick<Risen, 'type' | 'hero' | 'decay'>): number {
   const h = r.hero ? world.heroes[r.hero] : undefined;
-  return h ? speedOf(h, world.time) : ENEMIES[r.type!].speed;
+  return h ? speedOf(h, world.time) : ENEMIES[r.type!].speed + decayOf(r) * CLASS_RULES.decaySpeed;
 }
 
 /** Every risen ally still standing here: the Uprising's dead, then the one Raised (nearest the enemy). */
@@ -1203,7 +1248,8 @@ export function monsterTakes(world: World, m: Monster, dmg: number): number {
 export function risenTakes(world: World, r: Risen, dmg: number): number {
   const ally = r.hero ? world.heroes[r.hero] : undefined;
   if (ally) return afterBlock(ally, dmg);
-  return Math.max(1, dmg - ENEMIES[r.type!].block);
+  // Decay eats its Block, past nothing: then every blow lands harder.
+  return Math.max(1, dmg - (ENEMIES[r.type!].block - decayOf(r) * CLASS_RULES.decayBlock));
 }
 
 function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) {

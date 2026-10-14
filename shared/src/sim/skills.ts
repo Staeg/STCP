@@ -3,7 +3,8 @@ import { hasTalent, TALENT_RULES } from '../content/talents';
 import { CLASS_RULES, FIELD_RULES as F } from '../content/innates';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { addClang, gainLight, inDungeon, isConscious, onHeroInRoom, spendLight, stealthOf } from './combat';
+import { addClang, gainLight, inDungeon, isConscious, makeRoom, onHeroInRoom, spendLight, stealthOf } from './combat';
+import { ENEMIES } from '../content/enemies';
 import { dazeAll, lureToward } from './escalation';
 import { lightBy } from './gear';
 import { giveItem, hasSpace } from './loot';
@@ -15,7 +16,7 @@ import type { Hero, World } from './world';
  * fight. Like an event choice, it's picked now and happens when the hero's timer runs out, using up that turn. Each
  * has a cooldown in seconds (the Toll is once a run instead) that runs all the time, fights included.
  */
-export type FieldSkill = 'toll' | 'formup' | 'sneak' | 'rekindle' | 'siphon' | 'ringin' | 'flagellate' | 'brew';
+export type FieldSkill = 'toll' | 'formup' | 'sneak' | 'rekindle' | 'siphon' | 'unearth' | 'ringin' | 'flagellate' | 'brew';
 
 /** none: no target (every field skill now). */
 export type FieldTarget = 'none';
@@ -30,6 +31,8 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
     desc: `On or off, at once and without using your turn. While Sneaking your Speed is doubled, and your cards get their Sneaking bonuses. Walk in on monsters Sneaking and alone, with Stealth (your light ÷ ${CLASS_RULES.stealthPerLight}) below every one's Speed, and it's an Ambush: none of them acts until you do. On your first turn, Flee becomes Sneak Past: the fight is off and you stay there unnoticed (no loot or event while they're there). Turning Sneak off there starts the fight.` },
   siphon: { name: 'Siphon the Flame', target: 'none', cooldown: F.siphonCooldown,
     desc: `Burn ${F.siphonLight} of your light: +1 Anima.` },
+  unearth: { name: 'Unearth', target: 'none', cooldown: F.unearthCooldown,
+    desc: `A Ghoul claws up from the floor and follows you for good (at most ${CLASS_RULES.followingMax} undead; past that the most decayed crumbles).` },
   rekindle: { name: 'Rekindle', target: 'none', cooldown: F.rekindleCooldown,
     desc: `Every hero in the room, you included, +${F.rekindleLight} light.` },
   ringin: { name: 'Ring In', target: 'none', cooldown: F.ringInCooldown,
@@ -50,7 +53,7 @@ export function skillInfo(_h: Hero, skill: FieldSkill): { name: string; desc: st
 
 /** Each class's field ability (M16). */
 export const CLASS_SKILL: Partial<Record<Hero['cls'], FieldSkill>> = {
-  warden: 'formup', cutthroat: 'sneak', lampbearer: 'rekindle', sorceress: 'siphon', bellwright: 'ringin', zealot: 'flagellate', alchemist: 'brew',
+  warden: 'formup', cutthroat: 'sneak', lampbearer: 'rekindle', sorceress: 'siphon', undertaker: 'unearth', bellwright: 'ringin', zealot: 'flagellate', alchemist: 'brew',
 };
 
 /** This hero's field abilities, in the order the bar shows them (keys M, N): the Bellwright's Toll first. */
@@ -131,6 +134,13 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill) {
       h.anima++;
       notify(world, h, `You drink the flame from your own lamp. (−${F.siphonLight} light, +1 Anima: ${h.anima})`);
       return;
+    case 'unearth': {
+      const gone = makeRoom(world, h);
+      const hp = ENEMIES.ghoul.maxHp;
+      h.legion.push({ type: 'ghoul', hp, maxHp: hp, dmgMult: 1, turns: 1, permanent: true, decay: 0, age: 0 });
+      notify(world, h, `A Ghoul claws its way up and shambles after you.${gone ? ` (Your ${gone} crumbles away to make room.)` : ''}`);
+      return;
+    }
     case 'ringin':
       addClang(h, F.ringInClang);
       notify(world, h, `You ring the bell in, low and steady. (Clang ×${h.st.clang?.stacks ?? F.ringInClang}: your cards are quicker)`);

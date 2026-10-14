@@ -463,6 +463,7 @@ export class CombatUi {
     const sub = u.downed ? `DOWN · ${Math.ceil(u.dying ?? 0)}s`
       : u.kind === 'hero' ? (u.choice ? '' : 'choosing…')
       : u.enemy === 'wolf' ? 'wolf · runs with you'
+      : u.decay !== undefined ? `follows · decay ${u.decay}`
       : summoned ? 'summoned · this fight'
       : u.kind === 'risen' ? (u.turnsLeft === undefined ? 'risen · for good' : `risen · ${u.turnsLeft} turn${u.turnsLeft === 1 ? '' : 's'} left`) : '';
     // Turn timer: a ring round the sprite (like on the map) that fills up as their next action approaches.

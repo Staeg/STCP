@@ -5,7 +5,8 @@ import { SPRITES } from '../../../client/src/render/sprite-data';
 import { ENEMIES } from '../content/enemies';
 
 import { cardSource, gearCard, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, ITEMS } from '../content/items';
-import { combatOrder, monstersIn } from './combat';
+import { combatOrder, monstersIn, risenSpeed, risenTakes } from './combat';
+import { CLASS_RULES } from '../content/innates';
 import { cardTime, corpses, uselessReason } from './cards';
 import { deckList, liveCards } from './deck';
 import { Game } from './game';
@@ -279,7 +280,7 @@ describe('Sorceress', () => {
 describe('Undertaker', () => {
   it('Last Rites kills below 40%, else hits for 8; Raise and Corpse Explosion use up Corpses', () => {
     const { world, h, enc, monsters } = fight(['undertaker'], ['ghoul', 'ghoul', 'ghoul']);
-    const [a, b, c] = monsters;
+    const [a, b] = monsters;
     play(world, h, 'rites', a.id);
     expect(a.hp).toBe(999 - R.rites);
     a.hp = 300;
@@ -289,24 +290,50 @@ describe('Undertaker', () => {
     expect(corpses(enc)).toBe(1);
     play(world, h, 'raise');
     expect(corpses(enc)).toBe(0);
-    expect(enc.legion!.some((r) => r.type === 'ghoul' && r.turns === R.raiseTurns)).toBe(true);
+    const raised = enc.legion!.find((r) => r.type === 'ghoul')!;
+    expect(raised.decay).toBe(0); // it follows the Undertaker for good
+    expect(raised.summon).toBeUndefined();
+    raised.decay = 2;
+    // No Corpse: their most decayed undead bursts instead.
     play(world, h, 'explode');
-    expect(b.hp).toBe(999 - R.explodeBare);
-    expect(c.hp).toBe(999 - R.explodeBare);
+    expect(raised.hp).toBe(0);
+    expect(b.hp).toBe(999 - R.explode - 2 * R.explodePerDecay);
+    // Neither: grave dust.
+    play(world, h, 'explode');
+    expect(b.hp).toBe(999 - R.explode - 2 * R.explodePerDecay - R.explodeBare);
   });
 
-  it('Grave Ward is quick and stronger with a Corpse; Open the Graves raises every Corpse for the fight', () => {
+  it('Open the Graves: every Corpse follows for good; Embalm heals them and sheds decay; after the fight they decay', () => {
     const { world, h, enc } = fight(['undertaker']);
-    expect(CARDS.graveward.time).toBe(1);
-    play(world, h, 'graveward', h.id);
-    expect(h.st.shield).toBe(R.graveWard);
+    play(world, h, 'embalm');
+    expect(h.st.shield).toBe(R.embalmBare); // nobody to embalm
     enc.slain = [{ type: 'ghoul', maxHp: 10, dmgMult: 1 }, { type: 'crawler', maxHp: 8, dmgMult: 1 }];
     play(world, h, 'graves');
-    expect(enc.legion!.filter((r) => r.summon).map((r) => r.type).sort()).toEqual(['crawler', 'ghoul']);
-    // Summons are gone when the fight ends.
+    const dead = enc.legion!.filter((r) => r.decay !== undefined);
+    expect(dead.map((r) => r.type).sort()).toEqual(['crawler', 'ghoul']);
+    dead[0].decay = 2;
+    dead[0].hp = 1;
+    play(world, h, 'embalm');
+    expect(dead[0].decay).toBe(1);
+    expect(dead[0].hp).toBe(1 + R.embalmHeal);
     for (const m of monstersIn(world, enc.room)) delete world.monsters[m.id];
     run(world, 0.2);
-    expect(h.legion).toEqual([]);
+    expect(h.legion.map((r) => r.decay).sort()).toEqual([1, 2]);
+  });
+
+  it('the following is capped at 4: the most decayed crumbles; decay slows them and eats their Block', () => {
+    const { world, h, enc } = fight(['undertaker']);
+    enc.slain = ['ghoul', 'ghoul', 'ghoul', 'ghoul'].map((type) => ({ type: type as 'ghoul', maxHp: 10, dmgMult: 1 }));
+    play(world, h, 'graves');
+    const dead = enc.legion!.filter((r) => r.decay !== undefined);
+    expect(dead).toHaveLength(4);
+    dead[2].decay = 3;
+    expect(risenSpeed(world, dead[2])).toBe(5 + 3 * CLASS_RULES.decaySpeed);
+    expect(risenTakes(world, dead[2], 4)).toBe(4 + 3 * CLASS_RULES.decayBlock);
+    enc.slain = [{ type: 'crawler', maxHp: 8, dmgMult: 1 }];
+    play(world, h, 'raise');
+    expect(dead[2].hp).toBe(0);
+    expect(enc.legion!.filter((r) => r.decay !== undefined && r.hp > 0)).toHaveLength(4);
   });
 });
 

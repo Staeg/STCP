@@ -119,6 +119,7 @@ export class Hud {
     // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does). Anima and Sneak too.
     const status = [
       ...(you.anima > 0 ? [`<span title="${escape(`Anima ${you.anima}: each is ${-CLASS_RULES.animaSpeed}s off your Speed; your cards spend it for their Anima bonus.`)}">✧${you.anima}</span>`] : []),
+      ...(you.legion.some((r) => r.decay !== undefined) ? [`<span title="${escape(`Your undead (they decay after every fight: +${CLASS_RULES.decaySpeed}s Speed, −${CLASS_RULES.decayBlock} Block a stack): ${you.legion.filter((r) => r.decay !== undefined).map((r) => `${r.type ? ENEMIES[r.type].name : '?'} ${r.hp}/${r.maxHp} HP, decay ${r.decay}`).join('; ')}.`)}">☠${you.legion.filter((r) => r.decay !== undefined).length}</span>`] : []),
       ...(you.sneaking ? [`<span title="${escape(`Sneaking: Speed ×${CLASS_RULES.sneakSpeedMult}; Stealth ${stealthOf(you).toFixed(1)} (your light ÷ ${CLASS_RULES.stealthPerLight}).`)}">👣</span>`] : []),
       ...statusIcons(you.st, time),
     ].join('');

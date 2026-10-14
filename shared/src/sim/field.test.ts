@@ -237,3 +237,11 @@ describe('Siphon the Flame (Sorceress)', () => {
     expect(checkSkill(world, h, 'siphon')).toMatch(/need/);
   });
 });
+
+describe('Unearth (Undertaker)', () => {
+  it('a Ghoul joins the following for good', () => {
+    const { world, h } = quiet(['undertaker']);
+    use(world, 'h0', 'unearth');
+    expect(h.legion.map((r) => [r.type, r.decay])).toEqual([['ghoul', 0]]);
+  });
+});

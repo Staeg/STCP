@@ -172,6 +172,8 @@ export interface CombatUnitView {
   anima?: number;
   /** The risen: own turns left (none for the Uprising's dead, who never crumble). */
   turnsLeft?: number;
+  /** The Undertaker's following (M16): how decayed it is (+2s Speed and −2 Block a stack). */
+  decay?: number;
   cls?: ClassId;
   color?: string;
   enemy?: EnemyId;
@@ -571,6 +573,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     return {
       id: r.id, kind: 'risen', name: risenName(world, r), hp: r.hp, maxHp: r.maxHp, st: ally ? { ...ally.st } : { ...(r.st ?? {}) }, enemy: r.type,
       cls: ally?.cls, color: ally?.color, speed: risenSpeed(world, r), nextIn: nextIn(r.id),
+      ...(r.decay !== undefined ? { decay: r.decay } : {}),
     };
   });
   const here = isConscious(you) && enc.heroes.includes(you.id);

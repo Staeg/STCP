@@ -6,7 +6,7 @@ import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
 import { hasTalent, TALENT_RULES } from '../content/talents';
 import {
   addClang, addPoison, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, gainLight, heal, heroBlock, heroHits,
-  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, spendLight, stepToEnd,
+  isConscious, leaveEncounter, makeRoom, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, spendLight, stepToEnd,
   type CombatEvent, type Encounter, type Monster, type Risen, type Slain, type Statuses,
 } from './combat';
 import { cycle, returnLast } from './deck';
@@ -166,10 +166,19 @@ export function takeCorpse(world: World, enc: Encounter): Slain | null {
 
 /** A unit that fights for `h` in this fight: `summon` ones are gone when it ends. */
 function addAlly(ctx: CardCtx, type: EnemyId, r: Partial<Risen> = {}): Risen {
-  const { world, enc, h } = ctx;
+  const { world, enc, h, events } = ctx;
+  // The Undertaker's dead stay with him for good, decaying (M16); past his cap the most decayed crumbles first.
+  const follows = h.cls === 'undertaker';
+  if (follows) {
+    const gone = makeRoom(world, h);
+    if (gone) events.push({ actor: h.id, kind: 'info', text: `${h.name}'s ${gone} crumbles away to make room.` });
+  }
   const scale = r.dmgMult ?? monsterScale(world, type, world.escalation);
   const hp = r.maxHp ?? Math.round(ENEMIES[type].maxHp * scale);
-  const unit: Risen = { id: `r${world.nextId++}`, type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true, summon: true, by: h.id, ...r };
+  const unit: Risen = {
+    id: `r${world.nextId++}`, type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true, summon: true, by: h.id, ...r,
+    ...(follows ? { summon: undefined, decay: 0, age: 0 } : {}),
+  };
   (enc.legion ??= []).push(unit);
   return unit;
 }
@@ -328,6 +337,8 @@ function resolve(ctx: CardCtx) {
     if (t && isConscious(t) && t.encounter === enc.room) return t;
     return [...others()].sort((a, b) => a.light - b.light)[0] ?? h;
   };
+  /** This hero's own undead following, standing in this fight (the Undertaker's). */
+  const mineHere = () => (enc.legion ?? []).filter((r) => r.by === h.id && r.hp > 0 && r.decay !== undefined);
   const name = (m: Monster) => ENEMIES[m.type].name;
   const tell = (text: string, kind: CombatEvent['kind'] = 'status', target?: string, amount?: number) =>
     events.push({ actor: h.id, kind, text, target, amount });
@@ -597,26 +608,43 @@ function resolve(ctx: CardCtx) {
         summon(ctx, 'rat', 'calls up');
         return;
       }
-      const restless = hasTalent(h, 'restlessDead');
-      const unit = addAlly(ctx, dead.type, {
-        maxHp: dead.maxHp, hp: dead.maxHp, dmgMult: dead.dmgMult,
-        turns: buffLength(h, R.raiseTurns), permanent: restless || undefined, summon: restless ? undefined : true,
-      });
-      if (!restless) unit.permanent = undefined;
-      tell(`${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin.`, 'status', unit.id);
+      const unit = addAlly(ctx, dead.type, { maxHp: dead.maxHp, hp: dead.maxHp, dmgMult: dead.dmgMult });
+      tell(`${h.name} raises the fallen ${ENEMIES[dead.type].name}. It turns on its kin${unit.decay !== undefined ? ', and follows them now' : ''}.`, 'status', unit.id);
       return;
     }
     case 'explode': {
       const dead = takeCorpse(world, enc);
-      tell(dead ? `${h.name} bursts the fallen ${ENEMIES[dead.type].name}!` : `${h.name} stirs the grave dust into a choking cloud.`);
-      for (const m of enemies()) strike(ctx, m, dead ? R.explode : R.explodeBare);
+      if (dead) {
+        tell(`${h.name} bursts the fallen ${ENEMIES[dead.type].name}!`);
+        for (const m of enemies()) strike(ctx, m, R.explode);
+        return;
+      }
+      // No Corpse: the most rotten of their own following goes up instead.
+      const rotten = mineHere().sort((a, b) => (b.decay ?? 0) - (a.decay ?? 0))[0];
+      if (rotten) {
+        const dmg = R.explode + R.explodePerDecay * (rotten.decay ?? 0);
+        rotten.hp = 0;
+        delete enc.next[rotten.id];
+        tell(`${h.name} bursts their own ${risenName(world, rotten)}!`, 'death', rotten.id);
+        for (const m of enemies()) strike(ctx, m, dmg);
+        return;
+      }
+      tell(`${h.name} stirs the grave dust into a choking cloud.`);
+      for (const m of enemies()) strike(ctx, m, R.explodeBare);
       return;
     }
-    case 'graveward': {
-      const t = friend();
-      const dead = takeCorpse(world, enc);
-      const got = shieldOf(ctx, t, dead ? R.graveWardCorpse : R.graveWard);
-      tell(`${h.name} wards ${allyText(ctx, t)}${dead ? ' with grave earth' : ''}. (+${got} Shield)`, 'status', t.id);
+    case 'embalm': {
+      const mine = mineHere();
+      if (!mine.length) {
+        const got = shieldOf(ctx, h, R.embalmBare);
+        tell(`${h.name} has nobody to embalm, and braces instead. (+${got} Shield)`, 'status', h.id);
+        return;
+      }
+      for (const r of mine) {
+        heal(r, healBy(h, p(R.embalmHeal)));
+        r.decay = Math.max(0, (r.decay ?? 0) - 1);
+      }
+      tell(`${h.name} embalms their dead. (+${healBy(h, p(R.embalmHeal))} HP each, one decay less)`, 'heal');
       return;
     }
     case 'graves': {
