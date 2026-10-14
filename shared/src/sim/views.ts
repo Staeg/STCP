@@ -18,6 +18,7 @@ import {
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
+import { fightTimeline } from './timeline';
 import { canPause, headingOf, knowsCorridor, soloOut, type Hero, type Sighting, type RoomSighting, type HeroPos, type World, type WorldPhase } from './world';
 
 /** What a hero knows about a room. 'unknown' = a corridor leads there but they haven't glimpsed it. */
@@ -210,6 +211,27 @@ export interface EncounterView {
   log: string[];
   /** Lich's Doom: you take this much more from everything (your stacks × CR_RULES.doom). */
   doom: number;
+  /** The next turns in order, as they'll come if every hero does what they've picked (see `fightTimeline`). */
+  timeline: TimelineTurnView[];
+}
+
+/** One upcoming turn on the fight's timeline. */
+export interface TimelineTurnView {
+  id: string;
+  /** Which of that unit's turns in the fight: with `id`, names this turn as the strip shifts. */
+  n: number;
+  /** Seconds from now. */
+  in: number;
+  /** A hero's move: what it is, its name and who it's aimed at; `auto` if they haven't picked (their default). */
+  choice?: Choice;
+  label?: string;
+  target?: string;
+  /** The item, for a Use Item. */
+  item?: ItemId;
+  auto?: boolean;
+  stunned?: boolean;
+  /** Only with some of the dice. */
+  maybe?: boolean;
 }
 
 export interface ChalkView {
@@ -555,6 +577,18 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     events: enc.events,
     log: enc.log.slice(-12),
     doom: doomOf(you),
+    // Bots don't look at it, and the headless sim shouldn't pay for it.
+    timeline: you.isBot ? [] : fightTimeline(world, enc).map((t) => {
+      const h = t.choice ? world.heroes[t.id] : undefined;
+      return {
+        id: t.id, n: t.n, in: Math.max(0, t.at - world.time),
+        ...(h && t.choice ? {
+          choice: t.choice, label: choiceLabel(h, t.choice), ...(t.choice.target ? { target: t.choice.target } : {}),
+          ...(t.choice.action === 'item' && h.items[t.choice.item ?? -1] ? { item: h.items[t.choice.item!] } : {}),
+        } : {}),
+        ...(t.auto ? { auto: true } : {}), ...(t.stunned ? { stunned: true } : {}), ...(t.maybe ? { maybe: true } : {}),
+      };
+    }),
   };
 }
 

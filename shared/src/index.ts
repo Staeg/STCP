@@ -8,6 +8,7 @@ export * from './protocol';
 export * from './sim/game';
 export * from './bots/explorer';
 export * from './sim/combat';
+export * from './sim/timeline';
 export * from './sim/speed';
 export * from './bots/fighter';
 export * from './bots/tuning';

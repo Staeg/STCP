@@ -184,6 +184,8 @@ export interface Encounter {
   back?: string[];
   /** Heroes who stepped to the front (D), whatever their Speed. Oldest first; each newcomer stands ahead of the last. */
   front?: string[];
+  /** Turns each unit has taken in this fight (the timeline keys each upcoming turn by it). */
+  turns?: Record<string, number>;
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
   /** Dead King's Charges so far: every monster in the fight is this many × KING_RULES.chargeHaste faster until it ends. */
@@ -599,7 +601,7 @@ const at = (t: number) => Math.round(t * 1000) / 1000;
  * Give every standing unit without a timer a fresh one (a full Speed's wait), and drop the timers of
  * the downed (they get a fresh one when they're back up).
  */
-function startTimers(world: World, enc: Encounter) {
+export function startTimers(world: World, enc: Encounter) {
   for (const id of enc.heroes) {
     const h = world.heroes[id];
     if (!isConscious(h)) delete enc.next[id];
@@ -708,10 +710,17 @@ export function tickCombat(world: World) {
   }
 }
 
-type Unit = { kind: 'hero'; h: Hero } | { kind: 'monster'; m: Monster } | { kind: 'risen'; r: Risen };
+export type Unit = { kind: 'hero'; h: Hero } | { kind: 'monster'; m: Monster } | { kind: 'risen'; r: Risen };
 
-/** The unit whose turn is due soonest (and is due now). Ties go to heroes before monsters, left to right. */
-function nextUp(world: World, enc: Encounter): Unit | null {
+export function unitId(u: Unit): string {
+  return u.kind === 'hero' ? u.h.id : u.kind === 'monster' ? u.m.id : u.r.id;
+}
+
+/**
+ * The unit whose turn is due soonest (and is due now, unless `anyTime`: the timeline looks ahead).
+ * Ties go to heroes before monsters, left to right.
+ */
+export function nextUp(world: World, enc: Encounter, anyTime = false): Unit | null {
   const { heroes, monsters } = combatOrder(world, enc);
   const units: (Unit & { t: number | undefined })[] = [
     ...heroes.filter(isConscious).map((h) => ({ kind: 'hero' as const, h, t: enc.next[h.id] })),
@@ -720,7 +729,7 @@ function nextUp(world: World, enc: Encounter): Unit | null {
   ];
   let best: (typeof units)[number] | null = null;
   for (const u of units) {
-    if (u.t === undefined || u.t > world.time + 1e-9) continue;
+    if (u.t === undefined || (!anyTime && u.t > world.time + 1e-9)) continue;
     if (!best || u.t < best.t!) best = u; // strict, so the earlier unit in the order wins a tie
   }
   return best;
@@ -874,9 +883,10 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
 // ---------------------------------------------------------------------------
 // Resolution
 
-function takeTurn(world: World, enc: Encounter, unit: Unit) {
+export function takeTurn(world: World, enc: Encounter, unit: Unit) {
   const events: CombatEvent[] = [];
-  const id = unit.kind === 'hero' ? unit.h.id : unit.kind === 'monster' ? unit.m.id : unit.r.id;
+  const id = unitId(unit);
+  (enc.turns ??= {})[id] = (enc.turns[id] ?? 0) + 1;
   const speed = unit.kind === 'hero' ? speedOf(unit.h, world.time) : unit.kind === 'monster' ? monsterSpeed(enc, unit.m) : risenSpeed(world, unit.r);
   enc.next[id] = at(enc.next[id] + speed);
   if (unit.kind === 'hero') heroTurn(world, enc, unit.h, events);
@@ -1068,20 +1078,9 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   endLingering(world, enc, h.id);
   delete h.st.brace;
   // The fallback is judged before cooldowns tick, so it matches what the hero's screen promised.
-  let choice: Choice | undefined = enc.choices[h.id];
+  const { choice, auto } = resolveChoice(world, enc, h);
   delete enc.choices[h.id];
-  // Things changed since it was picked (an ally joined, nothing left to raise…): fall back like an undecided hero.
-  const picked = choice && abilityOf(h, choice.action);
-  if (picked && unusableReason(world, enc, h, picked)) choice = undefined;
-  if (!choice) {
-    const auto = defaultChoice(world, enc, h);
-    choice = auto ?? { action: 'brace' };
-    events.push({ actor: h.id, kind: 'info', text: auto ? `${h.name} hesitates, then uses ${abilityOf(h, auto.action)!.name}.` : `${h.name} hesitates and braces.` });
-  } else if (choice.target === undefined) {
-    // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
-    const target = leftmostTarget(world, enc, h, choice);
-    if (target) choice = { ...choice, target };
-  }
+  if (auto) events.push({ actor: h.id, kind: 'info', text: choice.action !== 'brace' ? `${h.name} hesitates, then uses ${abilityOf(h, choice.action)!.name}.` : `${h.name} hesitates and braces.` });
   tickCooldowns(h);
   startOfTurn(h.st);
   if (!lichAura(world, enc, h, events)) return;
@@ -1099,6 +1098,24 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     // Doom holds while a Lich still stands here.
     if (!monstersIn(world, enc.room).some((m) => m.type === 'lich')) fadeDoom(h.st);
   }
+}
+
+/**
+ * What a hero will do when their turn comes: their pick (aimed at the leftmost target if they picked none), or, if they
+ * haven't picked or it can't be used any more, their default (`auto`), Brace if nothing is ready.
+ */
+export function resolveChoice(world: World, enc: Encounter, h: Hero): { choice: Choice; auto: boolean } {
+  let choice: Choice | undefined = enc.choices[h.id];
+  // Things changed since it was picked (an ally joined, nothing left to raise…): fall back like an undecided hero.
+  const picked = choice && abilityOf(h, choice.action);
+  if (picked && unusableReason(world, enc, h, picked)) choice = undefined;
+  if (!choice) return { choice: defaultChoice(world, enc, h) ?? { action: 'brace' }, auto: true };
+  if (choice.target === undefined) {
+    // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
+    const target = leftmostTarget(world, enc, h, choice);
+    if (target) choice = { ...choice, target };
+  }
+  return { choice, auto: false };
 }
 
 /**
