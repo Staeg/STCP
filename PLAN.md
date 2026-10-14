@@ -559,7 +559,7 @@ Anima, my calls: a card that kills before laying its Hexed (a lethal Hex) gives 
 Undertaker, my calls: Unearth's Ghoul is at Escalation 0 strength (the "mediocre" one). Cards the Undertaker plays that summon (Raise, Open the Graves, a Gear card's Rat or Shade) all join the following. A fight counts for decay whenever he leaves it with them, fleeing included. Corpse Explosion bursting a follower kills it. Bots Unearth while they have fewer than 4. The Uprising's dead and Risen allies (fallen heroes) neither decay nor count toward the 4.
 - [x] Undertaker: permanent undead, decay, Unearth, Embalm.
 - [x] Bellwright: Clang as a resource, Ring In. (Mine: Echo checks for 3+ Clang before the echoed card spends any.)
-- [ ] Lampbearer, Zealot, Alchemist (Long Reach, Brew, Contagion).
+- [x] Lampbearer, Zealot, Alchemist (Long Reach, Brew, Contagion). (Mine: "Bright" on a card means the player's own light is above 75 as it's played; Contagion copies each Poison with the time it has left.)
 - [ ] Sim check and the user's playtest.
 
 ### Later / parking lot

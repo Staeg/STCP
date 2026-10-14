@@ -467,11 +467,16 @@ describe('Alchemist', () => {
     expect(hp - ghoul.hp).toBe(R.fumesPoison + R.catalystPoison);
   });
 
-  it('Healing Mist heals everyone; Opus Magnum fills the pack and makes items quick', () => {
-    const { world, heroes, h, enc } = fight(['alchemist', 'warden']);
-    for (const x of heroes) x.hp = 10;
-    play(world, h, 'mist');
-    for (const x of heroes) expect(x.hp).toBe(10 + R.mist);
+  it('Contagion spreads every Poison to the rest (or seeds one); Acid doubles on the Poisoned; Opus Magnum fills the pack and makes items quick', () => {
+    const { world, h, enc, monsters } = fight(['alchemist'], ['ghoul', 'ghoul', 'ghoul']);
+    const [a, b, c] = monsters;
+    play(world, h, 'contagion', a.id);
+    expect(a.st.poison).toHaveLength(1);
+    a.st.poison!.push({ dmg: 4, rounds: 2 });
+    play(world, h, 'contagion', a.id);
+    for (const m of [b, c]) expect(m.st.poison?.map((p) => p.dmg).sort()).toEqual([R.contagionPoison, 4].sort());
+    play(world, h, 'acid', b.id);
+    expect(b.st.acid?.stacks).toBe(2);
     play(world, h, 'opus');
     expect(h.items.length).toBe(R.opusItems);
     expect(h.st.quickItems).toBe(true);
@@ -595,9 +600,6 @@ describe('summoned and risen allies', () => {
     expect(st().dodge).toBeGreaterThan(world.time);
     play(world, h, 'sanctuary');
     expect(st().regen?.amount).toBe(R.sanctuaryRegen);
-    rat.hp = 1;
-    play(world, h, 'mist');
-    expect(rat.hp).toBe(Math.min(rat.maxHp, 1 + R.mist));
     rat.hp = 1;
     play(world, h, 'dawn');
     expect(rat.hp).toBe(Math.min(rat.maxHp, 1 + R.dawnHeal));

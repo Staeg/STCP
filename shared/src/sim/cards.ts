@@ -1,6 +1,6 @@
 import { CARD_RULES, CARDS, MIN_CARD_TIME, type CardId } from '../content/cards';
 import { ENEMIES, type EnemyId } from '../content/enemies';
-import { LIGHT_MAX } from '../content/constants';
+import { LIGHT_MAX, lightStage } from '../content/constants';
 import { ITEMS } from '../content/items';
 import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
 import { hasTalent, TALENT_RULES } from '../content/talents';
@@ -109,7 +109,6 @@ export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardI
       return hurt || allies.some((a) => a.st.poison || a.st.bleed) ? null : 'Nobody is hurt.';
     case 'soothe1':
     case 'soothe2':
-    case 'mist':
     case 'sanctuary':
     case 'bloom':
       return hurt ? null : 'Nobody is hurt.';
@@ -464,7 +463,8 @@ function resolve(ctx: CardCtx) {
       return;
     case 'mend': {
       const t = friend();
-      const healed = heal(t, healBy(h, p(R.mend)));
+      // Bright (light above 75): the Lampbearer's lamp makes it stronger.
+      const healed = heal(t, healBy(h, p(lightStage(h.light) === 'bright' ? R.mendBright : R.mend)));
       delete t.st.poison;
       delete t.st.bleed;
       ward(h, t);
@@ -496,7 +496,7 @@ function resolve(ctx: CardCtx) {
     }
     case 'sanctuary':
     case 'bloom': {
-      const secs = buffLength(h, ctx.card === 'bloom' ? R.bloomSecs : R.sanctuarySecs);
+      const secs = buffLength(h, ctx.card === 'bloom' ? R.bloomSecs : lightStage(h.light) === 'bright' ? R.sanctuaryBrightSecs : R.sanctuarySecs);
       const amount = p(ctx.card === 'bloom' ? R.bloomRegen : R.sanctuaryRegen);
       for (const a of [...allies(), ...risen().map(risenSt_)]) {
         a.st.regen = { amount: Math.max(amount, a.st.regen?.amount ?? 0), until: world.time + secs, next: world.time + R.pulse };
@@ -780,24 +780,30 @@ function resolve(ctx: CardCtx) {
     case 'acid': {
       const m = foe();
       if (!m) return;
+      const poisoned = !!m.st.poison?.length;
       strike(ctx, m, R.acid);
       debuff(ctx, m, 'acid', R.acidTurns);
+      if (poisoned && world.monsters[m.id]) debuff(ctx, m, 'acid', R.acidTurns);
       if (world.monsters[m.id]) tell(`${name(m)} is burned by acid.${(m.st.acid?.stacks ?? 0) > 1 ? ` (×${m.st.acid!.stacks})` : ''}`, 'status', m.id);
       return;
     }
     case 'fumes':
       fumes(world, enc, h, events, false, (m) => debuff(ctx, m, 'poison', R.fumesTurns, R.fumesPoison));
       return;
-    case 'mist': {
-      for (const a of allies()) {
-        heal(a, healBy(h, p(R.mist)));
-        ward(h, a);
+    case 'contagion': {
+      const m = foe();
+      if (!m) return;
+      const poisons = m.st.poison ?? [];
+      if (!poisons.length) {
+        debuff(ctx, m, 'poison', R.contagionTurns, R.contagionPoison);
+        tell(`${h.name} seeds a contagion in the ${name(m)}.`, 'status', m.id);
+        return;
       }
-      for (const r of risen()) {
-        heal(r, healBy(h, p(R.mist)));
-        ward(h, risenSt_(r));
-      }
-      tell(`${h.name} sprays a healing mist. (+${healBy(h, p(R.mist))} each)`, 'heal');
+      // Each Poison on it is copied, damage and time left alike, onto every other enemy.
+      const rest = enemies().filter((o) => o !== m);
+      for (const o of rest) for (const pz of poisons) addPoison(o.st, pz.dmg, pz.rounds);
+      if (rest.length) placed(ctx, 'poison', rest[0]);
+      tell(`The ${name(m)}'s poisons spread to every foe! (${poisons.length} each)`);
       return;
     }
     case 'elixir': {

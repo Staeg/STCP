@@ -315,7 +315,7 @@ describe('staves', () => {
     walkIn(world, ids, room);
     const hp = w.hp;
     act(world, room, 'mend', 'h1');
-    expect(w.hp - hp).toBe(Math.round(CARD_RULES.mend * STAFF.healMult));
+    expect(w.hp - hp).toBe(Math.round(CARD_RULES.mendBright * STAFF.healMult)); // the Lampbearer is Bright
     l.weapon = 'censer';
     w.light = 50;
     act(world, room, 'vigil', 'h1');

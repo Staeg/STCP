@@ -63,7 +63,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'dance': return burn(14);
     // Lampbearer
     case 'flare': return R.flare * n + (view.you.light < 40 ? 4 : 0);
-    case 'mend': return heal(R.mend);
+    case 'mend': return heal(view.you.light > 75 ? R.mendBright : R.mend);
     case 'vigil': return (allies.length === 1 ? 2 + n * 2 : 0) + brighten(R.vigilLight, darkest);
     case 'kindle': return Math.min(R.kindleMax, R.kindleBase + Math.floor(Math.min(R.kindleLight, view.you.light) / 2)) + (view.you.light >= R.kindleLight ? 3 : 0);
     case 'sanctuary': return healAll(R.sanctuaryRegen * (R.sanctuarySecs / R.pulse)) * 0.8;
@@ -100,9 +100,12 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'penance': return 4 + (LIGHT_MAX - view.you.light) / 6;
     case 'rapture': return burn((R.rapture + (LIGHT_MAX - view.you.light) / 2) * fervour);
     // Alchemist
-    case 'acid': return R.acid + R.acidBonus * 2;
+    case 'acid': return R.acid + R.acidBonus * (enemies.some((m) => m.st.poison?.length) ? 4 : 2);
     case 'fumes': return n * R.fumesPoison * 2;
-    case 'mist': return healAll(R.mist);
+    case 'contagion': {
+      const most = Math.max(0, ...enemies.map((m) => (m.st.poison ?? []).reduce((t, pz) => t + pz.dmg * pz.rounds, 0)));
+      return most ? most * (n - 1) * 0.8 + 1 : R.contagionPoison * R.contagionTurns;
+    }
     case 'elixir': return view.you.elixir ? 0 : 3;
     case 'catalyst': return n * 2 + enemies.reduce((s, m) => s + (m.st.poison ?? []).reduce((t, p) => t + p.dmg, 0), 0);
     case 'opus': return burn(12);

@@ -47,7 +47,7 @@ export type CardId =
   // Zealot
   | 'scourge' | 'absolution' | 'sins' | 'martyrdom' | 'penance' | 'rapture'
   // Alchemist
-  | 'acid' | 'fumes' | 'mist' | 'elixir' | 'catalyst' | 'opus'
+  | 'acid' | 'fumes' | 'contagion' | 'elixir' | 'catalyst' | 'opus'
   // Gear type cards (Common / Uncommon)
   | 'stab1' | 'stab2' | 'thump1' | 'thump2' | 'soothe1' | 'soothe2' | 'sidestep1' | 'sidestep2'
   | 'braceup1' | 'braceup2' | 'wick1' | 'wick2' | 'mutter1' | 'mutter2' | 'evillook1' | 'evillook2'
@@ -104,10 +104,10 @@ export const CARD_RULES = {
   danceSecs: 10, danceSneakSecs: 15,
   // ---- Lampbearer ----
   flare: 4, flareLight: 10,
-  mend: 8,
+  mend: 8, mendBright: 12,
   vigilLight: 15,
   kindleBase: 4, kindleLight: 20, kindleMax: 14,
-  sanctuaryRegen: 2, sanctuarySecs: 10,
+  sanctuaryRegen: 2, sanctuarySecs: 10, sanctuaryBrightSecs: 16,
   dawnHeal: 15,
   // ---- Sorceress ----
   hex: 5, hexedTurns: 2, hexedBonus: 1,
@@ -137,7 +137,7 @@ export const CARD_RULES = {
   // ---- Alchemist ----
   acid: 5, acidTurns: 2, acidBonus: 2,
   fumesPoison: 3, fumesTurns: 3,
-  mist: 9,
+  contagionPoison: 2, contagionTurns: 3,
   catalystPoison: 2, catalystTurns: 2,
   opusItems: 4,
   // ---- Gear ----
@@ -196,10 +196,10 @@ export const CARDS: Record<CardId, CardDef> = {
   dance: card('dance', 'Blade Dance', 1, ['hasten'], 'none', `For ${R.danceSecs}s every card you play takes 1s, and Backstab always crits. Sneaking: ${R.danceSneakSecs}s.`, true),
   // ---- Lampbearer: light as a resource ----
   flare: card('flare', 'Flare', 4, ['light', 'strike'], 'none', `${R.flare} dmg to every enemy; +${R.flareLight} light to everyone here.`),
-  mend: card('mend', 'Mend', 4, ['mend'], 'ally', `Heal an ally (or you) ${R.mend} and cure Poison and Bleed.`),
+  mend: card('mend', 'Mend', 4, ['mend'], 'ally', `Heal an ally (or you) ${R.mend} and cure Poison and Bleed. Bright: heal ${R.mendBright}.`),
   vigil: card('vigil', 'Vigil', 4, ['light'], 'ally', `An ally (or you) +${R.vigilLight} light. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.`),
   kindle: card('kindle', 'Kindle', 5, ['light', 'strike'], 'enemy', `Spend up to ${R.kindleLight} of your light: ${R.kindleBase} dmg +1 per 2 light spent (at most ${R.kindleMax}); Blind it if you spent the full ${R.kindleLight}.`),
-  sanctuary: card('sanctuary', 'Sanctuary', 5, ['mend', 'light'], 'none', `Every ally: Regen ${R.sanctuaryRegen} every ${R.pulse}s for ${R.sanctuarySecs}s.`),
+  sanctuary: card('sanctuary', 'Sanctuary', 5, ['mend', 'light'], 'none', `Every ally: Regen ${R.sanctuaryRegen} every ${R.pulse}s for ${R.sanctuarySecs}s. Bright: for ${R.sanctuaryBrightSecs}s.`),
   dawn: card('dawn', 'Dawn', 6, ['light', 'mend'], 'none', `Every ally: light to full, heal ${R.dawnHeal}. Every enemy is Blinded.`, true),
   // ---- Sorceress: Hex, blood and familiars; each "Anima:" clause spends 1 Anima, if she has any (M16) ----
   hex: card('hex', 'Hex', 3.5, ['hex'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack. Anima: two stacks.`),
@@ -230,9 +230,9 @@ export const CARDS: Record<CardId, CardDef> = {
   penance: card('penance', 'Penance', 2, ['guard', 'light'], 'none', `Snuff ${R.penanceLight} of your light, then gain Shield equal to a third of the light you lack.`),
   rapture: card('rapture', 'Rapture', 5, ['light', 'strike'], 'enemy', `Every other ally gains up to ${R.raptureLight} light, taken from yours; deal ${R.rapture} + half the light you lack to one enemy.`, true),
   // ---- Alchemist: brews and poisons ----
-  acid: card('acid', 'Acid Flask', 4, ['venom'], 'enemy', `${R.acid} dmg and a stack of Acid (−${R.acidBonus} Block each; one fades every ${R.acidTurns} of its turns).`),
+  acid: card('acid', 'Acid Flask', 4, ['venom'], 'enemy', `${R.acid} dmg and a stack of Acid (−${R.acidBonus} Block each; one fades every ${R.acidTurns} of its turns); two stacks if it's Poisoned.`),
   fumes: card('fumes', 'Fumes', 5, ['venom'], 'none', `Poison ${R.fumesPoison} for ${R.fumesTurns} turns on every enemy.`),
-  mist: card('mist', 'Healing Mist', 5, ['mend'], 'none', `Heal every ally ${R.mist}.`),
+  contagion: card('contagion', 'Contagion', 3, ['venom'], 'enemy', `Every Poison on an enemy spreads: each other enemy gets a copy. With none on it, Poison ${R.contagionPoison} for ${R.contagionTurns} turns on it.`),
   elixir: card('elixir', 'Elixir', 2, ['mend'], 'ally', "An ally's (or your) next item has double effect."),
   catalyst: card('catalyst', 'Catalyst', 4, ['venom'], 'none', `Every enemy gets Poison ${R.catalystPoison} for ${R.catalystTurns} turns; then every Poison and Bleed on every enemy ticks once now.`),
   opus: card('opus', 'Opus Magnum', 4, ['mend', 'venom'], 'none', `Fill up to ${R.opusItems} empty pack slots with random consumables; your items take 1s for the rest of the fight.`, true),
@@ -349,7 +349,7 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   rapture: art('swirl', 'sun'),
   acid: art('flask', 'venom'),
   fumes: art('venom'),
-  mist: art('heal', 'flask'),
+  contagion: art('venom', 'swirl'),
   elixir: art('flask', 'star'),
   catalyst: art('venom', 'star'),
   opus: art('flask', 'cards'),
@@ -415,7 +415,7 @@ export const CLASS_CARDS: Record<ClassId, CardId[]> = {
   undertaker: ['spade', 'rites', 'raise', 'explode', 'embalm', 'graves'],
   bellwright: ['clang', 'knell', 'peal', 'ringout', 'echo', 'reverberate'],
   zealot: ['scourge', 'absolution', 'sins', 'martyrdom', 'penance', 'rapture'],
-  alchemist: ['acid', 'fumes', 'mist', 'elixir', 'catalyst', 'opus'],
+  alchemist: ['acid', 'fumes', 'contagion', 'elixir', 'catalyst', 'opus'],
 };
 
 /** Gear kinds that share a card: the six Gear types plus amulets and rings. */
