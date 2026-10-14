@@ -1,6 +1,6 @@
 import {
   DEATH_TIMER, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, LIGHT_BRIGHT, lightStage, forgetChance, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
-  skillInfo, skillTargeted, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
+  skillInfo, skillTargeted, stealthOf, CLASS_RULES, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
 import { beep } from './sound';
@@ -116,8 +116,12 @@ export class Hud {
     const talent = talentStars(you.talents);
     // Village Rites for this run: the Resource's glyph, hover for what it does.
     const rites = (you.rites ?? []).map((r) => ` <span class="rite-tag" title="${escape(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`).join('');
-    // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does).
-    const status = statusIcons(you.st, time).join('');
+    // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does). Anima and Sneak too.
+    const status = [
+      ...(you.anima > 0 ? [`<span title="${escape(`Anima ${you.anima}: each is ${-CLASS_RULES.animaSpeed}s off your Speed; your cards spend it for their Anima bonus.`)}">✧${you.anima}</span>`] : []),
+      ...(you.sneaking ? [`<span title="${escape(`Sneaking: Speed ×${CLASS_RULES.sneakSpeedMult}; Stealth ${stealthOf(you).toFixed(1)} (your light ÷ ${CLASS_RULES.stealthPerLight}).`)}">👣</span>`] : []),
+      ...statusIcons(you.st, time),
+    ].join('');
     setHtml($('hero-name'), `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>${status ? ` <span class="hero-status">${status}</span>` : ''}`);
 
     // Injuries beside your HP: a small drop for each Minor, a small and a big one for each Major.

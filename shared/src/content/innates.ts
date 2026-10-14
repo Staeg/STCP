@@ -17,6 +17,8 @@ export const CLASS_RULES = {
   stealthPerLight: 15,
   /** Sneaking multiplies the Cutthroat's Speed by this (walking and the first action). */
   sneakSpeedMult: 2,
+  /** Sorceress's Anima (user, 2026-10-14): Speed per point (lasts the run, no cap; Speed never goes below 2s anyway). */
+  animaSpeed: -0.5,
 };
 
 /**
@@ -28,6 +30,9 @@ export const FIELD_RULES = {
   formUpShield: 5,
   formUpCap: 15,
   formUpCooldown: 30,
+  /** Sorceress's Siphon the Flame: this much of her own light for 1 Anima. */
+  siphonLight: 20,
+  siphonCooldown: 20,
   /** Lampbearer's Rekindle: every hero in the room +25 light. */
   rekindleLight: 25,
   rekindleCooldown: 60,

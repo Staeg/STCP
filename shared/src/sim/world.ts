@@ -123,6 +123,8 @@ export interface Hero {
   fieldReady: Partial<Record<FieldSkill, number>>;
   /** The Cutthroat's Sneak (M16), toggled out of fights: Speed ×2, Ambushes, Sneak Past, and their cards' Sneaking bonuses. */
   sneaking: boolean;
+  /** The Sorceress's Anima (M16): from Hexed stacks on the dying, spent by her cards; each point quickens her. */
+  anima: number;
   /** Dead heroes: gold that went home anyway (an Undertaker walked them out Risen, or the Tome Rite). */
   legacy: number;
   /** Dead heroes: an Undertaker has Raised them (only ever once; after that their things are anyone's). */
@@ -473,6 +475,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     elixir: false,
     fieldReady: {},
     sneaking: false,
+    anima: 0,
     legacy: 0,
     raised: false,
     color: freeColor(world, opts.cls),

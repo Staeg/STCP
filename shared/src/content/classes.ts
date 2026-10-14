@@ -27,7 +27,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   lampbearer: { id: 'lampbearer', name: 'Lampbearer', role: 'Healer & light', color: '#e8c547', maxHp: 45, speed: 5,
     innate: { name: 'Beacon', desc: 'Their own light fades half as fast.' } },
   sorceress: { id: 'sorceress', name: 'Sorceress', role: 'Curses & blood', color: '#a66ad9', maxHp: 36, speed: 4,
-    innate: { name: 'Anima', desc: 'Coming with the Sorceress rework (M16).' } },
+    innate: { name: 'Anima', desc: `Every Hexed stack an enemy carries when it dies gives her 1 Anima, for the rest of the run. Each Anima is ${-R.animaSpeed}s off her Speed. Her cards spend it by themselves, 1 at a time, for their Anima bonus.` } },
   undertaker: { id: 'undertaker', name: 'Undertaker', role: 'Executions & the dead', color: '#8fa39a', maxHp: 54, speed: 6,
     innate: { name: 'Mortician', desc: 'Digs through rubble in one turn. Raises each fallen ally once: walk them out and their Village keeps what they carry. Allies falling cost them no light.' } },
   bellwright: { id: 'bellwright', name: 'Bellwright', role: 'Tempo & the call', color: '#d98a3a', maxHp: 63, speed: 7,

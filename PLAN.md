@@ -554,7 +554,8 @@ My calls so far: field abilities are on **M** and **N** out of a fight (the Bell
 - [x] Field abilities (engine, bar, bots) and the new Innates; Warden.
 Sneak, my calls: it can be flipped in a tunnel too (a walk already under way keeps its time). Anyone else joining the fight before the Cutthroat's first action ends the Ambush, and the monsters' timers start fresh then, as they do when the Cutthroat acts. Sneak Past takes Flee's 3s and costs no light. The bar shows Sneak's state and your Stealth; out of a fight the HUD says when you stand unnoticed among monsters.
 - [x] Cutthroat: Sneak, Ambush, Sneak Past, the Sneaking cards.
-- [ ] Sorceress: Anima.
+Anima, my calls: a card that kills before laying its Hexed (a lethal Hex) gives only the stacks already there. Curse of Ages spends all her Anima (its clause), the rest spend one. A Risen Sorceress or one at another fight gets nothing; only Sorceresses in the fight where it dies. Bots Siphon when their light is 60 or more. Bots now answer a Call for Help before using a field ability.
+- [x] Sorceress: Anima.
 - [ ] Undertaker: permanent undead, decay, Unearth, Embalm.
 - [ ] Bellwright: Clang as a resource, Ring In.
 - [ ] Lampbearer, Zealot, Alchemist (Long Reach, Brew, Contagion).

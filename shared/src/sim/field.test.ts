@@ -224,3 +224,16 @@ describe('Sneak (Cutthroat)', () => {
     expect(999 - m.hp).toBe(CARD_RULES.backstab * CARD_RULES.backstabSneakCrit);
   });
 });
+
+describe('Siphon the Flame (Sorceress)', () => {
+  it('burns 20 light for 1 Anima; refused with too little light', () => {
+    const { world, h } = quiet(['sorceress']);
+    h.light = 50;
+    use(world, 'h0', 'siphon');
+    expect(h.anima).toBe(1);
+    expect(h.light).toBeLessThan(31);
+    run(world, F.siphonCooldown);
+    h.light = 10;
+    expect(checkSkill(world, h, 'siphon')).toMatch(/need/);
+  });
+});

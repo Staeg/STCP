@@ -1569,6 +1569,16 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
     events.push({ actor: m.id, kind: 'death', target: m.id, text: `${ENEMIES[m.type].name} is slain.` });
     const enc = world.encounters[m.room];
     const slain: Slain = { id: m.id, type: m.type, maxHp: m.maxHp - carried(m, 'maxHp'), dmgMult: m.dmgMult, again: m.again, straggler: m.straggler };
+    // Anima (M16): every Sorceress in the fight takes in the Hexed stacks it died with.
+    const hexed = m.st.hexed?.length ?? 0;
+    if (enc && hexed > 0) {
+      for (const id of enc.heroes) {
+        const s = world.heroes[id];
+        if (s?.cls !== 'sorceress' || !inDungeon(s)) continue;
+        s.anima += hexed;
+        events.push({ actor: s.id, kind: 'status', target: s.id, text: `${s.name} draws in its curse. (+${hexed} Anima, ${s.anima} in all)` });
+      }
+    }
     if (enc) {
       enc.lastSlain = slain;
       (enc.slain ??= []).push(slain);

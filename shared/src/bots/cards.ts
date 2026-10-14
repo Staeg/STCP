@@ -72,7 +72,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'wither': return n * 3;
     case 'pact': return allies.every((a) => a.hp > R.pactCost * 2) ? R.pact * n - allies.length * 2 : 0;
     case 'familiar': return 7;
-    case 'bargain': return me.hp > R.bargainHp * 3 ? 3 : 0;
+    case 'bargain': return me.hp > R.bargainHp * 3 ? 5 : 0;
     case 'ages': return burn(n * 8);
     // Undertaker
     case 'spade': return R.spade + view.you.spadeBonus;

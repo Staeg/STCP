@@ -168,6 +168,8 @@ export interface CombatUnitView {
   st: Statuses;
   /** Heroes only. */
   light?: number;
+  /** A Sorceress's Anima (M16). */
+  anima?: number;
   /** The risen: own turns left (none for the Uprising's dead, who never crumble). */
   turnsLeft?: number;
   cls?: ClassId;
@@ -546,6 +548,7 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     const id = h.id;
     return {
       id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, light: Math.round(h.light), cls: h.cls, color: h.color,
+      ...(h.anima > 0 ? { anima: h.anima } : {}),
       downed: h.downedAt !== null,
       dying: h.downedAt !== null ? Math.max(0, DEATH_TIMER - (world.time - h.downedAt)) : undefined,
       speed: enc.span?.[id] ?? speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,

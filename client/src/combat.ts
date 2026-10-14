@@ -1,5 +1,5 @@
 import {
-  CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, LIGHT_LOSS, LIGHT_MAX, SCHOOLS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
+  CARD_RULES, CARDS, CLASS_RULES, cardSource, deckList, FLEE_CHANCE, handSize, LIGHT_LOSS, LIGHT_MAX, SCHOOLS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
   FIELD_SKILLS, skillCooldown, skillWait, stealthOf, type FieldSkill, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -448,6 +448,7 @@ export class CombatUi {
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
     const icons = [
       u.kind === 'hero' && u.light !== undefined && u.light < LIGHT_MAX && iconNum('light', u.light, `Light ${u.light}/${LIGHT_MAX}.`),
+      u.anima && sym(`✧${u.anima}`, `Anima ${u.anima}: each is ${-CLASS_RULES.animaSpeed}s off her Speed; her cards spend it for their Anima bonus.`),
       u.carry && sym(ITEMS[u.carry].glyph, `Carrying ${ITEMS[u.carry].name}: ${ITEMS[u.carry].desc} Dropped when it falls.`),
       u.kind === 'monster' && !st.acted && sym('◌', "Hasn't acted yet: Backstab crits it for double damage."),
       ...statusIcons(st, time),

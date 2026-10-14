@@ -18,6 +18,7 @@ export function botFieldSkill(view: PlayerView): Intent | null {
     && (view.rooms.find((r) => r.id === (c.a === here ? c.b : c.a))?.threat ?? 0) > 0);
   const use = (skill: FieldSkill): Intent => ({ type: 'skill', skill });
   if (ready('formup') && (you.st.shield ?? 0) < F.formUpCap - F.formUpShield) return use('formup');
+  if (ready('siphon') && you.light >= 60) return use('siphon');
   if (ready('rekindle') && (you.light < 60 || mates.some((a) => (a.light ?? 100) < 60))) return use('rekindle');
   if (ready('ringin') && threatNext) return use('ringin');
   if (ready('flagellate') && you.hp > you.maxHp * 0.6 && you.light > 50 && (threatNext || mates.some((a) => (a.light ?? 100) < 60))) return use('flagellate');

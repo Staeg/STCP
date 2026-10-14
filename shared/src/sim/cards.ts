@@ -133,6 +133,15 @@ export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardI
   }
 }
 
+/** The Sorceress's Anima (M16): an "Anima:" clause spends one, if she has any. Returns whether it did. */
+function anima(ctx: CardCtx): boolean {
+  const { h } = ctx;
+  if (h.anima <= 0) return false;
+  h.anima--;
+  ctx.events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name} spends Anima. (${h.anima} left)` });
+  return true;
+}
+
 /** "Your next card takes this much less" (cumulative until a card is played). */
 function quicken(h: Hero, cut: number) {
   h.st.quick = { ...(h.st.quick ?? { cut: 0 }), cut: (h.st.quick?.cut ?? 0) + cut };
@@ -498,15 +507,27 @@ function resolve(ctx: CardCtx) {
       const stacks = m.st.hexed?.length ?? 0;
       strike(ctx, m, R.hex * (1 + R.hexedBonus * stacks));
       debuff(ctx, m, 'hexed', R.hexedTurns);
+      if (world.monsters[m.id] && anima(ctx)) debuff(ctx, m, 'hexed', R.hexedTurns);
       if (world.monsters[m.id]) tell(`${name(m)} is Hexed (×${m.st.hexed?.length ?? 0}).`, 'status', m.id);
       return;
     }
-    case 'wither':
-      for (const m of enemies()) debuff(ctx, m, 'weak', R.witherTurns);
-      tell(`${h.name} withers every foe. (−50% damage per stack)`);
+    case 'wither': {
+      const hexed = anima(ctx);
+      for (const m of enemies()) {
+        debuff(ctx, m, 'weak', R.witherTurns);
+        if (hexed) debuff(ctx, m, 'hexed', R.hexedTurns);
+      }
+      tell(`${h.name} withers every foe. (−50% damage per stack${hexed ? '; Hexed too' : ''})`);
       return;
+    }
     case 'pact': {
       const price = hasTalent(h, 'bloodPrice');
+      // Anima: the pact is sealed with something other than blood.
+      if (anima(ctx)) {
+        tell(`${h.name} seals the pact with Anima instead of blood.`);
+        for (const m of enemies()) strike(ctx, m, R.pact);
+        return;
+      }
       const payers = price ? [h] : allies();
       const mult = price ? TALENT_RULES.bloodPriceMult : 1;
       for (const a of payers) {
@@ -530,22 +551,31 @@ function resolve(ctx: CardCtx) {
     }
     case 'familiar':
       summon(ctx, 'imp', 'binds');
+      if (anima(ctx)) summon(ctx, 'imp', 'binds');
       return;
     case 'bargain': {
       const cost = Math.min(h.hp - 1, afterBlock(h, R.bargainHp));
       if (cost > 0) h.hp -= cost;
+      h.anima++;
       h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
-      tell(`${h.name} strikes a mad bargain in blood. (−${Math.max(0, cost)} HP; next card 1s)`, 'damage', h.id, Math.max(0, cost));
+      tell(`${h.name} strikes a mad bargain in blood. (−${Math.max(0, cost)} HP; +1 Anima; next card 1s)`, 'damage', h.id, Math.max(0, cost));
       return;
     }
-    case 'ages':
+    case 'ages': {
+      // Anima: every bit of it goes into the curse.
+      const spent = h.anima > 0 ? h.anima : 0;
+      if (spent) {
+        h.anima = 0;
+        tell(`${h.name} pours all their Anima into the curse. (${spent})`, 'status', h.id);
+      }
       for (const m of enemies()) {
-        for (let i = 0; i < R.agesStacks; i++) (m.st.hexed ??= []).push(debuffTurns(h, R.hexedTurns));
+        for (let i = 0; i < R.agesStacks + spent; i++) (m.st.hexed ??= []).push(debuffTurns(h, R.hexedTurns));
         placed(ctx, 'hexed', m);
         delay(ctx, m, R.agesDelayPer * (m.st.hexed?.length ?? 0));
       }
       tell(`${h.name} lays the curse of ages on every foe.`);
       return;
+    }
     // ---- Undertaker ----
     case 'spade':
       strike(ctx, foe(), R.spade + h.spadeBonus);

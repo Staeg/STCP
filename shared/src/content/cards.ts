@@ -202,13 +202,13 @@ export const CARDS: Record<CardId, CardDef> = {
   kindle: card('kindle', 'Kindle', 5, ['light', 'strike'], 'enemy', `Spend up to ${R.kindleLight} of your light: ${R.kindleBase} dmg +1 per 2 light spent (at most ${R.kindleMax}); Blind it if you spent the full ${R.kindleLight}.`),
   sanctuary: card('sanctuary', 'Sanctuary', 5, ['mend', 'light'], 'none', `Every ally: Regen ${R.sanctuaryRegen} every ${R.pulse}s for ${R.sanctuarySecs}s.`),
   dawn: card('dawn', 'Dawn', 6, ['light', 'mend'], 'none', `Every ally: light to full, heal ${R.dawnHeal}. Every enemy is Blinded.`, true),
-  // ---- Sorceress: Hex, blood and familiars ----
-  hex: card('hex', 'Hex', 3.5, ['hex'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack.`),
-  wither: card('wither', 'Wither', 3, ['hex'], 'none', `Every enemy is Weak for ${R.witherTurns} turns (−50% damage per stack).`),
-  pact: card('pact', 'Blood Pact', 6, ['hex', 'strike'], 'none', `Every ally, you included, loses ${R.pactCost} HP (never below 1). ${R.pact} dmg to every enemy.`),
-  familiar: card('familiar', 'Bound Familiar', 5, ['conjure'], 'none', `Summon an Imp for this fight (its bite adds Hexed). At most ${R.familiarMax}; with more, heal your Imps instead.`),
-  bargain: card('bargain', 'Mad Bargain', 1, ['hex', 'hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1); your next card takes 1s.`),
-  ages: card('ages', 'Curse of Ages', 4, ['hex', 'hinder'], 'none', `Every enemy gains ${R.agesStacks} Hexed stacks, then is Delayed ${R.agesDelayPer}s per Hexed stack it carries.`, true),
+  // ---- Sorceress: Hex, blood and familiars; each "Anima:" clause spends 1 Anima, if she has any (M16) ----
+  hex: card('hex', 'Hex', 3.5, ['hex'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack. Anima: two stacks.`),
+  wither: card('wither', 'Wither', 3, ['hex'], 'none', `Every enemy is Weak for ${R.witherTurns} turns (−50% damage per stack). Anima: Hexed too.`),
+  pact: card('pact', 'Blood Pact', 6, ['hex', 'strike'], 'none', `Every ally, you included, loses ${R.pactCost} HP (never below 1). ${R.pact} dmg to every enemy. Anima: it costs nobody any HP.`),
+  familiar: card('familiar', 'Bound Familiar', 5, ['conjure'], 'none', `Summon an Imp for this fight (its bite adds Hexed). At most ${R.familiarMax}; with more, heal your Imps instead. Anima: two at once.`),
+  bargain: card('bargain', 'Mad Bargain', 1, ['hex', 'hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1): +1 Anima, and your next card takes 1s.`),
+  ages: card('ages', 'Curse of Ages', 4, ['hex', 'hinder'], 'none', `Every enemy gains ${R.agesStacks} Hexed stacks, then is Delayed ${R.agesDelayPer}s per Hexed stack it carries. Anima: spends all of it, +1 Hexed stack per Anima first.`, true),
   // ---- Undertaker: Corpses and executions ----
   spade: card('spade', 'Spade', 5, ['strike'], 'enemy', `${R.spade} dmg, +${R.spadePerRites} for every enemy your Last Rites has killed this run.`),
   rites: card('rites', 'Last Rites', 5, ['strike'], 'enemy', `Kill an enemy below ${R.ritesBelow * 100}% HP outright; otherwise (or a Boss) ${R.rites} dmg.`),

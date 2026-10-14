@@ -88,12 +88,12 @@ export function botThink(view: PlayerView, mem: BotMemory): Intent | null {
   if (use) return use;
   const ev = botEvent(view, mem);
   if (ev) return ev;
-  const skill = botFieldSkill(view);
-  if (skill) return skill;
 
   // A call for help: drop everything for it if we can get there in time, else ignore it.
   const callGo = answerCall(view, mem, here);
   if (callGo) return callGo;
+  const skill = botFieldSkill(view);
+  if (skill) return skill;
 
   const exit = view.rooms.find((r) => r.kind === 'exit');
   if (mem.escortReturnAt !== null && !view.leading.length) {

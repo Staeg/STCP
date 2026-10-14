@@ -50,6 +50,8 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
     const n = h.items.filter((id) => ITEMS[id].kind === 'consumable').length;
     if (n) parts.push({ label: EVENTS.alacrity.name, amount: n * ELITE_EVENTS.alacrityPerItem });
   }
+  // Anima (the Sorceress, M16): every point quickens her.
+  if (h.anima > 0) parts.push({ label: `Anima ×${h.anima}`, amount: h.anima * CLASS_RULES.animaSpeed });
   // Sneaking (the Cutthroat, M16): twice as slow, walking and to the first action.
   if (h.sneaking) {
     const total = parts.reduce((s, p) => s + p.amount, 0);

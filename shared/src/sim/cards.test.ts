@@ -237,18 +237,42 @@ describe('Sorceress', () => {
     expect(heroes[1].hp).toBe(heroes[1].maxHp - R.pactCost);
   });
 
-  it('Bound Familiar: up to two Imps, then it heals them; Mad Bargain makes the next card 1s; Curse of Ages adds 2 Hexed and Delays per stack', () => {
+  it('Bound Familiar: up to two Imps, then it heals them; Mad Bargain: Anima and a 1s next card; Curse of Ages spends all Anima on Hexed, then Delays per stack', () => {
     const { world, h, enc, monsters } = fight(['sorceress']);
     play(world, h, 'familiar');
     play(world, h, 'familiar');
     play(world, h, 'familiar');
     expect(enc.legion!.filter((r) => r.type === 'imp')).toHaveLength(2);
+    const hp = h.hp;
     play(world, h, 'bargain');
+    expect(h.hp).toBe(hp - R.bargainHp);
+    expect(h.anima).toBe(1);
     expect(cardTime(world, enc, h, 'pact')).toBe(1);
     const due = enc.next[monsters[0].id];
     play(world, h, 'ages');
-    expect(monsters[0].st.hexed).toHaveLength(R.agesStacks);
-    expect(enc.next[monsters[0].id]).toBeCloseTo(due + R.agesStacks * R.agesDelayPer);
+    expect(h.anima).toBe(0);
+    expect(monsters[0].st.hexed).toHaveLength(R.agesStacks + 1);
+    expect(enc.next[monsters[0].id]).toBeCloseTo(due + (R.agesStacks + 1) * R.agesDelayPer);
+  });
+
+  it('Anima: the Hexed stacks a foe dies with feed it; each point quickens her; her cards spend it one at a time', () => {
+    const { world, heroes, h, enc, monsters } = fight(['sorceress', 'warden'], ['ghoul', 'ghoul']);
+    const [a, b] = monsters;
+    const speed = speedParts(h, world.time).reduce((t, p) => t + p.amount, 0);
+    a.st.hexed = [2, 2, 2];
+    a.hp = 1;
+    play(world, h, 'hex', a.id);
+    expect(world.monsters[a.id]).toBeUndefined();
+    expect(h.anima).toBe(3); // the Hex kills before it lays a stack of its own
+    expect(speedParts(h, world.time).reduce((t, p) => t + p.amount, 0)).toBeCloseTo(speed - 1.5);
+    play(world, h, 'hex', b.id);
+    expect(b.st.hexed).toHaveLength(2);
+    expect(h.anima).toBe(2);
+    const hp = heroes[1].hp;
+    play(world, h, 'pact');
+    expect(heroes[1].hp).toBe(hp);
+    expect(h.anima).toBe(1);
+    expect(enc.events.some((e) => e.text.includes('spends Anima'))).toBe(true);
   });
 });
 
