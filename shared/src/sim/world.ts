@@ -27,7 +27,7 @@ import { emptyCodex, TWIST_IDS, TWISTS, type Codex } from '../content/codex';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
-import { checkSkill, fieldSkillsOf, hearsToll, useSkill, type FieldSkill } from './skills';
+import { checkSkill, fieldSkillsOf, hearsToll, toggleSneak, useSkill, type FieldSkill } from './skills';
 import {
   activeItems, castVote, claimItem, equipFromPack, giveItem, wants, dropGold, dropItem, goldFor, pileGold, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
@@ -121,6 +121,8 @@ export interface Hero {
   elixir: boolean;
   /** Field abilities (M16): the game time each one is ready again (absent: ready). */
   fieldReady: Partial<Record<FieldSkill, number>>;
+  /** The Cutthroat's Sneak (M16), toggled out of fights: Speed ×2, Ambushes, Sneak Past, and their cards' Sneaking bonuses. */
+  sneaking: boolean;
   /** Dead heroes: gold that went home anyway (an Undertaker walked them out Risen, or the Tome Rite). */
   legacy: number;
   /** Dead heroes: an Undertaker has Raised them (only ever once; after that their things are anyone's). */
@@ -470,6 +472,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     spadeBonus: 0,
     elixir: false,
     fieldReady: {},
+    sneaking: false,
     legacy: 0,
     raised: false,
     color: freeColor(world, opts.cls),
@@ -801,6 +804,8 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       const skill = intent.skill ?? fieldSkillsOf(hero)[0];
       const err = skill ? checkSkill(world, hero, skill) : 'You have no such skill.';
       if (err) return notify(world, hero, err);
+      // Sneak is a toggle: at once, and not a turn.
+      if (skill === 'sneak') return toggleSneak(world, hero);
       hero.channel = null;
       hero.queuedEvent = null;
       hero.queuedItem = null;

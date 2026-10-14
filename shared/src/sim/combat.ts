@@ -81,6 +81,8 @@ export interface Statuses {
   conjureHalf?: boolean;
   /** For the rest of this fight: items take the quick time (Opus Magnum). */
   quickItems?: boolean;
+  /** Smoke Bomb while Sneaking: the Cutthroat's next Flee is a Sneak Past (a charge). */
+  sneakPast?: boolean;
   // ---- Until someone's next turn ----
   /** Lampbearer's lone Vigil: every enemy action sets off a Flare, until this hero's next turn. */
   vigil?: string;
@@ -242,6 +244,11 @@ export interface Encounter {
   lastDebuff?: Record<string, DebuffKind>;
   /** Each unit's current wait, in seconds (for the timer rings): a hero's last card, a monster's Speed. */
   span?: Record<string, number>;
+  /**
+   * An Ambush (the Cutthroat's Sneak, M16): this hero walked in Sneaking, alone, unseen. No monster acts until their
+   * first action; then every monster's timer starts fresh.
+   */
+  ambush?: string;
 }
 
 /** One line of a fight's play-by-play: seconds since the fight began, and what happened. */
@@ -454,9 +461,16 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     world.chronicle.push({ time: world.time, text: fightSummary(world, enc), fight: { room, lines: enc.history! } });
     say(world, enc, `Ambush! ${enc.foes.join(', ')}.`);
     for (const id of enc.heroes) onEnlist(world, enc, world.heroes[id]);
+    const sneak = ambusher(world, enc);
+    if (sneak) {
+      enc.ambush = sneak.id;
+      say(world, enc, `${sneak.name} is among them before they know it. Nothing moves until ${sneak.name} does.`);
+    }
   } else {
     // Arriving in the same moment it began isn't late.
     if (!enc.heroes.includes(hero.id) && world.time > enc.startedAt) (enc.back ??= []).push(hero.id);
+    // Someone else walked in: the Cutthroat's cover is blown.
+    if (enc.ambush && enc.ambush !== hero.id) endAmbush(world, enc);
     enlist(world, enc, hero);
     say(world, enc, `${hero.name} joins the fight.`);
     if (enc.chron !== undefined) world.chronicle[enc.chron].text = fightSummary(world, enc);
@@ -479,6 +493,41 @@ function unnoticed(world: World, room: number): boolean {
     notify(world, h, 'Your softstep cloak hushes you: the monsters here have not noticed you.');
   }
   return true;
+}
+
+/** The Cutthroat's Stealth (M16, user): their light ÷ 15. Sneaking past needs it below every enemy's Speed. */
+export function stealthOf(h: Pick<Hero, 'light'>): number {
+  return h.light / CLASS_RULES.stealthPerLight;
+}
+
+/** A Sneaking hero alone in a fight that just started, whose Stealth is below every enemy's Speed: an Ambush. */
+function ambusher(world: World, enc: Encounter): Hero | null {
+  const standing = enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  if (standing.length !== 1 || !standing[0].sneaking) return null;
+  const h = standing[0];
+  return monstersIn(world, enc.room).every((m) => stealthOf(h) < monsterSpeed(enc, m)) ? h : null;
+}
+
+/** The Ambush is over (the Cutthroat acted, or someone else came in): every monster's timer starts now. */
+function endAmbush(world: World, enc: Encounter) {
+  if (!enc.ambush) return;
+  delete enc.ambush;
+  for (const m of monstersIn(world, enc.room)) {
+    if (enc.next[m.id] === undefined) continue;
+    enc.next[m.id] = at(world.time + monsterSpeed(enc, m, world.time));
+    (enc.span ??= {})[m.id] = monsterSpeed(enc, m, world.time);
+  }
+}
+
+/**
+ * Sneak Past (M16, user): a Sneaking Cutthroat alone in a fight, on their first turn (or with a Smoke Bomb's charge),
+ * flees by simply not being there: the fight ends and they stay in the room, unnoticed. `acting`: asked during that
+ * turn (the turn already counts as taken).
+ */
+export function canSneakPast(world: World, enc: Encounter, h: Hero, acting = false): boolean {
+  if (!h.sneaking || !isConscious(h)) return false;
+  if (enc.heroes.some((id) => id !== h.id && isConscious(world.heroes[id]))) return false;
+  return (enc.turns?.[h.id] ?? 0) <= (acting ? 1 : 0) || !!h.st.sneakPast;
 }
 
 /** The Bellwright gains Clang stacks (every card quicker); the timer starts over for all of them. */
@@ -779,6 +828,8 @@ export function nextUp(world: World, enc: Encounter, anyTime = false): Unit | nu
   let best: (typeof units)[number] | null = null;
   for (const u of units) {
     if (u.t === undefined || (!anyTime && u.t > world.time + 1e-9)) continue;
+    // An Ambush: the monsters haven't noticed yet.
+    if (enc.ambush && u.kind === 'monster') continue;
     if (!best || u.t < best.t!) best = u; // strict, so the earlier unit in the order wins a tie
   }
   return best;
@@ -1175,6 +1226,8 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   } else {
     wait = heroAct(world, enc, h, choice, events);
   }
+  // The Ambush ends with the Cutthroat's first action: now the monsters notice.
+  if (enc.ambush === h.id) endAmbush(world, enc);
   if (isConscious(h) && h.encounter === enc.room) {
     enc.next[h.id] = at(world.time + wait);
     (enc.span ??= {})[h.id] = Math.max(wait, 0.1);
@@ -1366,6 +1419,15 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
     return actionTime(h, 'brace');
   }
   if (c.action === 'flee') {
+    // Sneak Past: the fight simply never happens for them, and they stay where they are, unnoticed.
+    if (canSneakPast(world, enc, h, true)) {
+      delete enc.ambush;
+      leaveEncounter(world, enc, h);
+      h.unnoticedIn = enc.room;
+      events.push({ actor: h.id, kind: 'flee', text: `${h.name} slips past unseen.` });
+      notify(world, h, 'You slip past them, unseen. They don’t know you’re here: turn Sneak off (or let someone walk in) and the fight is on.');
+      return actionTime(h, 'flee');
+    }
     if (sureFlee(world, h.st) || rng.chance(FLEE_CHANCE)) {
       if (enc.room === world.dungeon.exit) {
         leaveEncounter(world, enc, h);

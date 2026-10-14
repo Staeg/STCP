@@ -1,4 +1,5 @@
 import { CLASSES } from '../content/classes';
+import { CLASS_RULES } from '../content/innates';
 import { MIN_SPEED } from '../content/constants';
 import { CLASS_EVENTS, ELITE_EVENTS, EVENTS, EVENT_SEEDING } from '../content/events';
 import { GEAR_SLOTS, ISSUED_WEIGHT, ITEMS } from '../content/items';
@@ -48,6 +49,11 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   if (h.elite.alacrity) {
     const n = h.items.filter((id) => ITEMS[id].kind === 'consumable').length;
     if (n) parts.push({ label: EVENTS.alacrity.name, amount: n * ELITE_EVENTS.alacrityPerItem });
+  }
+  // Sneaking (the Cutthroat, M16): twice as slow, walking and to the first action.
+  if (h.sneaking) {
+    const total = parts.reduce((s, p) => s + p.amount, 0);
+    parts.push({ label: 'Sneaking', amount: total * (CLASS_RULES.sneakSpeedMult - 1) });
   }
   // Sinful Sacrament: the fastest there is, whatever else would slow you.
   if (h.elite.sacrament) {

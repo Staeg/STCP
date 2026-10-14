@@ -13,6 +13,10 @@ export const CLASS_RULES = {
   tollDaze: 7,
   /** Zealot's Fervour: +1% damage per point of light below full (user, 2026-10-14; was +1.5% per stress). */
   zealotDmgPerDark: 0.01,
+  /** Cutthroat's Sneak (user, 2026-10-14): Stealth is light ÷ this; an Ambush needs it below every enemy's Speed. */
+  stealthPerLight: 15,
+  /** Sneaking multiplies the Cutthroat's Speed by this (walking and the first action). */
+  sneakSpeedMult: 2,
 };
 
 /**

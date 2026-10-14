@@ -1,6 +1,6 @@
 import {
   CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, LIGHT_LOSS, LIGHT_MAX, SCHOOLS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
-  FIELD_SKILLS, skillCooldown, skillWait, type FieldSkill, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
+  FIELD_SKILLS, skillCooldown, skillWait, stealthOf, type FieldSkill, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { TimelineStrip, unitSprite } from './timeline';
@@ -189,6 +189,7 @@ export class CombatUi {
     if (me?.downed) status = 'You are down! An ally must revive you.';
     else if (this.aimRoom) status = `${CARDS[this.aimRoom].name}: click a room on the map.`;
     else if (this.targeting) status = 'Choose a target (defaults to the leftmost)';
+    else if (enc.ambush && !enc.yourChoice) status = 'Ambush! Nothing moves until you do. Pick your card (or Sneak Past).';
     else if (enc.yourChoice) status = `Next: ${me?.choice ?? 'ready'}. You can change it until then.`;
     else status = `Pick your next card! (defaults to ${this.fallbackName(enc)})`;
     const header = `<div class="cb-head">
@@ -317,7 +318,9 @@ export class CombatUi {
     const actions = `<div class="cb-actions hand">${cards}${pile}</div>
       <div class="cb-actions basics">
       ${btn('revive', 'R', 'Revive', iconize(`Get a downed ally back up (30% HP). ${CARD_RULES.reviveTime}s.`), !enc.reviveTargets.length, 'revive')}
-      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). −${LIGHT_LOSS.flee} light. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
+      ${enc.sneakPast
+        ? btn('flee', 'F', 'Sneak Past', iconize(`Slip past unseen: the fight is off, and you stay here unnoticed (no loot or event while they're here). Turn Sneak off, or let anyone walk in, and it's on again. ${CARD_RULES.fleeTime}s.`), false, 'flee')
+        : btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). −${LIGHT_LOSS.flee} light. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
       ${btn('brace', 'B', 'Brace', iconize(`Take 30% less damage until your next action. ${CARD_RULES.braceTime}s.`), false, 'brace')}
       ${skills}
     </div>`;
@@ -357,12 +360,15 @@ export class CombatUi {
     const queued = you.queuedSkill?.skill === skill;
     const rung = skill === 'toll' && you.tolled;
     const wait = skillWait(view, you, skill);
-    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung && wait <= 0;
-    const cd = rung ? ' <span class="cd">rung</span>' : wait > 0 ? ` <span class="cd">${Math.ceil(wait)}s</span>` : '';
+    // Sneak is a toggle that works in tunnels too: show whether it's on, and your Stealth.
+    const toggle = skill === 'sneak';
+    const free = (toggle || you.pos.kind === 'room') && you.downedAt === null && !you.dead && !rung && wait <= 0;
+    const cd = toggle ? ` <span class="cd ${you.sneaking ? 'on' : ''}">${you.sneaking ? 'ON' : 'off'} · Stealth ${stealthOf(you).toFixed(1)}</span>`
+      : rung ? ' <span class="cd">rung</span>' : wait > 0 ? ` <span class="cd">${Math.ceil(wait)}s</span>` : '';
     const every = info.cooldown ? ` Cooldown ${skillCooldown(you, skill)}s.` : '';
     return `<button class="cb-act live ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="${skill}">
       <kbd>${SKILL_KEYS[i] ?? ''}</kbd> ${esc(info.name)}${cd}
-      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}<b>${esc(info.name)}</b> (field ability): ${iconize(info.desc)}${every} Uses your turn; only out of a fight.</div></button>`;
+      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}<b>${esc(info.name)}</b> (field ability): ${iconize(info.desc)}${every}${toggle ? '' : ' Uses your turn; only out of a fight.'}</div></button>`;
   }
 
   /** A field ability, clicked or its key pressed out of a fight. */

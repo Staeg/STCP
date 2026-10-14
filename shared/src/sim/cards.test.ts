@@ -166,12 +166,12 @@ describe('Cutthroat', () => {
     expect(b.st.poison).toEqual([{ dmg: R.envenomPoison, rounds: R.envenomTurns }]);
   });
 
-  it('Hand Signal hurries an ally and their next hit Exposes; Blade Dance makes every card 1s', () => {
+  it('Hand Signal hurries an ally (further out in the open) and their next hit Exposes; Blade Dance makes every card 1s', () => {
     const { world, heroes, h, enc, monsters } = fight(['cutthroat', 'warden']);
     const w = heroes[1];
     enc.next[w.id] = world.time + 600;
     play(world, h, 'signal', w.id);
-    expect(enc.next[w.id]).toBeCloseTo(world.time - 0.1 + 600 - R.signalHurry, 0);
+    expect(enc.next[w.id]).toBeCloseTo(world.time - 0.1 + 600 - R.signalLoudHurry, 0);
     expect(w.st.expose).toBe(true);
     play(world, w, 'bash');
     expect(monsters[0].st.exposed).toBe(R.exposed);

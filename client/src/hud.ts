@@ -325,8 +325,12 @@ function turnPlan(view: PlayerView): string {
     return `then you use ${skillInfo(you, skill).name}${who}`;
   }
   const next = you.path[0];
-  if (next === undefined) return 'pick a direction, or you wait a turn';
   const here = you.pos.kind === 'room' ? you.pos.room : -1;
+  if (next === undefined) {
+    return you.unnoticedIn === here && here >= 0
+      ? "unnoticed by the monsters here: slip on, or turn Sneak off and they're on you"
+      : 'pick a direction, or you wait a turn';
+  }
   const rubble = view.corridors.some((c) => c.collapsed && ((c.a === here && c.b === next) || (c.b === here && c.a === next)));
   const dig = you.cls === 'undertaker' ? speedOf(you, view.time) : ESCALATION.digTime;
   return rubble ? `then you dig toward ${name(next)} (${fmtSpeed(dig)})` : `arriving in ${name(next)}`;

@@ -3,7 +3,7 @@ import { hasTalent, TALENT_RULES } from '../content/talents';
 import { CLASS_RULES, FIELD_RULES as F } from '../content/innates';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { addClang, gainLight, inDungeon, isConscious, spendLight } from './combat';
+import { addClang, gainLight, inDungeon, isConscious, onHeroInRoom, spendLight, stealthOf } from './combat';
 import { dazeAll, lureToward } from './escalation';
 import { lightBy } from './gear';
 import { giveItem, hasSpace } from './loot';
@@ -15,7 +15,7 @@ import type { Hero, World } from './world';
  * fight. Like an event choice, it's picked now and happens when the hero's timer runs out, using up that turn. Each
  * has a cooldown in seconds (the Toll is once a run instead) that runs all the time, fights included.
  */
-export type FieldSkill = 'toll' | 'formup' | 'rekindle' | 'ringin' | 'flagellate' | 'brew';
+export type FieldSkill = 'toll' | 'formup' | 'sneak' | 'rekindle' | 'ringin' | 'flagellate' | 'brew';
 
 /** none: no target (every field skill now). */
 export type FieldTarget = 'none';
@@ -26,6 +26,8 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
     desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
   formup: { name: 'Form Up', target: 'none', cooldown: F.formUpCooldown,
     desc: `You and every ally in the room +${F.formUpShield} Shield (never past ${F.formUpCap}).` },
+  sneak: { name: 'Sneak', target: 'none', cooldown: 0,
+    desc: `On or off, at once and without using your turn. While Sneaking your Speed is doubled, and your cards get their Sneaking bonuses. Walk in on monsters Sneaking and alone, with Stealth (your light ÷ ${CLASS_RULES.stealthPerLight}) below every one's Speed, and it's an Ambush: none of them acts until you do. On your first turn, Flee becomes Sneak Past: the fight is off and you stay there unnoticed (no loot or event while they're there). Turning Sneak off there starts the fight.` },
   rekindle: { name: 'Rekindle', target: 'none', cooldown: F.rekindleCooldown,
     desc: `Every hero in the room, you included, +${F.rekindleLight} light.` },
   ringin: { name: 'Ring In', target: 'none', cooldown: F.ringInCooldown,
@@ -46,7 +48,7 @@ export function skillInfo(_h: Hero, skill: FieldSkill): { name: string; desc: st
 
 /** Each class's field ability (M16). */
 export const CLASS_SKILL: Partial<Record<Hero['cls'], FieldSkill>> = {
-  warden: 'formup', lampbearer: 'rekindle', bellwright: 'ringin', zealot: 'flagellate', alchemist: 'brew',
+  warden: 'formup', cutthroat: 'sneak', lampbearer: 'rekindle', bellwright: 'ringin', zealot: 'flagellate', alchemist: 'brew',
 };
 
 /** This hero's field abilities, in the order the bar shows them (keys M, N): the Bellwright's Toll first. */
@@ -80,6 +82,8 @@ function roomMates(world: World, h: Hero): Hero[] {
 /** Returns an error message, or null if the skill can be used. */
 export function checkSkill(world: World, h: Hero, skill: FieldSkill): string | null {
   if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
+  // Sneak flips on or off anywhere outside a fight, tunnels included.
+  if (skill === 'sneak') return h.encounter !== null ? 'Not in a fight.' : isConscious(h) ? null : 'You cannot.';
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
   if (h.encounter !== null) return 'Not in a fight.';
   if (skill === 'toll' && h.tolled) return 'You have already rung the bell this run.';
@@ -130,6 +134,20 @@ export function useSkill(world: World, h: Hero, skill: FieldSkill) {
       notify(world, h, `You brew a ${ITEMS[item].name}.`);
       return;
     }
+  }
+}
+
+/**
+ * Cutthroat: Sneak on or off (at once, no turn). Turned off where they stood unnoticed among monsters (a Sneak Past),
+ * the fight starts there and then.
+ */
+export function toggleSneak(world: World, h: Hero) {
+  h.sneaking = !h.sneaking;
+  if (h.sneaking) return notify(world, h, `You start Sneaking. (Speed ×${CLASS_RULES.sneakSpeedMult}; Stealth ${stealthOf(h).toFixed(1)})`);
+  notify(world, h, 'You stop Sneaking.');
+  if (h.pos.kind === 'room' && h.unnoticedIn === h.pos.room) {
+    h.unnoticedIn = null;
+    onHeroInRoom(world, h, h.pos.room);
   }
 }
 

@@ -552,7 +552,8 @@ Other cards that touched stress: Shrug (Cloth) is now **Trim the Wick** (Common 
 - [x] Stress out: Light stages and Forgetting, light gains and losses, items, events, enemies, the Village (Elder's Bless), the stress cards rewritten, client, bots, tests.
 My calls so far: field abilities are on **M** and **N** out of a fight (the Bellwright's Toll keeps M, Ring In is N) and greyed in a fight with their text on hover; their cooldown counts down on the button. A Long Reach Firebomb is thrown by clicking it, then a room next door on the map; the monsters it burns don't come looking. A Bandage used out of a fight goes to you if you're hurt, else to the most hurt ally you can reach. Bots use their field ability by a plain rule each (`bots/fielder.ts`): Form Up below 10 Shield, Rekindle when a lamp here is under 60, Ring In with monsters next door, Flagellate when healthy and bright, Brew when the pack has room. The Uprising's light cost only comes from the Uprising's own dead. Thornwall and Hold the Gate replace Vengeance (the status is gone).
 - [x] Field abilities (engine, bar, bots) and the new Innates; Warden.
-- [ ] Cutthroat: Sneak, Ambush, Sneak Past, the Sneaking cards.
+Sneak, my calls: it can be flipped in a tunnel too (a walk already under way keeps its time). Anyone else joining the fight before the Cutthroat's first action ends the Ambush, and the monsters' timers start fresh then, as they do when the Cutthroat acts. Sneak Past takes Flee's 3s and costs no light. The bar shows Sneak's state and your Stealth; out of a fight the HUD says when you stand unnoticed among monsters.
+- [x] Cutthroat: Sneak, Ambush, Sneak Past, the Sneaking cards.
 - [ ] Sorceress: Anima.
 - [ ] Undertaker: permanent undead, decay, Unearth, Embalm.
 - [ ] Bellwright: Clang as a resource, Ring In.

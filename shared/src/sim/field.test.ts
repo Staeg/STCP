@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { FIELD_RULES as F } from '../content/innates';
 import type { ClassId } from '../content/classes';
 import { neighbours } from '../dungeon/gen';
-import { monstersIn, onHeroInRoom, spawnGroup } from './combat';
+import { monstersIn, onHeroInRoom, spawnGroup, submitChoice } from './combat';
+import { CARD_RULES } from '../content/cards';
+import { speedOf } from './speed';
+import { setHand } from './testkit';
 import { checkSkill, fieldSkillsOf, skillWait } from './skills';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 
@@ -140,5 +143,84 @@ describe('Long Reach', () => {
     applyIntent(world, 'h0', { type: 'useItem', index: 0, target: 'h1' });
     run(world, 8);
     expect(heroes[1].hp).toBe(22);
+  });
+});
+
+describe('Sneak (Cutthroat)', () => {
+  /** A Cutthroat walking (being put) into a room with a Ghoul next door. */
+  function sneaker(light: number, sneak = true) {
+    const { world, h } = quiet(['cutthroat']);
+    const next = neighbours(world.dungeon, world.dungeon.exit)[0];
+    const [m] = spawnGroup(world, next, ['ghoul'], 0);
+    m.hp = m.maxHp = 999;
+    h.light = light;
+    if (sneak) applyIntent(world, 'h0', { type: 'skill', skill: 'sneak' });
+    return { world, h, m, next };
+  }
+  const enter = (world: World, h: ReturnType<typeof quiet>['h'], room: number) => {
+    h.pos = { kind: 'room', room };
+    onHeroInRoom(world, h, room);
+  };
+
+  it('toggles at once, without a turn; Speed doubles while on', () => {
+    const { world, h } = quiet(['cutthroat']);
+    const base = speedOf(h, world.time);
+    applyIntent(world, 'h0', { type: 'skill', skill: 'sneak' });
+    expect(h.sneaking).toBe(true);
+    expect(h.queuedSkill).toBeNull();
+    expect(speedOf(h, world.time)).toBeCloseTo(base * 2);
+    applyIntent(world, 'h0', { type: 'skill', skill: 'sneak' });
+    expect(h.sneaking).toBe(false);
+  });
+
+  it('an Ambush: Sneaking, alone, Stealth under every Speed: nothing moves until the Cutthroat does', () => {
+    const { world, h, m, next } = sneaker(30); // Stealth 2, the Ghoul's Speed 5
+    enter(world, h, next);
+    const enc = world.encounters[next];
+    expect(enc.ambush).toBe(h.id);
+    enc.next[h.id] = world.time + 20;
+    run(world, 15);
+    expect(enc.events.some((e) => e.actor === m.id)).toBe(false);
+    enc.next[h.id] = world.time;
+    run(world, 0.2);
+    expect(enc.ambush).toBeUndefined();
+    expect(enc.next[m.id] - world.time).toBeCloseTo(5, 0);
+  });
+
+  it('no Ambush with a bright lamp (Stealth too high), or without Sneak', () => {
+    const bright = sneaker(100); // Stealth 6.7
+    enter(bright.world, bright.h, bright.next);
+    expect(bright.world.encounters[bright.next].ambush).toBeUndefined();
+    const plain = sneaker(30, false);
+    enter(plain.world, plain.h, plain.next);
+    expect(plain.world.encounters[plain.next].ambush).toBeUndefined();
+  });
+
+  it('Sneak Past on the first turn: no fight, unnoticed in the room; turning Sneak off starts it', () => {
+    const { world, h, next } = sneaker(30);
+    enter(world, h, next);
+    expect(submitChoice(world, h, { action: 'flee' })).toBeNull();
+    world.encounters[next].next[h.id] = world.time;
+    run(world, 0.2);
+    expect(world.encounters[next]).toBeUndefined();
+    expect(h.encounter).toBeNull();
+    expect(h.pos).toEqual({ kind: 'room', room: next });
+    expect(h.unnoticedIn).toBe(next);
+    expect(monstersIn(world, next)).toHaveLength(1);
+    run(world, 10);
+    expect(world.encounters[next]).toBeUndefined();
+    applyIntent(world, 'h0', { type: 'skill', skill: 'sneak' });
+    expect(world.encounters[next]?.heroes).toEqual([h.id]);
+  });
+
+  it('Sneaking: Backstab crits ×3', () => {
+    const { world, h, m, next } = sneaker(30);
+    enter(world, h, next);
+    const enc = world.encounters[next];
+    setHand(h, ['backstab', 'signal', 'cheap']);
+    submitChoice(world, h, { action: 'card', card: 'backstab', target: m.id });
+    enc.next[h.id] = world.time;
+    run(world, 0.1);
+    expect(999 - m.hp).toBe(CARD_RULES.backstab * CARD_RULES.backstabSneakCrit);
   });
 });

@@ -14,7 +14,7 @@ import { choiceVerb, eventChoices, eventTime, veiledText, type EventChoice } fro
 import type { ItemCharge } from './gear';
 import { activeItems, canTake, decidersOf, goldFor, pileGold, votersIn } from './loot';
 import {
-  DEATH_TIMER, combatOrder, doomOf, handOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, validTargets, type ChronicleEntry, type Choice, type CombatEvent, type Encounter, type Statuses,
+  DEATH_TIMER, canSneakPast, combatOrder, doomOf, handOf, inDungeon, isConscious, monsterSpeed, risenName, risenOf, risenSpeed, validTargets, type ChronicleEntry, type Choice, type CombatEvent, type Encounter, type Statuses,
 } from './combat';
 import { CALL_RULES } from './call';
 import { speedOf } from './speed';
@@ -209,6 +209,10 @@ export interface EncounterView {
   burned: CardId[];
   /** Downed allies here you could Revive. */
   reviveTargets: string[];
+  /** Your Flee is a Sneak Past right now (Sneaking, alone, first turn or a Smoke Bomb's charge). */
+  sneakPast: boolean;
+  /** No monster acts until you do: an Ambush (you walked in Sneaking). */
+  ambush: boolean;
   /** Corpses lying in this fight (the Undertaker's cards use them up). */
   corpses: number;
   /** Recent events, each with a `seq` that grows through the fight. */
@@ -588,6 +592,8 @@ function encounterView(world: World, you: Hero): EncounterView | null {
     discardCount: you.deck?.discard.length ?? 0,
     burned: [...you.burned],
     reviveTargets: here ? validTargets(world, enc, you, { action: 'revive' }) : [],
+    sneakPast: here && canSneakPast(world, enc, you),
+    ambush: enc.ambush === you.id,
     corpses: corpses(enc),
     events: enc.events,
     log: enc.log.slice(-12),

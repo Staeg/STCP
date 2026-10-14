@@ -261,15 +261,15 @@ export function debuff(ctx: CardCtx, m: Monster, kind: DebuffKind, turns = 2, am
   placed(ctx, kind, m);
 }
 
-/** A hit from a card: Strike cards add a Kris's bonus against the Poisoned, Hinder cards an Iron Maul's. */
-function strike(ctx: CardCtx, m: Monster | null | undefined, base: number, opts: { crit?: boolean; name?: string } = {}): boolean {
+/** A hit from a card: Strike cards add a Kris's bonus against the Poisoned, Hinder cards an Iron Maul's. A crit is ×2 (or `critMult`). */
+function strike(ctx: CardCtx, m: Monster | null | undefined, base: number, opts: { crit?: boolean; critMult?: number; name?: string } = {}): boolean {
   const { world, enc, h, events } = ctx;
   if (!m || !world.monsters[m.id]) return false;
   const schools = CARDS[ctx.card].schools;
   let n = base * ctx.power;
   if (schools.includes('strike') && m.st.poison?.length) n += wornStat(h, 'poisonedBonus');
   if (schools.includes('hinder')) n += wornStat(h, 'hinderDmg');
-  if (opts.crit) n *= 2;
+  if (opts.crit) n *= opts.critMult ?? 2;
   return heroHits(world, enc, h, m, Math.max(1, Math.round(n)), events, opts.name ?? CARDS[ctx.card].name, !!opts.crit);
 }
 
@@ -377,7 +377,7 @@ function resolve(ctx: CardCtx) {
       const m = foe();
       if (!m) return;
       const crit = !!(m.st.stun || m.st.exposed || !m.st.acted || (h.st.dance ?? 0) > world.time);
-      strike(ctx, m, R.backstab, { crit });
+      strike(ctx, m, R.backstab, { crit, critMult: h.sneaking ? R.backstabSneakCrit : 2 });
       return;
     }
     case 'cheap': {
@@ -386,7 +386,8 @@ function resolve(ctx: CardCtx) {
       strike(ctx, m, R.cheap);
       if (world.monsters[m.id]) {
         debuff(ctx, m, 'stun');
-        tell(`${name(m)} is stunned.`, 'status', m.id);
+        if (h.sneaking) debuff(ctx, m, 'exposed');
+        tell(`${name(m)} is stunned${h.sneaking ? ' and Exposed' : ''}.`, 'status', m.id);
       }
       return;
     }
@@ -394,15 +395,17 @@ function resolve(ctx: CardCtx) {
       const m = foe();
       if (!m) return;
       strike(ctx, m, R.envenom);
-      debuff(ctx, m, 'poison', R.envenomTurns, R.envenomPoison);
+      debuff(ctx, m, 'poison', h.sneaking ? R.envenomSneakTurns : R.envenomTurns, R.envenomPoison);
       if (world.monsters[m.id]) tell(`${name(m)} is poisoned.`, 'status', m.id);
       return;
     }
     case 'signal': {
       const t = friend();
-      hurry(ctx, t, R.signalHurry);
+      // Out in the open (not Sneaking), the signal is bolder.
+      const secs = h.sneaking ? R.signalHurry : R.signalLoudHurry;
+      hurry(ctx, t, secs);
       t.st.expose = true;
-      tell(`${h.name} signals ${allyText(ctx, t)}: now! (${R.signalHurry}s sooner; their next hit Exposes)`, 'status', t.id);
+      tell(`${h.name} signals ${allyText(ctx, t)}: now! (${secs}s sooner; their next hit Exposes)`, 'status', t.id);
       return;
     }
     case 'smoke': {
@@ -417,13 +420,17 @@ function resolve(ctx: CardCtx) {
         t.st.dodge = until;
         ward(h, t);
       }
-      tell(`${h.name} hurls a smoke bomb! (${Math.round(until - world.time)}s)`);
+      // Sneaking: in the smoke they can vanish altogether.
+      if (h.sneaking) h.st.sneakPast = true;
+      tell(`${h.name} hurls a smoke bomb! (${Math.round(until - world.time)}s${h.sneaking ? '; their next Flee is a Sneak Past' : ''})`);
       return;
     }
-    case 'dance':
-      h.st.dance = world.time + buffLength(h, R.danceSecs);
-      tell(`${h.name} starts the blade dance! (${R.danceSecs}s: every card 1s, Backstab always crits)`, 'status', h.id);
+    case 'dance': {
+      const secs = h.sneaking ? R.danceSneakSecs : R.danceSecs;
+      h.st.dance = world.time + buffLength(h, secs);
+      tell(`${h.name} starts the blade dance! (${secs}s: every card 1s, Backstab always crits)`, 'status', h.id);
       return;
+    }
     // ---- Lampbearer ----
     case 'flare':
       flare(world, enc, h, events, false, p(R.flare));
