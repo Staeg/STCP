@@ -3,7 +3,7 @@ import {
   skillInfo, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
-import { spriteUrl } from './render/sprites';
+import { TimelineStrip, unitSprite } from './timeline';
 import { cardArtUrl, cardFrameColor } from './render/card-art';
 import { juice } from './juice';
 import { itemName, useFromField } from './loot';
@@ -60,8 +60,13 @@ export class CombatUi {
   private pinned: string | null = null;
   private fighting = false;
   private pinTouched = false;
+  /** The turn order strip along the top of a fight; it animates on its own, so it lives outside the redrawn part. */
+  private timeline = new TimelineStrip();
+  private main = document.createElement('div');
 
   constructor(private net: Net) {
+    this.main.className = 'cb-main';
+    $('combat').append(this.timeline.el, this.main);
     // pointerdown, not click: the panel re-renders often and a click can straddle two renders.
     $('combat').addEventListener('pointerdown', (e) => this.onClick(e));
     // Any click that didn't (re)pin a description lets go of the pinned one.
@@ -76,6 +81,7 @@ export class CombatUi {
   update(view: PlayerView | null) {
     const panel = $('combat');
     const enc = view?.encounter ?? null;
+    this.timeline.update(view && enc ? enc : null, view?.you.id ?? '');
     // A fight starting or ending calls off whatever was being aimed.
     if (!!enc !== this.fighting) this.aimRoom = null;
     this.fighting = !!enc;
@@ -233,7 +239,7 @@ export class CombatUi {
 
   private setHtml(html: string) {
     if (html !== this.lastHtml) {
-      $('combat').innerHTML = html;
+      this.main.innerHTML = html;
       this.lastHtml = html;
     }
     this.applyPin();
@@ -399,9 +405,7 @@ export class CombatUi {
     const pct = (hp / u.maxHp) * 100;
     const flash = now - (this.flashes.get(u.id) ?? -1e9) < 260;
     const color = u.kind === 'hero' ? u.color : u.kind === 'risen' ? '#8fa39a' : '#9a4a3a';
-    // A Risen ally is its class's sprite in the colour of the dead.
-    const img = u.kind === 'hero' ? spriteUrl(u.cls!, u.color, u.downed)
-      : u.cls ? spriteUrl(u.cls, '#8fa39a', dying) : spriteUrl(u.enemy!, undefined, dying);
+    const img = unitSprite(u, dying);
     const st = u.st;
     const time = this.time;
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;

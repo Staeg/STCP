@@ -332,6 +332,37 @@ button.quiet { margin-left: auto; background: transparent; }
   padding: 10px 14px;
   z-index: 5;
 }
+/* The redrawn part of the panel; the timeline above it animates on its own. */
+.cb-main { display: contents; }
+/* Timeline: the next turns in a row, soonest on the left. Each slides to its new place when a pick changes the order. */
+.cb-timeline { display: flex; align-items: stretch; gap: 6px; margin: -2px 0 8px; }
+.cb-timeline[hidden] { display: none; }
+.tl-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 13px; letter-spacing: 2px; color: var(--muted); text-align: center; border-right: 2px solid var(--gold); padding-left: 2px; cursor: help; }
+.tl-track { position: relative; flex: 1; height: 62px; overflow: hidden; background: linear-gradient(90deg, rgba(224, 180, 74, 0.14), rgba(0, 0, 0, 0) 30%); border-bottom: 1px solid #3a2e22; }
+.tl-turn { position: absolute; left: 0; top: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; transition: opacity 0.2s; will-change: transform; }
+.tl-turn img { width: 38px; height: 38px; image-rendering: pixelated; margin-top: 2px; padding: 1px; border: 2px solid var(--c); background: #1e1712; box-sizing: content-box; }
+.tl-turn.monster img { border-radius: 50%; }
+.tl-turn.you img { box-shadow: 0 0 0 2px #fff8; }
+.tl-turn.aimed img { box-shadow: 0 0 0 2px var(--gold), 0 0 8px var(--gold); }
+.tl-turn .tl-in { font-size: 12px; color: var(--muted); line-height: 1.2; }
+.tl-turn.first .tl-in { color: var(--text); }
+.tl-move { position: absolute; top: 0; left: calc(50% + 12px); min-width: 17px; height: 17px; padding: 0 2px; font-size: 13px; line-height: 15px; text-align: center; color: #000; background: var(--c); border: 1px solid #000; }
+.tl-move .tl-card { width: 17px; height: 17px; display: block; image-rendering: pixelated; }
+.tl-move:has(.tl-card) { padding: 0; width: 19px; height: 19px; background: #000; }
+.tl-move .ic svg { width: 13px; height: 13px; vertical-align: -2px; }
+/* Not picked yet: what they'll fall back on, dashed. */
+.tl-turn.auto .tl-move { background: #1e1712; color: var(--c); border: 1px dashed var(--c); }
+.tl-turn.stunned img { filter: grayscale(0.8); opacity: 0.6; }
+.tl-turn.stunned .tl-move { background: #1e1712; }
+/* Hangs on the dice: a question mark, fading in and out. */
+.tl-turn.maybe { animation: tl-maybe 1.4s ease-in-out infinite alternate; }
+@keyframes tl-maybe { from { opacity: 0.7; } to { opacity: 0.3; } }
+.tl-maybe { position: absolute; top: 0; right: calc(50% + 14px); font-size: 16px; font-weight: bold; color: var(--gold); text-shadow: 0 0 3px #000; }
+/* Changed places because of a pick: lit up while it slides, then a moment longer. */
+.tl-turn.lit img { box-shadow: 0 0 0 2px var(--gold), 0 0 14px var(--gold); }
+.tl-turn.new { opacity: 0; }
+.tl-turn.gone, .tl-turn.dropped { opacity: 0; }
+.tl-turn.dropped { transition: opacity 0.25s; }
 .cb-head { display: flex; justify-content: space-between; font-size: 22px; }
 .cb-status { color: var(--text); }
 .cb-status.urgent { color: var(--gold); animation: pulse 0.8s infinite alternate; }

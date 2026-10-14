@@ -221,6 +221,8 @@ export interface Encounter {
   back?: string[];
   /** Heroes who stepped to the front (D), whatever their Speed. Oldest first; each newcomer stands ahead of the last. */
   front?: string[];
+  /** Turns each unit has taken in this fight (the timeline keys each upcoming turn by it). */
+  turns?: Record<string, number>;
   /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
   opened?: string[];
   /** Dead King's Charges so far: every monster in the fight is this many × KING_RULES.chargeHaste faster until it ends. */
@@ -630,7 +632,7 @@ export const at = (t: number) => Math.round(t * 1000) / 1000;
  * Give every standing unit without a timer a fresh one (a full Speed's wait), and drop the timers of
  * the downed (they get a fresh one when they're back up).
  */
-function startTimers(world: World, enc: Encounter) {
+export function startTimers(world: World, enc: Encounter) {
   for (const id of enc.heroes) {
     const h = world.heroes[id];
     if (!isConscious(h)) delete enc.next[id];
@@ -741,10 +743,17 @@ export function tickCombat(world: World) {
   }
 }
 
-type Unit = { kind: 'hero'; h: Hero } | { kind: 'monster'; m: Monster } | { kind: 'risen'; r: Risen };
+export type Unit = { kind: 'hero'; h: Hero } | { kind: 'monster'; m: Monster } | { kind: 'risen'; r: Risen };
 
-/** The unit whose turn is due soonest (and is due now). Ties go to heroes before monsters, left to right. */
-function nextUp(world: World, enc: Encounter): Unit | null {
+export function unitId(u: Unit): string {
+  return u.kind === 'hero' ? u.h.id : u.kind === 'monster' ? u.m.id : u.r.id;
+}
+
+/**
+ * The unit whose turn is due soonest (and is due now, unless `anyTime`: the timeline looks ahead).
+ * Ties go to heroes before monsters, left to right.
+ */
+export function nextUp(world: World, enc: Encounter, anyTime = false): Unit | null {
   const { heroes, monsters } = combatOrder(world, enc);
   const units: (Unit & { t: number | undefined })[] = [
     ...heroes.filter(isConscious).map((h) => ({ kind: 'hero' as const, h, t: enc.next[h.id] })),
@@ -753,7 +762,7 @@ function nextUp(world: World, enc: Encounter): Unit | null {
   ];
   let best: (typeof units)[number] | null = null;
   for (const u of units) {
-    if (u.t === undefined || u.t > world.time + 1e-9) continue;
+    if (u.t === undefined || (!anyTime && u.t > world.time + 1e-9)) continue;
     if (!best || u.t < best.t!) best = u; // strict, so the earlier unit in the order wins a tie
   }
   return best;
@@ -864,8 +873,10 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
 // ---------------------------------------------------------------------------
 // Resolution
 
-function takeTurn(world: World, enc: Encounter, unit: Unit) {
+export function takeTurn(world: World, enc: Encounter, unit: Unit) {
   const events: CombatEvent[] = [];
+  const id = unitId(unit);
+  (enc.turns ??= {})[id] = (enc.turns[id] ?? 0) + 1;
   if (unit.kind === 'hero') {
     // A hero's next action comes when the card (or action) they play says: heroTurn sets it.
     heroTurn(world, enc, unit.h, events);
@@ -1135,19 +1146,9 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   delete h.st.brace;
   delete h.st.sidestep;
   delete h.st.spikes;
-  let choice: Choice | undefined = enc.choices[h.id];
+  const { choice, auto } = resolveChoice(world, enc, h);
   delete enc.choices[h.id];
-  // The card left the hand since it was picked (Lucky Break, a Loom…): fall back like an undecided hero.
-  if (choice?.action === 'card' && (!choice.card || !handOf(h).includes(choice.card))) choice = undefined;
-  if (!choice) {
-    const auto = defaultChoice(world, enc, h);
-    choice = auto ?? { action: 'brace' };
-    events.push({ actor: h.id, kind: 'info', text: auto?.card ? `${h.name} hesitates, then plays ${CARDS[auto.card].name}.` : `${h.name} hesitates and braces.` });
-  } else if (choice.target === undefined && choice.room === undefined) {
-    // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
-    const target = leftmostTarget(world, enc, h, choice);
-    if (target) choice = { ...choice, target };
-  }
+  if (auto) events.push({ actor: h.id, kind: 'info', text: choice.card ? `${h.name} hesitates, then plays ${CARDS[choice.card].name}.` : `${h.name} hesitates and braces.` });
   startOfTurn(h.st);
   if (!lichAura(world, enc, h, events)) return;
   let wait: number;
@@ -1168,6 +1169,23 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
     // Doom holds while a Lich still stands here.
     if (!monstersIn(world, enc.room).some((m) => m.type === 'lich')) fadeDoom(h.st);
   }
+}
+
+/**
+ * What a hero will do when their turn comes: their pick (aimed at the leftmost target if they picked none), or, if they
+ * haven't picked or the card has left their hand, their default (`auto`), Brace with an empty hand.
+ */
+export function resolveChoice(world: World, enc: Encounter, h: Hero): { choice: Choice; auto: boolean } {
+  let choice: Choice | undefined = enc.choices[h.id];
+  // The card left the hand since it was picked (Lucky Break, a Loom…): fall back like an undecided hero.
+  if (choice?.action === 'card' && (!choice.card || !handOf(h).includes(choice.card))) choice = undefined;
+  if (!choice) return { choice: defaultChoice(world, enc, h) ?? { action: 'brace' }, auto: true };
+  if (choice.target === undefined && choice.room === undefined) {
+    // Picked a move but not who to aim it at: it goes to the leftmost target on the fight screen.
+    const target = leftmostTarget(world, enc, h, choice);
+    if (target) choice = { ...choice, target };
+  }
+  return { choice, auto: false };
 }
 
 /**
