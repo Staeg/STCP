@@ -29,14 +29,34 @@ export function itemName(item: ItemId): string {
 }
 
 /** Use a pack item while exploring (Smelling Salts go to a downed ally you can see). */
+/** Long Reach: who picks the room a Firebomb is thrown into (the fight panel, which waits for a click on the map). */
+let aimRoomFor: ((slot: number) => void) | null = null;
+export function setRoomAim(fn: (slot: number) => void) {
+  aimRoomFor = fn;
+}
+
 export function useFromField(net: Net, slot: number) {
   const view = net.cur;
   const item = view?.you.items[slot];
   if (!view || !item || ITEMS[item].kind !== 'consumable') return;
   const def = ITEMS[item];
+  // The Alchemist's Long Reach: a Firebomb out of a fight goes into a room next door, clicked on the map.
+  if (def.target === 'enemies' && !view.encounter && view.you.cls === 'alchemist') {
+    aimRoomFor?.(slot);
+    return;
+  }
   let target: string | undefined;
   if (def.target === 'downed') {
     target = view.allies.find((a) => a.live && a.downed && !a.dead)?.id;
+  }
+  // A Bandage goes to you if you're hurt, else to the most hurt ally you can reach (here; next door with Long Reach).
+  if (def.target === 'ally' && view.you.hp >= view.you.maxHp) {
+    const here = view.you.pos.kind === 'room' ? view.you.pos.room : -1;
+    const reach = view.you.cls === 'alchemist'
+      ? new Set([here, ...view.corridors.filter((c) => !c.collapsed && (c.a === here || c.b === here)).map((c) => (c.a === here ? c.b : c.a))])
+      : new Set([here]);
+    const hurt = view.allies.filter((a) => a.live && !a.downed && !a.dead && a.hp < a.maxHp && a.pos.kind === 'room' && reach.has(a.pos.room));
+    target = hurt.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0]?.id;
   }
   net.intent({ type: 'useItem', index: slot, target });
 }

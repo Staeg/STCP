@@ -275,6 +275,7 @@ button.quiet { margin-left: auto; background: transparent; }
 .cr-abs .ab-chip { font-size: 13px; padding: 0 4px; line-height: 1.15; }
 .ab-chip { font-size: 16px; padding: 2px 6px; border: 1px solid #3a2e24; background: #15110d; white-space: nowrap; cursor: help; }
 .ab-chip.innate { font-style: italic; border-style: dashed; color: var(--muted); }
+.ab-chip.field { border-style: dotted; color: #c9b88a; }
 .cr-others { font-size: 13px; color: var(--muted); letter-spacing: 1px; cursor: help; }
 .class-focus { flex: 1; display: flex; min-height: 0; }
 .class-focus .class-card { flex: 1; }

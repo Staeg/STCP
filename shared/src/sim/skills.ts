@@ -1,24 +1,39 @@
-import { CLASS_RULES } from '../content/innates';
+import { LIGHT_MAX } from '../content/constants';
+import { hasTalent, TALENT_RULES } from '../content/talents';
+import { CLASS_RULES, FIELD_RULES as F } from '../content/innates';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
-import { inDungeon, isConscious } from './combat';
+import { addClang, gainLight, inDungeon, isConscious, spendLight } from './combat';
 import { dazeAll, lureToward } from './escalation';
+import { lightBy } from './gear';
 import { giveItem, hasSpace } from './loot';
 import { notify } from './notify';
 import type { Hero, World } from './world';
 
 /**
- * Class skills used outside a fight. Since the cards (M15) only the Bellwright's Toll is left: cards are for fights.
- * Like an event choice, it's picked now and happens when the hero's timer runs out, using up that turn.
+ * Field abilities (M16, user 2026-10-14): each class has one (the Bellwright also keeps the Toll), used outside a
+ * fight. Like an event choice, it's picked now and happens when the hero's timer runs out, using up that turn. Each
+ * has a cooldown in seconds (the Toll is once a run instead) that runs all the time, fights included.
  */
-export type FieldSkill = 'toll';
+export type FieldSkill = 'toll' | 'formup' | 'rekindle' | 'ringin' | 'flagellate' | 'brew';
 
 /** none: no target (every field skill now). */
 export type FieldTarget = 'none';
 
-/** Display name, who it can be aimed at, and what it does out of a fight. */
-export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string }> = {
-  toll: { name: 'Toll', target: 'none', desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
+/** Display name, who it can be aimed at, what it does out of a fight, and its cooldown in seconds (0: none). */
+export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string; cooldown: number }> = {
+  toll: { name: 'Toll', target: 'none', cooldown: 0,
+    desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
+  formup: { name: 'Form Up', target: 'none', cooldown: F.formUpCooldown,
+    desc: `You and every ally in the room +${F.formUpShield} Shield (never past ${F.formUpCap}).` },
+  rekindle: { name: 'Rekindle', target: 'none', cooldown: F.rekindleCooldown,
+    desc: `Every hero in the room, you included, +${F.rekindleLight} light.` },
+  ringin: { name: 'Ring In', target: 'none', cooldown: F.ringInCooldown,
+    desc: `+${F.ringInClang} Clang, ready for the next fight (they fade as usual, one every 2 of your turns).` },
+  flagellate: { name: 'Flagellate', target: 'none', cooldown: F.flagellateCooldown,
+    desc: `Lose ${F.flagellateHp} HP and up to ${F.flagellateLight} of your light; every other hero in the room shares the light you lose.` },
+  brew: { name: 'Brew', target: 'none', cooldown: F.brewCooldown,
+    desc: 'Brew a random consumable into your pack.' },
 };
 
 export function skillTarget(_h: Hero, skill: FieldSkill): FieldTarget {
@@ -29,20 +44,57 @@ export function skillInfo(_h: Hero, skill: FieldSkill): { name: string; desc: st
   return FIELD_SKILLS[skill];
 }
 
-/** This hero's field skills: the Toll, for a Bellwright. */
-export function fieldSkillsOf(h: Hero): FieldSkill[] {
-  return h.cls === 'bellwright' ? ['toll'] : [];
+/** Each class's field ability (M16). */
+export const CLASS_SKILL: Partial<Record<Hero['cls'], FieldSkill>> = {
+  warden: 'formup', lampbearer: 'rekindle', bellwright: 'ringin', zealot: 'flagellate', alchemist: 'brew',
+};
+
+/** This hero's field abilities, in the order the bar shows them (keys M, N): the Bellwright's Toll first. */
+export function fieldSkillsOf(h: Pick<Hero, 'cls'>): FieldSkill[] {
+  const own = CLASS_SKILL[h.cls];
+  return [...(h.cls === 'bellwright' ? ['toll' as const] : []), ...(own ? [own] : [])];
 }
 
 export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
   return skillTarget(h, skill) !== 'none';
 }
 
+/** Seconds this skill's cooldown takes for this hero (Scourged halves Flagellate's). */
+export function skillCooldown(h: Pick<Hero, 'talents'>, skill: FieldSkill): number {
+  const cd = FIELD_SKILLS[skill].cooldown;
+  return skill === 'flagellate' && hasTalent(h, 'scourged') ? cd * TALENT_RULES.scourgedCooldown : cd;
+}
+
+/** Seconds until this skill is ready again (0: ready). */
+export function skillWait(world: Pick<World, 'time'>, h: Pick<Hero, 'fieldReady'>, skill: FieldSkill): number {
+  return Math.max(0, (h.fieldReady[skill] ?? 0) - world.time);
+}
+
+/** Everyone standing (conscious) in this hero's room, them included. */
+function roomMates(world: World, h: Hero): Hero[] {
+  if (h.pos.kind !== 'room') return [h];
+  const room = h.pos.room;
+  return Object.values(world.heroes).filter((o) => isConscious(o) && o.pos.kind === 'room' && o.pos.room === room);
+}
+
 /** Returns an error message, or null if the skill can be used. */
-export function checkSkill(_world: World, h: Hero, skill: FieldSkill): string | null {
+export function checkSkill(world: World, h: Hero, skill: FieldSkill): string | null {
   if (!fieldSkillsOf(h).includes(skill)) return 'You have no such skill.';
   if (h.pos.kind !== 'room') return 'Not while walking a tunnel.';
+  if (h.encounter !== null) return 'Not in a fight.';
   if (skill === 'toll' && h.tolled) return 'You have already rung the bell this run.';
+  const wait = skillWait(world, h, skill);
+  if (wait > 0) return `${FIELD_SKILLS[skill].name} is ready again in ${Math.ceil(wait)}s.`;
+  switch (skill) {
+    case 'rekindle':
+      return roomMates(world, h).some((o) => o.light < LIGHT_MAX) ? null : 'Every lamp here burns full.';
+    case 'flagellate':
+      if (h.light <= 0 && (hasTalent(h, 'scourged') || h.hp <= 1)) return 'There is nothing left to scourge.';
+      return null;
+    case 'brew':
+      if (h.rites.includes('gem')) return 'The Gem Rite forbids it.';
+      return hasSpace(h) ? null : 'Your pack is full.';
+  }
   return null;
 }
 
@@ -50,8 +102,62 @@ export function checkSkill(_world: World, h: Hero, skill: FieldSkill): string | 
 export function useSkill(world: World, h: Hero, skill: FieldSkill) {
   const err = checkSkill(world, h, skill);
   if (err) return notify(world, h, err);
-  h.tolled = true;
-  toll(world, h);
+  const cd = skillCooldown(h, skill);
+  if (cd > 0) h.fieldReady[skill] = world.time + cd;
+  switch (skill) {
+    case 'toll':
+      h.tolled = true;
+      toll(world, h);
+      return;
+    case 'formup':
+      return formUp(world, h);
+    case 'rekindle': {
+      const lit = roomMates(world, h).map((o) => ({ o, got: Math.round(gainLight(o, lightBy(h, o, F.rekindleLight))) }));
+      for (const { o, got } of lit) {
+        notify(world, o, o === h ? `You rekindle every lamp here. (+${got} light)` : `${h.name} rekindles your lamp. (+${got} light)`);
+      }
+      return;
+    }
+    case 'ringin':
+      addClang(h, F.ringInClang);
+      notify(world, h, `You ring the bell in, low and steady. (Clang ×${h.st.clang?.stacks ?? F.ringInClang}: your cards are quicker)`);
+      return;
+    case 'flagellate':
+      return flagellate(world, h);
+    case 'brew': {
+      const item = brewRoll(world);
+      giveItem(h, item);
+      notify(world, h, `You brew a ${ITEMS[item].name}.`);
+      return;
+    }
+  }
+}
+
+/** Warden: you and everyone in the room get Shield, never past the cap (Shield from fights may be higher already). */
+function formUp(world: World, h: Hero) {
+  for (const o of roomMates(world, h)) {
+    const before = o.st.shield ?? 0;
+    const after = Math.max(before, Math.min(F.formUpCap, before + F.formUpShield));
+    if (after > before) o.st.shield = after;
+    const got = after - before;
+    notify(world, o, o === h
+      ? `You call the line to form up. (+${got} Shield${got < F.formUpShield ? `; never past ${F.formUpCap}` : ''})`
+      : `${h.name} calls you into line. (+${got} Shield)`);
+  }
+}
+
+/** Zealot: blood and darkness, and the light they give up goes to the others in the room. */
+function flagellate(world: World, h: Hero) {
+  const scourged = hasTalent(h, 'scourged');
+  const cost = scourged ? 0 : Math.min(h.hp - 1, F.flagellateHp);
+  if (cost > 0) h.hp -= cost;
+  const lost = spendLight(h, F.flagellateLight);
+  const others = roomMates(world, h).filter((o) => o !== h);
+  for (const o of others) {
+    const got = Math.round(gainLight(o, lightBy(h, o, lost / others.length)));
+    notify(world, o, `${h.name} scourges themself, and their light passes to you. (+${got} light)`);
+  }
+  notify(world, h, `You scourge your own back. (${cost ? `−${cost} HP, ` : ''}−${Math.round(lost)} light${others.length ? ', shared with the others here' : ''})`);
 }
 
 /** Bellwright: everyone in the dungeon hears it, sees you for a while, and every monster comes one room closer. */
@@ -83,7 +189,7 @@ export function hearsToll(world: World, h: Hero): boolean {
   return false;
 }
 
-/** A random consumable, as the loot table weighs them (the Alchemist's brews, Opus Magnum). */
+/** A random consumable, as the loot table weighs them (the Alchemist's Brew, Opus Magnum). */
 export function brewRoll(world: World): ItemId {
   const pool = LOOT_TABLE.filter((e) => ITEMS[e.item].kind === 'consumable');
   let roll = world.rng.float(0, pool.reduce((s, e) => s + e.weight, 0));
@@ -92,14 +198,4 @@ export function brewRoll(world: World): ItemId {
     if (roll <= 0) return e.item;
   }
   return pool[0].item;
-}
-
-/** Alchemist: a fresh consumable every so often, if there's room in the pack. */
-export function tickBrew(world: World, h: Hero) {
-  if (!inDungeon(h) || world.time < h.brewAt) return;
-  h.brewAt += CLASS_RULES.brewEvery;
-  if (!isConscious(h) || !hasSpace(h) || h.rites.includes('gem')) return;
-  const item = brewRoll(world);
-  giveItem(h, item);
-  notify(world, h, `You brew a ${ITEMS[item].name}.`);
 }

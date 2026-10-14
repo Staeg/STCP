@@ -38,6 +38,8 @@ export const TALENT_RULES = {
   gravediggerCorpses: 1,
   /** Carillon: after each Hinder card, the Bellwright's next card takes this much less. */
   carillonCut: 1,
+  /** Scourged: Flagellate's cooldown is multiplied by this (and it costs no HP). */
+  scourgedCooldown: 0.5,
   /** Prepared: items in a fight take this long. */
   preparedItemTime: 1,
 };
@@ -68,7 +70,7 @@ export const TALENTS: Record<TalentId, TalentDef> = {
   carillon: { id: 'carillon', cls: 'bellwright', name: 'Carillon',
     desc: `After each Hinder card you play, your next card takes ${TALENT_RULES.carillonCut}s less.` },
   scourged: { id: 'scourged', cls: 'zealot', name: 'Scourged',
-    desc: `${CARDS.flagellate.name} goes back into your hand when you play it, never to the discard.` },
+    desc: `Flagellate costs you no HP, and its cooldown is halved.` },
   penitent: { id: 'penitent', cls: 'zealot', name: 'Penitent',
     desc: `${CARDS.absolution.name} gives you back only half the light it turns into damage, so the dark keeps feeding you.` },
   volatile: { id: 'volatile', cls: 'alchemist', name: 'Volatile',

@@ -121,6 +121,9 @@ describe('monster armor', () => {
     const rb = enc.legion!.find((r) => r.id === 'rb')!;
     rb.hp = 0;
     delete enc.next.rb;
+    // The Risen Warden plays its own Shield cards: hold it still, its Shield gone, to see the armour alone.
+    enc.next[w.id] = world.time + 999;
+    delete w.st.shield;
     for (let i = 0; i < 6 && !hits().some((e) => e.target === w.id); i++) untilTurn(world, room, ghoul.id);
     expect(hits().find((e) => e.target === w.id)?.amount).toBe(Math.max(1, base - 2));
   });
@@ -272,16 +275,6 @@ describe('Zealot', () => {
     expect(damageMult(z)).toBeCloseTo(1.1);
   });
 
-});
-
-describe('Alchemist', () => {
-  it('brews a consumable every minute while there is room in the pack', () => {
-    const { world, heroes } = quiet(['alchemist']);
-    run(world, CLASS_RULES.brewEvery - 1);
-    expect(heroes[0].items).toHaveLength(0);
-    run(world, 1.5);
-    expect(heroes[0].items).toHaveLength(1);
-  });
 });
 
 describe('party', () => {

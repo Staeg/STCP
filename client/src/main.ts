@@ -1,7 +1,7 @@
 import { CombatUi } from './combat';
 import { Hud } from './hud';
 import { EventUi } from './events';
-import { LootUi } from './loot';
+import { LootUi, setRoomAim } from './loot';
 import { ResultsUi } from './results';
 import { Net } from './net';
 import { MapRenderer } from './render/map';
@@ -17,6 +17,7 @@ const loot = new LootUi(net);
 const events = new EventUi(net);
 const results = new ResultsUi(net);
 map.roomPicker = { picking: () => combat.pickingRoom, pick: (room) => combat.pickRoom(room) };
+setRoomAim((slot) => combat.aimItemAt(slot));
 
 // Lobby links: ?lobby=CODE joins automatically, and the URL tracks the lobby you're in so refresh/share works.
 const urlCode = new URLSearchParams(location.search).get('lobby');

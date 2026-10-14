@@ -98,8 +98,7 @@ export function settleCard(h: Hero, card: CardId, rng: Rng) {
     return;
   }
   deck.last = card;
-  if (card === 'flagellate' && hasTalent(h, 'scourged')) deck.hand.push(card);
-  else if (CARDS[card].burn) h.burned.push(card);
+  if (CARDS[card].burn) h.burned.push(card);
   else deck.discard.push(card);
   refill(h, deck, rng);
 }

@@ -1,6 +1,6 @@
 import {
   CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, LIGHT_LOSS, LIGHT_MAX, SCHOOLS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
-  skillInfo, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
+  FIELD_SKILLS, skillCooldown, skillWait, type FieldSkill, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { TimelineStrip, unitSprite } from './timeline';
@@ -27,6 +27,9 @@ interface Pending {
   dying: Map<string, CombatUnitView>;
 }
 
+/** Keys for your field abilities out of a fight, in the order `fieldSkillsOf` gives them. */
+const SKILL_KEYS = ['M', 'N'];
+
 export class CombatUi {
   private targeting: CombatAction | null = null;
   /** Inventory slot being aimed, when targeting === 'item'. */
@@ -35,6 +38,8 @@ export class CombatUi {
   private targetingCard: CardId | null = null;
   /** A card waiting for a room to be clicked on the map (Waystep). */
   private aimRoom: CardId | null = null;
+  /** Long Reach: the pack slot of a Firebomb waiting for a room next door to be clicked on the map (out of a fight). */
+  private aimItem: number | null = null;
   /** Fight (room) and the last event seq already queued for replay. */
   private seen: { room: number; seq: number } | null = null;
   /** When the replay queue runs dry (performance.now()). */
@@ -83,7 +88,10 @@ export class CombatUi {
     const enc = view?.encounter ?? null;
     this.timeline.update(view && enc ? enc : null, view?.you.id ?? '');
     // A fight starting or ending calls off whatever was being aimed.
-    if (!!enc !== this.fighting) this.aimRoom = null;
+    if (!!enc !== this.fighting) {
+      this.aimRoom = null;
+      this.aimItem = null;
+    }
     this.fighting = !!enc;
     if (!view || !enc) {
       this.targeting = null;
@@ -219,10 +227,13 @@ export class CombatUi {
     this.setHtml(html);
   }
 
-  /** Out of combat: your deck (greyed, to read) and the Toll, then the pack items that work while exploring. */
+  /** Out of combat: your deck (greyed, to read) and your field abilities, then the pack items that work while exploring. */
   private renderIdle(view: PlayerView) {
     const items = this.itemsHtml(view, null, false);
-    this.setHtml(`<div class="cb-group">
+    const aiming = this.aimItem !== null && view.you.items[this.aimItem] === 'firebomb';
+    if (!aiming) this.aimItem = null;
+    this.setHtml((aiming ? '<div class="cb-head"><span class="cb-status urgent">Firebomb: click a room next door on the map (Esc to put it away).</span></div>' : '')
+      + `<div class="cb-group">
         <div class="cb-idle-head">Your deck <span class="muted">· a fight deals you ${handSize(view.you)} of these; each card says how long until your next action</span></div>
         ${this.deckHtml(view)}
       </div>`
@@ -302,18 +313,18 @@ export class CombatUi {
     }).join('');
     const burned = enc.burned.map((c) => CARDS[c].name).join(', ');
     const pile = `<span class="cb-deck" title="${esc(`Draw pile ${enc.deckCount} · discard ${enc.discardCount}${burned ? ` · burned: ${burned}` : ''}. The discard is shuffled back in when the draw pile runs out, and every fight starts from a full shuffle.`)}">🂠 ${enc.deckCount} · ♻ ${enc.discardCount}${enc.burned.length ? ` · 🔥 ${enc.burned.length}` : ''}${enc.corpses ? ` · ⚰ ${enc.corpses}` : ''}</span>`;
-    const toll = you.cls === 'bellwright' ? this.greyBtn('toll', 'M', 'Toll', `${iconize(skillInfo(you, 'toll').desc)} Only out of a fight.`, true) : '';
+    const skills = fieldSkillsOf(you).map((s, i) => this.greyBtn(`skill-${s}`, SKILL_KEYS[i], FIELD_SKILLS[s].name, `${iconize(FIELD_SKILLS[s].desc)} Only out of a fight.`, true)).join('');
     const actions = `<div class="cb-actions hand">${cards}${pile}</div>
       <div class="cb-actions basics">
       ${btn('revive', 'R', 'Revive', iconize(`Get a downed ally back up (30% HP). ${CARD_RULES.reviveTime}s.`), !enc.reviveTargets.length, 'revive')}
       ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). −${LIGHT_LOSS.flee} light. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
       ${btn('brace', 'B', 'Brace', iconize(`Take 30% less damage until your next action. ${CARD_RULES.braceTime}s.`), false, 'brace')}
-      ${toll}
+      ${skills}
     </div>`;
     return actions + this.itemsHtml(view, enc, canAct);
   }
 
-  /** Out of a fight: every card in your deck, greyed (hover or click to read), burned ones struck through; then the Toll. */
+  /** Out of a fight: every card in your deck, greyed (hover or click to read), burned ones struck through; then your field abilities. */
   private deckHtml(view: PlayerView): string {
     const you = view.you;
     const left = [...you.burned];
@@ -325,7 +336,7 @@ export class CombatUi {
         ${CombatUi.cardFace(c, CARDS[c].time, you.cls)}
         <div class="cb-desc">${CombatUi.cardDesc(c, CARDS[c].time, burned ? '<br><span class="muted">Burned this run.</span>' : '')}</div></button>`;
     }).join('');
-    return `<div class="cb-actions deck">${cards}${you.cls === 'bellwright' ? this.tollBtn(view) : ''}</div>`;
+    return `<div class="cb-actions deck">${cards}${fieldSkillsOf(you).map((s, i) => this.skillBtn(view, s, i)).join('')}</div>`;
   }
 
   /** An action that can't be used here (in a fight, or out of one): greyed, its description on hover or click. */
@@ -336,27 +347,44 @@ export class CombatUi {
       <div class="cb-desc"><b>${esc(name)}</b>: ${desc}</div></button>`;
   }
 
-  /** Out of a fight, the Bellwright's Toll (once a run): bright when it can be rung, used with a click as your turn. */
-  private tollBtn(view: PlayerView): string {
+  /**
+   * Out of a fight, a field ability (M16; the Toll is once a run): bright when it can be used, with its cooldown
+   * counting down when not; used with a click (or M / N) as your turn.
+   */
+  private skillBtn(view: PlayerView, skill: FieldSkill, i: number): string {
     const you = view.you;
-    const info = skillInfo(you, 'toll');
-    const queued = you.queuedSkill?.skill === 'toll';
-    const rung = you.tolled;
-    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung;
-    return `<button class="cb-act live ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="toll">
-      <kbd>M</kbd> ${esc(info.name)}${rung ? ' <span class="cd">rung</span>' : ''}
-      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)} Only out of a fight.</div></button>`;
+    const info = FIELD_SKILLS[skill];
+    const queued = you.queuedSkill?.skill === skill;
+    const rung = skill === 'toll' && you.tolled;
+    const wait = skillWait(view, you, skill);
+    const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung && wait <= 0;
+    const cd = rung ? ' <span class="cd">rung</span>' : wait > 0 ? ` <span class="cd">${Math.ceil(wait)}s</span>` : '';
+    const every = info.cooldown ? ` Cooldown ${skillCooldown(you, skill)}s.` : '';
+    return `<button class="cb-act live ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="${skill}">
+      <kbd>${SKILL_KEYS[i] ?? ''}</kbd> ${esc(info.name)}${cd}
+      <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}<b>${esc(info.name)}</b> (field ability): ${iconize(info.desc)}${every} Uses your turn; only out of a fight.</div></button>`;
   }
 
-  /** The Toll, clicked or M pressed out of a fight. */
-  private useToll() {
+  /** A field ability, clicked or its key pressed out of a fight. */
+  private useSkill(skill: FieldSkill | undefined) {
     const view = this.net.cur;
-    if (!view || view.encounter || view.you.tolled || !fieldSkillsOf(view.you).includes('toll')) return;
-    this.net.intent({ type: 'skill', skill: 'toll' });
+    if (!skill || !view || view.encounter || !fieldSkillsOf(view.you).includes(skill)) return;
+    this.net.intent({ type: 'skill', skill });
   }
 
-  /** A room was clicked on the map: true if a card was waiting for one (Waystep), so the click isn't a walk. */
+  /** Long Reach: a Firebomb in the pack, waiting for a room next door to be clicked (main wires this to the pack). */
+  aimItemAt(slot: number) {
+    this.aimItem = this.aimItem === slot ? null : slot;
+  }
+
+  /** A room was clicked on the map: true if a card or a Firebomb was waiting for one, so the click isn't a walk. */
   pickRoom(room: number): boolean {
+    if (this.aimItem !== null) {
+      const index = this.aimItem;
+      this.aimItem = null;
+      if (!this.net.cur?.encounter) this.net.intent({ type: 'useItem', index, room });
+      return true;
+    }
     const card = this.aimRoom;
     if (!card) return false;
     this.aimRoom = null;
@@ -364,8 +392,9 @@ export class CombatUi {
     return true;
   }
 
-  /** Waiting for a room to be clicked: the card's name (the map says so by the pointer). */
+  /** Waiting for a room to be clicked on the map: the card's (or the Firebomb's) name (the map says so by the pointer). */
   get pickingRoom(): string | null {
+    if (this.aimItem !== null) return ITEMS.firebomb.name;
     return this.aimRoom ? CARDS[this.aimRoom].name : null;
   }
 
@@ -384,11 +413,13 @@ export class CombatUi {
       const def = ITEMS[it];
       if (!def.combat && !def.field) return '';
       if (!enc) {
-        const usable = def.field;
+        // Long Reach: the Alchemist's Firebombs work out of a fight too, thrown next door.
+        const reach = def.target === 'enemies' && view.you.cls === 'alchemist';
+        const usable = def.field || reach;
         // Out of a fight an item is your turn: it happens when your timer runs out.
         const queued = view.you.queuedItem?.index === i && view.you.queuedItem.item === it;
         return `<button class="cb-act item ${usable ? 'usable' : ''} ${queued ? 'sel' : ''}" data-field-item="${i}" ${usable ? '' : 'aria-disabled="true"'}>
-          <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(def.desc)}${usable ? '' : ' Only in a fight.'}</div></button>`;
+          <span class="cb-label">${i < HOTKEY_ITEMS ? `<kbd>${i + 4}</kbd> ` : ''}${def.glyph} ${itemName(it)}</span><div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(def.desc)}${reach ? ' Long Reach: click it, then a room next door on the map.' : usable ? '' : ' Only in a fight.'}</div></button>`;
       }
       if (!def.combat) return '';
       const sel = (chosen?.action === 'item' && chosen.item === i) || (this.targeting === 'item' && this.targetingItem === i);
@@ -517,7 +548,7 @@ export class CombatUi {
     const el = e.target as HTMLElement;
     const live = el.closest('button[data-skill]') as HTMLElement | null;
     if (live) {
-      if (!live.classList.contains('cooling')) this.useToll();
+      if (!live.classList.contains('cooling')) this.useSkill(live.dataset.skill as FieldSkill);
       return;
     }
     // Exploring: clicking a greyed card or action keeps its description open (click it again, or anywhere, to close).
@@ -558,15 +589,17 @@ export class CombatUi {
   private onKey(e: KeyboardEvent) {
     const view = this.net.cur;
     if (!view || (e.target as HTMLElement).tagName === 'INPUT' || e.repeat) return;
-    if (e.code === 'Escape' && this.aimRoom) {
+    if (e.code === 'Escape' && (this.aimRoom || this.aimItem !== null)) {
       this.aimRoom = null;
+      this.aimItem = null;
       e.stopImmediatePropagation();
       return;
     }
     if (view.phase !== 'running' || view.you.dead || view.you.extracted) return;
     if (!view.encounter) {
-      // Out of a fight: M tolls.
-      if (e.code === 'KeyM') this.useToll();
+      // Out of a fight: M and N are your field abilities.
+      const k = SKILL_KEYS.indexOf(e.code.replace('Key', ''));
+      if (k >= 0) this.useSkill(fieldSkillsOf(view.you)[k]);
       return;
     }
     const enc = view.encounter;

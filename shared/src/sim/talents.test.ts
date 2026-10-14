@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLASS_RULES } from '../content/innates';
+import { CLASS_RULES, FIELD_RULES } from '../content/innates';
 import { CLASSES, type ClassId } from '../content/classes';
 import { CR_RULES, type EnemyId } from '../content/enemies';
 import { migrateTalentId, OLD_TALENT_IDS, TALENT_RULES, TALENTS, type TalentId } from '../content/talents';
@@ -9,6 +9,7 @@ import { play } from './testkit';
 import { neighbours } from '../dungeon/gen';
 import { downHero, spawnGroup, submitChoice } from './combat';
 import { addToPile } from './loot';
+import { skillCooldown } from './skills';
 import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { Injury } from '../village';
@@ -230,13 +231,16 @@ describe('Bellwright talents', () => {
 });
 
 describe('Zealot talents', () => {
-  it('Scourged: Flagellate goes straight back into the hand', () => {
-    const { world, ids, room } = arena([['zealot', 'scourged']], ['ghoul']);
-    walkIn(world, ids, room);
-    const h = world.heroes.h0;
-    play(world, h, 'flagellate');
-    expect(h.deck!.hand).toContain('flagellate');
-    expect(h.deck!.discard).not.toContain('flagellate');
+  it('Scourged: Flagellate costs no HP, and its cooldown is halved', () => {
+    const { world } = arena([['zealot', 'scourged'], 'zealot'], ['ghoul']);
+    const [s, z] = [world.heroes.h0, world.heroes.h1];
+    expect(skillCooldown(s, 'flagellate')).toBe(FIELD_RULES.flagellateCooldown * TALENT_RULES.scourgedCooldown);
+    expect(skillCooldown(z, 'flagellate')).toBe(FIELD_RULES.flagellateCooldown);
+    const hp = s.hp;
+    applyIntent(world, 'h0', { type: 'skill', skill: 'flagellate' });
+    for (let i = 0; i < 80; i++) step(world, 0.1);
+    expect(s.hp).toBe(hp);
+    expect(s.light).toBeLessThan(80);
   });
 
   it('Penitent: Absolution gives back only half the light', () => {

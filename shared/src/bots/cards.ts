@@ -47,12 +47,12 @@ export function cardValue(f: BotFight, card: CardId): number {
   const burn = (v: number) => (dire ? v : v * 0.2);
   switch (card) {
     // Warden
-    case 'bash': return R.bash + R.bashDelay * TEMPO_VALUE;
+    case 'bash': return R.bash + Math.floor((me.st.shield ?? 0) * R.bashPerShield) + R.bashDelay * TEMPO_VALUE;
     case 'cover': return R.coverShield * SHIELD_VALUE + (hurtest.id !== me.id ? 2 : 0);
-    case 'vengeance': return enemies.length * 3;
+    case 'thornwall': return R.thornwallShield * SHIELD_VALUE + Math.min(R.thornwallShield + (me.st.shield ?? 0), 4) * Math.min(n, 2);
     case 'rally': return allies.length * R.rallyShield * SHIELD_VALUE;
     case 'slam': return Math.max(R.slamMin, (me.st.shield ?? 0) + 2) * 1.2;
-    case 'gate': return burn(n * 6 + 10);
+    case 'gate': return burn(allies.length * R.gateShield * SHIELD_VALUE + n * 4);
     // Cutthroat
     case 'backstab': return soft ? R.backstab * 2 : R.backstab;
     case 'cheap': return R.cheap + 5 * TEMPO_VALUE;
@@ -92,7 +92,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'scourge': return R.scourge * fervour;
     case 'absolution': return (R.absolutionBase + Math.max(0, R.absolutionFloor - view.you.light)) * fervour;
     case 'sins': return Math.max(0, ...allies.filter((a) => a.id !== me.id).map((a) => brighten(Math.min(R.sinsLight, view.you.light), a))) + 1;
-    case 'flagellate': return view.you.light > 40 && me.hp > me.maxHp * 0.5 ? 4 : 0;
+    case 'martyrdom': return view.you.light > 30 ? 3 : 0;
     case 'penance': return 4 + (LIGHT_MAX - view.you.light) / 6;
     case 'rapture': return burn((R.rapture + (LIGHT_MAX - view.you.light) / 2) * fervour);
     // Alchemist

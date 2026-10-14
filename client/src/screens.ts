@@ -1,5 +1,5 @@
 import {
-  REGALIA_RULES, SPECS, talentsOf, type SpecId,
+  REGALIA_RULES, SPECS, talentsOf, type SpecId, FIELD_SKILLS, fieldSkillsOf,
   CARDS, CLASS_CARDS, SCHOOLS, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
   ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
   type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
@@ -195,7 +195,7 @@ export class Screens {
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <span class="cr-name">${c.name}${ch ? talentStars(talentsOf(ch)) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
-        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${CLASS_CARDS[id].map((cd) => `<span class="ab-chip ${CARDS[cd].burn ? 'burn' : ''}" title="${esc(`${CARDS[cd].name} · ${CARDS[cd].time}s${CARDS[cd].burn ? ' · Burn' : ''}: ${CARDS[cd].desc}`)}">${esc(CARDS[cd].name)}</span>`).join('')}</span>
+        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${fieldSkillsOf({ cls: id }).map((s) => `<span class="ab-chip field" title="${esc(`Field ability: ${FIELD_SKILLS[s].desc}${FIELD_SKILLS[s].cooldown ? ` Cooldown ${FIELD_SKILLS[s].cooldown}s.` : ''}`)}">${esc(FIELD_SKILLS[s].name)}</span>`).join('')}${CLASS_CARDS[id].map((cd) => `<span class="ab-chip ${CARDS[cd].burn ? 'burn' : ''}" title="${esc(`${CARDS[cd].name} · ${CARDS[cd].time}s${CARDS[cd].burn ? ' · Burn' : ''}: ${CARDS[cd].desc}`)}">${esc(CARDS[cd].name)}</span>`).join('')}</span>
         ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
@@ -391,6 +391,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
+    ${fieldSkillsOf({ cls: id }).map((s) => `<div class="blurb"><b>Field ability: ${esc(FIELD_SKILLS[s].name)}</b>${FIELD_SKILLS[s].cooldown ? ` <span class="muted">(${FIELD_SKILLS[s].cooldown}s cooldown)</span>` : ''}. ${iconize(FIELD_SKILLS[s].desc)}</div>`).join('')}
     <ul class="class-cards">${CLASS_CARDS[id].map((cd) => {
       const def = CARDS[cd];
       const schools = def.schools.map((x) => `<span title="${SCHOOLS[x].name}">${SCHOOLS[x].glyph}</span>`).join('');

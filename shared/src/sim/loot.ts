@@ -3,8 +3,11 @@ import {
   type GearSlot, type ItemDef, type ItemId,
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
-import { neighbours, theRoom } from '../dungeon/gen';
-import { carryItem, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
+import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
+import {
+  applyMonsterDamage, carryItem, heroHits, hitDamage, inDungeon, isConscious, monsterTakes, monstersIn, record, reviveHero,
+  type CombatEvent, type Monster,
+} from './combat';
 import { ENEMIES, ESCALATION } from '../content/enemies';
 import { notify } from './notify';
 import { chargeable, healBy, moveCharges, pullPackCharge, ward, type ItemCharge } from './gear';
@@ -672,6 +675,19 @@ export function dropEverything(world: World, h: Hero) {
 // ---------------------------------------------------------------------------
 // Using items
 
+/**
+ * Long Reach (the Alchemist's Innate, M16): out of a fight, the rooms next door (by open tunnels) their consumables
+ * reach too. Nobody else's reach past their own room (Smelling Salts aside).
+ */
+export function reachRooms(world: World, h: Hero): number[] {
+  if (h.cls !== 'alchemist' || h.pos.kind !== 'room' || h.encounter !== null) return [];
+  const room = h.pos.room;
+  return neighbours(world.dungeon, room).filter((n) => {
+    const c = corridorBetween(world.dungeon, room, n);
+    return c && !world.collapsed.includes(c.id);
+  });
+}
+
 export function itemTargets(world: World, h: Hero, index: number): string[] {
   const def = ITEMS[h.items[index]];
   if (!def || h.pos.kind !== 'room') return [];
@@ -681,7 +697,7 @@ export function itemTargets(world: World, h: Hero, index: number): string[] {
     case 'self':
       return [h.id];
     case 'ally':
-      return here.filter(isConscious).map((x) => x.id);
+      return [...here, ...reachRooms(world, h).flatMap((r) => presentIn(world, r))].filter(isConscious).map((x) => x.id);
     case 'downed': {
       const near = new Set([room, ...neighbours(world.dungeon, room)]);
       return Object.values(world.heroes)
@@ -709,11 +725,20 @@ function itemTargetError(world: World, h: Hero, index: number, targetId?: string
   return null;
 }
 
-/** Why this hero can't use pack item `index` out of a fight (null = they can). Checks only; nothing is used up. */
-export function fieldItemError(world: World, h: Hero, index: number, targetId?: string): string | null {
+/**
+ * Why this hero can't use pack item `index` out of a fight (null = they can). Checks only; nothing is used up. `room`:
+ * where a Firebomb is thrown (Long Reach).
+ */
+export function fieldItemError(world: World, h: Hero, index: number, targetId?: string, room?: number): string | null {
   const def = ITEMS[h.items[index]];
   if (!def) return 'Nothing there.';
   if (h.rites.includes('gem') && def.kind === 'consumable') return 'The Gem Rite forbids it. Drop it for an ally.';
+  if (def.target === 'enemies' && h.encounter === null && reachRooms(world, h).length) {
+    if (room === undefined) return 'Pick a room next door to throw it into.';
+    if (!reachRooms(world, h).includes(room)) return "That room's out of reach.";
+    if (!monstersIn(world, room).length) return 'Nothing in there to burn.';
+    return null;
+  }
   if (!def.field) return def.kind === 'consumable' ? 'Only in a fight.' : "You can't use that.";
   if (h.encounter !== null) return 'Use it as your combat action.';
   return itemTargetError(world, h, index, targetId);
@@ -767,13 +792,38 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   return `${h.name} uses ${def.name}.`;
 }
 
-export function useItemInField(world: World, h: Hero, index: number, targetId?: string): string | null {
-  const err = fieldItemError(world, h, index, targetId);
+export function useItemInField(world: World, h: Hero, index: number, targetId?: string, room?: number): string | null {
+  const err = fieldItemError(world, h, index, targetId, room);
   if (err) return err;
+  if (ITEMS[h.items[index]].target === 'enemies' && room !== undefined) {
+    lobFirebomb(world, h, index, room);
+    return null;
+  }
   const result = applyItem(world, h, index, targetId);
   if (result.startsWith('!')) return result.slice(1);
   notify(world, h, result);
   return null;
+}
+
+/**
+ * Long Reach: a Firebomb lobbed into a room next door. It burns every monster there (as it would in a fight, the
+ * Elixir doubling it); the survivors don't come looking. If heroes are fighting there, it lands in their fight.
+ */
+function lobFirebomb(world: World, h: Hero, index: number, room: number) {
+  takeItem(h, index);
+  const base = h.elixir ? 16 : 8;
+  h.elixir = false;
+  const where = theRoom(world.dungeon.rooms[room].name);
+  const enc = world.encounters[room];
+  const events: CombatEvent[] = [{ actor: h.id, kind: 'status', text: `A Firebomb sails in from next door: ${h.name}'s!` }];
+  let slain = 0;
+  for (const m of monstersIn(world, room)) {
+    if (enc) heroHits(world, enc, h, m, base, events, 'Firebomb');
+    else applyMonsterDamage(world, m, monsterTakes(world, m, hitDamage(h, base, world)), events);
+    if (!world.monsters[m.id]) slain++;
+  }
+  if (enc) record(world, enc, events);
+  notify(world, h, `You lob a Firebomb into ${where}.${slain ? ` (${slain} slain)` : ''}`);
 }
 
 /** Cat's-Eye lets you see through dimness (and keeps you from forgetting paths). */

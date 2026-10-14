@@ -550,7 +550,8 @@ The user's overhaul of the cards beta: Stress goes, Light takes over Forgetting,
 Other cards that touched stress: Shrug (Cloth) is now **Trim the Wick** (Common 2s: +8 light; Uncommon 3s: an ally +15 light); Lie Still and Fever Dream cost 10 light instead of stress; Redeem is full HP and their light goes out; Blood Rush loses its Dread school. Talents: Blood Price (HP only), Restless Dead (your undead decay every other fight), Scourged (Flagellate costs no HP and its cooldown is halved), Penitent (Absolution gives back only half the light).
 
 - [x] Stress out: Light stages and Forgetting, light gains and losses, items, events, enemies, the Village (Elder's Bless), the stress cards rewritten, client, bots, tests.
-- [ ] Field abilities (engine, bar, bots) and the new Innates; Warden.
+My calls so far: field abilities are on **M** and **N** out of a fight (the Bellwright's Toll keeps M, Ring In is N) and greyed in a fight with their text on hover; their cooldown counts down on the button. A Long Reach Firebomb is thrown by clicking it, then a room next door on the map; the monsters it burns don't come looking. A Bandage used out of a fight goes to you if you're hurt, else to the most hurt ally you can reach. Bots use their field ability by a plain rule each (`bots/fielder.ts`): Form Up below 10 Shield, Rekindle when a lamp here is under 60, Ring In with monsters next door, Flagellate when healthy and bright, Brew when the pack has room. The Uprising's light cost only comes from the Uprising's own dead. Thornwall and Hold the Gate replace Vengeance (the status is gone).
+- [x] Field abilities (engine, bar, bots) and the new Innates; Warden.
 - [ ] Cutthroat: Sneak, Ambush, Sneak Past, the Sneaking cards.
 - [ ] Sorceress: Anima.
 - [ ] Undertaker: permanent undead, decay, Unearth, Embalm.

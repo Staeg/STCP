@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
 import { DEATH_TIMER, combatOrder, defaultChoice, monstersIn, REVIVE_CHANNEL, spawnGroup, submitChoice } from './combat';
-import { CARDS } from '../content/cards';
+import { CARD_RULES, CARDS } from '../content/cards';
 import { liveCards } from './deck';
 import { play, setHand } from './testkit';
 import { Game } from './game';
@@ -301,26 +301,25 @@ describe('encounters', () => {
     expect(lamp.downedAt).toBeNull();
   });
 
-  it("Vengeance sends each attack on the Warden back at full strength, for the Warden's next 2 turns", () => {
+  it("Thornwall: Shield, and what it stops goes back into the attacker, until the Warden's next turn", () => {
     const { world, ids, room, monsters } = arena(['warden'], ['ghoul']);
     const h = world.heroes.h0;
-    h.armor = 'jerkin';
     walkIn(world, ids, room);
     monsters[0].hp = 999;
     const enc = world.encounters[room];
-    setHand(h, ['vengeance', 'bash', 'rally']);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'vengeance' } });
+    setHand(h, ['thornwall', 'bash', 'rally']);
+    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'card', card: 'thornwall' } });
     untilTurn(world, room, 'h0');
-    expect(h.st.vengeance).toBe(2);
-    applyIntent(world, 'h0', { type: 'combat', choice: { action: 'brace' } });
+    expect(h.st.thornwall).toBe(true);
+    expect(h.st.shield).toBe(CARD_RULES.thornwallShield);
+    enc.next.h0 = world.time + 999; // the Warden waits for the blow
     untilTurn(world, room, monsters[0].id);
-    const back = enc.events.find((e) => e.text.startsWith('Vengeance!'))!;
-    const hit = enc.events.find((e) => e.actor === monsters[0].id && e.kind === 'damage' && e.target === 'h0')!;
+    const back = enc.events.find((e) => e.text.includes('thornwall'))!;
     expect(back.target).toBe(monsters[0].id);
-    expect(back.amount).toBeGreaterThan(hit.amount!); // returned before armor and Stalwart
+    expect(back.amount).toBeGreaterThan(0);
+    enc.next.h0 = world.time;
     untilTurn(world, room, 'h0');
-    untilTurn(world, room, 'h0');
-    expect(h.st.vengeance).toBeUndefined();
+    expect(h.st.thornwall).toBeUndefined();
   });
 
   it('fleeing heads back toward the previous room and leaves the fight', () => {

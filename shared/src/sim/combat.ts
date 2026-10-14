@@ -41,8 +41,8 @@ export interface Statuses {
   weak?: { stacks: number; turns: number };
   /** Witchwood Staff: takes STAFF.witchMult more from everyone while it carries any debuff. */
   witchwood?: boolean;
-  /** Warden's Vengeance: attackers take their attack back. Own turns remaining (ticks at the start of each). */
-  vengeance?: number;
+  /** Warden's Thornwall: until their next turn, what their Shield stops is dealt back to the attacker. */
+  thornwall?: boolean;
   /** Lich's Doom (heroes): stacks, each CR_RULES.doom more from every blow, aura and poison tick. Holds while a Lich
    * stands in their fight; otherwise one stack fades at the end of each of their turns, in a fight or out. */
   doom?: number;
@@ -71,7 +71,7 @@ export interface Statuses {
   expose?: boolean;
   /** Attacks aimed at this hero that miss outright (Fade, Blink, Veil), one charge each. */
   evade?: number;
-  /** Hold the Gate: until this game time, half damage, Vengeance, and every attacker is Delayed. */
+  /** Hold the Gate: until this game time, every enemy whose blow lands on this hero's Shield is Delayed. */
   gate?: number;
   /** Blade Dance: every card takes 1s and Backstab always crits, until this game time. */
   dance?: number;
@@ -549,13 +549,16 @@ export function leaveEncounter(world: World, enc: Encounter, h: Hero) {
 /**
  * Timed statuses carry on outside the fight (turn ones tick per field turn, clock ones on game time); what only means
  * something in a fight (Stun, Shield, Brace, Vigil, the next-card effects) ends with it. The cards are gathered up.
+ * The Warden's Stalwart (M16): he keeps half his Shield.
  */
 function resetAfterFight(h: Hero) {
   h.encounter = null;
   h.statusClock = 0;
   gatherDeck(h);
-  const { poison, acid, hexed, weak, vengeance, dodge, clang, doom, bleed, regen, slow, haste, gate, dance } = h.st;
-  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, vengeance, dodge, clang, doom, bleed, regen, slow, haste, gate, dance }).filter(([, v]) => v !== undefined));
+  const kept = h.cls === 'warden' && isConscious(h) ? Math.floor((h.st.shield ?? 0) * CLASS_RULES.stalwartKeep) : 0;
+  const { poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance } = h.st;
+  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance }).filter(([, v]) => v !== undefined));
+  if (kept > 0) h.st.shield = kept;
 }
 
 function endEncounter(world: World, enc: Encounter) {
@@ -992,7 +995,6 @@ function heroDot(h: Hero, n: number): number {
 
 /** Statuses of a hero's own that tick at the start of their turn. */
 function startOfTurn(st: Statuses) {
-  if (st.vengeance !== undefined && --st.vengeance <= 0) delete st.vengeance;
   if (st.clang && --st.clang.turns <= 0) {
     if (--st.clang.stacks <= 0) delete st.clang;
     else st.clang.turns = CARD_RULES.clangTurns;
@@ -1012,7 +1014,7 @@ function fadeDoom(st: Statuses) {
 /** Anything that ticks per turn outside a fight. */
 function hasFieldTimers(h: Hero): boolean {
   const st = h.st;
-  return !!(st.poison || st.acid || st.hexed || st.weak || st.vengeance || st.clang || st.doom);
+  return !!(st.poison || st.acid || st.hexed || st.weak || st.clang || st.doom);
 }
 
 /** While channelling (digging, reviving) outside a fight, each Speed's worth of time ticks statuses as a turn would. */
@@ -1159,6 +1161,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   delete h.st.brace;
   delete h.st.sidestep;
   delete h.st.spikes;
+  delete h.st.thornwall;
   const { choice, auto } = resolveChoice(world, enc, h);
   delete enc.choices[h.id];
   if (auto) events.push({ actor: h.id, kind: 'info', text: choice.card ? `${h.name} hesitates, then plays ${CARDS[choice.card].name}.` : `${h.name} hesitates and braces.` });
@@ -1742,12 +1745,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   dmg *= weakMult(m.st);
   if (t.light <= 0) dmg *= 1.25;
   const gate = (t.st.gate ?? 0) > world.time;
-  // Vengeance (and Hold the Gate): the attacker takes the whole blow back, before any of the Warden's defences.
-  const returned = t.st.vengeance || gate ? Math.max(1, Math.round(dmg)) : 0;
   const nearest = combatOrder(world, enc).heroes.filter(isConscious).at(-1) === t;
-  // Stalwart: the Warden takes less while standing nearest the enemy.
-  if (t.cls === 'warden' && nearest) dmg *= 0.8;
-  if (gate) dmg *= CARD_RULES.gateMult;
   if (t.st.brace) dmg *= CARD_RULES.braceMult;
   // Patchwork Coat: the first blow in a fight is halved.
   const patch = clothReady(t, 'patchwork');
@@ -1758,8 +1756,9 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   // Bulwark Plate: steadier at the front.
   const front = nearest ? wornStat(t, 'frontBlock') : 0;
   dmg = Math.max(1, afterBlock(t, Math.max(1, Math.round(dmg))) - front) + doomOf(t);
+  let absorbed = 0;
   if (t.st.shield) {
-    const absorbed = Math.min(t.st.shield, dmg);
+    absorbed = Math.min(t.st.shield, dmg);
     t.st.shield -= absorbed;
     dmg -= absorbed;
     if (t.st.shield <= 0) delete t.st.shield;
@@ -1769,13 +1768,14 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but their Shield soaks it up.`,
   });
   applyHeroDamage(world, enc, t, dmg, events);
-  if (returned > 0 && world.monsters[m.id]) {
-    const back = monsterTakes(world, m, returned);
-    events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `Vengeance! ${name} takes ${back} back.` });
+  // Thornwall: what the Shield stopped goes back into the attacker.
+  if (t.st.thornwall && absorbed > 0 && world.monsters[m.id]) {
+    const back = monsterTakes(world, m, absorbed);
+    events.push({ actor: t.id, kind: 'damage', target: m.id, amount: back, text: `${name} is torn on ${t.name}'s thornwall for ${back}.` });
     applyMonsterDamage(world, m, back, events);
   }
-  // Hold the Gate: whoever strikes the Warden reels back.
-  if (gate && world.monsters[m.id] && enc.next[m.id] !== undefined) {
+  // Hold the Gate: a blow that lands on a Shield is thrown back.
+  if (gate && absorbed > 0 && world.monsters[m.id] && enc.next[m.id] !== undefined) {
     const secs = CARD_RULES.gateDelay + wornStat(t, 'delayBonus');
     enc.next[m.id] = at(enc.next[m.id] + secs);
     events.push({ actor: t.id, kind: 'status', target: m.id, text: `${name} is thrown back from the gate. (Delayed ${secs}s)` });

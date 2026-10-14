@@ -33,7 +33,7 @@ export type CardTarget = 'enemy' | 'enemyFirst' | 'ally' | 'room' | 'none';
 
 export type CardId =
   // Warden
-  | 'bash' | 'cover' | 'vengeance' | 'rally' | 'slam' | 'gate'
+  | 'bash' | 'cover' | 'thornwall' | 'rally' | 'slam' | 'gate'
   // Cutthroat
   | 'backstab' | 'cheap' | 'envenom' | 'signal' | 'smoke' | 'dance'
   // Lampbearer
@@ -45,7 +45,7 @@ export type CardId =
   // Bellwright
   | 'clang' | 'knell' | 'peal' | 'ringout' | 'echo' | 'reverberate'
   // Zealot
-  | 'scourge' | 'absolution' | 'sins' | 'flagellate' | 'penance' | 'rapture'
+  | 'scourge' | 'absolution' | 'sins' | 'martyrdom' | 'penance' | 'rapture'
   // Alchemist
   | 'acid' | 'fumes' | 'mist' | 'elixir' | 'catalyst' | 'opus'
   // Gear type cards (Common / Uncommon)
@@ -89,12 +89,12 @@ export const CARD_RULES = {
   /** A stunned hero loses the action and acts again this much later. */
   stunnedTime: 3,
   // ---- Warden ----
-  bash: 9, bashDelay: 2,
+  bash: 5, bashPerShield: 0.5, bashDelay: 2,
   coverShield: 8,
-  vengeanceTurns: 2,
+  thornwallShield: 5,
   rallyShield: 6,
   slamMin: 6, slamDelayPer: 3,
-  gateSecs: 12, gateMult: 0.5, gateDelay: 2,
+  gateShield: 10, gateSecs: 12, gateDelay: 2,
   // ---- Cutthroat ----
   backstab: 6,
   cheap: 2,
@@ -132,7 +132,7 @@ export const CARD_RULES = {
   scourge: 7,
   absolutionBase: 6, absolutionFloor: 50,
   sinsLight: 25, sinsSelf: 15,
-  flagellateHp: 4, flagellateLight: 15,
+  martyrdomLight: 15,
   penanceLight: 10, penanceDiv: 3,
   rapture: 15, raptureLight: 20,
   // ---- Alchemist ----
@@ -181,13 +181,13 @@ const card = (id: CardId, name: string, time: number, schools: School[], target:
   ({ id, name, time, schools, target, desc, ...(burn ? { burn: true as const } : {}) });
 
 export const CARDS: Record<CardId, CardDef> = {
-  // ---- Warden: holding the front, damage made of Shield and Block ----
-  bash: card('bash', 'Shield Bash', 5, ['strike', 'hinder'], 'enemyFirst', `${R.bash} dmg to the nearest enemy; Delay it ${R.bashDelay}s.`),
+  // ---- Warden: Shield above all (M16): gained, shared, kept (Stalwart) and turned into damage ----
+  bash: card('bash', 'Shield Bash', 4, ['strike', 'hinder'], 'enemyFirst', `${R.bash} dmg +1 per ${1 / R.bashPerShield} Shield you have to the nearest enemy; Delay it ${R.bashDelay}s.`),
   cover: card('cover', 'Cover', 3, ['guard'], 'ally', `An ally (or you) +${R.coverShield} Shield; you step to the front of the line.`),
-  vengeance: card('vengeance', 'Vengeance', 5, ['guard'], 'none', `For your next ${R.vengeanceTurns} turns, every attack on you is dealt back to the attacker in full.`),
+  thornwall: card('thornwall', 'Thornwall', 3, ['guard'], 'none', `+${R.thornwallShield} Shield. Until your next turn, whatever your Shield stops is dealt back to the attacker.`),
   rally: card('rally', 'Rally', 4, ['guard'], 'none', `Every ally +${R.rallyShield} Shield.`),
   slam: card('slam', 'Shield Slam', 5, ['guard', 'hinder'], 'enemyFirst', `Damage equal to your Block + Shield (at least ${R.slamMin}) to the nearest enemy; Delay it 1s per ${R.slamDelayPer} damage dealt.`),
-  gate: card('gate', 'Hold the Gate', 6, ['guard', 'hinder'], 'none', `For ${R.gateSecs}s you take half damage, Vengeance is on, and every enemy that hits you is Delayed ${R.gateDelay}s.`, true),
+  gate: card('gate', 'Hold the Gate', 6, ['guard', 'hinder'], 'none', `Every ally +${R.gateShield} Shield. For ${R.gateSecs}s, every enemy whose blow lands on a hero's Shield is Delayed ${R.gateDelay}s.`, true),
   // ---- Cutthroat: Ambush and quick cards ----
   backstab: card('backstab', 'Backstab', 2.5, ['strike'], 'enemy', `${R.backstab} dmg; ×2 against an enemy that is Stunned, Exposed or hasn't acted yet.`),
   cheap: card('cheap', 'Cheap Shot', 3, ['hinder'], 'enemy', `${R.cheap} dmg and Stun.`),
@@ -227,7 +227,7 @@ export const CARDS: Record<CardId, CardDef> = {
   scourge: card('scourge', 'Scourge', 3.5, ['strike'], 'enemy', `${R.scourge} dmg.`),
   absolution: card('absolution', 'Absolution', 5, ['light', 'strike'], 'none', `${R.absolutionBase} dmg plus the light you lack below ${R.absolutionFloor}, split across enemies; you regain that much light.`),
   sins: card('sins', 'Take Their Sins', 3, ['light'], 'ally', `Give an ally up to ${R.sinsLight} of your light (on yourself: snuff ${R.sinsSelf} of it).`),
-  flagellate: card('flagellate', 'Flagellate', 1, ['light'], 'none', `Lose ${R.flagellateHp} HP; snuff ${R.flagellateLight} of your light.`),
+  martyrdom: card('martyrdom', 'Martyrdom', 1, ['light', 'hasten'], 'none', `Snuff ${R.martyrdomLight} of your light; your next card takes 1s.`),
   penance: card('penance', 'Penance', 2, ['guard', 'light'], 'none', `Snuff ${R.penanceLight} of your light, then gain Shield equal to a third of the light you lack.`),
   rapture: card('rapture', 'Rapture', 5, ['light', 'strike'], 'enemy', `Every other ally gains up to ${R.raptureLight} light, taken from yours; deal ${R.rapture} + half the light you lack to one enemy.`, true),
   // ---- Alchemist: brews and poisons ----
@@ -308,7 +308,7 @@ const art = (motif: CardMotif, mark?: CardMark) => ({ motif, ...(mark ? { mark }
 export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   bash: art('shield', 'hourglass'),
   cover: art('shield', 'front'),
-  vengeance: art('spikes'),
+  thornwall: art('spikes', 'shield'),
   rally: art('shield', 'swirl'),
   slam: art('crack', 'shield'),
   gate: art('gate', 'spikes'),
@@ -345,7 +345,7 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   scourge: art('whip'),
   absolution: art('swirl', 'sword'),
   sins: art('hand', 'swirl'),
-  flagellate: art('whip', 'blood'),
+  martyrdom: art('flame', 'wing'),
   penance: art('swirl', 'shield'),
   rapture: art('swirl', 'sun'),
   acid: art('flask', 'venom'),
@@ -409,13 +409,13 @@ export function isCardId(id: unknown): id is CardId {
 
 /** Each class's six cards: five that reshuffle and one Burn (last). */
 export const CLASS_CARDS: Record<ClassId, CardId[]> = {
-  warden: ['bash', 'cover', 'vengeance', 'rally', 'slam', 'gate'],
+  warden: ['bash', 'cover', 'thornwall', 'rally', 'slam', 'gate'],
   cutthroat: ['backstab', 'cheap', 'envenom', 'signal', 'smoke', 'dance'],
   lampbearer: ['flare', 'mend', 'vigil', 'kindle', 'sanctuary', 'dawn'],
   sorceress: ['hex', 'wither', 'pact', 'familiar', 'bargain', 'ages'],
   undertaker: ['spade', 'rites', 'raise', 'explode', 'graveward', 'graves'],
   bellwright: ['clang', 'knell', 'peal', 'ringout', 'echo', 'reverberate'],
-  zealot: ['scourge', 'absolution', 'sins', 'flagellate', 'penance', 'rapture'],
+  zealot: ['scourge', 'absolution', 'sins', 'martyrdom', 'penance', 'rapture'],
   alchemist: ['acid', 'fumes', 'mist', 'elixir', 'catalyst', 'opus'],
 };
 

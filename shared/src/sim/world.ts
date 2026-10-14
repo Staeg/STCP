@@ -27,7 +27,7 @@ import { emptyCodex, TWIST_IDS, TWISTS, type Codex } from '../content/codex';
 import { notify, type SoundCue } from './notify';
 import { clothReady, leftRoom, spendCloth, tickCharges, toggleAuto, type ItemCharge } from './gear';
 import { fmtSpeed, speedOf, type SpeedMod } from './speed';
-import { checkSkill, fieldSkillsOf, hearsToll, tickBrew, useSkill, type FieldSkill } from './skills';
+import { checkSkill, fieldSkillsOf, hearsToll, useSkill, type FieldSkill } from './skills';
 import {
   activeItems, castVote, claimItem, equipFromPack, giveItem, wants, dropGold, dropItem, goldFor, pileGold, risenAllyEscapes, fieldItemError, unequip, seesInDark, spawnInitialLoot, tickLoot, tomeLegacy, useItemInField, wornMult, wornStat, type Pile,
 } from './loot';
@@ -114,13 +114,13 @@ export interface Hero {
   /** An out-of-combat skill, picked and waiting for the timer to run out (like an event choice). */
   queuedSkill: { skill: FieldSkill; target: string | null; room?: number } | null;
   /** A consumable used out of a fight: it takes effect when the timer runs out, and is that turn's action. */
-  queuedItem: { item: ItemId; index: number; target: string | null } | null;
+  queuedItem: { item: ItemId; index: number; target: string | null; room?: number } | null;
   /** Undertaker: extra Spade damage, earned by Last Rites kills this run. */
   spadeBonus: number;
   /** Elixir: this hero's next item has double effect. */
   elixir: boolean;
-  /** Alchemist: when the next brew is done. */
-  brewAt: number;
+  /** Field abilities (M16): the game time each one is ready again (absent: ready). */
+  fieldReady: Partial<Record<FieldSkill, number>>;
   /** Dead heroes: gold that went home anyway (an Undertaker walked them out Risen, or the Tome Rite). */
   legacy: number;
   /** Dead heroes: an Undertaker has Raised them (only ever once; after that their things are anyone's). */
@@ -324,7 +324,8 @@ export type Intent =
   | { type: 'unequip'; slot: GearSlot }
   /** Turn a worn piece that goes off by itself (Cloth) off or on. */
   | { type: 'toggleAuto'; slot: GearSlot }
-  | { type: 'useItem'; index: number; target?: string }
+  /** `room`: where a Firebomb goes, thrown next door (the Alchemist's Long Reach). */
+  | { type: 'useItem'; index: number; target?: string; room?: number }
   /** Leave the dungeon through the open exit, on your own, now. */
   | { type: 'extract' }
   /** Ready to leave together (E): toggles, or sets `on`. Works anywhere; it only matters at the open exit. */
@@ -468,7 +469,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     queuedItem: null,
     spadeBonus: 0,
     elixir: false,
-    brewAt: world.time + CLASS_RULES.brewEvery,
+    fieldReady: {},
     legacy: 0,
     raised: false,
     color: freeColor(world, opts.cls),
@@ -578,7 +579,6 @@ export function step(world: World, dt: number): void {
       hero.queuedSkill = null;
       hero.queuedItem = null;
     }
-    if (hero.cls === 'alchemist') tickBrew(world, hero);
     tickCharges(hero, dt);
   }
   tickDowned(world);
@@ -774,14 +774,14 @@ export function applyIntent(world: World, heroId: string, intent: Intent): void 
       // From a tunnel, judged from the room you'd be back in.
       const pos = hero.pos;
       if (pos.kind === 'corridor') hero.pos = { kind: 'room', room: pos.from };
-      const err = fieldItemError(world, hero, intent.index, intent.target);
+      const err = fieldItemError(world, hero, intent.index, intent.target, intent.room);
       hero.pos = pos;
       if (err) return notify(world, hero, err);
       cancelTravel(world, hero);
       hero.channel = null;
       hero.queuedEvent = null;
       hero.queuedSkill = null;
-      hero.queuedItem = { item: hero.items[intent.index], index: intent.index, target: intent.target ?? null };
+      hero.queuedItem = { item: hero.items[intent.index], index: intent.index, target: intent.target ?? null, room: intent.room };
       return;
     }
     case 'event': {
@@ -951,7 +951,7 @@ function endIdleTurn(world: World, hero: Hero) {
   if (used) {
     // The pack may have shifted since it was picked.
     const index = hero.items[used.index] === used.item ? used.index : hero.items.indexOf(used.item);
-    const err = index < 0 ? 'You no longer have it.' : useItemInField(world, hero, index, used.target ?? undefined);
+    const err = index < 0 ? 'You no longer have it.' : useItemInField(world, hero, index, used.target ?? undefined, used.room);
     if (err) notify(world, hero, err);
   }
   fieldTurnEnd(world, hero);

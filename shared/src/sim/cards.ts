@@ -327,7 +327,7 @@ function resolve(ctx: CardCtx) {
     // ---- Warden ----
     case 'bash': {
       const m = front();
-      if (strike(ctx, m, R.bash) && m) delay(ctx, m, R.bashDelay);
+      if (strike(ctx, m, R.bash + Math.floor((h.st.shield ?? 0) * R.bashPerShield)) && m) delay(ctx, m, R.bashDelay);
       return;
     }
     case 'cover': {
@@ -337,11 +337,12 @@ function resolve(ctx: CardCtx) {
       tell(`${h.name} covers ${allyText(ctx, t)}. (+${got} Shield)`, 'status', t.id);
       return;
     }
-    case 'vengeance':
-      h.st.vengeance = buffLength(h, R.vengeanceTurns);
-      ward(h, h);
-      tell(`${h.name} swears vengeance. Whoever strikes them will feel it.`, 'status', h.id);
+    case 'thornwall': {
+      const got = shieldOf(ctx, h, R.thornwallShield);
+      h.st.thornwall = true;
+      tell(`${h.name} raises a wall of thorns. (+${got} Shield; what it stops comes back)`, 'status', h.id);
       return;
+    }
     case 'rally': {
       let got = 0;
       for (const a of allies()) got = shieldOf(ctx, a, R.rallyShield);
@@ -360,10 +361,17 @@ function resolve(ctx: CardCtx) {
       if (secs > 0) delay(ctx, m, secs / ctx.power);
       return;
     }
-    case 'gate':
-      h.st.gate = world.time + buffLength(h, R.gateSecs);
-      tell(`${h.name} holds the gate! (${R.gateSecs}s: half damage, Vengeance, every attacker Delayed ${R.gateDelay}s)`, 'status', h.id);
+    case 'gate': {
+      const until = world.time + buffLength(h, R.gateSecs);
+      let got = 0;
+      for (const a of allies()) {
+        got = shieldOf(ctx, a, R.gateShield);
+        a.st.gate = until;
+      }
+      for (const r of risen()) shieldOf(ctx, risenSt_(r), R.gateShield);
+      tell(`${h.name} holds the gate! (every ally +${got} Shield; ${R.gateSecs}s: blows on a Shield are thrown back ${R.gateDelay}s)`);
       return;
+    }
     // ---- Cutthroat ----
     case 'backstab': {
       const m = foe();
@@ -667,11 +675,10 @@ function resolve(ctx: CardCtx) {
       tell(`${h.name} takes ${t.name}'s darkness upon themself. (${t.name} +${got} light, ${h.name} −${given})`, 'light', t.id, got);
       return;
     }
-    case 'flagellate': {
-      const cost = Math.min(h.hp - 1, R.flagellateHp);
-      if (cost > 0) h.hp -= cost;
-      const lost = Math.round(spendLight(h, p(R.flagellateLight)));
-      tell(`${h.name} scourges their own back. (−${Math.max(0, cost)} HP, −${lost} light)`, 'light', h.id, -lost);
+    case 'martyrdom': {
+      const lost = Math.round(spendLight(h, p(R.martyrdomLight)));
+      h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
+      tell(`${h.name} snuffs their own light for the cause. (−${lost} light; next card 1s)`, 'light', h.id, -lost);
       return;
     }
     case 'penance': {

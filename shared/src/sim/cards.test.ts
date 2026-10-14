@@ -145,14 +145,11 @@ describe('Warden', () => {
     expect(enc.next[monsters[0].id]).toBeCloseTo(due + 4);
     play(world, h, 'gate');
     expect(h.burned).toEqual(['gate']);
-    delete h.st.shield;
-    h.armor = null;
+    expect(h.st.shield).toBe(6 + R.gateShield);
     const ghoul = monsters[0];
     enc.next[ghoul.id] = world.time;
     untilTurn(world, enc.room, ghoul.id);
-    const hit = enc.events.find((e) => e.actor === ghoul.id && e.target === h.id && e.kind === 'damage')!;
-    expect(hit.amount).toBe(Math.round(ENEMIES.ghoul.dmg * 0.8 * R.gateMult)); // Stalwart, then the gate
-    expect(enc.events.some((e) => e.text.startsWith('Vengeance!'))).toBe(true);
+    expect(enc.events.some((e) => e.text.includes('thrown back from the gate'))).toBe(true);
     expect(enc.next[ghoul.id] - world.time).toBeCloseTo(ENEMIES.ghoul.speed + R.gateDelay, 0);
   });
 });
@@ -348,12 +345,12 @@ describe('Zealot', () => {
     expect(hp - monsters[0].hp).toBe(R.scourge * 2);
   });
 
-  it('Flagellate costs HP and light; Rapture pours light into the others and hurls the dark', () => {
-    const { world, heroes, h, monsters } = fight(['zealot', 'warden']);
+  it('Martyrdom snuffs light for a quick next card; Rapture pours light into the others and hurls the dark', () => {
+    const { world, heroes, h, enc, monsters } = fight(['zealot', 'warden']);
     const before = h.light;
-    play(world, h, 'flagellate');
-    expect(h.hp).toBe(h.maxHp - R.flagellateHp);
-    expect(h.light).toBeCloseTo(before - R.flagellateLight, 0);
+    play(world, h, 'martyrdom');
+    expect(h.light).toBeCloseTo(before - R.martyrdomLight, 0);
+    expect(cardTime(world, enc, h, 'absolution')).toBe(1);
     heroes[1].light = 40;
     h.light = 60;
     const hp = monsters[0].hp;
@@ -469,7 +466,7 @@ describe('Gear cards and passives', () => {
     play(world, h, 'luckybreak');
     expect(h.deck!.discard).toEqual(expect.arrayContaining(['bash', 'cover', 'luckybreak']));
     expect(h.deck!.hand).toHaveLength(3);
-    setHand(h, ['rally', 'glass', 'vengeance']);
+    setHand(h, ['rally', 'glass', 'thornwall']);
     play(world, h, 'rally');
     play(world, h, 'glass');
     expect(h.deck!.hand).toContain('rally');

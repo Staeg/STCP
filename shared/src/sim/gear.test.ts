@@ -327,12 +327,12 @@ describe('staves', () => {
     const { world, ids, room } = arena(['warden'], ['ghoul']);
     world.heroes.h0.weapon = 'evergreen';
     walkIn(world, ids, room);
-    act(world, room, 'vengeance');
-    expect(world.heroes.h0.st.vengeance).toBe(2 * CARD_RULES.vengeanceTurns);
+    act(world, room, 'gate');
+    expect(world.heroes.h0.st.gate! - world.time).toBeCloseTo(2 * CARD_RULES.gateSecs, 0);
   });
 
   it('Warding Staff shields whoever you help; the Shield ends with the fight', () => {
-    const { world, ids, room, monsters } = arena(['lampbearer', 'warden'], ['ghoul']);
+    const { world, ids, room, monsters } = arena(['lampbearer', 'cutthroat'], ['ghoul']); // (a Warden would keep half: Stalwart)
     const [l, w] = [world.heroes.h0, world.heroes.h1];
     l.weapon = 'wardstaff';
     w.hp -= 10;

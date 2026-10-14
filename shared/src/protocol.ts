@@ -236,8 +236,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (i.type === 'dropGold' && typeof i.amount === 'number' && i.amount > 0 && i.amount <= 1000) return { t: 'intent', intent: { type: 'dropGold', amount: i.amount } };
       if (i.type === 'unequip' && (i.slot === 'weapon' || i.slot === 'armor' || i.slot === 'amulet' || i.slot === 'ring')) return { t: 'intent', intent: { type: 'unequip', slot: i.slot } };
       if (i.type === 'toggleAuto' && (i.slot === 'weapon' || i.slot === 'armor' || i.slot === 'amulet' || i.slot === 'ring')) return { t: 'intent', intent: { type: 'toggleAuto', slot: i.slot } };
-      if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32))) {
-        return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined } };
+      if (i.type === 'useItem' && slot(i.index) && (i.target === undefined || str(i.target, 32)) && (i.room === undefined || Number.isInteger(i.room))) {
+        return { t: 'intent', intent: { type: 'useItem', index: i.index as number, target: i.target as string | undefined, ...(i.room !== undefined ? { room: i.room as number } : {}) } };
       }
       if (i.type === 'stepTo' && (i.to === 'front' || i.to === 'back')) return { t: 'intent', intent: { type: 'stepTo', to: i.to } };
       if (i.type === 'combat' && i.choice && typeof i.choice === 'object') {
