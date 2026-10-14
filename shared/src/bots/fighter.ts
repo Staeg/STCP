@@ -84,11 +84,11 @@ function priority(f: BotFight) {
   return f.enemies.find((m) => m.enemy === 'queen') ?? f.enemies.find((m) => m.enemy === 'lich') ?? minBy(f.enemies, (m) => m.hp);
 }
 
-/** Who a bot helps: the most stressed for stress cards, whoever carries items for Elixir, else the most hurt. */
+/** Who a bot helps: the darkest for light cards, whoever carries items for Elixir, else the most hurt. */
 function allyFor(f: BotFight, card: Choice['card']): string | undefined {
   const { allies, me } = f;
-  if (card === 'sins') return maxBy(allies.filter((a) => a.id !== me.id), (a) => a.stress ?? 0)?.id ?? me.id;
-  if (card === 'vigil' || card === 'shrug2') return maxBy(allies, (a) => a.stress ?? 0)?.id;
+  if (card === 'sins') return minBy(allies.filter((a) => a.id !== me.id), (a) => a.light ?? 100)?.id ?? me.id;
+  if (card === 'vigil' || card === 'wick2') return minBy(allies, (a) => a.light ?? 100)?.id;
   if (card === 'elixir') return me.id;
   if (card === 'signal') return maxBy(allies.filter((a) => a.id !== me.id), (a) => a.nextIn ?? 0)?.id ?? me.id;
   return minBy(allies, (a) => a.hp / a.maxHp)?.id;

@@ -5,12 +5,12 @@ import { ITEMS } from '../content/items';
 import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
 import { hasTalent, TALENT_RULES } from '../content/talents';
 import {
-  addClang, addPoison, addStress, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, heal, heroBlock, heroHits,
-  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, stepToEnd, takeSins,
+  addClang, addPoison, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, gainLight, heal, heroBlock, heroHits,
+  isConscious, leaveEncounter, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, spendLight, stepToEnd,
   type CombatEvent, type Encounter, type Monster, type Risen, type Slain, type Statuses,
 } from './combat';
 import { cycle, returnLast } from './deck';
-import { buffLength, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, ward } from './gear';
+import { buffLength, debuffCopies, debuffTurns, healBy, lightBy, markWitchwood, ward } from './gear';
 import { forgive, unmakeFight, waystep, wolvesOf, summonWolf } from './legends';
 import { giveItem, hasSpace, wornStat } from './loot';
 import { brewRoll } from './skills';
@@ -114,16 +114,18 @@ export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardI
     case 'bloom':
       return hurt ? null : 'Nobody is hurt.';
     case 'vigil':
-    case 'shrug2':
-      return allies.some((a) => a.stress > 0) || others.length === 0 ? null : 'Nobody is shaken.';
-    case 'shrug1':
-      return h.stress > 0 ? null : 'You are calm already.';
+      return allies.some((a) => a.light < LIGHT_MAX) || others.length === 0 ? null : 'Every lamp is full.';
+    case 'wick2':
+      return allies.some((a) => a.light < LIGHT_MAX) ? null : 'Every lamp is full.';
+    case 'wick1':
+    case 'oil':
+      return h.light < LIGHT_MAX ? null : 'Your lamp is full.';
     case 'sins':
-      return others.some((a) => a.stress > 0) || h.cls === 'zealot' ? null : 'Nobody has sins to give.';
+      return h.light > 0 && (others.some((a) => a.light < LIGHT_MAX) || h.cls === 'zealot') ? null : 'Nobody needs your light.';
     case 'elixir':
       return allies.some((a) => a.items.some((i) => ITEMS[i].kind === 'consumable')) ? null : 'Nobody has an item to drink.';
     case 'redeem':
-      return allies.some((a) => a.hp < a.maxHp || a.stress > 0) ? null : 'Nobody needs redeeming.';
+      return hurt ? null : 'Nobody needs redeeming.';
     case 'forgive':
       return hurt || Object.values(world.heroes).some((o) => o !== h && !o.extracted && (o.dead ? !o.raised : o.downedAt !== null) && bodyHere(o, enc.room)) ? null : 'Nobody here needs forgiving.';
     default:
@@ -297,7 +299,7 @@ function resolve(ctx: CardCtx) {
   const front = () => combatOrder(world, enc).monsters[0] ?? null;
   const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
   const others = () => allies().filter((a) => a !== h);
-  /** The summoned and risen on the heroes' side: "every ally" cards reach them too (they have no light, stress or items). */
+  /** The summoned and risen on the heroes' side: "every ally" cards reach them too (they have no light or items). */
   const risen = () => risenAll(enc);
   const risenSt_ = (r: Risen) => ({ st: risenSt(world, r) });
   /** The picked enemy if it's still here, else the frontmost. */
@@ -310,6 +312,12 @@ function resolve(ctx: CardCtx) {
     const t = ctx.target ? world.heroes[ctx.target] : undefined;
     if (t && isConscious(t) && t.encounter === enc.room) return t;
     return allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0] ?? h;
+  };
+  /** The picked ally if they're still standing here, else the one with the least light (you, if alone). */
+  const friendLight = (): Hero => {
+    const t = ctx.target ? world.heroes[ctx.target] : undefined;
+    if (t && isConscious(t) && t.encounter === enc.room) return t;
+    return [...others()].sort((a, b) => a.light - b.light)[0] ?? h;
   };
   const name = (m: Monster) => ENEMIES[m.type].name;
   const tell = (text: string, kind: CombatEvent['kind'] = 'status', target?: string, amount?: number) =>
@@ -335,14 +343,10 @@ function resolve(ctx: CardCtx) {
       tell(`${h.name} swears vengeance. Whoever strikes them will feel it.`, 'status', h.id);
       return;
     case 'rally': {
-      const eased = Math.round(reliefBy(h, R.rallyStress) * ctx.power);
       let got = 0;
-      for (const a of allies()) {
-        got = shieldOf(ctx, a, R.rallyShield);
-        addStress(a, -eased);
-      }
+      for (const a of allies()) got = shieldOf(ctx, a, R.rallyShield);
       for (const r of risen()) shieldOf(ctx, risenSt_(r), R.rallyShield);
-      tell(`${h.name} rallies the party! (+${got} Shield, −${eased} stress)`);
+      tell(`${h.name} rallies the party! (+${got} Shield)`);
       return;
     }
     case 'slam': {
@@ -426,11 +430,10 @@ function resolve(ctx: CardCtx) {
       return;
     }
     case 'vigil': {
-      const t = friend();
-      const eased = Math.round(reliefBy(h, R.vigil) * ctx.power);
-      addStress(t, -eased);
+      const t = friendLight();
+      const got = Math.round(gainLight(t, lightBy(h, t, R.vigilLight * ctx.power)));
       ward(h, t);
-      tell(`${h.name} keeps vigil over ${allyText(ctx, t)}. (−${eased} stress)`, 'status', t.id);
+      tell(`${h.name} keeps vigil over ${allyText(ctx, t)}. (+${got} light)`, 'light', t.id, got);
       if (others().length === 0) {
         h.st.vigil = h.id;
         h.st.vigilMore = buffLength(h, 1) - 1;
@@ -440,8 +443,7 @@ function resolve(ctx: CardCtx) {
     }
     case 'kindle': {
       const m = foe();
-      const spent = Math.min(R.kindleLight, Math.floor(h.light));
-      h.light -= spent;
+      const spent = spendLight(h, Math.min(R.kindleLight, Math.floor(h.light)));
       if (!m) return;
       strike(ctx, m, Math.min(R.kindleMax, R.kindleBase + Math.floor(spent / 2)));
       if (spent >= R.kindleLight && world.monsters[m.id]) {
@@ -465,7 +467,6 @@ function resolve(ctx: CardCtx) {
       for (const a of allies()) {
         a.light = LIGHT_MAX;
         heal(a, healBy(h, p(R.dawnHeal)));
-        addStress(a, -reliefBy(h, p(R.dawnStress)));
         ward(h, a);
       }
       for (const r of risen()) {
@@ -499,8 +500,6 @@ function resolve(ctx: CardCtx) {
           a.hp -= cost;
           tell(a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.`, 'damage', a.id, cost);
         }
-        const added = Math.round(addStress(a, R.pactStress * mult));
-        if (added > 0) tell(`The pact gnaws at ${a.name}'s mind. (+${added} stress)`, 'stress', a.id, added);
       }
       // The summoned and risen pay in blood too (Blood Price spares them like everyone else).
       if (!price) {
@@ -518,9 +517,10 @@ function resolve(ctx: CardCtx) {
       summon(ctx, 'imp', 'binds');
       return;
     case 'bargain': {
-      const added = Math.round(addStress(h, R.bargainStress));
+      const cost = Math.min(h.hp - 1, afterBlock(h, R.bargainHp));
+      if (cost > 0) h.hp -= cost;
       h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
-      tell(`${h.name} strikes a mad bargain. (+${added} stress; next card 1s)`, 'stress', h.id, added);
+      tell(`${h.name} strikes a mad bargain in blood. (−${Math.max(0, cost)} HP; next card 1s)`, 'damage', h.id, Math.max(0, cost));
       return;
     }
     case 'ages':
@@ -641,45 +641,54 @@ function resolve(ctx: CardCtx) {
       strike(ctx, foe(), R.scourge);
       return;
     case 'absolution': {
-      const spend = Math.max(0, h.stress - R.absolutionFloor);
-      const paid = hasTalent(h, 'penitent') ? Math.floor(spend / 2) : spend;
+      // Darkness is the fuel: the light lacking below the floor turns into damage, and comes back as it's spent.
+      const dark = Math.max(0, Math.round(R.absolutionFloor - h.light));
       const targets = enemies();
-      const each = Math.ceil((R.absolutionBase + spend) / Math.max(1, targets.length));
-      tell(`${h.name} pours out their torment!${paid ? ` (−${paid} stress)` : ''}`);
+      const each = Math.ceil((R.absolutionBase + dark) / Math.max(1, targets.length));
+      tell(`${h.name} pours out the dark!${dark ? ` (+${dark} damage)` : ''}`);
       for (const m of targets) strike(ctx, m, each);
-      h.stress -= paid;
+      const back = hasTalent(h, 'penitent') ? Math.floor(dark / 2) : dark;
+      if (back > 0) {
+        gainLight(h, back);
+        tell(`${h.name} is absolved. (+${back} light)`, 'light', h.id, back);
+      }
       return;
     }
     case 'sins': {
-      const t = friend();
+      const t = friendLight();
       if (t === h) {
-        const added = Math.round(addStress(h, p(R.sinsSelf)));
-        tell(`${h.name} dwells on their own sins. (+${added} stress)`, 'stress', h.id, added);
+        const lost = Math.round(spendLight(h, p(R.sinsSelf)));
+        tell(`${h.name} dwells on their own sins, and their lamp dims. (−${lost} light)`, 'light', h.id, -lost);
         return;
       }
-      const moved = takeSins(h, t, Math.round(reliefBy(h, R.sins) * ctx.power));
+      const given = Math.round(spendLight(h, Math.min(LIGHT_MAX - t.light, p(R.sinsLight))));
+      const got = Math.round(gainLight(t, lightBy(h, t, given)));
       ward(h, t);
-      tell(`${h.name} takes ${t.name}'s sins upon themself. (${moved} stress moved)`, 'stress', h.id, moved);
+      tell(`${h.name} takes ${t.name}'s darkness upon themself. (${t.name} +${got} light, ${h.name} −${given})`, 'light', t.id, got);
       return;
     }
     case 'flagellate': {
       const cost = Math.min(h.hp - 1, R.flagellateHp);
       if (cost > 0) h.hp -= cost;
-      const added = Math.round(addStress(h, p(R.flagellateStress)));
-      tell(`${h.name} scourges their own back. (−${cost} HP, +${added} stress)`, 'stress', h.id, added);
+      const lost = Math.round(spendLight(h, p(R.flagellateLight)));
+      tell(`${h.name} scourges their own back. (−${Math.max(0, cost)} HP, −${lost} light)`, 'light', h.id, -lost);
       return;
     }
     case 'penance': {
-      const added = Math.round(addStress(h, p(R.penanceStress)));
-      const got = shieldOf(ctx, h, Math.floor(h.stress / R.penanceDiv) / ctx.power);
-      tell(`${h.name} does penance. (+${added} stress, +${got} Shield)`, 'status', h.id);
+      const lost = Math.round(spendLight(h, p(R.penanceLight)));
+      const got = shieldOf(ctx, h, Math.floor((LIGHT_MAX - h.light) / R.penanceDiv) / ctx.power);
+      tell(`${h.name} does penance. (−${lost} light, +${got} Shield)`, 'status', h.id);
       return;
     }
     case 'rapture': {
       let moved = 0;
-      for (const a of others()) moved += takeSins(h, a, a.stress);
-      tell(`${h.name} draws every sin in the room into themself! (${moved} stress)`, 'stress', h.id, moved);
-      strike(ctx, foe(), R.rapture + moved);
+      for (const a of others()) {
+        const given = spendLight(h, Math.min(LIGHT_MAX - a.light, R.raptureLight));
+        gainLight(a, lightBy(h, a, given));
+        moved += given;
+      }
+      if (moved) tell(`${h.name} pours their light into the others and takes the dark. (−${Math.round(moved)} light)`, 'light', h.id, -Math.round(moved));
+      strike(ctx, foe(), R.rapture + Math.floor((LIGHT_MAX - h.light) / 2));
       return;
     }
     // ---- Alchemist ----
@@ -760,18 +769,16 @@ function resolve(ctx: CardCtx) {
       tell(`${h.name} braces behind their armour. (+${got} Shield)`, 'status', h.id);
       return;
     }
-    case 'shrug1': {
-      const eased = Math.round(reliefBy(h, R.shrug1) * ctx.power);
-      addStress(h, -eased);
-      tell(`${h.name} shrugs it off. (−${eased} stress)`, 'status', h.id);
+    case 'wick1': {
+      const got = Math.round(gainLight(h, p(R.wick1)));
+      tell(`${h.name} trims their wick. (+${got} light)`, 'light', h.id, got);
       return;
     }
-    case 'shrug2': {
-      const t = friend();
-      const eased = Math.round(reliefBy(h, R.shrug2) * ctx.power);
-      addStress(t, -eased);
+    case 'wick2': {
+      const t = friendLight();
+      const got = Math.round(gainLight(t, lightBy(h, t, p(R.wick2))));
       ward(h, t);
-      tell(`${h.name} steadies ${allyText(ctx, t)}. (−${eased} stress)`, 'status', t.id);
+      tell(`${h.name} trims ${t === h ? 'their own' : `${t.name}'s`} wick. (+${got} light)`, 'light', t.id, got);
       return;
     }
     case 'mutter1':
@@ -874,9 +881,9 @@ function resolve(ctx: CardCtx) {
     }
     case 'liestill': {
       const healed = heal(h, healBy(h, p(R.lieStillHeal)));
-      const added = Math.round(addStress(h, R.lieStillStress));
+      const lost = Math.round(spendLight(h, R.lieStillLight));
       stepToEnd(world, h, 'back');
-      tell(`${h.name} lies still among the dead. (+${healed} HP, +${added} stress)`, 'heal', h.id, healed);
+      tell(`${h.name} lies still in the dark among the dead. (+${healed} HP, −${lost} light)`, 'heal', h.id, healed);
       return;
     }
     case 'slipaway':
@@ -906,9 +913,9 @@ function resolve(ctx: CardCtx) {
       tell(`${h.name} gets a lucky break: a whole new hand.`, 'status', h.id);
       return;
     case 'feverdream': {
-      const added = Math.round(addStress(h, R.feverStress));
+      const lost = Math.round(spendLight(h, R.feverLight));
       h.st.conjureHalf = true;
-      tell(`${h.name} sinks into a fever dream. (+${added} stress; Conjure cards take half the time)`, 'stress', h.id, added);
+      tell(`${h.name} sinks into a fever dream. (−${lost} light; Conjure cards take half the time)`, 'light', h.id, -lost);
       return;
     }
     case 'bloodrush': {
@@ -919,8 +926,7 @@ function resolve(ctx: CardCtx) {
       return;
     }
     case 'ashes': {
-      const spent = Math.min(R.ashesLight, Math.floor(h.light));
-      h.light -= spent;
+      const spent = spendLight(h, Math.min(R.ashesLight, Math.floor(h.light)));
       for (const m of enemies()) debuff(ctx, m, 'weak', spent >= R.ashesLight ? 2 : 1);
       tell(`${h.name} scatters ashes. Every foe is Weakened.`);
       return;
@@ -959,9 +965,8 @@ function resolve(ctx: CardCtx) {
       const t = friend();
       const healed = t.maxHp - t.hp;
       t.hp = t.maxHp;
-      t.stress = 0;
       t.light = 0;
-      tell(`${t === h ? `${h.name} finds` : `${h.name} grants ${t.name}`} redemption: whole again, untroubled, and in the dark.`, 'heal', t.id, healed);
+      tell(`${t === h ? `${h.name} finds` : `${h.name} grants ${t.name}`} redemption: whole again, and in the dark.`, 'heal', t.id, healed);
       return;
     }
     case 'bastion': {
@@ -997,6 +1002,11 @@ function resolve(ctx: CardCtx) {
         return;
       }
       waystep(world, h, room, enc, events);
+      return;
+    }
+    case 'oil': {
+      const got = Math.round(gainLight(h, LIGHT_MAX));
+      tell(`${h.name} pours the Elder's oil into their lamp. (+${got} light)`, 'light', h.id, got);
       return;
     }
     case 'fumble':

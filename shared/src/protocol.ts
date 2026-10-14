@@ -27,7 +27,7 @@ export interface LobbyMemberView {
   stash: number;
   title: string;
   /** The Village Character they bring (for the class they picked). */
-  character: (Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'insane'> & { spec: SpecId | null }) | null;
+  character: (Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'blessed'> & { spec: SpecId | null }) | null;
   /** What they're bringing from their Village Stash. */
   kit: Kit;
   /** Their Village's Emergency for this run (M13), if picked. */

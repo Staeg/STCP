@@ -14,7 +14,7 @@ import { LobbyManager, type Socket } from './lobby';
 import type { ServerMsg } from './protocol';
 
 const loadout = (kit: Partial<Kit>): Loadout => ({
-  charId: 'c1', charName: 'Ilse', owner: 'Ann', talents: [], injuries: [], insane: false, kit: { ...emptyKit(), ...kit },
+  charId: 'c1', charName: 'Ilse', owner: 'Ann', talents: [], injuries: [], kit: { ...emptyKit(), ...kit },
 });
 const quiet = () => createWorld(5, { monsters: false, loot: false, escalates: false, events: false });
 const full = { effigy: 5, gem: 5, tome: 5, relic: 5 };

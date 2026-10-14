@@ -1,4 +1,5 @@
 import { CARD_RULES as R, CARDS, type CardId } from '../content/cards';
+import { LIGHT_BRIGHT, LIGHT_MAX } from '../content/constants';
 import type { Rng } from '../rng';
 import type { CombatUnitView, EncounterView, PlayerView } from '../sim/views';
 
@@ -18,7 +19,8 @@ export interface BotFight {
 const TEMPO_VALUE = 1;
 /** Shield is worth a little less than healing: it may never be needed. */
 const SHIELD_VALUE = 0.7;
-const STRESS_VALUE = 0.4;
+/** Light matters most below 75 (where paths start slipping the mind). */
+const LIGHT_VALUE = 0.3;
 
 /**
  * A rough worth for playing `card` now, in damage-like points (the caller divides by its time). Bots are meant to be
@@ -32,8 +34,12 @@ export function cardValue(f: BotFight, card: CardId): number {
   const hurtest = allies.reduce((a, b) => (b.hp / b.maxHp < a.hp / a.maxHp ? b : a), me);
   const heal = (amount: number, u: CombatUnitView = hurtest) => Math.min(amount, missing(u)) * (u.hp / u.maxHp < 0.5 ? 1.6 : 1.1);
   const healAll = (amount: number) => allies.reduce((s, a) => s + Math.min(amount, missing(a)), 0);
-  const stressOf = (u: CombatUnitView) => u.stress ?? 0;
-  const relief = (amount: number, u: CombatUnitView) => Math.min(amount, stressOf(u)) * STRESS_VALUE;
+  const lightOf = (u: CombatUnitView) => u.light ?? LIGHT_MAX;
+  /** Worth of `amount` light given to `u`: full below Bright, a third above it. */
+  const brighten = (amount: number, u: CombatUnitView) =>
+    Math.min(amount, LIGHT_MAX - lightOf(u)) * (lightOf(u) < LIGHT_BRIGHT ? LIGHT_VALUE : LIGHT_VALUE / 3);
+  const darkest = allies.reduce((a, b) => (lightOf(b) < lightOf(a) ? b : a), me);
+  const fervour = 1 + (LIGHT_MAX - view.you.light) * 0.01;
   const soft = enemies.some((m) => m.st.stun || m.st.exposed || !m.st.acted);
   const corpses = enc.corpses;
   // Burn cards are for when it counts: losing, or a Boss in the room.
@@ -44,7 +50,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'bash': return R.bash + R.bashDelay * TEMPO_VALUE;
     case 'cover': return R.coverShield * SHIELD_VALUE + (hurtest.id !== me.id ? 2 : 0);
     case 'vengeance': return enemies.length * 3;
-    case 'rally': return allies.length * R.rallyShield * SHIELD_VALUE + allies.reduce((s, a) => s + relief(R.rallyStress, a), 0);
+    case 'rally': return allies.length * R.rallyShield * SHIELD_VALUE;
     case 'slam': return Math.max(R.slamMin, (me.st.shield ?? 0) + 2) * 1.2;
     case 'gate': return burn(n * 6 + 10);
     // Cutthroat
@@ -57,7 +63,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     // Lampbearer
     case 'flare': return R.flare * n + (view.you.light < 40 ? 4 : 0);
     case 'mend': return heal(R.mend);
-    case 'vigil': return allies.length === 1 ? 2 + n * 2 : relief(R.vigil, allies.reduce((a, b) => (stressOf(b) > stressOf(a) ? b : a), me));
+    case 'vigil': return (allies.length === 1 ? 2 + n * 2 : 0) + brighten(R.vigilLight, darkest);
     case 'kindle': return Math.min(R.kindleMax, R.kindleBase + Math.floor(Math.min(R.kindleLight, view.you.light) / 2)) + (view.you.light >= R.kindleLight ? 3 : 0);
     case 'sanctuary': return healAll(R.sanctuaryRegen * (R.sanctuarySecs / R.pulse)) * 0.8;
     case 'dawn': return burn(healAll(R.dawnHeal) + n * 4);
@@ -66,7 +72,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'wither': return n * 3;
     case 'pact': return allies.every((a) => a.hp > R.pactCost * 2) ? R.pact * n - allies.length * 2 : 0;
     case 'familiar': return 7;
-    case 'bargain': return view.you.stress < 40 ? 3 : 0;
+    case 'bargain': return me.hp > R.bargainHp * 3 ? 3 : 0;
     case 'ages': return burn(n * 8);
     // Undertaker
     case 'spade': return R.spade + view.you.spadeBonus;
@@ -83,12 +89,12 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'echo': return view.you.lastCard ? cardValue(f, view.you.lastCard) * R.echoMult : R.echoBare;
     case 'reverberate': return burn(n * 6 + (allies.length - 1) * 3);
     // Zealot
-    case 'scourge': return R.scourge * (1 + view.you.stress * 0.015);
-    case 'absolution': return R.absolutionBase + Math.max(0, view.you.stress - R.absolutionFloor);
-    case 'sins': return Math.max(0, ...allies.filter((a) => a.id !== me.id).map((a) => relief(R.sins, a)));
-    case 'flagellate': return view.you.stress < 60 && me.hp > me.maxHp * 0.5 ? 4 : 0;
-    case 'penance': return view.you.stress < 80 ? 4 + view.you.stress / 6 : 2;
-    case 'rapture': return burn(R.rapture + allies.filter((a) => a.id !== me.id).reduce((s, a) => s + stressOf(a), 0));
+    case 'scourge': return R.scourge * fervour;
+    case 'absolution': return (R.absolutionBase + Math.max(0, R.absolutionFloor - view.you.light)) * fervour;
+    case 'sins': return Math.max(0, ...allies.filter((a) => a.id !== me.id).map((a) => brighten(Math.min(R.sinsLight, view.you.light), a))) + 1;
+    case 'flagellate': return view.you.light > 40 && me.hp > me.maxHp * 0.5 ? 4 : 0;
+    case 'penance': return 4 + (LIGHT_MAX - view.you.light) / 6;
+    case 'rapture': return burn((R.rapture + (LIGHT_MAX - view.you.light) / 2) * fervour);
     // Alchemist
     case 'acid': return R.acid + R.acidBonus * 2;
     case 'fumes': return n * R.fumesPoison * 2;
@@ -107,8 +113,8 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'sidestep2': return 4;
     case 'braceup1': return R.braceup1 * SHIELD_VALUE;
     case 'braceup2': return R.braceup2 * SHIELD_VALUE;
-    case 'shrug1': return relief(R.shrug1, me);
-    case 'shrug2': return relief(R.shrug2, allies.reduce((a, b) => (stressOf(b) > stressOf(a) ? b : a), me));
+    case 'wick1': return brighten(R.wick1, me);
+    case 'wick2': return brighten(R.wick2, darkest);
     case 'mutter1': return 3;
     case 'mutter2': return 7;
     case 'evillook1': return 2;
@@ -136,11 +142,12 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'promise': return burn(25);
     case 'quake': return n * (R.quake + 4);
     case 'unmake': return burn(30);
-    case 'redeem': return burn(heal(99) + relief(100, hurtest));
+    case 'redeem': return burn(heal(99) - lightOf(hurtest) * LIGHT_VALUE);
     case 'bastion': return 8;
     case 'forgive': return burn(20);
     case 'howl': return 8;
     case 'waystep': return 0;
+    case 'oil': return burn(brighten(LIGHT_MAX, me) * 2);
     case 'fumble': return 0;
   }
   return CARDS[card] ? 1 : 0;

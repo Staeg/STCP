@@ -1,5 +1,5 @@
 import {
-  CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, INSANITY, INSANITY_RULES, SCHOOLS, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
+  CARD_RULES, CARDS, cardSource, deckList, FLEE_CHANCE, handSize, LIGHT_LOSS, LIGHT_MAX, SCHOOLS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS,
   skillInfo, type CardId, type CardView, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
@@ -152,7 +152,7 @@ export class CombatUi {
     if (e.kind === 'damage') this.floaters.push({ unit: t, text: `${e.crit ? 'CRIT ' : ''}-${e.amount}`, cls: e.crit ? 'crit' : 'dmg', at: now });
     else if (e.kind === 'heal') this.floaters.push({ unit: t, text: `+${e.amount}`, cls: 'heal', at: now });
     else if (e.kind === 'miss') this.floaters.push({ unit: t, text: 'DODGE', cls: 'miss', at: now });
-    else if (e.kind === 'stress' && e.amount) this.floaters.push({ unit: t, text: `+${e.amount}${icon('stress')}`, cls: 'stress', at: now });
+    else if (e.kind === 'light' && e.amount) this.floaters.push({ unit: t, text: `${e.amount > 0 ? '+' : '−'}${Math.abs(e.amount)}${icon('light')}`, cls: e.amount > 0 ? 'light' : 'dark', at: now });
     else if (e.kind === 'death') this.pending.dying.delete(t);
     else if (e.kind === 'down') this.floaters.push({ unit: t, text: 'DOWN', cls: 'crit', at: now });
     else if (e.kind === 'flee') this.floaters.push({ unit: t, text: 'FLED', cls: 'miss', at: now });
@@ -306,7 +306,7 @@ export class CombatUi {
     const actions = `<div class="cb-actions hand">${cards}${pile}</div>
       <div class="cb-actions basics">
       ${btn('revive', 'R', 'Revive', iconize(`Get a downed ally back up (30% HP). ${CARD_RULES.reviveTime}s.`), !enc.reviveTargets.length, 'revive')}
-      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). +${STRESS.flee} stress. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
+      ${btn('flee', 'F', 'Flee', iconize(`${Math.round(FLEE_CHANCE * 100)}% chance to escape to the previous room (sure with Smoke). −${LIGHT_LOSS.flee} light. ${CARD_RULES.fleeTime}s.`), false, 'flee')}
       ${btn('brace', 'B', 'Brace', iconize(`Take 30% less damage until your next action. ${CARD_RULES.braceTime}s.`), false, 'brace')}
       ${toll}
     </div>`;
@@ -410,8 +410,7 @@ export class CombatUi {
     const time = this.time;
     const sym = (glyph: string, tip: string) => `<span title="${esc(tip)}">${glyph}</span>`;
     const icons = [
-      u.insane && sym('😱', `${INSANITY.name}: ${INSANITY.desc} ${INSANITY_RULES}`),
-      u.kind === 'hero' && (u.stress ?? 0) > 0 && iconNum('stress', u.stress!, `Stress ${u.stress}/100.`),
+      u.kind === 'hero' && u.light !== undefined && u.light < LIGHT_MAX && iconNum('light', u.light, `Light ${u.light}/${LIGHT_MAX}.`),
       u.carry && sym(ITEMS[u.carry].glyph, `Carrying ${ITEMS[u.carry].name}: ${ITEMS[u.carry].desc} Dropped when it falls.`),
       u.kind === 'monster' && !st.acted && sym('◌', "Hasn't acted yet: Backstab crits it for double damage."),
       ...statusIcons(st, time),

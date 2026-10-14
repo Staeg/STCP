@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { CLASS_IDS, CLASSES } from './content/classes';
 import { Stash } from './stash';
-import { applyRun, BUILDINGS, injuredMaxHp, upkeepOf, VILLAGE_RULES, VILLAGE_UPKEEP, type Character } from './village';
+import { applyRun, BUILDINGS, injuredMaxHp, loadoutOf, upkeepOf, VILLAGE_RULES, VILLAGE_UPKEEP, type Character } from './village';
 import { isGear, ITEMS, itemTier, type ItemId } from './content/items';
 import { gearKind } from './content/forge';
 import { addHero, createWorld } from './sim/world';
 import { addToPile } from './sim/loot';
 
-const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [], insane: false });
-const ok = { escaped: true, lowestHp: 1, downedMajor: false, insane: false };
+const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [] });
+const ok = { escaped: true, lowestHp: 1, downedMajor: false };
 
 describe('applyRun', () => {
   it('gives 1 XP per run survived; 2 XP earns a Talent choice', () => {
@@ -33,10 +33,12 @@ describe('applyRun', () => {
     expect(c.injuries).toEqual(['major', 'major']);
   });
 
-  it('keeps Insanity from the run', () => {
-    const c = fresh();
-    applyRun(c, { ...ok, insane: true });
-    expect(c.insane).toBe(true);
+  it("the Elder's blessing lasts one run", () => {
+    const c = { ...fresh(), blessed: true };
+    expect(loadoutOf('Ann', c).blessed).toBe(true);
+    applyRun(c, ok);
+    expect(c.blessed).toBeUndefined();
+    expect(loadoutOf('Ann', c).blessed).toBeUndefined();
   });
 
   it('reports a death (the Stash replaces them)', () => {
@@ -168,20 +170,20 @@ describe('Village buildings', () => {
     expect(stash.village('Ann').fate).toBe('lost');
   });
 
-  it('Elder: heals an Injury, cures Insanity, teaches XP for a Relic; each once before a run', () => {
+  it('Elder: heals an Injury, blesses, teaches XP for a Relic; each once before a run', () => {
     const stash = rich();
     for (let i = 0; i < 3; i++) stash.build('Ann', 'elder');
     const c = stash.characterFor('Ann', 'sorceress');
-    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.4, downedMajor: true, insane: true });
+    stash.recordCharacter('Ann', c.id, { ...ok, lowestHp: 0.4, downedMajor: true });
     expect(stash.characterFor('Ann', 'sorceress').injuries.sort()).toEqual(['major', 'minor']);
     expect(stash.useService('Ann', { service: 'heal', charId: c.id, injury: 'major' })).toBeNull();
     expect(stash.useService('Ann', { service: 'heal', charId: c.id, injury: 'minor' })).toMatch(/once before each run/);
-    expect(stash.useService('Ann', { service: 'cure', charId: c.id })).toBeNull();
+    expect(stash.useService('Ann', { service: 'bless', charId: c.id })).toBeNull();
     const relics = stash.village('Ann').resources.relic;
     expect(stash.useService('Ann', { service: 'train', charId: c.id })).toBeNull();
     const after = stash.characterFor('Ann', 'sorceress');
     expect(after.injuries).toEqual(['minor']);
-    expect(after.insane).toBe(false);
+    expect(after.blessed).toBe(true);
     expect(after.xp).toBe(2); // 1 for surviving, 1 taught
     expect(stash.village('Ann').resources.relic).toBe(relics - 1);
     // A new run (with the gold to keep the Elder), and the Elder is ready again.
@@ -233,7 +235,7 @@ describe('Village buildings', () => {
     const far = world.dungeon.rooms.filter((r) => r.kind === 'normal').map((r) => r.id).slice(-2);
     addToPile(world, far[0], 0, ['salts']);
     addToPile(world, far[1], 0, ['torch']);
-    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talents: [], injuries: [], insane: false, sight } });
+    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talents: [], injuries: [], sight } });
     expect(h.seen).toContain(far[0]);
     expect(h.knownContents[far[0]].items).toContain('salts');
     expect(h.knownContents[far[1]]?.items ?? []).not.toContain('torch');

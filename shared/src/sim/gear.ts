@@ -12,9 +12,9 @@ export function healBy(h: Pick<Hero, 'weapon'>, n: number): number {
   return staffOf(h) === 'heal' ? Math.round(n * STAFF.healMult) : n;
 }
 
-/** Censer Staff: stress this hero takes off anyone (and what Take Their Sins can move). */
-export function reliefBy(h: Pick<Hero, 'weapon'>, n: number): number {
-  return staffOf(h) === 'relief' ? Math.round(n * STAFF.reliefMult) : n;
+/** Censer Staff: light this hero gives someone else (Vigil, Take Their Sins, Rekindle…; it was stress relief until 2026-10-14). */
+export function lightBy(h: Pick<Hero, 'weapon'>, t: unknown, n: number): number {
+  return staffOf(h) === 'relief' && t !== h ? Math.round(n * STAFF.reliefMult) : n;
 }
 
 /** Rowan Staff: turns a debuff this hero places lasts. */

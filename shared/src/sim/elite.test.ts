@@ -1,18 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
-import { CLASS_ELITE, ELITE_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
+import { CLASS_ELITE, ELITE_EVENTS, EVENT_SEEDING } from '../content/events';
 import { LIGHT_MAX, MIN_SPEED } from '../content/constants';
 import { neighbours } from '../dungeon/gen';
-import { onHeroInRoom, spawnGroup } from './combat';
+import { fervourOf, onHeroInRoom, spawnGroup } from './combat';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, extractHero, knowsCorridor, step, type World } from './world';
 import { chooseEvent, type RoomEvent } from './events';
 import { openDueSecrets } from './secrets';
 import { addSpeedMod, speedOf } from './speed';
 
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
+
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -127,16 +125,14 @@ describe('Elite Events: effects', () => {
     expect(o.seen).toContain(s.room);
   });
 
-  it('Luminous Liturgy: every ally, anywhere, heals, brightens and calms each second, for as long as it lasts', () => {
+  it('Luminous Liturgy: every ally, anywhere, heals and brightens each second, for as long as it lasts', () => {
     const { world, o, room } = withElite('lampbearer');
     o.pos = { kind: 'room', room: neighbours(world.dungeon, room)[0] };
     o.hp = 10;
-    o.stress = 50;
     o.light = 10;
     choose(world, 'h', 'pray');
     run(world, 30);
     expect(o.hp).toBeGreaterThanOrEqual(39);
-    expect(o.stress).toBeLessThanOrEqual(33); // (−⅔ a second, less a little for the dim start)
     expect(o.light).toBeGreaterThan(30);
     expect(o.light).toBeLessThanOrEqual(LIGHT_MAX);
     expect(world.events[room].done).toBe(false);
@@ -151,19 +147,19 @@ describe('Elite Events: effects', () => {
     expect(world.events[room].by).toBeNull();
   });
 
-  it('Sinful Sacrament: +17 stress to every hero, and the Sorceress is Speed 2s for good', () => {
+  it('Sinful Sacrament: −17 light to every hero, and the Sorceress is Speed 2s for good', () => {
     const { world, h, o } = withElite('sorceress');
     o.pos = { kind: 'room', room: neighbours(world.dungeon, world.dungeon.entrance)[0] };
     choose(world, 'h', 'partake');
     run(world, ELITE_EVENTS.channel + 0.2);
-    expect(h.stress).toBe(ELITE_EVENTS.sacramentStress);
-    expect(o.stress).toBe(ELITE_EVENTS.sacramentStress);
+    expect(h.light).toBeLessThanOrEqual(LIGHT_MAX - ELITE_EVENTS.sacramentLight);
+    expect(o.light).toBeLessThanOrEqual(LIGHT_MAX - ELITE_EVENTS.sacramentLight);
     expect(speedOf(h, world.time)).toBe(MIN_SPEED);
     addSpeedMod(h, world.time, 3, null, 'Heavy'); // nothing slows her now
     expect(speedOf(h, world.time + 500)).toBe(MIN_SPEED);
   });
 
-  it('Unholy Uprising: three Risen join every fight, keep their wounds, and allies take stress when it ends', () => {
+  it('Unholy Uprising: three Risen join every fight, keep their wounds, and allies lose light when it ends', () => {
     const { world, h, o, room } = withElite('undertaker');
     choose(world, 'h', 'raise');
     run(world, ELITE_EVENTS.channel + 0.2);
@@ -174,13 +170,12 @@ describe('Elite Events: effects', () => {
     expect(enc.legion).toHaveLength(3);
     expect(h.legion).toHaveLength(0);
     expect(buildView(world, 'h').encounter?.legion).toHaveLength(3);
-    const stress = o.stress;
     run(world, 60);
     expect(world.encounters[room]).toBeUndefined();
     expect(h.legion.length).toBeGreaterThan(0);
     expect(h.legion.every((r) => r.permanent && r.hp > 0)).toBe(true);
-    expect(o.stress).toBe(stress + ELITE_EVENTS.uprisingStress);
-    expect(h.stress).toBe(0);
+    expect(o.messages.some((m) => m.text.includes(`−${ELITE_EVENTS.uprisingLight} light`))).toBe(true);
+    expect(h.messages.some((m) => m.text.includes('empty eyes'))).toBe(false);
   });
 
   it('Booming Barrage: a Toll every 12s while ringing', () => {
@@ -193,15 +188,13 @@ describe('Elite Events: effects', () => {
     expect(Object.values(world.events)[0].done).toBe(true);
   });
 
-  it('Zen Zenith: stress can go past 100', () => {
+  it('Zen Zenith: Fervour doubled for the rest of the run', () => {
     const { world, h } = withElite('zealot');
-    h.stress = 100;
     choose(world, 'h', 'sit');
     run(world, ELITE_EVENTS.channel + 0.2);
-    h.stress = 150;
-    run(world, 1);
-    expect(h.stress).toBeGreaterThanOrEqual(150);
-    expect(h.insane).toBe(false);
+    expect(h.elite.zenith).toBe(true);
+    h.light = 50;
+    expect(fervourOf(h)).toBeCloseTo(50 * 0.01 * ELITE_EVENTS.zenithFervour);
   });
 
   it('Artistic Alacrity: each carried consumable is −0.5s Speed', () => {

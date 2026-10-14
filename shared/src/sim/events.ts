@@ -1,20 +1,20 @@
 import { CLASSES, type ClassId } from '../content/classes';
 import { CARDS } from '../content/cards';
 import { unburn } from './deck';
-import { LIGHT_DIM, LIGHT_MAX } from '../content/constants';
+import { LIGHT_DIM, LIGHT_MAX, lightStage } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, MORE_EVENTS, SPEED_EVENTS, STRESS,
+  channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_SEEDING, EVENTS, LIGHT_LOSS, MORE_EVENTS, SPEED_EVENTS,
   type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
 import { anvilInto, forgeable, reforged } from '../content/forge';
 import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { addStress, afterBlock, downHero, hurtHero, inDungeon, isConscious, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
+import { afterBlock, downHero, gainLight, hurtHero, inDungeon, isConscious, loseLight, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
 import { collapseCorridor, makePack } from './escalation';
 import { callReadyIn, hopsFrom } from './call';
-import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, seesInDark, takeItem } from './loot';
-import { goInsane } from './mind';
+import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, takeItem } from './loot';
+
 import { notify } from './notify';
 import { clothReady, freshCharge, spendCloth, wornCharge, type ItemCharge } from './gear';
 import { CLOTH, GEAR_SLOTS, ITEMS, type GearSlot, type ItemId } from '../content/items';
@@ -184,12 +184,12 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
     case 'well':
       return one(h.cls === 'zealot'
         ? perk(c('drink', 'Drink from the well'), 'zealot',
-            `The whispers feed your fervour: always +${CLASS_EVENTS.zealotWellStress} stress and +${CLASS_EVENTS.zealotWellHp} HP.`)
+            `The dark water feeds your fervour: always +${CLASS_EVENTS.zealotWellHp} HP, and your light goes out.`)
         : c('drink', 'Drink from the well'));
     case 'chest':
       return one(h.cls === 'undertaker'
-        ? perk(c('open', 'Open it'), 'undertaker', 'The dead hold no fear for you: no stress.')
-        : c('open', `Open it (+${STRESS.chest} stress)`));
+        ? perk(c('open', 'Open it'), 'undertaker', 'The dead hold no fear for you: your lamp holds steady.')
+        : c('open', `Open it (−${LIGHT_LOSS.chest} light)`));
     case 'crawlspace': {
       const where = world.escalation >= CRAWL_TO_EXIT_ESCALATION ? 'toward the rendezvous' : 'to whatever lies hidden beyond';
       const full = h.leading.length ? (h.leading.length > 1 ? "The villagers won't fit." : "The villager won't fit.") : undefined;
@@ -224,8 +224,8 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       return one({ id: 'wheel', label: `${label} (${locksSecs(world, ev, h)}s together)`, disabled: full });
     }
     case 'coffin':
-      return one(c('lie', "Lie down (stress to 0, but you're down until someone revives you)",
-        h.stress < 1 ? 'Nothing weighs on you.' : undefined));
+      return one(c('lie', "Lie down (your light is rekindled to full, but you're down until someone revives you)",
+        lightStage(h.light) === 'bright' ? 'Your lamp burns bright already.' : undefined));
     case 'anvil': {
       const slots = GEAR_SLOTS.filter((s) => forgeable(h[s]));
       if (!slots.length) return one(c('forge', 'Reforge your Gear', 'Nothing you wear can be bettered (Rares can’t be).'));
@@ -247,15 +247,15 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
       return one(perk(c('read', 'Read the marks'), 'cutthroat', 'Every room, every tunnel, every hidden way: yours alone.'));
     case 'liturgy':
       return one(perk({ id: 'pray', label: 'Pray (as long as you like)', disabled: taken }, 'lampbearer',
-        `Every second: +${ELITE_EVENTS.liturgyHp} HP, +${ELITE_EVENTS.liturgyLight} light and −${ELITE_EVENTS.liturgyStress} stress to every ally, wherever they are.`));
+        `Every second: +${ELITE_EVENTS.liturgyHp} HP and +${ELITE_EVENTS.liturgyLight} light to every ally, wherever they are.`));
     case 'sacrament':
-      return one(perk(c('partake', 'Drink from the chalice'), 'sorceress', `+${ELITE_EVENTS.sacramentStress} stress to every hero; Speed 2s for the rest of the run.`));
+      return one(perk(c('partake', 'Drink from the chalice'), 'sorceress', `−${ELITE_EVENTS.sacramentLight} light to every hero; Speed 2s for the rest of the run.`));
     case 'uprising':
       return one(perk(c('raise', 'Wake the dead'), 'undertaker', `${ELITE_EVENTS.uprisingRisen} Risen follow you for good.`));
     case 'barrage':
       return one(perk(c('ring', 'Ring the great bell'), 'bellwright', `It Tolls every ${ELITE_EVENTS.barrageEvery}s while you ring.`));
     case 'zenith':
-      return one(perk(c('sit', 'Sit and let it in'), 'zealot', `Your stress can rise to ${ELITE_EVENTS.zenithStressMax}.`));
+      return one(perk(c('sit', 'Sit and let it in'), 'zealot', `Your Fervour is doubled for the rest of the run.`));
     case 'alacrity':
       return one(perk(c('rework', 'Rework your bottles'), 'alchemist', `Every consumable you carry: Speed ${signed(ELITE_EVENTS.alacrityPerItem)}.`));
     case 'veiled':
@@ -495,22 +495,22 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
     }
     case 'drink': {
       if (h.cls === 'zealot') {
-        const { zealotWellStress: stress, zealotWellHp: hp } = CLASS_EVENTS;
-        addStress(h, stress);
+        const hp = CLASS_EVENTS.zealotWellHp;
         h.hp = Math.min(h.maxHp, h.hp + hp);
-        notify(world, h, `The whispers pour in, and you drink them down gladly. (+${stress} stress, +${hp} HP)`);
+        h.light = 0;
+        notify(world, h, `The dark water pours in, and you drink it down gladly. Your lamp goes out. (+${hp} HP)`);
         return;
       }
       const roll = rng.int(0, 2);
       if (roll === 0) {
-        addStress(h, -STRESS.wellRelief);
-        notify(world, h, `The water is cold and clean. Your mind clears. (−${STRESS.wellRelief} stress)`);
+        const got = Math.round(gainLight(h, LIGHT_LOSS.wellLight));
+        notify(world, h, `The water is cold and clean, and it glows in your lamp. (+${got} light)`);
       } else if (roll === 1) {
         h.hp = Math.min(h.maxHp, h.hp + 15);
         notify(world, h, 'Warmth spreads through you. (+15 HP)');
       } else {
-        if (h.insane) notify(world, h, 'The whispers in the water are old friends by now.');
-        else goInsane(world, h, 'the well');
+        h.light = 0;
+        notify(world, h, 'Whispers rise from the water, and your lamp goes out.');
       }
       return;
     }
@@ -519,8 +519,8 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       if (h.cls === 'undertaker') {
         notify(world, h, 'Something cold brushes your mind as the lid opens. You have known worse company.');
       } else {
-        addStress(h, STRESS.chest);
-        notify(world, h, `Something cold brushes your mind as the lid opens. (+${STRESS.chest} stress)`);
+        const lost = Math.round(loseLight(h, LIGHT_LOSS.chest));
+        notify(world, h, `Something cold brushes your mind as the lid opens, and your lamp gutters. (−${lost} light)`);
       }
       return;
     case 'crawl': {
@@ -587,10 +587,9 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     }
     case 'lie': {
-      const before = Math.round(h.stress);
-      h.stress = 0;
+      const got = Math.round(gainLight(h, LIGHT_MAX));
       downHero(world, h, null, undefined, true);
-      notify(world, h, `You lie down, and the weight lifts. (−${before} stress${h.insane ? '; you are still Insane' : ''}) Now someone has to get you up.`);
+      notify(world, h, `You lie down in the dark, and a lamp kindles beside you. (+${got} light) Now someone has to get you up.`);
       for (const o of othersHere(world, h)) notify(world, o, `${h.name} lies down in the coffin and goes still. They won't get up without help.`);
       chronicle(world, `${h.name} lay down in an Open Coffin.`);
       return;
@@ -634,10 +633,10 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       h.elite.sacrament = true;
       for (const x of Object.values(world.heroes)) {
         if (!inDungeon(x)) continue;
-        const added = Math.round(addStress(x, ELITE_EVENTS.sacramentStress));
+        const lost = Math.round(loseLight(x, ELITE_EVENTS.sacramentLight));
         notify(world, x, x === h
-          ? `It tastes of every sin in this place. Everyone feels it, and you are quicker than anything down here. (+${added} stress, Speed 2s)`
-          : `A cold shudder runs through you: somewhere, ${h.name} has drunk something terrible. (+${added} stress)`);
+          ? `It tastes of every sin in this place. Every lamp gutters, and you are quicker than anything down here. (−${lost} light, Speed 2s)`
+          : `A cold shudder runs through you and your lamp gutters: somewhere, ${h.name} has drunk something terrible. (−${lost} light)`);
       }
       chronicle(world, `${h.name} partook of the Sinful Sacrament.`);
       return;
@@ -648,7 +647,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       for (let i = 0; i < ELITE_EVENTS.uprisingRisen; i++) {
         const type = rng.pick(kinds);
         const hp = Math.round(ENEMIES[type].maxHp * scale);
-        h.legion.push({ type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true });
+        h.legion.push({ type, hp, maxHp: hp, dmgMult: scale, turns: 1, permanent: true, uprising: true });
       }
       const names = h.legion.filter((r) => r.type).map((r) => ENEMIES[r.type!].name).join(', ');
       notify(world, h, `The grave heaves. Your dead rise to follow you: ${names}.`);
@@ -662,7 +661,7 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
     case 'sit':
       h.elite.zenith = true;
-      notify(world, h, `You let it all in, and there is room for more. (Stress can rise to ${ELITE_EVENTS.zenithStressMax})`);
+      notify(world, h, `You let it all in, and the dark becomes yours. (Fervour ×${ELITE_EVENTS.zenithFervour} for the rest of the run)`);
       chronicle(world, `${h.name} reached the Zen Zenith.`);
       return;
     case 'rework':
@@ -744,7 +743,6 @@ function bless(world: World) {
     if (!inDungeon(x) || !isConscious(x)) continue;
     x.hp = Math.min(x.maxHp, x.hp + ELITE_EVENTS.liturgyHp);
     x.light = Math.min(LIGHT_MAX, x.light + ELITE_EVENTS.liturgyLight);
-    addStress(x, -ELITE_EVENTS.liturgyStress);
   }
 }
 
@@ -786,7 +784,7 @@ function crawlToward(world: World, from: number): number | null {
 }
 
 // ---------------------------------------------------------------------------
-// Ticking: channels, villagers, stress
+// Ticking: channels and villagers
 
 export function tickEvents(world: World, dt: number) {
   resumeCleanses(world);
@@ -892,8 +890,8 @@ function completeChannel(world: World, ev: RoomEvent, h: Hero) {
     chronicle(world, `${h.name} cleansed the altar in ${world.dungeon.rooms[ev.room].name}.`);
     for (const x of Object.values(world.heroes)) {
       if (!inDungeon(x)) continue;
-      addStress(x, -STRESS.altarRelief);
-      notify(world, x, `An altar has been cleansed. You feel lighter. (−${STRESS.altarRelief} stress; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
+      const got = Math.round(gainLight(x, LIGHT_LOSS.altarLight));
+      notify(world, x, `An altar has been cleansed. Your lamp burns brighter. (+${got} light; +${EVENT_SEEDING.altarBonus} gold each when you escape)`);
     }
   } else {
     addToPile(world, ev.room, world.rng.int(30, 50), [rollItem(world, 3), rollItem(world, 3), rollResource(world)]);
@@ -942,25 +940,6 @@ export function maybeHitVillager(world: World, room: number, dmg: number, attack
   return `${attacker} kills the villager!`;
 }
 
-/** The dungeon wears on the mind, darkness most of all: at 50 stress you go Insane, at 100 your heart gives out. Called every tick. */
-export function tickStress(world: World, dt: number) {
-  for (const h of Object.values(world.heroes)) {
-    if (!isConscious(h)) continue;
-    addStress(h, STRESS.basePerSec * dt);
-    if (h.light <= 0) addStress(h, STRESS.darkPerSec * dt);
-    else if (h.light < LIGHT_DIM && !seesInDark(h)) addStress(h, STRESS.dimPerSec * dt);
-    // The Zealot never breaks: stress just stays at its cap (and makes them hit harder).
-    if (h.cls === 'zealot') continue;
-    if (h.stress >= STRESS.insanityAt) goInsane(world, h, 'stress');
-    if (h.stress < 100) continue;
-    h.stress = STRESS.afterHeartAttack;
-    world.stats.heartAttacks++;
-    chronicle(world, `${h.name}'s heart gave out under the strain.`);
-    notify(world, h, 'Your heart seizes!');
-    const enc = h.encounter !== null ? world.encounters[h.encounter] : undefined;
-    downHero(world, h, null, enc);
-  }
-}
 
 export function eventName(kind: EventKind): string {
   return EVENTS[kind].name;

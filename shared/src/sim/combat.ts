@@ -9,7 +9,7 @@ import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, isGear, type ItemId } from '../content/items';
 import { buffLength, chargesForFight, clothReady, leftRoom, spendCloth, witchwoodMult } from './gear';
 import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
-import { ELITE_EVENTS, STRESS } from '../content/events';
+import { ELITE_EVENTS, LIGHT_LOSS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { notify } from './notify';
@@ -22,7 +22,6 @@ export const DEATH_TIMER = 36;
 export const REVIVE_CHANNEL = 6;
 export const REVIVE_HP_FRACTION = 0.3;
 export const FLEE_CHANCE = 0.5;
-export const STRESS_MAX = 100;
 
 /** Turn counts are the affected unit's own turns: they tick down at the end of each of its turns. */
 export interface Statuses {
@@ -157,6 +156,8 @@ export interface Risen {
   by: string;
   /** Unholy Uprising: never crumbles; only falls when its HP runs out. */
   permanent?: boolean;
+  /** Raised by the Unholy Uprising (allies fighting beside it lose light when the fight ends). */
+  uprising?: true;
   /** Called up by a card for this fight only: gone when it ends (M15). */
   summon?: boolean;
   /** What "every ally" cards left on it this fight (Shield, Dodge, Regen…). A Risen ally uses its hero's instead. */
@@ -177,7 +178,7 @@ export interface Choice {
   room?: number;
 }
 
-export type CombatEventKind = 'damage' | 'heal' | 'miss' | 'status' | 'flee' | 'down' | 'death' | 'info' | 'stress';
+export type CombatEventKind = 'damage' | 'heal' | 'miss' | 'status' | 'flee' | 'down' | 'death' | 'info' | 'light';
 
 export interface CombatEvent {
   /** Increases through the fight, so clients can replay only what's new. */
@@ -186,6 +187,7 @@ export interface CombatEvent {
   kind: CombatEventKind;
   text: string;
   target?: string;
+  /** How much: damage, healing, or light (negative when light is lost). */
   amount?: number;
   crit?: boolean;
 }
@@ -356,23 +358,41 @@ export function isConscious(h: Hero): boolean {
   return inDungeon(h) && h.downedAt === null;
 }
 
-export function addStress(h: Hero, amount: number) {
-  if (amount > 0) amount *= wornMult(h, 'stressMult');
-  const before = h.stress;
-  h.stress = Math.max(0, Math.min(stressCap(h), h.stress + amount));
-  return h.stress - before;
+/**
+ * The dungeon takes light from a hero (what used to add stress: an ally falling, a Whisper, the Cursed Chest…; user,
+ * 2026-10-14). A Ward Charm, Fever Charm or Penitent's Sackcloth scales it. Returns how much they lost.
+ */
+export function loseLight(h: Hero, amount: number): number {
+  if (amount <= 0) return 0;
+  const before = h.light;
+  h.light = Math.max(0, h.light - amount * wornMult(h, 'lightLossMult'));
+  return before - h.light;
 }
 
-/** How high stress can go: 100, or more for a Zealot who reached the Zen Zenith. */
-export function stressCap(h: Pick<Hero, 'elite'>): number {
-  return h.elite.zenith ? ELITE_EVENTS.zenithStressMax : STRESS_MAX;
+/** A hero gains light (never past full). Returns how much they gained. */
+export function gainLight(h: Hero, amount: number): number {
+  const before = h.light;
+  h.light = Math.max(0, Math.min(LIGHT_MAX, h.light + amount));
+  return h.light - before;
 }
 
-/** Weapon bonus (and the Zealot's stress, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
+/** A hero spends their own light (Kindle, Siphon, the Zealot's cards): no charm softens it. Returns how much went. */
+export function spendLight(h: Hero, amount: number): number {
+  const spent = Math.max(0, Math.min(h.light, amount));
+  h.light -= spent;
+  return spent;
+}
+
+/** Zealot's Fervour: +1% damage per point of light below full (twice that after the Zen Zenith). */
+export function fervourOf(h: Hero): number {
+  if (h.cls !== 'zealot') return 0;
+  return (LIGHT_MAX - h.light) * CLASS_RULES.zealotDmgPerDark * (h.elite.zenith ? ELITE_EVENTS.zenithFervour : 1);
+}
+
+/** Weapon bonus (and the Zealot's Fervour, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
 export function damageMult(h: Hero, _world?: World): number {
   const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
-  const zeal = h.cls === 'zealot' ? 1 + h.stress * CLASS_RULES.zealotDmgPerStress : 1;
-  return weapon * zeal * riteMult(h);
+  return weapon * (1 + fervourOf(h)) * riteMult(h);
 }
 
 /** Effigy Rite: +20% damage and max HP; Tome Rite: −20%. */
@@ -380,13 +400,6 @@ export function riteMult(h: { rites: readonly string[] }): number {
   return (h.rites.includes('effigy') ? KIT_RULES.effigyMult : 1) * (h.rites.includes('tome') ? KIT_RULES.tomeMult : 1);
 }
 
-/** Zealot: move up to `max` stress from an ally onto yourself (ignores Calm and Ward Charm). Returns how much moved. */
-export function takeSins(zealot: Hero, t: Hero, max: number): number {
-  const moved = Math.min(max, t.stress);
-  t.stress -= moved;
-  zealot.stress = Math.min(stressCap(zealot), zealot.stress + moved);
-  return moved;
-}
 
 /** A hero's Block: what everything they wear adds up to (armour, a Quickblood Ring's −2…). Can be negative. */
 export function heroBlock(h: Hero): number {
@@ -556,13 +569,13 @@ function endEncounter(world: World, enc: Encounter) {
     }
   }
   // Unholy Uprising: fighting beside the restless dead wears on the living.
-  const raisers = new Set((enc.legion ?? []).filter((r) => r.type !== 'wolf').map((r) => r.by));
+  const raisers = new Set((enc.legion ?? []).filter((r) => r.type !== 'wolf' && r.uprising).map((r) => r.by));
   for (const by of raisers) {
     for (const id of enc.heroes) {
       const o = world.heroes[id];
       if (!o || id === by || !inDungeon(o)) continue;
-      const added = Math.round(addStress(o, ELITE_EVENTS.uprisingStress));
-      if (added > 0) notify(world, o, `The dead that fought beside you turn their empty eyes on you. (+${added} stress)`);
+      const lost = Math.round(loseLight(o, ELITE_EVENTS.uprisingLight));
+      if (lost > 0) notify(world, o, `The dead that fought beside you turn their empty eyes on you, and your lamp gutters. (−${lost} light)`);
     }
   }
   for (const id of enc.heroes) {
@@ -1358,7 +1371,7 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
         return actionTime(h, 'flee');
       }
       flee(world, enc, h);
-      addStress(h, STRESS.flee);
+      loseLight(h, LIGHT_LOSS.flee);
       events.push({ actor: h.id, kind: 'flee', text: `${h.name} flees!` });
     } else {
       events.push({ actor: h.id, kind: 'info', text: `${h.name} tries to flee, but is cut off!` });
@@ -1606,10 +1619,10 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'acolyte':
       if (rng.chance(0.5)) {
         const t = rng.pick(heroes);
-        const added = Math.round(addStress(t, STRESS.whisper));
+        const lost = Math.round(loseLight(t, LIGHT_LOSS.whisper));
         events.push({
-          actor: m.id, kind: 'stress', target: t.id, amount: added,
-          text: added > 0 ? `${name} whispers to ${t.name}. (+${added} stress)` : `${name} whispers, but ${t.name} is unshaken.`,
+          actor: m.id, kind: 'light', target: t.id, amount: -lost,
+          text: lost > 0 ? `${name} whispers to ${t.name}, and their lamp gutters. (−${lost} light)` : `${name} whispers, but ${t.name}'s lamp holds steady.`,
         });
       } else {
         monsterHits(world, enc, m, side[0], ENEMIES.acolyte.dmg, 'curses', events);
@@ -1621,9 +1634,8 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'wight': {
       const t = monsterHits(world, enc, m, nearest, ENEMIES.wight.dmg, 'snuffs at', events);
       if (t && inDungeon(t)) {
-        const before = t.light;
-        t.light = Math.max(0, t.light - CR_RULES.wightSnuff);
-        if (before > t.light) events.push({ actor: m.id, kind: 'status', target: t.id, text: `${t.name}'s light gutters. (−${Math.round(before - t.light)} light)` });
+        const lost = Math.round(loseLight(t, CR_RULES.wightSnuff));
+        if (lost > 0) events.push({ actor: m.id, kind: 'light', target: t.id, amount: -lost, text: `${t.name}'s light gutters. (−${lost} light)` });
       }
       return;
     }
@@ -1645,8 +1657,8 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
       const court = monstersIn(world, enc.room).filter((o) => o !== m);
       if (court.length === 0) {
         // Dirge: the last of her court is gone, and she mourns loudly.
-        for (const t of heroes) addStress(t, CR_RULES.dirgeStress);
-        events.push({ actor: m.id, kind: 'stress', text: `${name} keens a dirge for her fallen court. (+${CR_RULES.dirgeStress} stress to all)` });
+        for (const t of heroes) loseLight(t, CR_RULES.dirgeLight);
+        events.push({ actor: m.id, kind: 'light', text: `${name} keens a dirge for her fallen court, and every lamp gutters. (−${CR_RULES.dirgeLight} light to all)` });
         return;
       }
       for (const o of court) {
@@ -1814,7 +1826,7 @@ function blinkAway(world: World, h: Hero, events: CombatEvent[] | null, enc?: En
   h.hp = 1;
   h.lowestHp = Math.min(h.lowestHp, 1 / h.maxHp);
   syncInjuries(h);
-  addStress(h, CLOTH.blinkStress);
+  const lost = Math.round(loseLight(h, CLOTH.blinkLight));
   events?.push({ actor: h.id, kind: 'flee', target: h.id, text: `${h.name} slips away in a flicker of blinkcloth!` });
   const fight = enc ?? (h.encounter !== null ? world.encounters[h.encounter] : undefined);
   if (fight) leaveEncounter(world, fight, h);
@@ -1825,7 +1837,7 @@ function blinkAway(world: World, h: Hero, events: CombatEvent[] | null, enc?: En
   h.heading = null;
   leftRoom(h);
   if (!h.seen.includes(to)) h.seen.push(to);
-  notify(world, h, `Your blinkcloth flings you into ${theRoom(world.dungeon.rooms[to].name)}. (+${CLOTH.blinkStress} stress)`);
+  notify(world, h, `Your blinkcloth flings you into ${theRoom(world.dungeon.rooms[to].name)}. (−${lost} light)`);
   chronicle(world, `${h.name}'s blinkcloth snatched them out of ${theRoom(world.dungeon.rooms[from].name)}.`);
   onHeroInRoom(world, h, to);
   return true;
@@ -1899,7 +1911,7 @@ export function downHero(world: World, h: Hero, events: CombatEvent[] | null, en
   if (rest) return;
   const witnesses = enc ? enc.heroes.map((id) => world.heroes[id]) : Object.values(world.heroes);
   for (const w of witnesses) {
-    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, STRESS.allyDown);
+    if (w !== h && isConscious(w) && sameRoom(w, h) && w.cls !== 'undertaker') loseLight(w, LIGHT_LOSS.allyDown);
   }
 }
 
@@ -1952,8 +1964,8 @@ export function dieOut(world: World, h: Hero) {
   }
   h.encounter = null;
   for (const w of Object.values(world.heroes)) {
-    // Mortician: the Undertaker finds a strange peace in it.
-    if (w !== h && isConscious(w) && sameRoom(w, h)) addStress(w, w.cls === 'undertaker' ? -CLASS_RULES.morticianRelief : STRESS.allyDeath);
+    // Mortician: death holds no dread for the Undertaker.
+    if (w !== h && isConscious(w) && sameRoom(w, h) && w.cls !== 'undertaker') loseLight(w, LIGHT_LOSS.allyDeath);
   }
 }
 

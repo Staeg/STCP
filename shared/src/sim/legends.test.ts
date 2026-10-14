@@ -61,15 +61,13 @@ describe('Legendary cards', () => {
     }
   });
 
-  it('Redeem: full HP and no stress, but no light either; it burns', () => {
+  it('Redeem: full HP, but their light goes out; it burns', () => {
     const { world, ids, room } = fight(['warden', 'zealot']);
     walkIn(world, ids, room);
     const z = world.heroes.h1;
     z.hp = 5;
-    z.stress = 60;
     play(world, world.heroes.h0, 'redeem', z.id);
     expect([z.hp, z.light]).toEqual([z.maxHp, 0]);
-    expect(z.stress).toBeLessThan(1); // the dark starts gnawing at once
     expect(world.heroes.h0.burned).toEqual(['redeem']);
   });
 

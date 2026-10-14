@@ -1,7 +1,7 @@
 import {
   BUILDING_IDS, BUILDINGS, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
   LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
-  REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf,
+  REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf, CARDS, cardText,
   type BuildingId, type ClassId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
@@ -79,7 +79,7 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
   const hp = injuredMaxHp(c.cls, c.injuries);
   const majors = c.injuries.filter((i) => i === 'major').length;
   const heal = serviceState(v, 'heal') === 'ready';
-  const cure = serviceState(v, 'cure') === 'ready';
+  const bless = serviceState(v, 'bless') === 'ready';
   const train = serviceState(v, 'train') === 'ready' && !relicShort(v, 'train');
   let growth: string;
   // Talents show by name (hover for what they do), except when one is waiting to be chosen.
@@ -110,9 +110,9 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
     ...c.injuries.map((i) => heal
       ? `<button class="chip injury ${i}" data-act="service" data-service="heal" data-char="${c.id}" data-injury="${i}" title="Elder: heal this ${INJURY_NAMES[i]}.">${INJURY_NAMES[i].split(' ')[0]} ✚</button>`
       : `<span class="chip injury ${i}" title="${i === 'major' ? `−${VILLAGE_RULES.majorHpLoss * 100}% max HP, +${VILLAGE_RULES.majorSpeed}s Speed` : `−${VILLAGE_RULES.minorHpLoss * 100}% max HP`}. An Elder can heal it.">${INJURY_NAMES[i].split(' ')[0]}</span>`),
-    ...(c.insane ? [cure
-      ? `<button class="chip injury major" data-act="service" data-service="cure" data-char="${c.id}" title="Elder: cure the Insanity.">Insane ✚</button>`
-      : '<span class="chip injury major" title="Starts the next run Insane, at 50 stress. A Journeyman Elder can cure it.">Insane</span>'] : []),
+    ...(c.blessed
+      ? [`<span class="chip blessed" title="${esc(`Blessed by the Elder: next run ${CARDS.oil.name} is in their deck. ${cardText('oil')}`)}">Blessed ✦</span>`]
+      : bless ? [`<button class="chip blessed" data-act="service" data-service="bless" data-char="${c.id}" title="${esc(`Elder: ${SERVICES.bless.desc}`)}">Bless ✦</button>`] : []),
   ];
   return `<div class="vc ${coming ? 'coming' : ''}" style="--cls:${cls.color}">
     <img class="vc-sprite" src="${spriteUrl(c.cls, cls.color)}" alt="">
@@ -194,7 +194,7 @@ function serviceButton(v: VillageView, s: ServiceId, level: number, picking: Ser
   if (st === 'locked') return `<span class="vs locked" title="${esc(tip)}">${def.name}${relic}</span>`;
   if (st === 'used') return `<span class="vs used" title="${esc(tip)}">✓ ${def.name}</span>`;
   // The Elder's services are used on a Character's card.
-  if (s === 'heal' || s === 'cure' || s === 'train') return `<span class="vs ready" title="${esc(`${tip} Click the Character's ${s === 'train' ? '+1 ♛ by their XP' : s === 'cure' ? 'Insane tag' : 'injury'}.`)}">${def.name}${relic}</span>`;
+  if (s === 'heal' || s === 'bless' || s === 'train') return `<span class="vs ready" title="${esc(`${tip} Click the Character's ${s === 'train' ? '+1 ♛ by their XP' : s === 'bless' ? 'Bless ✦' : 'injury'}.`)}">${def.name}${relic}</span>`;
   const short = relicShort(v, s);
   return `<button class="vs ready ${picking === s ? 'sel' : ''}" data-act="service" data-service="${s}" ${locked || short ? 'disabled' : ''} title="${esc(short ? `${tip} You have no Relic.` : tip)}">${def.name}${relic}${PICKED.includes(s) ? '…' : ''}</button>`;
 }

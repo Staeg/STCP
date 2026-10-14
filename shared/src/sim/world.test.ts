@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX } from '../content/constants';
-import { STRESS } from '../content/events';
+import { deckList } from './deck';
 import { corridorBetween, hopDistances, neighbours } from '../dungeon/gen';
 import { spawnGroup } from './combat';
 import { buildView } from './views';
@@ -228,15 +228,13 @@ describe('auto-pathing', () => {
 });
 
 
-describe('arriving Insane', () => {
-  it('a Character who comes in Insane starts Insane, at 50 stress', () => {
+describe('arriving Blessed', () => {
+  it("a Character the Elder blessed has Elder's Oil in their deck for the run", () => {
     const world = createWorld(1, { monsters: false, loot: false, escalates: false, events: false });
     const base = { charId: 'c', charName: 'C', owner: 'p', talents: [], injuries: [] };
-    const calm = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: { ...base, insane: false } });
-    const shaken = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', insane: true } });
-    expect(calm.stress).toBe(0);
-    expect(shaken.stress).toBe(STRESS.insaneStart);
-    expect(shaken.insane).toBe(true);
-    expect(STRESS.insaneStart).toBe(50);
+    const plain = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: base });
+    const blessed = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', blessed: true } });
+    expect(deckList(plain)).not.toContain('oil');
+    expect(deckList(blessed)).toContain('oil');
   });
 });

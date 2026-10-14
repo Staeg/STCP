@@ -1,16 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { play } from './testkit';
-import { STRESS } from '../content/events';
 import type { ClassId } from '../content/classes';
 import { CR_RULES, crUnitChance, ENEMIES, rollRoster, UNITS_BY_TIER, type EnemyId, type Roster } from '../content/enemies';
 import { neighbours } from '../dungeon/gen';
 import { Rng } from '../rng';
 import { afterBlock, crUnits, doomOf, fieldTurn, pickGroup, spawnGroup } from './combat';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
-
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
 
 /** Ghoul and Crawler by default, Wight, Giant; Acolyte, Zombie, Queen and Lich only with CR. */
 const ROSTER: Roster = {
@@ -169,6 +164,7 @@ describe('Lich', () => {
     expect(back?.hp).toBe(40);
     expect(lich.spent).toBe(true);
     const h = w.heroes.h0;
+    h.hp = h.maxHp = 999; // whatever she plays, she stays up to carry the Doom
     expect(h.st.doom).toBeUndefined();
     untilTurn(w, room, lich.id);
     untilTurn(w, room, lich.id);

@@ -1,5 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { STRESS } from '../content/events';
+import { describe, expect, it } from 'vitest';
 import { CLASS_RULES } from '../content/innates';
 import { CLASSES, type ClassId } from '../content/classes';
 import { CR_RULES, type EnemyId } from '../content/enemies';
@@ -14,9 +13,7 @@ import { speedOf } from './speed';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { Injury } from '../village';
 
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
+
 
 type Spec = ClassId | [ClassId, TalentId];
 
@@ -24,7 +21,7 @@ function hero(world: World, i: number, spec: Spec, injuries: Injury[] = []) {
   const [cls, talent] = typeof spec === 'string' ? [spec, null] : spec;
   return addHero(world, {
     id: `h${i}`, name: `H${i}`, cls,
-    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talents: talent ? [talent] : [], injuries, insane: false },
+    loadout: { charId: `c${i}`, charName: `H${i}`, owner: 'Ann', talents: talent ? [talent] : [], injuries },
   });
 }
 
@@ -167,7 +164,6 @@ describe('Sorceress talents', () => {
     play(world, s, 'pact');
     expect(w.hp).toBe(w.maxHp);
     expect(s.hp).toBe(s.maxHp - CARD_RULES.pactCost * TALENT_RULES.bloodPriceMult);
-    expect(s.stress).toBe(CARD_RULES.pactStress * TALENT_RULES.bloodPriceMult);
   });
 
   it('Grimoire: a hand of four', () => {
@@ -243,13 +239,13 @@ describe('Zealot talents', () => {
     expect(h.deck!.discard).not.toContain('flagellate');
   });
 
-  it('Penitent: Absolution only spends half', () => {
+  it('Penitent: Absolution gives back only half the light', () => {
     const { world, ids, room } = arena([['zealot', 'penitent']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
-    h.stress = 90;
+    h.light = 10;
     play(world, h, 'absolution');
-    expect(h.stress).toBe(70);
+    expect(h.light).toBeCloseTo(30, 0);
   });
 });
 
@@ -258,8 +254,8 @@ describe('Alchemist talents', () => {
     const { world, ids, room, monsters } = arena([['alchemist', 'volatile']], ['ghoul']);
     walkIn(world, ids, room);
     const h = world.heroes.h0;
-    h.items = ['tonic'];
-    h.stress = 30;
+    h.items = ['torch'];
+    h.light = 30;
     const enc = world.encounters[room];
     submitChoice(world, h, { action: 'item', item: 0 });
     enc.next[h.id] = world.time;
@@ -272,8 +268,8 @@ describe('Alchemist talents', () => {
     walkIn(world, ids, room);
     const h = world.heroes.h0;
     expect(h.deck!.hand[0]).toBe('elixir');
-    h.items = ['tonic'];
-    h.stress = 30;
+    h.items = ['torch'];
+    h.light = 30;
     const enc = world.encounters[room];
     submitChoice(world, h, { action: 'item', item: 0 });
     enc.next[h.id] = world.time;
@@ -303,7 +299,7 @@ describe('Challenge Rating', () => {
 
   it('counts the Talents in a Game', async () => {
     const { Game } = await import('./game');
-    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talents: talent ? [talent] : [], injuries: [], insane: false });
+    const loadout = (talent: TalentId | null) => ({ charId: 'c', charName: 'X', owner: 'Ann', talents: talent ? [talent] : [], injuries: [] });
     const game = new Game(9, [
       { id: 'a', name: 'A', cls: 'warden', isBot: false, loadout: loadout('shieldwall') },
       { id: 'b', name: 'B', cls: 'sorceress', isBot: true, loadout: loadout('bloodPrice') },
@@ -329,7 +325,7 @@ describe('Challenge Rating', () => {
     expect(ghoul.hp).toBe(500 + CR_RULES.hymnHeal);
     delete q.world.monsters[ghoul.id];
     untilTurn(q.world, q.room, queen.id);
-    expect(enc.events.some((e) => e.actor === queen.id && e.kind === 'stress')).toBe(true);
-    expect(q.world.heroes.h0.stress).toBeGreaterThanOrEqual(CR_RULES.dirgeStress);
+    expect(enc.events.some((e) => e.actor === queen.id && e.kind === 'light')).toBe(true);
+    expect(q.world.heroes.h0.light).toBeLessThanOrEqual(100 - CR_RULES.dirgeLight);
   });
 });

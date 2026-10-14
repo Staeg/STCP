@@ -1,5 +1,5 @@
 import {
-  DEATH_TIMER, INSANITY, INSANITY_RULES, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, STRESS, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
+  DEATH_TIMER, escortSpeed, fmtSpeed, MIN_SPEED, speedOf, speedParts, dirBetween, type Dir, LIGHT_DIM, LIGHT_BRIGHT, lightStage, forgetChance, CLASSES, ESCALATION, EVENT_SEEDING, EMERGENCIES, KIND_NAMES,
   skillInfo, skillTargeted, REVIVE_CHANNEL, ESCALATION_TEXT, MAX_ESCALATION, ESCALATION_INTERVAL, type PlayerView,
   INJURY_NAMES, VILLAGE_RULES, ITEMS, type Injury, CALL_RULES, RITES, CR_RULES, crUnitChance, ENEMIES, ROSTER_RULES, TIERS, type EnemyId,
 } from '@stcp/shared';
@@ -119,10 +119,7 @@ export class Hud {
     // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does).
     const status = statusIcons(you.st, time).join('');
     setHtml($('hero-name'), `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>${status ? ` <span class="hero-status">${status}</span>` : ''}`);
-    // A screaming face beside your stress once you've gone Insane; hover for what it does.
-    const insane = $('insanity');
-    insane.hidden = !you.insane;
-    if (you.insane) insane.title = `${INSANITY.name}: ${INSANITY.desc} ${INSANITY_RULES}`;
+
     // Injuries beside your HP: a small drop for each Minor, a small and a big one for each Major.
     setHtml($('injuries'), injuriesHtml([...you.injuries, ...(you.runInjuries ?? [])]));
     const escort = $('escort');
@@ -148,13 +145,16 @@ export class Hud {
     $('objectives').title = em ? `${EMERGENCIES[em.id].desc} (${KIND_NAMES[EMERGENCIES[em.id].kind]})` : '';
     $('hp-text').textContent = `${Math.max(0, Math.ceil(you.hp))}/${you.maxHp}`;
     $('hp-fill').style.width = `${(Math.max(0, you.hp) / you.maxHp) * 100}%`;
-    $('stress-text').textContent = `${Math.round(you.stress)}`;
-    $('stress-fill').style.width = `${Math.min(100, you.stress)}%`;
-    $('light-text').textContent = view.dim ? (you.light <= 0 ? '(DARK)' : '(DIM)') : '';
-    $('light-text').title = you.light <= 0
-      ? `Darkness: +${STRESS.darkPerSec} stress per second, and monsters hit you 25% harder.`
-      : `Dim (light under ${LIGHT_DIM}): +${STRESS.dimPerSec} stress per second, and you can't see into neighbouring rooms.`;
-    $('stress-text').title = `The dungeon wears on you: +${STRESS.basePerSec} stress per second, more while Dim or dark, in fights and from what you see. At 100 something breaks.`;
+    // Light: the number, its stage (Bright, Dim, Dark; nothing for plain Lit), and hover for what it does to you now.
+    const stage = lightStage(you.light);
+    const forget = Math.round(forgetChance(you.light) * 100);
+    setHtml($('light-text'), `${Math.round(you.light)}${stage === 'lit' ? '' : ` <span class="light-stage ${stage}">${stage.toUpperCase()}</span>`}`);
+    $('light-text').title = {
+      bright: `Bright (light above ${LIGHT_BRIGHT}): you forget nothing.`,
+      lit: `Lit: each path that drops out of your sight is forgotten ${forget}% of the time (1% for every point of light below ${LIGHT_BRIGHT}).`,
+      dim: `Dim (light under ${LIGHT_DIM}): you can't see into neighbouring rooms, and forget each path that drops out of sight ${forget}% of the time.`,
+      dark: `Darkness: monsters hit you 25% harder, you can't see next door, and you forget each path that drops out of sight ${forget}% of the time.`,
+    }[stage];
     // Speed: seconds per turn in a fight and per tunnel. Hover for what's making it up.
     const speed = speedOf(you, view.time);
     $('speed-text').textContent = fmtSpeed(speed);
@@ -165,6 +165,7 @@ export class Hud {
     const fill = $('light-fill');
     fill.style.width = `${you.light}%`;
     fill.classList.toggle('dim', view.dim);
+    fill.classList.toggle('bright', stage === 'bright');
 
     $('btn-turn').hidden = you.pos.kind !== 'corridor' || you.downedAt !== null || you.dead;
 
@@ -292,7 +293,8 @@ function rosterHtml(view: PlayerView): string {
   const name = (id: number) => view.rooms.find((r) => r.id === id)?.name ?? 'somewhere unknown';
   const rows = view.allies.map((a) => {
     let status: string;
-    const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN' : ` · ${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}`;
+    const hp = a.extracted ? '' : a.dead ? ' · DEAD' : a.downed ? ' · DOWN'
+      : ` · ${icon('hp')}${Math.max(0, Math.ceil(a.hp))}/${a.maxHp}${a.light !== undefined ? ` · ${icon('light')}${a.light}` : ''}`;
     const sameRoom = a.pos.kind === 'room' && view.you.pos.kind === 'room' && a.pos.room === view.you.pos.room;
     if (a.extracted) status = `escaped at ${fmtTime(a.seenAt)}`;
     // Watching a revealed map from outside: where they are, not whether you can see them.
@@ -305,9 +307,8 @@ function rosterHtml(view: PlayerView): string {
       const where = a.heading !== null ? `heading to ${name(a.heading)}` : a.pos.kind === 'room' ? name(a.pos.room) : `heading to ${name(a.pos.to)}`;
       status = `last seen ${fmtTime(view.time - a.seenAt)} ago · ${where}`;
     }
-    const insane = a.insane ? ` <span class="insane" title="${escape(`${INSANITY.name}: ${INSANITY.desc} ${INSANITY_RULES}`)}">😱</span>` : '';
     const ready = a.live && a.ready ? ' <span class="ready-tag" title="Ready to leave (E)">⚑ ready</span>' : '';
-    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${insane}${ready}<div class="ally-status">${escape(status)}${hp}</div></div>`;
+    return `<div class="ally ${a.live ? '' : 'ghost'}"><span style="color:${a.color}">■</span> ${escape(a.name)}${a.isBot ? ' <span class="muted">(bot)</span>' : ''}${ready}<div class="ally-status">${escape(status)}${hp}</div></div>`;
   });
   return rows.join('');
 }

@@ -9,7 +9,7 @@ import { CARD_RULES, CARDS, type CardId } from '../content/cards';
 import { cardTime } from './cards';
 import { holdMonsters, setHand } from './testkit';
 import { ENEMIES, type EnemyId } from '../content/enemies';
-import { STRESS } from '../content/events';
+
 import { speedOf } from './speed';
 import { CLOTH, isArms, ITEMS, LOOT_TABLE, STAFF } from '../content/items';
 import { Stash } from '../stash';
@@ -306,7 +306,7 @@ describe('staves', () => {
     expect(cardTime(world, enc, h, 'wither')).toBe(CARDS.wither.time - 0.5);
   });
 
-  it("Shepherd's Crook heals twice as much; Censer Staff eases twice the stress", () => {
+  it("Shepherd's Crook heals twice as much; Censer Staff gives twice the light", () => {
     const { world, ids, room } = arena(['lampbearer', 'warden'], ['ghoul']);
     const [l, w] = [world.heroes.h0, world.heroes.h1];
     l.weapon = 'crook';
@@ -317,12 +317,10 @@ describe('staves', () => {
     act(world, room, 'mend', 'h1');
     expect(w.hp - hp).toBe(Math.round(CARD_RULES.mend * STAFF.healMult));
     l.weapon = 'censer';
-    const base = STRESS.basePerSec;
-    STRESS.basePerSec = 0;
-    w.stress = 50;
+    w.light = 50;
     act(world, room, 'vigil', 'h1');
-    STRESS.basePerSec = base;
-    expect(w.stress).toBeCloseTo(50 - Math.round(CARD_RULES.vigil * STAFF.reliefMult), 0);
+    // (less a little light burned while the card resolves)
+    expect(w.light).toBeGreaterThan(50 + CARD_RULES.vigilLight * STAFF.reliefMult - 2);
   });
 
   it('Evergreen doubles the buffs you place', () => {
@@ -458,13 +456,13 @@ describe('cloth', () => {
     h.armor = 'blinkcloth';
     walk(world, 'h0', room);
     expect(h.encounter).toBe(room);
-    const stress = h.stress;
+    const light = h.light;
     hurtHero(world, h, 999, null, world.encounters[room]);
     expect(h.downedAt).toBeNull();
     expect(h.hp).toBe(1);
     expect(h.encounter).toBeNull();
     expect(h.pos.kind === 'room' && h.pos.room !== room && neighbours(world.dungeon, room).includes(h.pos.room)).toBe(true);
-    expect(h.stress).toBeGreaterThanOrEqual(stress + CLOTH.blinkStress);
+    expect(h.light).toBeCloseTo(light - CLOTH.blinkLight, 0);
     // Spent until the next fight it joins (leaving the old one doesn't rearm it).
     expect(clothReady(h, 'blink')).toBeNull();
     walk(world, 'h0', room);
@@ -494,7 +492,7 @@ describe('cloth', () => {
     const { world } = arena(['warden']);
     const h = world.heroes.h0;
     h.armor = 'sackcloth';
-    expect(wornMult(h, 'stressMult')).toBe(1.25);
+    expect(wornMult(h, 'lightLossMult')).toBe(1.25);
     const low = Math.floor(h.maxHp * 0.3) - 2; // below 30% (going below half also costs a Minor Injury's max HP)
     h.hp = low + 4;
     hurtHero(world, h, 4, null);

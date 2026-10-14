@@ -130,9 +130,8 @@ export interface AllyView {
   dead: boolean;
   /** You saw them escape. */
   extracted: boolean;
-  insane: boolean;
   /** Only while you can see them. */
-  stress?: number;
+  light?: number;
   /** Their Speed timer (start, end), while you can see them standing free in a room. */
   turn?: { start: number; at: number };
   /** Ready to leave (E), while you can see them. */
@@ -168,7 +167,7 @@ export interface CombatUnitView {
   maxHp: number;
   st: Statuses;
   /** Heroes only. */
-  stress?: number;
+  light?: number;
   /** The risen: own turns left (none for the Uprising's dead, who never crumble). */
   turnsLeft?: number;
   cls?: ClassId;
@@ -189,7 +188,6 @@ export interface CombatUnitView {
   choice?: string;
   /** Who that choice is aimed at (a unit id), if anyone. */
   choiceTarget?: string;
-  insane?: boolean;
 }
 
 export interface EncounterView {
@@ -323,7 +321,7 @@ export function buildView(world: World, heroId: string): PlayerView {
   const sightings: Record<string, Sighting> = watching
     ? Object.fromEntries(Object.values(world.heroes).filter((h) => h !== you).map((h) => [h.id, {
         pos: { ...h.pos }, heading: headingOf(h), time: world.time, hp: h.hp, maxHp: h.maxHp,
-        downed: h.downedAt !== null, dead: h.dead, extracted: h.extracted, insane: h.insane,
+        downed: h.downedAt !== null, dead: h.dead, extracted: h.extracted,
       }]))
     : you.lastKnown;
   const allies: AllyView[] = [];
@@ -334,8 +332,7 @@ export function buildView(world: World, heroId: string): PlayerView {
     allies.push({
       id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, live, pos: { ...sighting.pos }, heading: null, seenAt: sighting.time,
       hp: sighting.hp, maxHp: sighting.maxHp, downed: sighting.downed, dead: sighting.dead, extracted: !!sighting.extracted,
-      insane: !!sighting.insane,
-      stress: live && inDungeon(h) ? Math.round(h.stress) : undefined,
+      light: live && inDungeon(h) ? Math.round(h.light) : undefined,
       ready: live && inDungeon(h) ? h.ready : undefined,
       turn: live && inDungeon(h) && isConscious(h) && h.encounter === null && !h.channel && h.pos.kind === 'room'
         ? { start: h.turnStart, at: h.turnAt } : undefined,
@@ -544,14 +541,13 @@ function encounterView(world: World, you: Hero): EncounterView | null {
   const heroUnit = (h: Hero): CombatUnitView => {
     const id = h.id;
     return {
-      id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, stress: Math.round(h.stress), cls: h.cls, color: h.color,
+      id, kind: 'hero', name: h.name, hp: h.hp, maxHp: h.maxHp, st: { ...h.st }, light: Math.round(h.light), cls: h.cls, color: h.color,
       downed: h.downedAt !== null,
       dying: h.downedAt !== null ? Math.max(0, DEATH_TIMER - (world.time - h.downedAt)) : undefined,
       speed: enc.span?.[id] ?? speedOf(h, world.time), nextIn: isConscious(h) ? nextIn(id) : null,
       ready: !!enc.choices[id] || !isConscious(h),
       choice: enc.choices[id] ? choiceLabel(h, enc.choices[id]) : undefined,
       choiceTarget: enc.choices[id]?.target,
-      insane: h.insane,
     };
   };
   const order = combatOrder(world, enc);

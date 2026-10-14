@@ -2,9 +2,9 @@
  * The game's stat and keyword icons: little pixel-art SVGs, each with a hover explanation. `iconize` swaps the
  * words in a rules text (card and item descriptions, event choices) for them.
  */
-import { FORGETTING_RULES, STRESS, TALENTS, type TalentId } from '@stcp/shared';
+import { FORGETTING_RULES, LIGHT_BRIGHT, LIGHT_DIM, TALENTS, type TalentId } from '@stcp/shared';
 
-export type IconId = 'hp' | 'stress' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
+export type IconId = 'hp' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
   | 'revive' | 'flee' | 'brace';
 
 const PAL: Record<string, string> = {
@@ -15,7 +15,6 @@ const PAL: Record<string, string> = {
 /** Pixel grids (8×8; the bodies 10×9), one letter per palette colour, '.' for nothing. */
 const ART: Record<IconId, string[]> = {
   hp: ['.rr..rr.', 'rwrrrrrR', 'rrrrrrrR', 'rrrrrrrR', '.rrrrrR.', '..rrrR..', '...rR...', '........'],
-  stress: ['.ww..ww.', 'wwwwwwwW', 'wwwwwwwW', 'wwwwwwwW', '.wwwwwW.', '..wwwW..', '...wW...', '........'],
   speed: ['..gggg..', '.gwwwwg.', 'gwwkwwwg', 'gwwkwwwg', 'gwwkkkwg', 'gwwwwwwg', '.gwwwwg.', '..gggg..'],
   cooldown: ['bbbbbbbb', '.g....g.', '..gyyg..', '...yy...', '...gg...', '..g..g..', '.gyyyyg.', 'bbbbbbbb'],
   // A tent: works out in the field (a campfire read too much like the torch).
@@ -44,13 +43,12 @@ const GLYPH = Object.fromEntries(Object.entries(ART).map(([id, rows]) => [id, sv
 
 export const ICON_TIPS: Record<IconId, string> = {
   hp: 'HP: health. At 0 you go down, and die unless an ally gets you back up.',
-  stress: `Stress (0–100): builds up in the dark, in fights and from horrors. ${FORGETTING_RULES} At ${STRESS.insanityAt} you go Insane; at 100 your heart gives out.`,
   speed: 'Speed: seconds between your turns in a fight, and to walk a tunnel. Lower is faster.',
   cooldown: 'Cooldown: after using it, unusable for this many of your own turns.',
   field: 'Also works outside fights: pick it, and it happens when your timer runs out (using up that turn).',
   dmg: 'Damage: HP taken off whoever is hit.',
   stun: 'Stun: the target skips its next action.',
-  light: 'Light: fades as you explore. Dim and you can’t see next door; in the dark, stress climbs and monsters hit harder.',
+  light: `Light: fades as you explore. Above ${LIGHT_BRIGHT} you are Bright and forget nothing. ${FORGETTING_RULES} Under ${LIGHT_DIM} you are Dim and can’t see next door; at 0, in the dark, monsters hit you 25% harder.`,
   poison: 'Poison: takes damage at the end of each of its turns, for a few turns. Mend or a Bandage cures it.',
   shield: 'Shield: soaks up that much damage taken, then is gone.',
   revive: 'Revive',
@@ -92,7 +90,6 @@ const WORDS: [RegExp, IconId][] = [
   [/\b[Ss]tun(?:ned|s)?\b/g, 'stun'],
   [/\b[Pp]oison(?:s|ed)?\b/g, 'poison'],
   [/\bShield\b(?! Bash)/g, 'shield'],
-  [/\b[Ss]tress\b/g, 'stress'],
   [/\blight\b/g, 'light'],
   [/\bSpeed\b/g, 'speed'],
   [/\bCooldown\b/gi, 'cooldown'],

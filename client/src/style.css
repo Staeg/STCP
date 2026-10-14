@@ -72,6 +72,11 @@ html, body {
 .bar-line .bar-label { min-width: 52px; text-align: right; white-space: nowrap; }
 .bar-fill { height: 100%; background: var(--light); transition: width 0.2s linear; }
 .bar-fill.dim { background: #8a6a30; }
+.bar-fill.bright { background: #ffe58a; box-shadow: 0 0 6px #ffe58a88; }
+.light-stage { font-size: 0.8em; letter-spacing: 0.05em; }
+.light-stage.bright { color: #ffe58a; }
+.light-stage.dim { color: #b08a40; }
+.light-stage.dark { color: var(--danger); }
 
 #actions {
   position: fixed;
@@ -317,7 +322,6 @@ button.quiet { margin-left: auto; background: transparent; }
 
 /* ---- Vitals ---- */
 .bar-fill.hp { background: #c0392b; }
-.bar-fill.stress { background: #8e6ad9; }
 
 /* ---- Combat ---- */
 #combat {
@@ -421,7 +425,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .float.crit { color: #ffd23a; font-size: 32px; }
 .float.heal { color: #7ce06a; }
 .float.miss { color: #c8c8c8; }
-.float.stress { color: #b48aff; font-size: 20px; }
+.float.light { color: #f2d36b; font-size: 20px; }
+.float.dark { color: #8a7a9a; font-size: 20px; }
 @keyframes floatup { from { opacity: 1; margin-top: 0; } to { opacity: 0; margin-top: -40px; } }
 .cb-log { width: 290px; font-size: 16px; color: var(--muted); line-height: 1.15; display: flex; flex-direction: column; justify-content: flex-end; }
 .cb-log div:last-child { color: var(--text); }
@@ -612,7 +617,6 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .ev-perk { color: var(--cls); font-size: 16px; margin-top: 2px; }
 .ev-progress { height: 8px; background: #221a2a; border: 1px solid #000; margin: 4px 0; }
 .ev-progress > div { height: 100%; background: #b48aff; transition: width 0.2s linear; }
-#insanity { margin-left: 4px; cursor: help; display: inline-block; animation: pulse 0.9s infinite alternate; }
 .injury-drops { margin-left: 4px; cursor: help; display: inline-flex; align-items: flex-end; gap: 1px; }
 .drop { display: inline-block; width: 6px; height: 8px; }
 .drop.big { width: 9px; height: 13px; margin-right: 3px; }
@@ -628,7 +632,6 @@ button.mini { font-size: 15px; padding: 0 6px; }
 #paused .paused-sub { display: block; font-size: 20px; color: var(--text); margin-top: 4px; }
 #autopilot { background: var(--panel); border: 2px solid var(--gold); padding: 6px 12px; color: var(--gold); }
 #escort { color: #9fe0ff; font-size: 17px; }
-.insane { color: #ff8a6a; font-size: 15px; pointer-events: auto; cursor: help; }
 .icons span, #light-text { cursor: help; }
 /* The fight bar: your hand of cards; out of a fight, your deck greyed and the Toll bright. */
 #combat.idle .cb-act.live { color: var(--text); cursor: pointer; border-color: #6a5a3a; }
@@ -814,6 +817,7 @@ span.vs.ready { color: var(--text); cursor: help; }
 .talent-star { color: var(--gold); }
 .injury.minor { color: #d9a64a; }
 .injury.major { color: var(--danger); }
+.chip.blessed { color: var(--gold); }
 .class-char { margin-top: 0.3em; font-size: 0.9em; }
 .cr-line { margin: -2px 0 8px; }
 .help-btn { font-size: 15px; line-height: 1; padding: 2px 7px; border-radius: 50%; margin-right: 4px; }

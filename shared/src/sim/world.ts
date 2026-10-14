@@ -10,9 +10,9 @@ import { GEAR_KIND_PLURALS } from '../content/forge';
 import { CLASS_RULES } from '../content/innates';
 import { callForHelp, type Call } from './call';
 import { clearRubble, stragglerEvery, tickEscalation, type Pack } from './escalation';
-import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, tickStress, villagerHere, type RoomEvent, type Villager } from './events';
-import { EVENT_SEEDING, STRESS, type EliteEventKind, type EventKind } from '../content/events';
-import { hallucinate, perceive, relearnPaths, seeTruly, tickForgetting } from './mind';
+import { chooseEvent, leaveStranger, seedEliteEvent, spawnEvents, tickEvents, villagerHere, type RoomEvent, type Villager } from './events';
+import { EVENT_SEEDING, type EliteEventKind, type EventKind } from '../content/events';
+import { relearnPaths, tickForgetting } from './mind';
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
@@ -74,12 +74,13 @@ export interface Hero {
 
   hp: number;
   maxHp: number;
-  stress: number;
   st: Statuses;
   /** The cards in play while in a fight (M15): dealt when they join one, gathered up when they leave it. */
   deck: Deck | null;
   /** Cards burned this run: out of the deck until the run ends (or a Loom). One entry per copy. */
   burned: CardId[];
+  /** Cards in the deck for this run only, on top of class and Gear cards (the Elder's Oil, from the Elder's Bless). */
+  bonusCards: CardId[];
   /** The last card played (in any fight this run) that Echo can repeat. */
   lastCard: CardId | null;
   /** The free Issued Gear this hero started with, by slot (it never goes home). */
@@ -101,16 +102,11 @@ export interface Hero {
     /** Carrying out an event choice in `room`; progress lives on the event itself. */
     | { kind: 'event'; room: number; choice: string; until: number; /** Hastening Robe: done in CLOTH.hastenSecs. */ hasten?: boolean }
     | null;
-  /** Gone Insane (stress reached STRESS.insanityAt, or brought in from the Village): hallucinates and misjudges (sim/mind.ts). */
-  insane: boolean;
   /** Paths (corridor ids) this hero has forgotten: unknown again until they stand at either end. */
   forgotten: number[];
   /** Paths in sight as of the last tick (the ones that drop out of it may be forgotten). */
   inSight: number[];
-  /** Insanity: monsters this hero imagines in rooms that are empty, until they walk in. */
-  phantoms: Record<number, EnemyId[]>;
-  /** Insanity: how many monsters this hero thinks a room holds, for the real number they last judged. */
-  misjudged: Record<number, { real: number; seen: number }>;
+
   /** Ids of the villagers following this hero. */
   leading: string[];
   /** Events this hero has seen, by room (for map icons). */
@@ -210,7 +206,7 @@ export interface Hero {
   restHp: number | null;
 
   // ---- Elite Events (content/events.ts) ----
-  /** Lasting effects of the Elite Events this hero carried out (cant: map known · sacrament: Speed 2s · zenith: stress past 100 · alacrity: consumables quicken). */
+  /** Lasting effects of the Elite Events this hero carried out (cant: map known · sacrament: Speed 2s · zenith: Fervour doubled · alacrity: consumables quicken). */
   elite: Partial<Record<EliteEventKind, true>>;
   /** Wayward Wanderers: villagers walking with this Warden; saved if they escape. */
   wanderers: number;
@@ -235,7 +231,6 @@ export interface Sighting {
   dead: boolean;
   /** You watched them leave through the exit. */
   extracted?: boolean;
-  insane: boolean;
 }
 
 /** collapsed: the 13:00 deadline hit · wiped: everyone died · ended: everyone left (or died) early */
@@ -255,7 +250,7 @@ export interface World {
   /** Active fights, keyed by room. */
   encounters: Record<number, Encounter>;
   rng: Rng;
-  /** Forgetting and Insanity roll on their own RNG (sim/mind.ts). */
+  /** Forgetting rolls on its own RNG (sim/mind.ts). */
   mindRng: Rng;
   nextId: number;
   /** Loot lying in rooms. */
@@ -304,7 +299,7 @@ export interface World {
   stats: {
     /** turns: hero turns taken in fights · fightTime: total seconds spent fighting. */
     fights: number; turns: number; fightTime: number; slain: number; downs: number; revives: number; collapses: number; waves: number;
-    insanity: number; forgotten: number; heartAttacks: number; eventsUsed: number;
+    forgotten: number; eventsUsed: number;
   };
 }
 
@@ -380,7 +375,7 @@ export function createWorld(seed: number, opts: WorldOptions = {}): World {
     seed, time: start, startTime: start, dungeon: generateDungeon(seed), heroes: {}, phase: 'running', paused: false, chalk: {},
     monsters: {}, encounters: {}, rng: new Rng(seed ^ 0x5bd1e995), mindRng: new Rng(seed ^ 0x1b873593), nextId: 1, piles: {}, bounty: {},
     escalation: 0, packs: {}, collapsed: [], clearedAt: {}, chronicle: [], escalates: opts.escalates !== false,
-    stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, insanity: 0, forgotten: 0, heartAttacks: 0, eventsUsed: 0 },
+    stats: { fights: 0, turns: 0, fightTime: 0, slain: 0, downs: 0, revives: 0, collapses: 0, waves: 0, forgotten: 0, eventsUsed: 0 },
     events: {}, villagers: {}, objectives: { altars: 0, villagers: 0 }, eliteEvents: false, tolls: [], calls: [], cr: Math.max(0, opts.cr ?? 0),
     roster: opts.roster ?? rollRoster(new Rng(seed ^ 0x3c6ef372)), risings: [], kills: {},
     // Nothing is due the moment a late-starting run begins (the first tick still announces its Escalation).
@@ -431,10 +426,10 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     knownContents: {},
     hp: maxHp,
     maxHp,
-    stress: loadout?.insane ? STRESS.insaneStart : 0,
     st: {},
     deck: null,
     burned: [],
+    bonusCards: loadout?.blessed ? ['oil'] : [],
     lastCard: null,
     issued: {},
     statusClock: 0,
@@ -465,11 +460,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     extractedAt: null,
     fate: null,
     arrivedAt: null,
-    insane: !!loadout?.insane && opts.cls !== 'zealot',
     forgotten: [],
     inSight: [],
-    phantoms: {},
-    misjudged: {},
     leading: [],
     knownEvents: {},
     queuedSkill: null,
@@ -596,7 +588,6 @@ export function step(world: World, dt: number): void {
   tickLoot(world);
   tickEvents(world, dt);
   leaveTogether(world);
-  tickStress(world, dt);
   if (world.escalates) tickEscalation(world);
   tickForgetting(world);
   updateKnowledge(world);
@@ -687,7 +678,7 @@ export function extractHero(world: World, h: Hero) {
   for (const o of Object.values(world.heroes)) {
     if (o !== h && inDungeon(o) && sameRoom(o, h)) {
       o.lastKnown[h.id] = {
-        pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true, insane: h.insane,
+        pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: false, dead: false, extracted: true,
       };
       notify(world, o, `${h.name} escapes through the exit.`);
     }
@@ -1081,7 +1072,7 @@ function updateKnowledge(world: World) {
       const scrying = world.time < a.scryUntil;
       if (a !== b && inDungeon(a) && (inDungeon(b) || b.dead) && (canSee(world, a, b) || hearsToll(world, b) || scrying)) {
         a.lastKnown[b.id] = {
-          pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead, insane: b.insane,
+          pos: { ...b.pos }, heading: headingOf(b), time: world.time, hp: b.hp, maxHp: b.maxHp, downed: b.downedAt !== null, dead: b.dead,
         };
         // Scrying Pool: the room they're in shows too (both ends of a tunnel they're walking).
         if (scrying) for (const r of b.pos.kind === 'room' ? [b.pos.room] : [b.pos.from, b.pos.to]) scryRoom(world, a, r);
@@ -1097,7 +1088,6 @@ function updateKnowledge(world: World) {
       }
       if (world.chalk[room]) a.knownChalk[room] = Object.fromEntries(Object.entries(world.chalk[room]).map(([id, cs]) => [id, [...cs]]));
       a.knownThreat[room] = monstersIn(world, room).length;
-      seeTruly(a, room);
       a.knownLoot[room] = lootCount(world, room, a);
       const ev = world.events[room];
       if (villagerHere(world, room)) a.knownEvents[room] = 'villager';
@@ -1113,8 +1103,7 @@ function updateKnowledge(world: World) {
       }
       if (a.light >= LIGHT_DIM || seesInDark(a)) {
         for (const n of neighbours(world.dungeon, room)) {
-          // Insane eyes see what they see (sim/mind.ts).
-          const monsters = perceive(world, a, n, monsterTypes(world, n));
+          const monsters = monsterTypes(world, n);
           a.knownThreat[n] = monsters.length;
           a.knownContents[n] = { ...(a.knownContents[n] ?? { items: [], gold: 0, glimpsed: true }), monsters, at: world.time };
         }
@@ -1129,7 +1118,7 @@ function updateKnowledge(world: World) {
  */
 function scryRoom(world: World, a: Hero, room: number) {
   if (!a.seen.includes(room)) a.seen.push(room);
-  const monsters = perceive(world, a, room, monsterTypes(world, room));
+  const monsters = monsterTypes(world, room);
   a.knownThreat[room] = monsters.length;
   a.knownLoot[room] = lootCount(world, room, a);
   if (world.chalk[room]) a.knownChalk[room] = Object.fromEntries(Object.entries(world.chalk[room]).map(([id, cs]) => [id, [...cs]]));
@@ -1189,8 +1178,7 @@ export function explore(world: World, hero: Hero, room: number) {
     for (const n of neighbours(world.dungeon, room)) {
       // A secret room opened only to a Cutthroat (Cunning Cant) stays hidden from everyone else.
       const privy = corridorBetween(world.dungeon, room, n)?.privy;
-      // Insane: a room you've just discovered (or rediscovered) may seem to hold monsters.
-      if ((!privy || privy.includes(hero.id)) && addUnique(hero.seen, n)) hallucinate(world, hero, n);
+      if (!privy || privy.includes(hero.id)) addUnique(hero.seen, n);
     }
   }
 }

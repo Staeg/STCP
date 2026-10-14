@@ -10,7 +10,7 @@ import type { GearSlot, GearType } from './items';
  */
 
 /** Card schools: an icon on the card. Gear passives and Talents key off them. */
-export type School = 'strike' | 'guard' | 'hinder' | 'hasten' | 'venom' | 'mend' | 'dread' | 'conjure' | 'hex' | 'light';
+export type School = 'strike' | 'guard' | 'hinder' | 'hasten' | 'venom' | 'mend' | 'conjure' | 'hex' | 'light';
 
 /** `tint`: a card picture's background (dark, then the lighter disc behind its motif), by its first school. */
 export const SCHOOLS: Record<School, { name: string; glyph: string; tint: [string, string]; desc: string }> = {
@@ -20,7 +20,6 @@ export const SCHOOLS: Record<School, { name: string; glyph: string; tint: [strin
   hasten: { name: 'Hasten', glyph: '➶', tint: ['#0e2e36', '#1e5a68'], desc: "Hurry and Haste: your side's tempo." },
   venom: { name: 'Venom', glyph: '☣', tint: ['#16300f', '#2e5a22'], desc: 'Poison, Bleed and Acid.' },
   mend: { name: 'Mend', glyph: '✚', tint: ['#1a3422', '#356446'], desc: 'Healing and Regen.' },
-  dread: { name: 'Dread', glyph: '☁', tint: ['#241e38', '#443a64'], desc: 'Stress, taken on or taken away.' },
   conjure: { name: 'Conjure', glyph: '✦', tint: ['#2a1636', '#6a4486'], desc: 'Summons and Corpses.' },
   hex: { name: 'Hex', glyph: '⛧', tint: ['#36122c', '#642452'], desc: 'Hexed, Weak and Exposed.' },
   light: { name: 'Light', glyph: '☀', tint: ['#363010', '#68591e'], desc: 'Light, spent or shared.' },
@@ -51,13 +50,15 @@ export type CardId =
   | 'acid' | 'fumes' | 'mist' | 'elixir' | 'catalyst' | 'opus'
   // Gear type cards (Common / Uncommon)
   | 'stab1' | 'stab2' | 'thump1' | 'thump2' | 'soothe1' | 'soothe2' | 'sidestep1' | 'sidestep2'
-  | 'braceup1' | 'braceup2' | 'shrug1' | 'shrug2' | 'mutter1' | 'mutter2' | 'evillook1' | 'evillook2'
+  | 'braceup1' | 'braceup2' | 'wick1' | 'wick2' | 'mutter1' | 'mutter2' | 'evillook1' | 'evillook2'
   // Rare Gear cards
   | 'mercy' | 'whispercut' | 'shatter' | 'earthblow' | 'doublehex' | 'bloom' | 'glass'
   | 'scaleward' | 'fade' | 'runeward' | 'bulwark' | 'liestill' | 'slipaway' | 'blink' | 'veil'
   | 'luckybreak' | 'feverdream' | 'bloodrush' | 'ashes'
   // Legendary cards
   | 'promise' | 'quake' | 'unmake' | 'redeem' | 'bastion' | 'forgive' | 'howl' | 'waystep'
+  // The Journeyman Elder's Bless (user, 2026-10-14)
+  | 'oil'
   // An empty Gear slot
   | 'fumble';
 
@@ -91,7 +92,7 @@ export const CARD_RULES = {
   bash: 9, bashDelay: 2,
   coverShield: 8,
   vengeanceTurns: 2,
-  rallyStress: 7, rallyShield: 5,
+  rallyShield: 6,
   slamMin: 6, slamDelayPer: 3,
   gateSecs: 12, gateMult: 0.5, gateDelay: 2,
   // ---- Cutthroat ----
@@ -104,16 +105,16 @@ export const CARD_RULES = {
   // ---- Lampbearer ----
   flare: 4, flareLight: 10,
   mend: 8,
-  vigil: 8,
+  vigilLight: 15,
   kindleBase: 4, kindleLight: 20, kindleMax: 14,
   sanctuaryRegen: 2, sanctuarySecs: 10,
-  dawnHeal: 15, dawnStress: 10,
+  dawnHeal: 15,
   // ---- Sorceress ----
   hex: 5, hexedTurns: 2, hexedBonus: 1,
   witherTurns: 2,
-  pact: 14, pactCost: 5, pactStress: 5,
+  pact: 14, pactCost: 5,
   familiarMax: 2,
-  bargainStress: 8,
+  bargainHp: 5,
   agesStacks: 3, agesDelayPer: 1.5,
   // ---- Undertaker ----
   spade: 9, spadePerRites: 1,
@@ -130,10 +131,10 @@ export const CARD_RULES = {
   // ---- Zealot ----
   scourge: 7,
   absolutionBase: 6, absolutionFloor: 50,
-  sins: 17, sinsSelf: 15,
-  flagellateHp: 4, flagellateStress: 12,
-  penanceStress: 8, penanceDiv: 3,
-  rapture: 15,
+  sinsLight: 25, sinsSelf: 15,
+  flagellateHp: 4, flagellateLight: 15,
+  penanceLight: 10, penanceDiv: 3,
+  rapture: 15, raptureLight: 20,
   // ---- Alchemist ----
   acid: 5, acidTurns: 2, acidBonus: 2,
   fumesPoison: 3, fumesTurns: 3,
@@ -146,7 +147,7 @@ export const CARD_RULES = {
   soothe1: 3, soothe2: 8,
   sidestep1: 0.5, sidestep2: 0.5, sidestep2Secs: 6,
   braceup1: 4, braceup2: 7,
-  shrug1: 4, shrug2: 12,
+  wick1: 8, wick2: 15,
   evillook1: 0.25, evillook2: 0.5, evillook2Dmg: 4,
   mercy: 6, mercyBelow: 0.25,
   whispercut: 2, whispercutBleed: 2, whispercutSecs: 6, whispercutCut: 1,
@@ -157,8 +158,8 @@ export const CARD_RULES = {
   fadeCut: 1,
   runeWard: 8,
   bulwark: 14, bulwarkDelay: 3,
-  lieStillHeal: 14, lieStillStress: 5,
-  feverStress: 5,
+  lieStillHeal: 14, lieStillLight: 10,
+  feverLight: 10,
   bloodRushHp: 4, bloodRushHaste: 1, bloodRushSecs: 8,
   ashesLight: 15,
   promiseBoss: 20,
@@ -184,7 +185,7 @@ export const CARDS: Record<CardId, CardDef> = {
   bash: card('bash', 'Shield Bash', 5, ['strike', 'hinder'], 'enemyFirst', `${R.bash} dmg to the nearest enemy; Delay it ${R.bashDelay}s.`),
   cover: card('cover', 'Cover', 3, ['guard'], 'ally', `An ally (or you) +${R.coverShield} Shield; you step to the front of the line.`),
   vengeance: card('vengeance', 'Vengeance', 5, ['guard'], 'none', `For your next ${R.vengeanceTurns} turns, every attack on you is dealt back to the attacker in full.`),
-  rally: card('rally', 'Rally', 4, ['guard', 'dread'], 'none', `Every ally: −${R.rallyStress} stress, +${R.rallyShield} Shield.`),
+  rally: card('rally', 'Rally', 4, ['guard'], 'none', `Every ally +${R.rallyShield} Shield.`),
   slam: card('slam', 'Shield Slam', 5, ['guard', 'hinder'], 'enemyFirst', `Damage equal to your Block + Shield (at least ${R.slamMin}) to the nearest enemy; Delay it 1s per ${R.slamDelayPer} damage dealt.`),
   gate: card('gate', 'Hold the Gate', 6, ['guard', 'hinder'], 'none', `For ${R.gateSecs}s you take half damage, Vengeance is on, and every enemy that hits you is Delayed ${R.gateDelay}s.`, true),
   // ---- Cutthroat: Ambush and quick cards ----
@@ -197,16 +198,16 @@ export const CARDS: Record<CardId, CardDef> = {
   // ---- Lampbearer: light as a resource ----
   flare: card('flare', 'Flare', 4, ['light', 'strike'], 'none', `${R.flare} dmg to every enemy; +${R.flareLight} light to everyone here.`),
   mend: card('mend', 'Mend', 4, ['mend'], 'ally', `Heal an ally (or you) ${R.mend} and cure Poison and Bleed.`),
-  vigil: card('vigil', 'Vigil', 4, ['dread'], 'ally', `An ally (or you) −${R.vigil} stress. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.`),
+  vigil: card('vigil', 'Vigil', 4, ['light'], 'ally', `An ally (or you) +${R.vigilLight} light. If you're the only hero in the fight, every enemy action until your next turn sets off a free Flare.`),
   kindle: card('kindle', 'Kindle', 5, ['light', 'strike'], 'enemy', `Spend up to ${R.kindleLight} of your light: ${R.kindleBase} dmg +1 per 2 light spent (at most ${R.kindleMax}); Blind it if you spent the full ${R.kindleLight}.`),
   sanctuary: card('sanctuary', 'Sanctuary', 5, ['mend', 'light'], 'none', `Every ally: Regen ${R.sanctuaryRegen} every ${R.pulse}s for ${R.sanctuarySecs}s.`),
-  dawn: card('dawn', 'Dawn', 6, ['light', 'mend', 'dread'], 'none', `Every ally: light to full, heal ${R.dawnHeal}, −${R.dawnStress} stress. Every enemy is Blinded.`, true),
+  dawn: card('dawn', 'Dawn', 6, ['light', 'mend'], 'none', `Every ally: light to full, heal ${R.dawnHeal}. Every enemy is Blinded.`, true),
   // ---- Sorceress: Hex, blood and familiars ----
   hex: card('hex', 'Hex', 3.5, ['hex'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack.`),
   wither: card('wither', 'Wither', 3, ['hex'], 'none', `Every enemy is Weak for ${R.witherTurns} turns (−50% damage per stack).`),
-  pact: card('pact', 'Blood Pact', 6, ['dread', 'strike'], 'none', `Every ally, you included, loses ${R.pactCost} HP (never below 1) and takes +${R.pactStress} stress. ${R.pact} dmg to every enemy.`),
+  pact: card('pact', 'Blood Pact', 6, ['hex', 'strike'], 'none', `Every ally, you included, loses ${R.pactCost} HP (never below 1). ${R.pact} dmg to every enemy.`),
   familiar: card('familiar', 'Bound Familiar', 5, ['conjure'], 'none', `Summon an Imp for this fight (its bite adds Hexed). At most ${R.familiarMax}; with more, heal your Imps instead.`),
-  bargain: card('bargain', 'Mad Bargain', 1, ['dread', 'hasten'], 'none', `+${R.bargainStress} stress; your next card takes 1s.`),
+  bargain: card('bargain', 'Mad Bargain', 1, ['hex', 'hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1); your next card takes 1s.`),
   ages: card('ages', 'Curse of Ages', 4, ['hex', 'hinder'], 'none', `Every enemy gains ${R.agesStacks} Hexed stacks, then is Delayed ${R.agesDelayPer}s per Hexed stack it carries.`, true),
   // ---- Undertaker: Corpses and executions ----
   spade: card('spade', 'Spade', 5, ['strike'], 'enemy', `${R.spade} dmg, +${R.spadePerRites} for every enemy your Last Rites has killed this run.`),
@@ -222,13 +223,13 @@ export const CARDS: Record<CardId, CardDef> = {
   ringout: card('ringout', 'Ring Out', 4, ['hinder'], 'none', `Delay every enemy ${R.ringOutDelay}s, +${R.ringOutPerClang}s per Clang stack you have.`),
   echo: card('echo', 'Echo', 3, ['hasten'], 'none', `Your last card (never a Burn) happens again at half power. With nothing to echo, ${R.echoBare} dmg to the nearest enemy.`),
   reverberate: card('reverberate', 'Reverberate', 3, ['hinder', 'hasten'], 'none', "Every enemy is Stunned; every ally's next action comes now.", true),
-  // ---- Zealot: stress as fuel ----
+  // ---- Zealot: darkness as fuel ----
   scourge: card('scourge', 'Scourge', 3.5, ['strike'], 'enemy', `${R.scourge} dmg.`),
-  absolution: card('absolution', 'Absolution', 5, ['dread', 'strike'], 'none', `${R.absolutionBase} dmg plus your stress above ${R.absolutionFloor}, split across enemies; that stress is spent.`),
-  sins: card('sins', 'Take Their Sins', 3, ['dread'], 'ally', `Move up to ${R.sins} stress from an ally onto you (on yourself: +${R.sinsSelf} stress).`),
-  flagellate: card('flagellate', 'Flagellate', 1, ['dread'], 'none', `Lose ${R.flagellateHp} HP; +${R.flagellateStress} stress.`),
-  penance: card('penance', 'Penance', 2, ['guard', 'dread'], 'none', `+${R.penanceStress} stress, then gain Shield equal to a third of your stress.`),
-  rapture: card('rapture', 'Rapture', 5, ['dread'], 'enemy', `Take every ally's stress onto you (anything past your limit is lost); deal ${R.rapture} + the amount moved to one enemy.`, true),
+  absolution: card('absolution', 'Absolution', 5, ['light', 'strike'], 'none', `${R.absolutionBase} dmg plus the light you lack below ${R.absolutionFloor}, split across enemies; you regain that much light.`),
+  sins: card('sins', 'Take Their Sins', 3, ['light'], 'ally', `Give an ally up to ${R.sinsLight} of your light (on yourself: snuff ${R.sinsSelf} of it).`),
+  flagellate: card('flagellate', 'Flagellate', 1, ['light'], 'none', `Lose ${R.flagellateHp} HP; snuff ${R.flagellateLight} of your light.`),
+  penance: card('penance', 'Penance', 2, ['guard', 'light'], 'none', `Snuff ${R.penanceLight} of your light, then gain Shield equal to a third of the light you lack.`),
+  rapture: card('rapture', 'Rapture', 5, ['light', 'strike'], 'enemy', `Every other ally gains up to ${R.raptureLight} light, taken from yours; deal ${R.rapture} + half the light you lack to one enemy.`, true),
   // ---- Alchemist: brews and poisons ----
   acid: card('acid', 'Acid Flask', 4, ['venom'], 'enemy', `${R.acid} dmg and a stack of Acid (−${R.acidBonus} Block each; one fades every ${R.acidTurns} of its turns).`),
   fumes: card('fumes', 'Fumes', 5, ['venom'], 'none', `Poison ${R.fumesPoison} for ${R.fumesTurns} turns on every enemy.`),
@@ -247,8 +248,8 @@ export const CARDS: Record<CardId, CardDef> = {
   sidestep2: card('sidestep2', 'Sidestep', 2, ['guard'], 'none', `${R.sidestep2 * 100}% Dodge for ${R.sidestep2Secs}s.`),
   braceup1: card('braceup1', 'Brace Up', 3, ['guard'], 'none', `+${R.braceup1} Shield.`),
   braceup2: card('braceup2', 'Brace Up', 3, ['guard'], 'none', `+${R.braceup2} Shield.`),
-  shrug1: card('shrug1', 'Shrug', 2, ['dread'], 'none', `−${R.shrug1} stress.`),
-  shrug2: card('shrug2', 'Shrug', 3, ['dread'], 'ally', `An ally (or you) −${R.shrug2} stress.`),
+  wick1: card('wick1', 'Trim the Wick', 2, ['light'], 'none', `+${R.wick1} light.`),
+  wick2: card('wick2', 'Trim the Wick', 3, ['light'], 'ally', `An ally (or you) +${R.wick2} light.`),
   mutter1: card('mutter1', 'Mutter', 5, ['conjure'], 'none', `Summon a Rat for this fight. At most ${R.summonMax}; with more, heal them instead.`),
   mutter2: card('mutter2', 'Mutter', 6, ['conjure'], 'none', `Summon a Shade for this fight. At most ${R.summonMax}; with more, heal them instead.`),
   evillook1: card('evillook1', 'Evil Look', 2, ['hex'], 'enemy', `Exposed: its next hit taken does +${R.evillook1 * 100}%.`),
@@ -265,23 +266,24 @@ export const CARDS: Record<CardId, CardDef> = {
   fade: card('fade', 'Fade', 1, ['guard', 'hasten'], 'none', `The next attack aimed at you misses; your next card takes ${R.fadeCut}s less.`),
   runeward: card('runeward', 'Rune Ward', 2, ['guard'], 'none', `Every ally +${R.runeWard} Shield.`),
   bulwark: card('bulwark', 'Bulwark', 4, ['guard', 'hinder'], 'none', `+${R.bulwark} Shield; step to the front of the line; Delay the nearest enemy ${R.bulwarkDelay}s.`),
-  liestill: card('liestill', 'Lie Still', 2, ['mend', 'dread'], 'none', `Heal yourself ${R.lieStillHeal}; +${R.lieStillStress} stress; step to the back of the line.`),
-  slipaway: card('slipaway', 'Slip Away', 1, ['hasten'], 'none', 'Flee for certain, without stress, down any tunnel (at the exit: escape).'),
+  liestill: card('liestill', 'Lie Still', 2, ['mend'], 'none', `Heal yourself ${R.lieStillHeal}; snuff ${R.lieStillLight} of your light; step to the back of the line.`),
+  slipaway: card('slipaway', 'Slip Away', 1, ['hasten'], 'none', 'Flee for certain, losing no light, down any tunnel (at the exit: escape).'),
   blink: card('blink', 'Blink', 1, ['hasten'], 'none', 'Step to the back of the line; the next attack aimed at you misses.'),
   veil: card('veil', 'Veil', 1, ['guard'], 'ally', "An ally's (or your) next incoming attack misses."),
   luckybreak: card('luckybreak', 'Lucky Break', 1, ['hasten'], 'none', 'Discard your hand and draw a new one.'),
-  feverdream: card('feverdream', 'Fever Dream', 1, ['dread', 'conjure'], 'none', `+${R.feverStress} stress; your Conjure cards take half their time for the rest of this fight.`),
-  bloodrush: card('bloodrush', 'Blood Rush', 1, ['dread', 'hasten'], 'none', `Lose ${R.bloodRushHp} HP; Haste: your cards take ${R.bloodRushHaste}s less for ${R.bloodRushSecs}s.`),
+  feverdream: card('feverdream', 'Fever Dream', 1, ['conjure'], 'none', `Snuff ${R.feverLight} of your light; your Conjure cards take half their time for the rest of this fight.`),
+  bloodrush: card('bloodrush', 'Blood Rush', 1, ['hasten'], 'none', `Lose ${R.bloodRushHp} HP; Haste: your cards take ${R.bloodRushHaste}s less for ${R.bloodRushSecs}s.`),
   ashes: card('ashes', 'Ashes', 2, ['hex', 'light'], 'none', `Spend up to ${R.ashesLight} light: every enemy is Weak for 1 turn (2 turns if you spent the full ${R.ashesLight}).`),
   // ---- Legendary ----
   promise: card('promise', 'Promise', 1, ['strike'], 'none', `The strongest foe here that isn't a Boss dies as faint laughter echoes. With only a Boss left, ${R.promiseBoss} dmg to it.`, true),
   quake: card('quake', 'Quake', 6, ['strike', 'hinder'], 'none', `${R.quake} dmg to every enemy; every enemy is Stunned.`),
   unmake: card('unmake', 'Unmake', 3, ['hex'], 'none', 'Every monster in this fight simply ceases to be: no loot, no Corpses.', true),
-  redeem: card('redeem', 'Redeem', 4, ['mend', 'dread'], 'ally', 'An ally (or you): full HP, 0 stress, and no light at all.', true),
+  redeem: card('redeem', 'Redeem', 4, ['mend'], 'ally', 'An ally (or you): full HP, but their light goes out.', true),
   bastion: card('bastion', 'Bastion', 4, ['guard'], 'none', `Shield equal to ${R.bastionPerBlock} × your Block.`),
   forgive: card('forgive', 'Forgive', 5, ['mend'], 'none', `A downed or dead ally here lives again at full HP. With nobody down, heal the most hurt ally ${R.forgiveHeal}.`, true),
   howl: card('howl', 'Howl', 4, ['conjure'], 'none', 'A Wolf joins you for the rest of the run (at most 4; with more, heal them instead).'),
   waystep: card('waystep', 'Waystep', 1, ['hasten'], 'room', 'Leave the fight for any room on your map.'),
+  oil: card('oil', "Elder's Oil", 1, ['light'], 'none', "Your light to full. (The Elder's blessing, for this run.)", true),
   fumble: card('fumble', 'Fumble', 3, [], 'none', 'Nothing: an empty Gear slot.'),
 };
 
@@ -362,8 +364,8 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   sidestep2: art('dodge'),
   braceup1: art('shield'),
   braceup2: art('shield'),
-  shrug1: art('swirl'),
-  shrug2: art('swirl'),
+  wick1: art('lamp'),
+  wick2: art('lamp', 'heal'),
   mutter1: art('rat'),
   mutter2: art('shade'),
   evillook1: art('target'),
@@ -395,6 +397,7 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   forgive: art('grave', 'heal'),
   howl: art('wolf'),
   waystep: art('door'),
+  oil: art('lamp', 'star'),
   fumble: art('hand'),
 };
 
@@ -426,7 +429,7 @@ export const TYPE_CARDS: Record<CardKind, [CardId, CardId]> = {
   staff: ['soothe1', 'soothe2'],
   leather: ['sidestep1', 'sidestep2'],
   mail: ['braceup1', 'braceup2'],
-  cloth: ['shrug1', 'shrug2'],
+  cloth: ['wick1', 'wick2'],
   amulet: ['mutter1', 'mutter2'],
   ring: ['evillook1', 'evillook2'],
 };

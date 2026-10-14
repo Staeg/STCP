@@ -12,6 +12,22 @@ export const LIGHT_MAX = 100;
 export const LIGHT_DRAIN = 0.2;
 /** Below this, you are Dim: neighbouring rooms are not revealed. */
 export const LIGHT_DIM = 25;
+/** Above this, you are Bright: you forget nothing (user, 2026-10-14). Below it, 1% chance per point of light lost. */
+export const LIGHT_BRIGHT = 75;
+
+/** Light stages (user, 2026-10-14): Bright above 75, Lit, Dim below 25, Dark at 0. */
+export type LightStage = 'bright' | 'lit' | 'dim' | 'dark';
+
+export function lightStage(light: number): LightStage {
+  if (light > LIGHT_BRIGHT) return 'bright';
+  if (light <= 0) return 'dark';
+  return light < LIGHT_DIM ? 'dim' : 'lit';
+}
+
+/** Forgetting (user, 2026-10-14): the chance a path that drops out of sight is forgotten, from 0 (Bright) to 0.75 (Dark). */
+export function forgetChance(light: number): number {
+  return Math.max(0, Math.min(LIGHT_BRIGHT, LIGHT_BRIGHT - light)) / 100;
+}
 
 /** Speed (seconds per turn / per tunnel) of an ordinary hero or monster. */
 export const DEFAULT_SPEED = 5;

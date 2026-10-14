@@ -23,13 +23,16 @@ export function slotCard(h: Pick<Hero, GearSlot>, slot: GearSlot): CardId {
   return item ? gearCard(item) : 'fumble';
 }
 
-/** Every card this hero's deck holds right now: class cards first, then one per Gear slot. Burned cards included. */
-export function deckList(h: Pick<Hero, 'cls' | GearSlot>): CardId[] {
-  return [...CLASS_CARDS[h.cls], ...GEAR_SLOTS.map((s) => slotCard(h, s))];
+/**
+ * Every card this hero's deck holds right now: class cards first, then one per Gear slot, then any extra for this run
+ * (the Elder's Oil). Burned cards included.
+ */
+export function deckList(h: Pick<Hero, 'cls' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
+  return [...CLASS_CARDS[h.cls], ...GEAR_SLOTS.map((s) => slotCard(h, s)), ...(h.bonusCards ?? [])];
 }
 
 /** The cards that go into a fight: the deck less one copy of each card burned this run. */
-export function liveCards(h: Pick<Hero, 'cls' | 'burned' | GearSlot>): CardId[] {
+export function liveCards(h: Pick<Hero, 'cls' | 'burned' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
   const out = deckList(h);
   for (const b of h.burned) {
     const i = out.indexOf(b);

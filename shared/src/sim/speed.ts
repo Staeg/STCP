@@ -1,4 +1,3 @@
-import { CLASS_RULES } from '../content/innates';
 import { CLASSES } from '../content/classes';
 import { MIN_SPEED } from '../content/constants';
 import { CLASS_EVENTS, ELITE_EVENTS, EVENTS, EVENT_SEEDING } from '../content/events';
@@ -44,7 +43,6 @@ export function speedParts(h: Hero, now: number): SpeedPart[] {
   }
   const led = h.leading.length;
   if (led) parts.push({ label: led > 1 ? `Escorting ${led} villagers` : 'Escorting a villager', amount: led * escortSpeed(h) });
-  if (h.cls === 'sorceress' && h.insane) parts.push({ label: 'Insane Sorceress', amount: CLASS_RULES.sorceressInsaneSpeed });
   // Elite Events.
   if (h.wanderers > 0) parts.push({ label: EVENTS.wanderers.name, amount: h.wanderers * CLASS_EVENTS.wardenEscortSpeed });
   if (h.elite.alacrity) {

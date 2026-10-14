@@ -5,16 +5,13 @@
 export const CLASS_RULES = {
   /** Lampbearer: their own light fades at this fraction of the usual rate. */
   lampLightDrain: 0.5,
-  /** Sorceress: Speed while Insane (user, 2026-10-10: rewards risky play). */
-  sorceressInsaneSpeed: -1, // -1.5 until 2026-10-11 (user)
-  /** Undertaker: stress an ally's death takes away (instead of adding STRESS.allyDeath). */
-  morticianRelief: 7, // 10
+
   /** Toll (out of combat, once a run; user, 2026-10-12, was a 4-turn cooldown): allies see you live for this long (seconds). */
   tollReveal: 10,
   /** Toll: monsters outside fights stop for this long (seconds); those fighting lose their next turn. Great Bell's until 2026-10-11. */
   tollDaze: 7,
-  /** Zealot: +1.5% damage per stress point. */
-  zealotDmgPerStress: 0.015,
+  /** Zealot's Fervour: +1% damage per point of light below full (user, 2026-10-14; was +1.5% per stress). */
+  zealotDmgPerDark: 0.01,
   /** Alchemist: a fresh consumable this often (seconds). */
   brewEvery: 45,
 };

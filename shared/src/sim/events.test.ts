@@ -1,19 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
-import { CLASS_RULES } from '../content/innates';
-import { CLASS_EVENTS, EVENT_SEEDING, STRESS } from '../content/events';
+import { LIGHT_DRAIN } from '../content/constants';
+import { CLASS_EVENTS, EVENT_SEEDING, LIGHT_LOSS } from '../content/events';
 import { CORRIDOR_TIME, hopDistances, neighbours } from '../dungeon/gen';
-import { monstersIn, spawnGroup } from './combat';
+import { downHero, loseLight, monstersIn, spawnGroup } from './combat';
 import { buildView } from './views';
 import { addHero, applyIntent, createWorld, extractHero, step, type World } from './world';
 import { dropItem } from './loot';
 import type { RoomEvent } from './events';
 import { speedOf } from './speed';
-
-// These tests check exact stress amounts; the dungeon's steady background stress would blur them.
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -51,13 +46,14 @@ describe('room events', () => {
     expect(buildView(world, 'h').event?.blocked).toBe(true);
   });
 
-  it('cursed chest: loot, plus stress for whoever opened it', () => {
+  it('cursed chest: loot, and light lost for whoever opened it', () => {
     const { world, h, room } = withEvent('chest');
     choose(world, 'h', 'open');
     run(world, 5.5);
-    expect(h.stress).toBe(0); // it takes a beat
+    const before = h.light;
+    expect(before).toBeCloseTo(100 - world.time * LIGHT_DRAIN, 0); // it takes a beat
     run(world, 0.6);
-    expect(h.stress).toBe(STRESS.chest);
+    expect(before - h.light).toBeCloseTo(LIGHT_LOSS.chest + 0.6 * LIGHT_DRAIN, 0);
     expect(world.events[room].done).toBe(true);
     step(world, 0.1);
     expect(h.gold).toBe(20);
@@ -188,9 +184,9 @@ describe('room events', () => {
     expect(h.gold).toBeGreaterThanOrEqual(30);
   });
 
-  it('altar: guardians at 50%, then cleansing relieves everyone and pays out at the end', () => {
+  it('altar: guardians at 50%, then cleansing lights everyone up and pays out at the end', () => {
     const { world, h, room } = withEvent('altar', 'warden');
-    h.stress = 50;
+    h.light = 50;
     choose(world, 'h', 'channel');
     run(world, 9.2);
     expect(h.encounter).toBe(room); // the guardians came at the halfway mark
@@ -204,7 +200,7 @@ describe('room events', () => {
     run(world, 9.2);
     expect(world.events[room].done).toBe(true);
     expect(world.objectives.altars).toBe(1);
-    expect(h.stress).toBeLessThanOrEqual(50 - STRESS.altarRelief);
+    expect(h.messages.some((m) => m.text.includes(`+${LIGHT_LOSS.altarLight} light`))).toBe(true);
   });
 });
 
@@ -227,11 +223,6 @@ describe('class twists', () => {
     expect(world.events[room].done).toBe(true);
   });
 
-  it('Sorceress: faster while Insane', () => {
-    const { world, h } = withEvent('chest', 'sorceress');
-    h.insane = true;
-    expect(speedOf(h, world.time)).toBe(4 + CLASS_RULES.sorceressInsaneSpeed);
-  });
 
   it('Cutthroat: takes the idol without a cave-in', () => {
     const { world, h, d } = withEvent('idol', 'cutthroat');
@@ -285,15 +276,15 @@ describe('class twists', () => {
     expect(speedOf(h, world.time)).toBe(4);
   });
 
-  it('Undertaker: no stress from the cursed chest', () => {
+  it('Undertaker: no light lost to the cursed chest', () => {
     const { world, h } = withEvent('chest', 'undertaker');
     choose(world, 'h', 'open');
     run(world, 6.2);
     expect(world.events[h.pos.kind === 'room' ? h.pos.room : -1].done).toBe(true);
-    expect(h.stress).toBe(0);
+    expect(h.light).toBeCloseTo(100 - world.time * LIGHT_DRAIN, 0);
   });
 
-  it('Zealot: the well always gives stress and HP, never Insanity', () => {
+  it('Zealot: the well always heals and puts their light out', () => {
     for (let i = 0; i < 6; i++) {
       const { world, h, room } = withEvent('well', 'zealot');
       for (let j = 0; j < i; j++) world.rng.float(0, 1); // a different roll each time
@@ -301,9 +292,8 @@ describe('class twists', () => {
       choose(world, 'h', 'drink');
       run(world, 6.2);
       expect(world.events[room].done).toBe(true);
-      expect(h.stress).toBe(CLASS_EVENTS.zealotWellStress);
+      expect(h.light).toBe(0);
       expect(h.hp).toBe(10 + CLASS_EVENTS.zealotWellHp);
-      expect(h.insane).toBe(false);
     }
   });
 });
@@ -446,30 +436,25 @@ describe('villagers', () => {
   });
 });
 
-describe('stress and Insanity', () => {
-  it('darkness raises stress; 50 means Insanity, 100 a heart attack', () => {
+describe('light lost to the dungeon', () => {
+  it('seeing an ally go down costs light; the Undertaker keeps his', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
-    const h = addHero(world, { id: 'h', name: 'H', cls: 'warden' });
-    h.light = 0;
-    h.stress = 45;
-    run(world, 2);
-    expect(h.insane).toBe(false);
-    run(world, 14);
-    expect(h.insane).toBe(true);
-    expect(h.downedAt).toBeNull();
-    h.stress = 99.9;
-    run(world, 0.5);
-    expect(h.downedAt).not.toBeNull();
-    expect(h.stress).toBeCloseTo(STRESS.afterHeartAttack, 0);
-    expect(world.chronicle.some((c) => c.text.includes('heart gave out'))).toBe(true);
+    const a = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    const b = addHero(world, { id: 'b', name: 'B', cls: 'warden' });
+    const u = addHero(world, { id: 'u', name: 'U', cls: 'undertaker' });
+    downHero(world, a, null);
+    expect(b.light).toBe(100 - LIGHT_LOSS.allyDown);
+    expect(u.light).toBe(100);
   });
 
-  it('the Zealot never goes Insane', () => {
+  it('a Ward Charm softens what the dungeon takes; a Fever Charm worsens it', () => {
     const world = createWorld(31, { monsters: false, loot: false, escalates: false });
-    const z = addHero(world, { id: 'z', name: 'Z', cls: 'zealot' });
-    z.stress = 90;
-    run(world, 1);
-    expect(z.insane).toBe(false);
+    const a = addHero(world, { id: 'a', name: 'A', cls: 'warden' });
+    const b = addHero(world, { id: 'b', name: 'B', cls: 'warden' });
+    a.amulet = 'ward';
+    b.amulet = 'fever';
+    expect(loseLight(a, 30)).toBeCloseTo(9.9);
+    expect(loseLight(b, 30)).toBeCloseTo(50.1);
   });
 });
 

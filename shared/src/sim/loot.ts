@@ -4,11 +4,11 @@ import {
 } from '../content/items';
 import { LIGHT_MAX } from '../content/constants';
 import { neighbours, theRoom } from '../dungeon/gen';
-import { addStress, carryItem, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
+import { carryItem, inDungeon, isConscious, monstersIn, reviveHero, type Monster } from './combat';
 import { ENEMIES, ESCALATION } from '../content/enemies';
 import { notify } from './notify';
-import { chargeable, healBy, moveCharges, pullPackCharge, reliefBy, ward, type ItemCharge } from './gear';
-import { CROWNED, STRESS } from '../content/events';
+import { chargeable, healBy, moveCharges, pullPackCharge, ward, type ItemCharge } from './gear';
+import { CROWNED } from '../content/events';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
 import { REGALIA_RULES, SHARDS, type ShardId } from '../content/regalia';
 
@@ -275,14 +275,14 @@ export function wornDefs(h: Hero): ItemDef[] {
   return GEAR_SLOTS.map((s) => h[s]).filter((x): x is ItemId => !!x).map((x) => ITEMS[x]);
 }
 
-type WornNumber = 'maxHp' | 'block' | 'thorns' | 'regen' | 'stressMult' | 'lightDrainMult' | 'tempo' | 'delayBonus' | 'poisonTurns' | 'poisonedBonus' | 'lowCrit' | 'venomCut' | 'hinderDmg' | 'stunnedMult' | 'firstCardCut' | 'dotMult' | 'dodge' | 'guardShield' | 'startShield' | 'debuffResist' | 'frontBlock';
+type WornNumber = 'maxHp' | 'block' | 'thorns' | 'regen' | 'lightLossMult' | 'lightDrainMult' | 'tempo' | 'delayBonus' | 'poisonTurns' | 'poisonedBonus' | 'lowCrit' | 'venomCut' | 'hinderDmg' | 'stunnedMult' | 'firstCardCut' | 'dotMult' | 'dodge' | 'guardShield' | 'startShield' | 'debuffResist' | 'frontBlock';
 
 /** A worn bonus that adds up (Thorn Ring's damage back, Bloodstone's regen…). */
 export function wornStat(h: Hero, key: WornNumber): number {
   return wornDefs(h).reduce((s, d) => s + (d[key] ?? 0), 0);
 }
 
-/** A worn multiplier (Ward Charm's stress, Ember Pendant's torch…): 1 if nothing worn touches it. */
+/** A worn multiplier (Ward Charm's light lost, Ember Pendant's torch…): 1 if nothing worn touches it. */
 export function wornMult(h: Hero, key: WornNumber): number {
   return wornDefs(h).reduce((m, d) => m * (d[key] ?? 1), 1);
 }
@@ -706,7 +706,6 @@ function itemTargetError(world: World, h: Hero, index: number, targetId?: string
   if (!tid || !itemTargets(world, h, index).includes(tid)) return 'No valid target.';
   const t = world.heroes[tid];
   if (item === 'bandage' && t.hp >= t.maxHp && !t.st.poison) return `${t === h ? "You're" : `${t.name} is`} not hurt.`;
-  if (item === 'tonic' && t.stress <= 0) return 'You feel steady already.';
   return null;
 }
 
@@ -760,11 +759,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
     case 'torch':
       t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
       return `${h.name} lights a fresh torch.${boost}`;
-    case 'tonic': {
-      const eased = reliefBy(h, STRESS.tonic * x);
-      addStress(t, -eased);
-      return `${h.name} drinks a tonic. (−${eased} stress)${boost}${warded()}`;
-    }
+
     case 'salts':
       reviveHero(t, Math.min(1, healBy(h, 50 * x) / 100), world, h);
       return `${h.name} revives ${t.name} with smelling salts!${boost}${warded()}`;

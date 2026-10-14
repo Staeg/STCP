@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ClassId } from '../content/classes';
-import { CROWNED, MORE_EVENTS, STRESS } from '../content/events';
+import { CROWNED, MORE_EVENTS } from '../content/events';
 import { ENEMIES, KING_RULES, type EnemyId } from '../content/enemies';
 import { ITEMS, itemTier, LOOT } from '../content/items';
 import { hopDistances, neighbours } from '../dungeon/gen';
@@ -11,10 +11,7 @@ import { buildView } from './views';
 import { addHero, applyIntent, createWorld, step, type World } from './world';
 import type { RoomEvent } from './events';
 
-// Exact stress amounts below; the dungeon's steady background stress would blur them.
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
+
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -94,16 +91,16 @@ describe('Twin Locks', () => {
 });
 
 describe('Open Coffin', () => {
-  it('stress to 0, but down until someone revives you: no injury, no one shaken, no HP lost', () => {
+  it('light rekindled to full, but down until someone revives you: no injury, no one shaken, no HP lost', () => {
     const { world, h } = withEvent('coffin');
     const o = addHero(world, { id: 'o', name: 'O', cls: 'lampbearer' });
-    h.stress = 40;
+    h.light = 40;
     h.hp = h.maxHp - 5;
     choose(world, 'h', 'lie');
     run(world, MORE_EVENTS.coffinTime + 0.2);
-    expect(h.stress).toBe(0);
+    expect(h.light).toBeGreaterThan(99);
     expect(h.downedAt).not.toBeNull();
-    expect(o.stress).toBe(0);
+    expect(o.light).toBeGreaterThan(99); // nobody's lamp gutters for it
     run(world, 2);
     expect(h.runInjuries).toEqual([]);
     expect(h.downedMajor).toBe(false);
@@ -116,15 +113,15 @@ describe('Open Coffin', () => {
 
   it('alone, nobody comes: you die', () => {
     const { world, h } = withEvent('coffin');
-    h.stress = 30;
+    h.light = 30;
     choose(world, 'h', 'lie');
     run(world, 45);
     expect(h.dead).toBe(true);
   });
 
-  it('is refused with nothing weighing on you', () => {
+  it('is refused while your lamp burns bright', () => {
     const { world } = withEvent('coffin');
-    expect(buildView(world, 'h').event!.choices[0].disabled).toMatch(/Nothing weighs/);
+    expect(buildView(world, 'h').event!.choices[0].disabled).toMatch(/burns bright/);
   });
 });
 

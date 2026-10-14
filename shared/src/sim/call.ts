@@ -75,7 +75,7 @@ export function callForHelp(world: World, h: Hero): string | null {
     call.heard.push(o.id);
     if (!o.seen.includes(room)) o.seen.push(room);
     o.lastKnown[h.id] = {
-      pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: h.downedAt !== null, dead: false, insane: h.insane,
+      pos: { ...h.pos }, heading: null, time: world.time, hp: h.hp, maxHp: h.maxHp, downed: h.downedAt !== null, dead: false,
     };
     notify(world, o, `${h.name} calls for help from ${where}!`, 'call');
   }

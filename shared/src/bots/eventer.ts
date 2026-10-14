@@ -1,4 +1,5 @@
 import type { BotMemory } from './explorer';
+import { LIGHT_MAX } from '../content/constants';
 import { BOTS } from './tuning';
 import type { PlayerView } from '../sim/views';
 import type { Intent } from '../sim/world';
@@ -60,9 +61,9 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       return you.cls === 'lampbearer' || (healthy && rng.chance(0.35)) ? pick('help') : undefined;
     case 'well':
       if (you.cls === 'zealot') return you.hp < you.maxHp ? pick('drink') : undefined;
-      return you.stress > 40 || rng.chance(0.3) ? pick('drink') : undefined;
+      return you.light < 50 || rng.chance(0.3) ? pick('drink') : undefined;
     case 'chest':
-      return you.cls === 'undertaker' || (healthy && you.stress < 40 && rng.chance(0.6)) ? pick('open') : undefined;
+      return you.cls === 'undertaker' || (healthy && you.light > 40 && rng.chance(0.6)) ? pick('open') : undefined;
     case 'crawlspace':
       return view.time >= mem.returnAt && you.hp > 20 && you.items.includes('torch') ? pick('crawl') : undefined;
     case 'quicksilver':
@@ -78,7 +79,7 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
     case 'coffin': {
       // Only with someone standing by to get them up again.
       const company = view.allies.some((a) => a.live && !a.downed && a.pos.kind === 'room' && a.pos.room === room);
-      return company && you.stress >= 35 && rng.chance(0.6) ? pick('lie') : undefined;
+      return company && you.light <= 40 && rng.chance(0.6) ? pick('lie') : undefined;
     }
     case 'anvil': {
       const forge = ev.choices.find((c) => c.id.startsWith('forge-') && !c.disabled);
@@ -109,7 +110,7 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
     case 'liturgy': {
       // Pray for a while, as long as somebody (you included) still needs it.
       mem.prayUntil ??= view.time + BOTS.liturgyPray;
-      const needed = you.stress > 15 || you.hp < you.maxHp || view.allies.some((a) => !a.dead && !a.extracted && a.hp < a.maxHp);
+      const needed = you.light < LIGHT_MAX - 15 || you.hp < you.maxHp || view.allies.some((a) => !a.dead && !a.extracted && a.hp < a.maxHp);
       return view.time < mem.prayUntil && timeLeft > 20 && needed ? work('pray') : undefined;
     }
   }

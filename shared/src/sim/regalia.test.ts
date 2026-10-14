@@ -152,8 +152,8 @@ describe('Specializations', () => {
     stash.recordRun('Ann', true, 300);
     expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toMatch(/Talent first/);
     // Fast-track a Talent.
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
     expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
     expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toBeNull();
     expect(stash.purse('Ann')).toBe(50);

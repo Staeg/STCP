@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { COLLAPSE_AT } from '../content/constants';
-import { STRESS } from '../content/events';
 import { INVENTORY_SLOTS, packSlotsUsed } from '../content/items';
 import { neighbours } from '../dungeon/gen';
 import { afterBlock, DEATH_TIMER, spawnGroup, thornsOf } from './combat';
@@ -104,15 +103,15 @@ describe('item votes', () => {
 
   it('every item is up at once, each settled on its own', () => {
     const { world, d } = party(2);
-    addToPile(world, d.entrance, 0, ['bandage', 'torch', 'tonic']);
+    addToPile(world, d.entrance, 0, ['bandage', 'torch', 'salts']);
     step(world, 0.1);
-    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['bandage', 'torch', 'tonic']);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['bandage', 'torch', 'salts']);
     const torch = fid(world, d.entrance, 'torch');
     applyIntent(world, 'h0', { type: 'vote', item: torch, choice: 'h1' });
     applyIntent(world, 'h1', { type: 'vote', item: torch, choice: 'h1' });
     step(world, 0.1);
     expect(world.heroes.h1.items).toEqual(['torch']);
-    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['bandage', 'tonic']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['bandage', 'salts']);
   });
 
   it("doesn't stop you leaving; whoever stays decides", () => {
@@ -173,9 +172,9 @@ describe('item votes', () => {
   it('a full pack is not a valid recipient', () => {
     const { world, d } = party(2);
     world.heroes.h0.items = Array(INVENTORY_SLOTS).fill('torch');
-    addToPile(world, d.entrance, 0, ['tonic']);
+    addToPile(world, d.entrance, 0, ['salts']);
     step(world, 0.1);
-    const id = fid(world, d.entrance, 'tonic');
+    const id = fid(world, d.entrance, 'salts');
     applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
     expect(world.piles[d.entrance].items[0].votes.h0).toBeUndefined();
     const view = buildView(world, 'h1');
@@ -186,20 +185,20 @@ describe('item votes', () => {
     const { world, d, room } = party(2);
     applyIntent(world, 'h1', { type: 'goto', room });
     run(world, 9);
-    addToPile(world, d.entrance, 0, ['tonic']);
+    addToPile(world, d.entrance, 0, ['salts']);
     const beyond = neighbours(d, d.entrance).find((n) => n !== room);
     applyIntent(world, 'h1', { type: 'goto', room: beyond ?? d.entrance });
     run(world, 9);
     if (beyond !== undefined) expect(world.heroes.h1.pos).toEqual({ kind: 'room', room: d.entrance }); // stopped for loot
     expect(buildView(world, 'h1').loot?.voters.sort()).toEqual(['h0', 'h1']);
-    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['tonic']);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['salts']);
   });
 
   it('a fight in the room pauses the vote', () => {
     const { world, d } = party(2);
-    addToPile(world, d.entrance, 0, ['tonic']);
+    addToPile(world, d.entrance, 0, ['salts']);
     step(world, 0.1);
-    const id = fid(world, d.entrance, 'tonic');
+    const id = fid(world, d.entrance, 'salts');
     spawnGroup(world, d.entrance, ['ghoul'], 0);
     applyIntent(world, 'h0', { type: 'vote', item: id, choice: 'h0' });
     applyIntent(world, 'h1', { type: 'vote', item: id, choice: 'h0' });
@@ -212,7 +211,7 @@ describe('picking up alone', () => {
   it('nothing is taken until you click it; walking away leaves it', () => {
     const { world, d, room } = party(1);
     const h = world.heroes.h0;
-    addToPile(world, d.entrance, 0, ['tonic', 'bandage']);
+    addToPile(world, d.entrance, 0, ['salts', 'bandage']);
     run(world, 1);
     expect(h.items).toEqual([]);
     applyIntent(world, 'h0', { type: 'vote', item: fid(world, d.entrance, 'bandage'), choice: 'h0' });
@@ -221,7 +220,7 @@ describe('picking up alone', () => {
     applyIntent(world, 'h0', { type: 'goto', room });
     run(world, 9);
     expect(h.items).toEqual(['bandage']);
-    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['tonic']);
+    expect(world.piles[d.entrance].items.map((f) => f.item)).toEqual(['salts']);
   });
 
   it('ignores what you walked past once, and what you dropped (claim brings it back)', () => {
@@ -231,9 +230,9 @@ describe('picking up alone', () => {
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
     step(world, 0.1);
     expect(buildView(world, 'h0').loot?.items).toEqual([]);
-    addToPile(world, d.entrance, 0, ['tonic']);
+    addToPile(world, d.entrance, 0, ['salts']);
     step(world, 0.1);
-    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['tonic']);
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['salts']);
     applyIntent(world, 'h0', { type: 'goto', room });
     run(world, 9);
     applyIntent(world, 'h0', { type: 'goto', room: d.entrance });
@@ -241,15 +240,15 @@ describe('picking up alone', () => {
     expect(h.pos).toEqual({ kind: 'room', room: d.entrance });
     const loot = buildView(world, 'h0').loot!;
     expect(loot.items).toEqual([]);
-    expect(loot.ignored.map((f) => f.item)).toEqual(['torch', 'tonic']);
-    applyIntent(world, 'h0', { type: 'claim', item: fid(world, d.entrance, 'tonic') });
-    expect(h.items).toEqual(['tonic']); // alone, claiming just takes it
+    expect(loot.ignored.map((f) => f.item)).toEqual(['torch', 'salts']);
+    applyIntent(world, 'h0', { type: 'claim', item: fid(world, d.entrance, 'salts') });
+    expect(h.items).toEqual(['salts']); // alone, claiming just takes it
   });
 
   it("someone else's drop is fair game", () => {
     const { world, d, room } = party(2);
     const h1 = world.heroes.h1;
-    world.heroes.h0.items = ['tonic'];
+    world.heroes.h0.items = ['salts'];
     applyIntent(world, 'h1', { type: 'goto', room });
     run(world, 9);
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
@@ -257,7 +256,7 @@ describe('picking up alone', () => {
     applyIntent(world, 'h1', { type: 'goto', room: d.entrance });
     run(world, 9);
     expect(h1.pos).toEqual({ kind: 'room', room: d.entrance });
-    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['tonic']);
+    expect(buildView(world, 'h1').loot?.items.map((f) => f.item)).toEqual(['salts']);
   });
 
   it('gear no rarer than yours goes in the pack', () => {
@@ -278,9 +277,9 @@ describe('floor space', () => {
     const { world, d } = party(1);
     addToPile(world, d.entrance, 0, ['torch', 'torch', 'torch', 'torch', 'torch', 'torch', 'torch', 'torch']);
     expect(world.piles[d.entrance].items).toHaveLength(6);
-    world.heroes.h0.items = ['tonic'];
+    world.heroes.h0.items = ['salts'];
     applyIntent(world, 'h0', { type: 'drop', index: 0 });
-    expect(world.heroes.h0.items).toEqual(['tonic']);
+    expect(world.heroes.h0.items).toEqual(['salts']);
   });
 });
 
@@ -332,23 +331,19 @@ describe('items', () => {
     }
   });
 
-  it('bandage heals and cures poison; torch restores light; tonic lowers stress', () => {
+  it('bandage heals and cures poison; torch restores light', () => {
     const { world } = party(1);
     const h = world.heroes.h0;
-    h.items = ['bandage', 'torch', 'tonic'];
+    h.items = ['bandage', 'torch'];
     h.hp = 10;
     h.st.poison = [{ dmg: 2, rounds: 3 }];
     h.light = 20;
-    h.stress = 40;
     use(world, 'h0', 0);
     expect(h.hp).toBe(22); // the bandage cures before the turn's poison tick
     expect(h.st.poison).toBeUndefined();
     const light = h.light;
     use(world, 'h0', 0);
     expect(h.light).toBeGreaterThan(light + 47);
-    const stress = h.stress;
-    use(world, 'h0', 0);
-    expect(h.stress).toBeLessThan(stress - (STRESS.tonic - 2));
     expect(h.items).toEqual([]);
   });
 
@@ -449,7 +444,7 @@ describe('items', () => {
   it('the dead drop everything where they fall', () => {
     const { world } = party(2);
     const h1 = world.heroes.h1;
-    h1.items = ['torch', 'tonic'];
+    h1.items = ['torch', 'salts'];
     h1.gold = 17;
     h1.hp = 0;
     h1.downedAt = world.time;
@@ -457,7 +452,7 @@ describe('items', () => {
     expect(h1.dead).toBe(true);
     // h0 is in the same room, now alone: gets the gold, and the items are there to pick up.
     expect(world.heroes.h0.gold).toBe(17);
-    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['torch', 'tonic']);
+    expect(buildView(world, 'h0').loot?.items.map((f) => f.item)).toEqual(['torch', 'salts']);
   });
 });
 

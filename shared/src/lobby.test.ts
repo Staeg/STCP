@@ -178,7 +178,7 @@ describe('LobbyManager', () => {
 
     // Ann's Warden is hurt: a bot whose class she takes makes way for a fresh healthy pick instead.
     const w = stash.characterFor('Ann', 'warden');
-    stash.recordCharacter('Ann', w.id, { escaped: true, lowestHp: 0.4, downedMajor: false, insane: false });
+    stash.recordCharacter('Ann', w.id, { escaped: true, lowestHp: 0.4, downedMajor: false });
     a.say({ t: 'pickClass', cls: after[1].cls });
     const last = a.ws.lastLobby()!.bots;
     expect(last).toHaveLength(2);
@@ -204,11 +204,11 @@ describe('LobbyManager', () => {
     // Ann's Village: everything but the Sorceress and the Zealot is hurt; her Warden has a Talent.
     for (const c of stash.characters('Ann')) {
       if (c.cls === 'sorceress' || c.cls === 'zealot' || c.cls === 'warden') continue;
-      stash.recordCharacter('Ann', c.id, { escaped: true, lowestHp: 0.4, downedMajor: false, insane: false });
+      stash.recordCharacter('Ann', c.id, { escaped: true, lowestHp: 0.4, downedMajor: false });
     }
     const warden = stash.characterFor('Ann', 'warden');
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false, insane: false });
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
+    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
     expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
 
     const mgr = new LobbyManager(stash);

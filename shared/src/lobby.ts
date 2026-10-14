@@ -90,14 +90,14 @@ export class Lobby {
         const c = m.cls ? this.stash.characterFor(m.name, m.cls) : null;
         return {
           id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
-          character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, insane: c.insane },
+          character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, blessed: c.blessed },
           kit: this.stash.kitOf(m.name),
           emergency: this.stash.emergencyOf(m.name),
         };
       }),
       bots: this.bots.map((b) => {
         const c = this.botCharacter(b);
-        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, insane: c.insane } };
+        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, blessed: c.blessed } };
       }),
       cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? talentsOf(this.stash.characterFor(m.name, m.cls)) : [], this.stash.kitOf(m.name)), 0)
         + this.bots.reduce((s, b) => s + heroCr(talentsOf(this.botCharacter(b) ?? { cls: b.cls, talent: null }), undefined), 0)) * 100) / 100,
@@ -222,7 +222,7 @@ export class Lobby {
         for (const r of this.roster) {
           const h = this.game.world.heroes[r.heroId];
           if (!h) continue;
-          this.stash.recordCharacter(r.owner, r.charId, { escaped: h.extracted, lowestHp: h.lowestHp, downedMajor: h.downedMajor, insane: h.insane });
+          this.stash.recordCharacter(r.owner, r.charId, { escaped: h.extracted, lowestHp: h.lowestHp, downedMajor: h.downedMajor });
           // Everything carried out (pack and Gear) goes into the player's Village Stash, with whatever an Undertaker
           // or the Tome Rite brought home for a hero who fell.
           const line = this.stash.storeLoot(r.owner, carriedHome(h));

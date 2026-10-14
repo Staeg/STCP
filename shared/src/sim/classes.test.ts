@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CLASS_RULES } from '../content/innates';
 import { CARD_RULES } from '../content/cards';
 import { setHand } from './testkit';
@@ -6,7 +6,6 @@ import { CLASSES } from '../content/classes';
 import { hopDistances, neighbours } from '../dungeon/gen';
 import { dieOut, combatOrder, damageMult, fieldTurn, spawnGroup } from './combat';
 import { carriedHome } from './emergency';
-import { ELITE_EVENTS, STRESS } from '../content/events';
 import { speedOf } from './speed';
 import { dropEverything } from './loot';
 import { buildView } from './views';
@@ -16,10 +15,7 @@ import { addHero, applyIntent, createWorld, digTime, extractHero, step, type Wor
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId } from '../content/enemies';
 
-// These tests check exact stress amounts; the dungeon's steady background stress would blur them.
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
+
 
 function run(world: World, seconds: number) {
   for (let i = 0; i < Math.round(seconds * 10); i++) step(world, 0.1);
@@ -183,11 +179,9 @@ describe('Undertaker', () => {
     untilTurn(world, room, monsters[0].id);
     expect(r.hp).toBe(0);
     expect(world.piles[room]?.items.map((f) => f.item)).toContain('bandage');
-    const stress = w.stress;
     delete world.monsters[monsters[0].id];
     run(world, 0.5);
     expect(world.encounters[room]).toBeUndefined();
-    expect(w.stress).toBeGreaterThanOrEqual(stress + ELITE_EVENTS.uprisingStress);
     expect(u.legion).toHaveLength(0);
     // Only once: the Undertaker standing over them now just divvies up the loot like anyone.
     expect(world.piles[room]?.items.map((f) => f.item)).toContain('bandage');
@@ -268,16 +262,14 @@ describe('Bellwright', () => {
 });
 
 describe('Zealot', () => {
-  it('hits harder with stress (times the weapon bonus) and never breaks', () => {
-    const { world, heroes } = quiet(['zealot']);
+  it('Fervour: hits harder the less light they have (times the weapon bonus)', () => {
+    const { heroes } = quiet(['zealot']);
     const z = heroes[0];
-    z.stress = 50;
+    z.light = 50;
     z.weapon = 'dirk';
-    expect(damageMult(z)).toBeCloseTo(1.1 * (1 + 50 * CLASS_RULES.zealotDmgPerStress));
-    z.stress = 100;
-    run(world, 1);
-    expect(z.insane).toBe(false);
-    expect(z.downedAt).toBeNull();
+    expect(damageMult(z)).toBeCloseTo(1.1 * (1 + 50 * CLASS_RULES.zealotDmgPerDark));
+    z.light = 100;
+    expect(damageMult(z)).toBeCloseTo(1.1);
   });
 
 });

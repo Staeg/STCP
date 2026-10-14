@@ -1,5 +1,4 @@
 import { LIGHT_MAX } from '../content/constants';
-import { STRESS_MAX } from '../sim/combat';
 import { BOTS } from './tuning';
 import { gearGain, isCursed, isArms, isGear, slotOf, type ItemId } from '../content/items';
 import { CLASSES, type ClassId } from '../content/classes';
@@ -95,14 +94,12 @@ export function botUseItem(view: PlayerView): Intent | null {
   // Put on anything in the pack that beats what's worn (pickups only go on into an empty slot).
   const better = me.items.findIndex((x) => isGear(x) && wornGain(x, me[slotOf(x)!], me.cls) > 0);
   if (better >= 0) return { type: 'useItem', index: better };
-  // Patch up once HP, sanity or light is a third gone (BOTS.consumeAt).
+  // Patch up once HP or light is a third gone (BOTS.consumeAt).
   const low = (frac: number) => frac <= 1 - BOTS.consumeAt;
   let i = idx((x) => x === 'bandage');
   if (i >= 0 && (low(me.hp / me.maxHp) || me.st.poison)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'torch');
   if (i >= 0 && low(me.light / LIGHT_MAX)) return { type: 'useItem', index: i };
-  i = idx((x) => x === 'tonic');
-  if (i >= 0 && low(1 - me.stress / STRESS_MAX)) return { type: 'useItem', index: i };
   i = idx((x) => x === 'salts');
   const downed = view.allies.find((a) => a.live && a.downed && !a.dead);
   if (i >= 0 && downed) return { type: 'useItem', index: i, target: downed.id };

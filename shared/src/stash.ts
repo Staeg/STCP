@@ -127,13 +127,12 @@ export class Stash {
         const r = this.data[key];
         if (r.items) r.items = r.items.map(migrateItemId);
         if (r.kit) for (const s of Object.keys(r.kit.gear) as (keyof Kit['gear'])[]) r.kit.gear[s] = migrateItemId(r.kit.gear[s]!);
-        // Insanity replaced the four afflictions (2026-10-11): any affliction a Character carried home is now Insanity.
-        for (const c of (r.village ?? []) as (Character & { affliction?: string | null })[]) {
-          if ('affliction' in c) {
-            c.insane = !!c.affliction;
-            delete c.affliction;
-          }
-          c.insane ??= false;
+        // The Tonic went with Stress (2026-10-14): a kit's Tonics load as Torches.
+        if (r.kit?.consumables) r.kit.consumables = r.kit.consumables.map(migrateItemId);
+        // Afflictions (to 2026-10-11) and Insanity (to 2026-10-14) are gone: those Characters are simply well.
+        for (const c of (r.village ?? []) as (Character & { affliction?: string | null; insane?: boolean })[]) {
+          delete c.affliction;
+          delete c.insane;
           // Talents were rewritten around cards (M15): an old one loads as its class's new one.
           if (c.talent) c.talent = migrateTalentId(c.talent);
         }
@@ -533,12 +532,12 @@ export class Stash {
         notice = `The Elder healed ${c.name}'s ${INJURY_NAMES[healed]}.`;
         break;
       }
-      case 'cure': {
+      case 'bless': {
         const c = char();
         if (!c) return 'Pick a Character.';
-        if (!c.insane) return `${c.name} is not Insane.`;
-        c.insane = false;
-        notice = `The Elder brought ${c.name} back to their senses.`;
+        if (c.blessed) return `${c.name} is blessed already.`;
+        c.blessed = true;
+        notice = `The Elder blessed ${c.name}: Elder's Oil will be in their deck next run.`;
         break;
       }
       case 'train': {

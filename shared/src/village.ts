@@ -9,7 +9,7 @@ import { REGALIA_RULES, SPECS, specFits, specsUnlocked, talentsOf, type ShardId,
 /**
  * The Village (M12): every player keeps a roster of Characters, one per class for now (stored as a list so
  * there can be more later). Characters gain XP by surviving runs, pick a Talent, and carry lasting injuries
- * and Insanity home, which only the Village Elder can heal. Bots borrow Characters but leave no mark on them.
+ * home, which only the Village Elder can heal. Bots borrow Characters but leave no mark on them.
  */
 export type Injury = 'minor' | 'major';
 
@@ -25,8 +25,8 @@ export interface Character {
   /** Their Specialization (bought in the Village once Shards unlock it; needs a Talent; for good). */
   spec?: SpecId | null;
   injuries: Injury[];
-  /** Went Insane in an earlier run, and not yet cured. */
-  insane: boolean;
+  /** The Elder blessed them (Journeyman Elder's Bless; user, 2026-10-14): Elder's Oil in their deck next run. */
+  blessed?: boolean;
 }
 
 export const VILLAGE_RULES = {
@@ -58,8 +58,8 @@ export type BuildingId = 'blacksmith' | 'seer' | 'elder';
 export const BUILDING_IDS: readonly BuildingId[] = ['blacksmith', 'seer', 'elder'];
 export const LEVEL_NAMES = ['None', 'Apprentice', 'Journeyman', 'Master'] as const;
 
-/** One service per level: Blacksmith forge/reroll/upgrade, Seer sightings, Elder heal/cure/train. */
-export type ServiceId = 'forge' | 'reroll' | 'upgrade' | 'seeConsumable' | 'seeResource' | 'seeGear' | 'heal' | 'cure' | 'train';
+/** One service per level: Blacksmith forge/reroll/upgrade, Seer sightings, Elder heal/bless/train. */
+export type ServiceId = 'forge' | 'reroll' | 'upgrade' | 'seeConsumable' | 'seeResource' | 'seeGear' | 'heal' | 'bless' | 'train';
 
 export interface BuildingLevel {
   /** Resources to build this level. */
@@ -85,7 +85,7 @@ export const SERVICES: Record<ServiceId, { name: string; desc: string; relic?: t
   seeResource: { name: 'Read the Bones', desc: 'Pick a Resource: next run, every room where one lies at the start shows on your map.' },
   seeGear: { name: 'Read the Stars', desc: 'Pick a type of Gear: next run, every room where a piece lies at the start shows on your map.', relic: true },
   heal: { name: 'Mend', desc: 'Heal one Injury of a Character.' },
-  cure: { name: 'Soothe', desc: 'Cure a Character’s Insanity.' },
+  bless: { name: 'Bless', desc: 'Bless a Character: next run, Elder’s Oil is in their deck (Burn, 1s: your light to full).' },
   train: { name: 'Teach', desc: '+1 XP for a Character.', relic: true },
 };
 
@@ -107,7 +107,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   ] },
   elder: { id: 'elder', name: 'Elder', glyph: '⚕', levels: [
     { cost: { gem: 2, tome: 1 }, upkeep: 75, service: 'heal' },
-    { cost: { gem: 4, tome: 2 }, upkeep: 100, service: 'cure' },
+    { cost: { gem: 4, tome: 2 }, upkeep: 100, service: 'bless' },
     { cost: { gem: 6, tome: 3 }, upkeep: 125, service: 'train' },
   ] },
 };
@@ -276,7 +276,8 @@ export interface Loadout {
   /** Every Talent they have (their own, and the other one if Seasoned). */
   talents: TalentId[];
   injuries: Injury[];
-  insane: boolean;
+  /** Blessed by the Elder: Elder's Oil goes in their deck for this run. */
+  blessed?: boolean;
   /** The Shards their player's Village already has: a player's hero may carry one Shard it lacks. Bots have none. */
   shards?: ShardId[];
   /** Gear, consumables and Rites taken from the player's Village Stash for this run. */
@@ -294,7 +295,6 @@ export interface RunOutcome {
   lowestHp: number;
   /** Went down and nobody waived it (Pallbearer): one more Major Injury if they got out. */
   downedMajor: boolean;
-  insane: boolean;
 }
 
 const NAMES = [
@@ -307,12 +307,12 @@ const NAMES = [
 export function newCharacter(id: string, cls: ClassId, rng: Rng, taken: string[]): Character {
   const free = NAMES.filter((n) => !taken.includes(n));
   const name = free.length ? rng.pick(free) : `${rng.pick(NAMES)} ${taken.length + 1}`;
-  return { id, name, cls, xp: 0, survived: 0, talent: null, spec: null, injuries: [], insane: false };
+  return { id, name, cls, xp: 0, survived: 0, talent: null, spec: null, injuries: [] };
 }
 
-/** No injuries, not Insane: fit to go down. */
-export function isHealthy(c: { injuries: Injury[]; insane: boolean }): boolean {
-  return c.injuries.length === 0 && !c.insane;
+/** No injuries: fit to go down. */
+export function isHealthy(c: { injuries: Injury[] }): boolean {
+  return c.injuries.length === 0;
 }
 
 /** Earned a Talent but hasn't picked one yet. */
@@ -328,7 +328,7 @@ export function injuredMaxHp(cls: ClassId, injuries: Injury[]): number {
 }
 
 export function loadoutOf(owner: string, c: Character): Loadout {
-  return { charId: c.id, charName: c.name, owner, talents: talentsOf(c), injuries: [...c.injuries], insane: c.insane };
+  return { charId: c.id, charName: c.name, owner, talents: talentsOf(c), injuries: [...c.injuries], ...(c.blessed ? { blessed: true } : {}) };
 }
 
 /**
@@ -336,6 +336,8 @@ export function loadoutOf(owner: string, c: Character): Loadout {
  * Returns the story for the results screen.
  */
 export function applyRun(c: Character, out: RunOutcome): { died: boolean; lines: string[] } {
+  // The Elder's blessing was for this run, used or not.
+  delete c.blessed;
   if (!out.escaped) return { died: true, lines: [`${c.name} the ${CLASSES[c.cls].name} did not come back.`] };
   const lines: string[] = [];
   c.survived++;
@@ -351,8 +353,6 @@ export function applyRun(c: Character, out: RunOutcome): { died: boolean; lines:
   if (out.downedMajor) hurt.push('major');
   c.injuries.push(...hurt);
   for (const i of hurt) lines.push(`${c.name} carries home a ${INJURY_NAMES[i]}.`);
-  if (out.insane && !c.insane) lines.push(`${c.name} came home Insane.`);
-  c.insane = out.insane;
   return { died: false, lines };
 }
 

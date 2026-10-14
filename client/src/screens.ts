@@ -170,7 +170,7 @@ export class Screens {
         slots.push(`<li class="slot bot">
           <span class="swatch" style="background:${bc.color}"></span>
           <span class="slot-name">${esc(bot.name)}${bch ? talentStars(talentsOf({ ...bch, cls: bot.cls })) : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
-          ${bch && (bch.injuries.length || bch.insane) ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
+          ${bch && bch.injuries.length ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
           <span class="slot-meta"><span class="muted">${bc.name}</span> · <span class="muted">BOT</span></span>
         </li>`);
         continue;
@@ -191,7 +191,7 @@ export class Screens {
       const c = CLASSES[id];
       const ch = village?.characters.find((x) => x.cls === id);
       const others = [...lobby.members.filter((m) => m.cls === id && m.id !== lobby.youId).map((m) => m.name), ...lobby.bots.filter((b) => b.cls === id).map((b) => `${b.name} (bot)`)];
-      const hurt = ch && (ch.injuries.length || ch.insane);
+      const hurt = ch && ch.injuries.length;
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
         <span class="cr-name">${c.name}${ch ? talentStars(talentsOf(ch)) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
@@ -454,7 +454,7 @@ function characterLine(c: Character): string {
   if (c.talent) bits.push(...talentsOf(c).map((t) => `<span class="talent-star" title="${esc(TALENTS[t].desc)}">★ ${esc(TALENTS[t].name)}</span>`));
   else bits.push(talentPending(c) ? '<span class="gold">Talent ready!</span>' : `XP ${c.xp}/${VILLAGE_RULES.xpForTalent}`);
   for (const i of c.injuries) bits.push(`<span class="injury ${i}">${INJURY_NAMES[i]}</span>`);
-  if (c.insane) bits.push('<span class="injury major">Insane</span>');
+  if (c.blessed) bits.push('<span class="chip blessed" title="Blessed by the Elder: Elder’s Oil is in their deck next run.">Blessed ✦</span>');
   if (c.spec) bits.push(`<span class="spec-tag" title="${esc(SPECS[c.spec].desc)}">${esc(SPECS[c.spec].name)}</span>`);
   return bits.join(' · ');
 }

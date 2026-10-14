@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, TYPE_CARDS } from '../content/cards';
 import { MARK_ROWS, MOTIF_ROWS } from '../../../client/src/render/card-art-data';
 import { SPRITES } from '../../../client/src/render/sprite-data';
 import { ENEMIES } from '../content/enemies';
-import { STRESS } from '../content/events';
+
 import { cardSource, gearCard, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, ITEMS } from '../content/items';
 import { combatOrder, monstersIn } from './combat';
 import { cardTime, corpses, uselessReason } from './cards';
@@ -13,10 +13,7 @@ import { speedParts } from './speed';
 import { arena, holdMonsters, play, run, setHand, untilTurn, walkIn } from './testkit';
 import { buildView } from './views';
 
-// Exact stress numbers: the dungeon's steady background stress would blur them.
-const baseStress = STRESS.basePerSec;
-beforeEach(() => void (STRESS.basePerSec = 0));
-afterEach(() => void (STRESS.basePerSec = baseStress));
+
 
 /** A fight with tough monsters that hold still, and the heroes in it. */
 function fight(classes: Parameters<typeof arena>[0], enemies: Parameters<typeof arena>[1] = ['ghoul']) {
@@ -82,7 +79,7 @@ describe('the deck', () => {
 
   it('a kit can leave slots bare: nothing issued there, and a Fumble in the deck', () => {
     const game = new Game(4, [{ id: 'a', name: 'A', cls: 'zealot', isBot: false, loadout: {
-      charId: 'c', charName: 'A', owner: 'A', talents: [], injuries: [], insane: false,
+      charId: 'c', charName: 'A', owner: 'A', talents: [], injuries: [],
       kit: { gear: {}, consumables: [], rites: [], bare: ['ring', 'amulet'] },
     } }], { monsters: false });
     const a = game.world.heroes.a;
@@ -213,7 +210,7 @@ describe('Lampbearer', () => {
     expect(monsters[0].st.blind).toBe(true);
   });
 
-  it('Sanctuary: Regen every 2s; Dawn burns and brings back light, HP and calm', () => {
+  it('Sanctuary: Regen every 2s; Dawn burns and brings back light and HP', () => {
     const { world, heroes, h } = fight(['lampbearer', 'warden']);
     const w = heroes[1];
     w.hp = 10;
@@ -222,10 +219,8 @@ describe('Lampbearer', () => {
     run(world, R.sanctuarySecs + 0.5);
     expect(w.hp).toBe(10 + R.sanctuaryRegen * (R.sanctuarySecs / R.pulse));
     w.light = 0;
-    w.stress = 30;
     play(world, h, 'dawn');
     expect(w.light).toBeGreaterThan(95);
-    expect(w.stress).toBe(30 - R.dawnStress);
     expect(h.burned).toEqual(['dawn']);
   });
 });
@@ -324,30 +319,67 @@ describe('Bellwright', () => {
 });
 
 describe('Zealot', () => {
-  it('Absolution spends stress above 50; Take Their Sins moves it; Penance turns stress into Shield', () => {
+  it('Absolution turns the dark below 50 into damage and gives the light back; Take Their Sins gives light away; Penance turns darkness into Shield', () => {
     const { world, heroes, h, monsters } = fight(['zealot', 'warden']);
-    h.stress = 70;
+    h.light = 30;
     const hp = monsters[0].hp;
     play(world, h, 'absolution');
-    expect(h.stress).toBe(50);
+    expect(h.light).toBeCloseTo(50, 0);
     expect(hp - monsters[0].hp).toBeGreaterThanOrEqual(R.absolutionBase + 20);
-    heroes[1].stress = 20;
+    heroes[1].light = 20;
+    const before = h.light;
     play(world, h, 'sins', heroes[1].id);
-    expect(heroes[1].stress).toBe(3);
+    expect(heroes[1].light).toBeCloseTo(20 + R.sinsLight, 0);
+    expect(h.light).toBeCloseTo(before - R.sinsLight, 0);
     play(world, h, 'penance');
-    expect(h.st.shield).toBe(Math.floor(h.stress / R.penanceDiv));
+    expect(h.light).toBeCloseTo(before - R.sinsLight - R.penanceLight, 0);
+    expect(h.st.shield).toBe(Math.floor((100 - h.light) / R.penanceDiv));
   });
 
-  it('Flagellate costs HP for stress; Rapture takes everyone’s stress and hurls it', () => {
+  it('Fervour: the darker the Zealot, the harder they hit', () => {
+    const { world, h, monsters } = fight(['zealot']);
+    h.light = 100;
+    let hp = monsters[0].hp;
+    play(world, h, 'scourge', monsters[0].id);
+    expect(hp - monsters[0].hp).toBe(R.scourge);
+    h.light = 0;
+    hp = monsters[0].hp;
+    play(world, h, 'scourge', monsters[0].id);
+    expect(hp - monsters[0].hp).toBe(R.scourge * 2);
+  });
+
+  it('Flagellate costs HP and light; Rapture pours light into the others and hurls the dark', () => {
     const { world, heroes, h, monsters } = fight(['zealot', 'warden']);
+    const before = h.light;
     play(world, h, 'flagellate');
     expect(h.hp).toBe(h.maxHp - R.flagellateHp);
-    expect(h.stress).toBe(R.flagellateStress);
-    heroes[1].stress = 40;
+    expect(h.light).toBeCloseTo(before - R.flagellateLight, 0);
+    heroes[1].light = 40;
+    h.light = 60;
     const hp = monsters[0].hp;
     play(world, h, 'rapture', monsters[0].id);
-    expect(heroes[1].stress).toBe(0);
-    expect(hp - monsters[0].hp).toBeGreaterThanOrEqual(R.rapture + 40);
+    expect(heroes[1].light).toBeCloseTo(40 + R.raptureLight, 0);
+    expect(h.light).toBeCloseTo(60 - R.raptureLight, 0);
+    // 15 + half of the 60 it lacks, with +60% Fervour.
+    expect(hp - monsters[0].hp).toBe(Math.round((R.rapture + 30) * 1.6));
+  });
+});
+
+describe('light cards', () => {
+  it('Trim the Wick lights you (Common) or an ally (Uncommon); Elder’s Oil fills your lamp and burns', () => {
+    const { world, heroes, h } = fight(['warden', 'warden']);
+    const w = heroes[1];
+    h.light = 40;
+    play(world, h, 'wick1');
+    expect(h.light).toBeCloseTo(40 + R.wick1, 0);
+    w.light = 10;
+    play(world, h, 'wick2', w.id);
+    expect(w.light).toBeCloseTo(10 + R.wick2, 0);
+    h.light = 5;
+    play(world, h, 'oil');
+    expect(h.light).toBeGreaterThan(99);
+    expect(h.burned).toEqual(['oil']);
+    expect(uselessReason(world, world.encounters[h.encounter!], h, 'oil')).toMatch(/full/);
   });
 });
 

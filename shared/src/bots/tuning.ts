@@ -27,7 +27,7 @@ export const BOTS = {
   tollAnswerFor: 40,
   /** Bots drop everything for a call for help they hear if they can be there within this many seconds; otherwise they ignore it. */
   callReach: 30,
-  /** Bots use a Bandage, Tonic or Torch once HP, sanity (stress) or light is this fraction depleted. */
+  /** Bots use a Bandage or Torch once HP or light is this fraction depleted. */
   consumeAt: 1 / 3,
   /** …and a Firebomb in a fight against more than this many enemies. */
   firebombAbove: 2,

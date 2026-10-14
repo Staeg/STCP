@@ -1,5 +1,5 @@
 export type ItemId =
-  | 'bandage' | 'torch' | 'tonic' | 'firebomb' | 'salts'
+  | 'bandage' | 'torch' | 'firebomb' | 'salts'
   | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
   | 'catseye' | 'bloodstone' | 'thorns' | 'quickblood' | 'ashen'
   | 'effigy' | 'gem' | 'tome' | 'relic'
@@ -68,8 +68,8 @@ export interface ItemDef {
   // ---- Amulets and rings, while worn ----
   /** Added to max HP. */
   maxHp?: number;
-  /** Multiplies stress you take. */
-  stressMult?: number;
+  /** Multiplies light the dungeon takes from you (monsters, events, allies falling; not your own spending or the burn). */
+  lightLossMult?: number;
   /** Multiplies how fast your torch burns down. */
   lightDrainMult?: number;
   /** Damage a monster takes back when it hits you, on top of your Block. */
@@ -139,8 +139,8 @@ const hammer = (id: ItemId, name: string, flatDmg: number, dmgPct: number, speed
   desc: `Hammer: +${flatDmg} to every hit, then ${pct(dmgPct)} damage dealt.${speedNote(speed)}`,
 });
 /**
- * Staves (user 2026-10-11): no damage, for those who help, hinder or hurry. heal: healing you give · relief: stress
- * you take off others (and Take Their Sins) · linger: your debuffs last longer · ward: Shield on whoever you heal,
+ * Staves (user 2026-10-11): no damage, for those who help, hinder or hurry. heal: healing you give · relief: light
+ * you give others (Vigil, Take Their Sins…; was stress relief until 2026-10-14) · linger: your debuffs last longer · ward: Shield on whoever you heal,
  * buff or relieve, in a fight or out · witch: what carries your debuffs takes more from everyone · twin: your debuffs
  * land twice · evergreen: your buffs last twice as long · hourglass: shorter cooldowns, down to 0.
  */
@@ -181,7 +181,8 @@ export const CLOTH = {
   penitentHeal: 15,
   graveTurns: 2,
   graveHp: 0.25,
-  blinkStress: 13, // 20 until the stress rework (×⅔)
+  /** Blinkcloth's slip costs this much light (was 13 stress). */
+  blinkLight: 13,
 };
 const cloth = (id: ItemId, name: string, def: ClothDef, text: string, extra: Partial<ItemDef> = {}): ItemDef => {
   const limit = def.perFight ? 'Once a fight.' : def.cooldown ? `Every ${def.cooldown}s worn.` : def.usesPerRun ? `${def.usesPerRun === 1 ? 'Once' : `${def.usesPerRun}×`} a run.` : '';
@@ -212,16 +213,16 @@ const resource = (id: ItemId, name: string, glyph: string, rite: string, cost = 
 export const ITEMS: Record<ItemId, ItemDef> = {
   bandage: { id: 'bandage', name: 'Bandage', kind: 'consumable', glyph: '✚', desc: 'Heal 12 and cure Poison.', target: 'ally', combat: true, field: true },
   torch: { id: 'torch', name: 'Torch', kind: 'consumable', glyph: '🔥', desc: '+50 light.', target: 'self', combat: true, field: true },
-  tonic: { id: 'tonic', name: 'Tonic', kind: 'consumable', glyph: '⚗', desc: '−17 stress.', target: 'self', combat: true, field: true },
+
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },
   salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed ally at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
   // Amulets and rings: blessed ones only help; cursed ones hurt you but quicken your step.
   locket: jewel('locket', 'amulet', 'Iron Locket', '♡', '+20 max HP.', { maxHp: 20 }),
-  ward: jewel('ward', 'amulet', 'Ward Charm', '☥', '−67% stress taken.', { stressMult: 0.33 }),
+  ward: jewel('ward', 'amulet', 'Ward Charm', '☥', '−67% light lost to monsters and events.', { lightLossMult: 0.33 }),
   ember: jewel('ember', 'amulet', 'Ember Pendant', '♨', 'Your torch never burns down.', { lightDrainMult: 0 }),
   harefoot: jewel('harefoot', 'amulet', "Hare's Foot", '⚘', 'Cursed: −10 max HP.', { maxHp: -10, speed: -1 }),
-  fever: jewel('fever', 'amulet', 'Fever Charm', '♆', 'Cursed: +67% stress taken.', { stressMult: 1.67, speed: -1 }),
-  catseye: jewel('catseye', 'ring', "Cat's-Eye", '◈', 'You never forget paths, and being Dim no longer hides neighbouring rooms or adds stress.', { seeDim: true }),
+  fever: jewel('fever', 'amulet', 'Fever Charm', '♆', 'Cursed: +67% light lost to monsters and events.', { lightLossMult: 1.67, speed: -1 }),
+  catseye: jewel('catseye', 'ring', "Cat's-Eye", '◈', 'You never forget paths, and being Dim no longer hides neighbouring rooms.', { seeDim: true }),
   bloodstone: jewel('bloodstone', 'ring', 'Bloodstone Ring', '◍', 'Regain 1 HP every 4s while exploring.', { regen: 4 }),
   thorns: jewel('thorns', 'ring', 'Thorn Ring', '✣', 'Monsters that hit you take your Block + 1 damage back.', { thorns: 1 }),
   quickblood: jewel('quickblood', 'ring', 'Quickblood Ring', '◌', `Cursed: ${blockNote(-2)}`, { block: -2, speed: -1 }),
@@ -248,7 +249,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   bonebreaker: hammer('bonebreaker', 'Bonebreaker', 3, 0.5, 0.5),
   giantmaul: hammer('giantmaul', "Giant's Maul", 5, 0.75, 1),
   crook: staff('crook', "Shepherd's Crook", 'heal', `healing you give ×${STAFF.healMult}.`),
-  censer: staff('censer', 'Censer Staff', 'relief', `stress you relieve ×${STAFF.reliefMult} (Take Their Sins moves ${STAFF.reliefMult}× as much).`),
+  censer: staff('censer', 'Censer Staff', 'relief', `light you give others ×${STAFF.reliefMult}.`),
   rowan: staff('rowan', 'Rowan Staff', 'linger', 'debuffs you place last 1 turn longer.'),
   wardstaff: staff('wardstaff', 'Warding Staff', 'ward', 'whoever you heal, buff or relieve also gains +2 Shield, in a fight or out of one.'),
   witchwood: staff('witchwood', 'Witchwood Staff', 'witch', 'enemies carrying your debuffs take +15% damage from everyone.'),
@@ -269,13 +270,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   hastening: cloth('hastening', 'Hastening Robe', { effect: 'hasten', cooldown: 60 }, `Swiftwork: the next event you start is done in ${CLOTH.hastenSecs}s, however long it usually takes.`),
   wayfarer: cloth('wayfarer', "Wayfarer's Cloak", { effect: 'wayfarer', cooldown: 12 }, `the next tunnel you set out on takes ${CLOTH.wayfarerSecs}s.`),
   sackcloth: cloth('sackcloth', "Penitent's Sackcloth", { effect: 'penitent', cooldown: 120 },
-    `Cursed: +25% stress taken. Dropping below ${CLOTH.penitentBelow * 100}% HP heals you ${CLOTH.penitentHeal}.`, { cursed: true, stressMult: 1.25 }),
+    `Cursed: +25% light lost to monsters and events. Dropping below ${CLOTH.penitentBelow * 100}% HP heals you ${CLOTH.penitentHeal}.`, { cursed: true, lightLossMult: 1.25 }),
   gravecloth: cloth('gravecloth', 'Gravecloth', { effect: 'grave', usesPerRun: 1 },
     `Cursed: −8 max HP. When you go down, you get back up by yourself after ${CLOTH.graveTurns} of your turns at ${CLOTH.graveHp * 100}% HP, and again each time you fall in that room, until you leave it.`, { cursed: true, maxHp: -8 }),
   softstep: cloth('softstep', 'Softstep Cloak', { effect: 'softstep', cooldown: 60 },
     'Unnoticed: walking in on monsters, or monsters wandering in on you, starts no fight for you. If an ally starts one there, you are drawn in.'),
   blinkcloth: cloth('blinkcloth', 'Blinkcloth Mantle', { effect: 'blink', perFight: true },
-    `Slip: instead of going down, you leave at 1 HP for a random room next door (+${CLOTH.blinkStress} stress).`),
+    `Slip: instead of going down, you leave at 1 HP for a random room next door (−${CLOTH.blinkLight} light).`),
   gossamer: cloth('gossamer', 'Gossamer Shroud', { effect: 'gossamer', perFight: true }, 'the first attack aimed at you in a fight misses.', { speed: -0.5 }),
   // Legendaries (user 2026-10-11): only from the Dead King's treasure. Stats like any piece, plus an ability.
   alastor: legendary('alastor', 'weapon', 'dagger', 'Oath of Alastor', 'promise', `${pct(0.35)} damage dealt.`, { dmgPct: 0.35, speed: -0.5 }),
@@ -384,6 +385,8 @@ export const OLD_GEAR_IDS: Record<string, ItemId> = {
   leathercoat: 'jerkin', chainshirt: 'studded', cuirass: 'drakehide',
   // Lucky Coin, removed 2026-10-11: loads as the other plain amulet bonus.
   coin: 'locket',
+  // The Tonic went with Stress (2026-10-14): loads as a Torch.
+  tonic: 'torch',
   // Legendaries renamed 2026-10-11 (user).
   nightfang: 'alastor', lethehide: 'daystar', halvard: 'durance', elowen: 'pilgrim', ashkar: 'silva',
 };
@@ -525,9 +528,9 @@ export function gearGain(item: ItemId, current: ItemId | null, fit?: GearFit): n
 
 /** rarity: 1 common · 2 uncommon · 3 rare. Better loot (tougher kills, vaults) leans toward rarer items. */
 export const LOOT_TABLE: { item: ItemId; weight: number; rarity: 1 | 2 | 3 }[] = [
-  { item: 'bandage', weight: 7, rarity: 1 },
-  { item: 'torch', weight: 4, rarity: 1 },
-  { item: 'tonic', weight: 3, rarity: 1 },
+  // The Tonic's weight went to Torches and Bandages when Stress went (2026-10-14; was 7 / 4 / 3).
+  { item: 'bandage', weight: 8, rarity: 1 },
+  { item: 'torch', weight: 6, rarity: 1 },
   { item: 'firebomb', weight: 3, rarity: 2 },
   { item: 'salts', weight: 2, rarity: 2 },
   // Amulets and rings (user 2026-10-11): the cursed ones (they quicken you) are rare, the blessed uncommon.
