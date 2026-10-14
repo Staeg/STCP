@@ -123,10 +123,10 @@ export const CARD_RULES = {
   embalmHeal: 6, embalmBare: 3,
   // ---- Bellwright ----
   clang: 8, clangDelay: 4, clangTurns: 2, clangHaste: 0.5,
-  knell: 15, knellPerAlly: 5, knellMin: 3,
-  pealHurry: 4, pealAlone: 4,
-  ringOutDelay: 4, ringOutPerClang: 1,
-  echoMult: 0.5, echoBare: 3,
+  knell: 15, knellPerAlly: 5, knellMin: 3, knellPerClang: 2,
+  pealHurry: 4, pealPerClang: 1, pealAloneClang: 2,
+  ringOutDelay: 3, ringOutPerClang: 1.5,
+  echoMult: 0.5, echoBare: 3, echoFullAt: 3,
   // ---- Zealot ----
   scourge: 7,
   absolutionBase: 6, absolutionFloor: 50,
@@ -215,13 +215,13 @@ export const CARDS: Record<CardId, CardDef> = {
   explode: card('explode', 'Corpse Explosion', 4, ['strike', 'conjure'], 'none', `Use up a Corpse: ${R.explode} dmg to every enemy. With no Corpse, your most decayed undead here bursts instead: ${R.explode} +${R.explodePerDecay} per decay. With neither, ${R.explodeBare}.`),
   embalm: card('embalm', 'Embalm', 2, ['mend', 'conjure'], 'none', `Every undead of yours here heals ${R.embalmHeal} and sheds one decay. With none, +${R.embalmBare} Shield.`),
   graves: card('graves', 'Open the Graves', 6, ['conjure'], 'none', 'Every Corpse here rises and follows you for good (at least one Ghoul claws up).', true),
-  // ---- Bellwright: Clang, Echo and the tempo of both sides ----
+  // ---- Bellwright: Clang as a resource (M16): Clang, Peal, Reverberate and Ring In build it; Knell and Ring Out spend it ----
   clang: card('clang', 'Clang', 6, ['strike', 'hinder'], 'enemyFirst', `${R.clang} dmg to the nearest enemy; Delay it ${R.clangDelay}s. You gain a Clang stack (your cards take ${R.clangHaste}s less per stack; one fades every ${R.clangTurns} turns).`),
-  knell: card('knell', 'Knell', 8, ['strike'], 'none', `${R.knell} dmg to every enemy, −${R.knellPerAlly} for each other hero standing in the fight (at least ${R.knellMin}).`),
-  peal: card('peal', 'Peal', 4, ['hasten'], 'none', `Hurry every other ally ${R.pealHurry}s (alone: Hurry yourself ${R.pealAlone}s).`),
-  ringout: card('ringout', 'Ring Out', 4, ['hinder'], 'none', `Delay every enemy ${R.ringOutDelay}s, +${R.ringOutPerClang}s per Clang stack you have.`),
-  echo: card('echo', 'Echo', 3, ['hasten'], 'none', `Your last card (never a Burn) happens again at half power. With nothing to echo, ${R.echoBare} dmg to the nearest enemy.`),
-  reverberate: card('reverberate', 'Reverberate', 3, ['hinder', 'hasten'], 'none', "Every enemy is Stunned; every ally's next action comes now.", true),
+  knell: card('knell', 'Knell', 8, ['strike'], 'none', `${R.knell} dmg to every enemy, −${R.knellPerAlly} for each other hero standing in the fight (at least ${R.knellMin}), +${R.knellPerClang} per Clang stack. Spends every Clang.`),
+  peal: card('peal', 'Peal', 4, ['hasten'], 'none', `Hurry every other ally ${R.pealHurry}s, +${R.pealPerClang}s per Clang stack. Alone: +${R.pealAloneClang} Clang.`),
+  ringout: card('ringout', 'Ring Out', 4, ['hinder'], 'none', `Delay every enemy ${R.ringOutDelay}s, +${R.ringOutPerClang}s per Clang stack. Spends every Clang.`),
+  echo: card('echo', 'Echo', 3, ['hasten'], 'none', `Your last card (never a Burn) happens again at half power; at full power with ${R.echoFullAt}+ Clang. With nothing to echo, ${R.echoBare} dmg to the nearest enemy.`),
+  reverberate: card('reverberate', 'Reverberate', 3, ['hinder', 'hasten'], 'none', "Every enemy is Stunned; every ally's next action comes now. +1 Clang per enemy.", true),
   // ---- Zealot: darkness as fuel ----
   scourge: card('scourge', 'Scourge', 3.5, ['strike'], 'enemy', `${R.scourge} dmg.`),
   absolution: card('absolution', 'Absolution', 5, ['light', 'strike'], 'none', `${R.absolutionBase} dmg plus the light you lack below ${R.absolutionFloor}, split across enemies; you regain that much light.`),

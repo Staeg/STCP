@@ -338,6 +338,29 @@ describe('Undertaker', () => {
 });
 
 describe('Bellwright', () => {
+  it('Clang as a resource: Knell and Ring Out spend it all; Peal alone and Reverberate build it; Echo is full power at 3+', () => {
+    const { world, h, enc, monsters } = fight(['bellwright'], ['ghoul', 'ghoul']);
+    const [a, b] = monsters;
+    play(world, h, 'peal');
+    expect(h.st.clang?.stacks).toBe(R.pealAloneClang);
+    play(world, h, 'reverberate');
+    expect(h.st.clang?.stacks).toBe(R.pealAloneClang + 2);
+    const hp = a.hp;
+    play(world, h, 'knell');
+    expect(hp - a.hp).toBe(R.knell + R.knellPerClang * 4);
+    expect(h.st.clang).toBeUndefined();
+    h.st.clang = { stacks: 2, turns: 2 };
+    const due = enc.next[b.id];
+    play(world, h, 'ringout');
+    expect(enc.next[b.id]).toBeCloseTo(due + R.ringOutDelay + 2 * R.ringOutPerClang);
+    expect(h.st.clang).toBeUndefined();
+    h.st.clang = { stacks: R.echoFullAt, turns: 2 };
+    h.lastCard = 'clang';
+    const before = a.hp + b.hp;
+    play(world, h, 'echo');
+    expect(before - a.hp - b.hp).toBe(R.clang); // the echoed Clang, at full power
+  });
+
   it('Clang Delays and quickens the Bellwright’s cards; Knell weakens with allies but never below 3', () => {
     const { world, h, enc, monsters } = fight(['bellwright']);
     const due = enc.next[monsters[0].id];

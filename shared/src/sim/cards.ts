@@ -142,6 +142,13 @@ function anima(ctx: CardCtx): boolean {
   return true;
 }
 
+/** The Bellwright rings out every Clang stack at once (Knell, Ring Out). Returns how many. */
+function spendClang(h: Hero): number {
+  const n = h.st.clang?.stacks ?? 0;
+  delete h.st.clang;
+  return n;
+}
+
 /** "Your next card takes this much less" (cumulative until a card is played). */
 function quicken(h: Hero, cut: number) {
   h.st.quick = { ...(h.st.quick ?? { cut: 0 }), cut: (h.st.quick?.cut ?? 0) + cut };
@@ -665,28 +672,31 @@ function resolve(ctx: CardCtx) {
       return;
     }
     case 'knell': {
-      const dmg = Math.max(R.knellMin, R.knell - R.knellPerAlly * others().length);
-      tell(`${h.name} tolls the knell.`);
+      const clang = spendClang(h);
+      const dmg = Math.max(R.knellMin, R.knell - R.knellPerAlly * others().length) + R.knellPerClang * clang;
+      tell(`${h.name} tolls the knell.${clang ? ` (all ${clang} Clang rung out: +${R.knellPerClang * clang} dmg)` : ''}`);
       for (const m of enemies()) strike(ctx, m, dmg);
       return;
     }
     case 'peal': {
       const rest = others();
+      const secs = R.pealHurry + R.pealPerClang * (h.st.clang?.stacks ?? 0);
       for (const a of rest) {
-        hurry(ctx, a, R.pealHurry);
+        hurry(ctx, a, secs);
         ward(h, a);
       }
       for (const r of risen()) {
-        hurry(ctx, r, R.pealHurry);
+        hurry(ctx, r, secs);
         ward(h, risenSt_(r));
       }
-      if (!rest.length) hurry(ctx, h, R.pealAlone);
-      tell(rest.length ? `${h.name} rings a bright peal! (allies act ${R.pealHurry}s sooner)` : `${h.name} rings a bright peal and quickens. (${R.pealAlone}s sooner)`);
+      if (!rest.length) addClang(h, R.pealAloneClang);
+      tell(rest.length ? `${h.name} rings a bright peal! (allies act ${secs}s sooner)` : `${h.name} rings a bright peal for themself. (+${R.pealAloneClang} Clang)`);
       return;
     }
     case 'ringout': {
-      const secs = R.ringOutDelay + R.ringOutPerClang * (h.st.clang?.stacks ?? 0);
-      tell(`${h.name} rings out over the din!`);
+      const clang = spendClang(h);
+      const secs = R.ringOutDelay + R.ringOutPerClang * clang;
+      tell(`${h.name} rings out over the din!${clang ? ` (all ${clang} Clang rung out)` : ''}`);
       for (const m of enemies()) delay(ctx, m, secs);
       return;
     }
@@ -698,17 +708,20 @@ function resolve(ctx: CardCtx) {
         return;
       }
       tell(`${h.name}'s ${CARDS[last].name} echoes!`);
-      const mult = hasTalent(h, 'resounding') ? 1 : R.echoMult;
+      const mult = hasTalent(h, 'resounding') || (h.st.clang?.stacks ?? 0) >= R.echoFullAt ? 1 : R.echoMult;
       const inner = { ...ctx, card: last, power: ctx.power * mult, target: undefined, selfHurry: 0 };
       resolve(inner);
       ctx.selfHurry += inner.selfHurry;
       return;
     }
-    case 'reverberate':
-      for (const m of enemies()) debuff(ctx, m, 'stun');
+    case 'reverberate': {
+      const foes = enemies();
+      for (const m of foes) debuff(ctx, m, 'stun');
       for (const a of [...others(), ...risen()]) if (enc.next[a.id] !== undefined) enc.next[a.id] = at(world.time);
-      tell(`${h.name}'s bell reverberates through the stone! Every foe reels; every ally moves now.`);
+      if (foes.length) addClang(h, foes.length);
+      tell(`${h.name}'s bell reverberates through the stone! Every foe reels; every ally moves now. (+${foes.length} Clang)`);
       return;
+    }
     // ---- Zealot ----
     case 'scourge':
       strike(ctx, foe(), R.scourge);

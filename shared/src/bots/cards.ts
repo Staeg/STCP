@@ -40,6 +40,7 @@ export function cardValue(f: BotFight, card: CardId): number {
     Math.min(amount, LIGHT_MAX - lightOf(u)) * (lightOf(u) < LIGHT_BRIGHT ? LIGHT_VALUE : LIGHT_VALUE / 3);
   const darkest = allies.reduce((a, b) => (lightOf(b) < lightOf(a) ? b : a), me);
   const fervour = 1 + (LIGHT_MAX - view.you.light) * 0.01;
+  const clang = view.you.st.clang?.stacks ?? 0;
   const soft = enemies.some((m) => m.st.stun || m.st.exposed || !m.st.acted);
   const corpses = enc.corpses;
   // Burn cards are for when it counts: losing, or a Boss in the room.
@@ -86,11 +87,11 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'graves': return burn(corpses * 10 + 6);
     // Bellwright
     case 'clang': return R.clang + R.clangDelay * TEMPO_VALUE;
-    case 'knell': return Math.max(R.knellMin, R.knell - R.knellPerAlly * (allies.length - 1)) * n;
-    case 'peal': return allies.length > 1 ? (allies.length - 1) * 3 : 1;
-    case 'ringout': return n * (R.ringOutDelay + (view.you.st.clang?.stacks ?? 0)) * TEMPO_VALUE;
-    case 'echo': return view.you.lastCard ? cardValue(f, view.you.lastCard) * R.echoMult : R.echoBare;
-    case 'reverberate': return burn(n * 6 + (allies.length - 1) * 3);
+    case 'knell': return (Math.max(R.knellMin, R.knell - R.knellPerAlly * (allies.length - 1)) + R.knellPerClang * clang) * n;
+    case 'peal': return allies.length > 1 ? (allies.length - 1) * (3 + clang * R.pealPerClang * 0.7) : 3;
+    case 'ringout': return n * (R.ringOutDelay + R.ringOutPerClang * clang) * TEMPO_VALUE;
+    case 'echo': return view.you.lastCard ? cardValue(f, view.you.lastCard) * (clang >= R.echoFullAt ? 1 : R.echoMult) : R.echoBare;
+    case 'reverberate': return burn(n * 7 + (allies.length - 1) * 3);
     // Zealot
     case 'scourge': return R.scourge * fervour;
     case 'absolution': return (R.absolutionBase + Math.max(0, R.absolutionFloor - view.you.light)) * fervour;
