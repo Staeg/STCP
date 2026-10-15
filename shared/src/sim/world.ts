@@ -123,7 +123,7 @@ export interface Hero {
   fieldReady: Partial<Record<FieldSkill, number>>;
   /** The Cutthroat's Sneak (M16), toggled out of fights: Speed ×2, Ambushes, Sneak Past, and their cards' Sneaking bonuses. */
   sneaking: boolean;
-  /** The Sorceress's Anima (M16): from Hexed stacks on the dying, spent by her cards; each point quickens her. */
+  /** The Sorceress's Anima (M16): 1 per enemy that dies Hexed, spent by her cards; each point quickens her. */
   anima: number;
   /** Dead heroes: gold that went home anyway (an Undertaker walked them out Risen, or the Tome Rite). */
   legacy: number;

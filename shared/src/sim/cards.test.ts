@@ -256,23 +256,20 @@ describe('Sorceress', () => {
     expect(enc.next[monsters[0].id]).toBeCloseTo(due + (R.agesStacks + 1) * R.agesDelayPer);
   });
 
-  it('Anima: the Hexed stacks a foe dies with feed it; each point quickens her; her cards spend it one at a time', () => {
+  it('Anima: a foe that dies Hexed gives 1, however many stacks; each point quickens her; her cards spend it one at a time', () => {
     const { world, heroes, h, enc, monsters } = fight(['sorceress', 'warden'], ['ghoul', 'ghoul']);
-    const [a, b] = monsters;
+    const [a] = monsters;
     const speed = speedParts(h, world.time).reduce((t, p) => t + p.amount, 0);
     a.st.hexed = [2, 2, 2];
     a.hp = 1;
     play(world, h, 'hex', a.id);
     expect(world.monsters[a.id]).toBeUndefined();
-    expect(h.anima).toBe(3); // the Hex kills before it lays a stack of its own
-    expect(speedParts(h, world.time).reduce((t, p) => t + p.amount, 0)).toBeCloseTo(speed - 1.5);
-    play(world, h, 'hex', b.id);
-    expect(b.st.hexed).toHaveLength(2);
-    expect(h.anima).toBe(2);
+    expect(h.anima).toBe(1); // three stacks, still 1
+    expect(speedParts(h, world.time).reduce((t, p) => t + p.amount, 0)).toBeCloseTo(speed + CLASS_RULES.animaSpeed);
     const hp = heroes[1].hp;
     play(world, h, 'pact');
     expect(heroes[1].hp).toBe(hp);
-    expect(h.anima).toBe(1);
+    expect(h.anima).toBe(0);
     expect(enc.events.some((e) => e.text.includes('spends Anima'))).toBe(true);
   });
 });
