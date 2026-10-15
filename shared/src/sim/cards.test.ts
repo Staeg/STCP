@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, TYPE_CARDS } from '../content/cards';
+import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, SCHOOLS, TYPE_CARDS } from '../content/cards';
+import { FIELD_ART } from './skills';
 import { MARK_ROWS, MOTIF_ROWS } from '../../../client/src/render/card-art-data';
 import { SPRITES } from '../../../client/src/render/sprite-data';
 import { ENEMIES } from '../content/enemies';
@@ -651,5 +652,18 @@ describe('card art', () => {
     expect(cardSource('fumble')).toBe(0);
     // A class card that a Gear piece also names is still a class card; every card has some source.
     for (const id of CARD_IDS) expect(cardSource(id)).toBeDefined();
+  });
+
+  it('every field ability has its own medallion, drawn from parts that exist, unlike any card', () => {
+    const cards = new Set(CARD_IDS.map((id) => `${CARD_ART[id].motif}/${CARD_ART[id].mark ?? ''}`));
+    const seen = new Set<string>();
+    for (const [id, { motif, mark, school }] of Object.entries(FIELD_ART)) {
+      expect(MOTIF_ROWS[motif] ?? SPRITES[motif], `${id}: ${motif}`).toBeDefined();
+      if (mark) expect(MARK_ROWS[mark], `${id}: ${mark}`).toBeDefined();
+      expect(SCHOOLS[school], `${id}: ${school}`).toBeDefined();
+      const key = `${motif}/${mark ?? ''}`;
+      expect(cards.has(key) || seen.has(key), `${id} looks like another picture`).toBe(false);
+      seen.add(key);
+    }
   });
 });

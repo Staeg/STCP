@@ -929,6 +929,13 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 .kit-slot.issued { color: var(--muted); font-style: italic; cursor: pointer; }
 .kit-slot.issued.bare { color: var(--danger); }
 .ab-chip.burn { border-color: #8a4a20; }
+/* Field abilities (user, 2026-10-15): round bronze medallions on rounded bronze buttons, never a square card. */
+.field-art { width: 26px; height: 26px; image-rendering: pixelated; vertical-align: middle; margin: -2px 4px 0 0; }
+.cb-act.cb-field { border: 2px solid #b8883a; border-radius: 16px; }
+.cb-act.cb-field.mini .field-art { width: 20px; height: 20px; }
+.cb-act.cb-field.sel, #combat.idle .cb-act.cb-field.pinned { border-color: var(--gold); }
+.field-blurb { display: flow-root; flex-shrink: 0; }
+.field-blurb .field-art { float: left; margin: 1px 6px 0 0; }
 @media (max-width: 700px) {
   .cb-act.cb-card { min-width: 0; flex-basis: 30%; font-size: 16px; }
 }

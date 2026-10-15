@@ -4,7 +4,7 @@ import {
 } from '@stcp/shared';
 import type { Net } from './net';
 import { TimelineStrip, unitSprite } from './timeline';
-import { cardArtUrl, cardFrameColor } from './render/card-art';
+import { cardArtUrl, cardFrameColor, fieldArtUrl } from './render/card-art';
 import { juice } from './juice';
 import { itemName, useFromField } from './loot';
 import { icon, iconize, iconNum, type IconId } from './icons';
@@ -314,7 +314,10 @@ export class CombatUi {
     }).join('');
     const burned = enc.burned.map((c) => CARDS[c].name).join(', ');
     const pile = `<span class="cb-deck" title="${esc(`Draw pile ${enc.deckCount} · discard ${enc.discardCount}${burned ? ` · burned: ${burned}` : ''}. The discard is shuffled back in when the draw pile runs out, and every fight starts from a full shuffle.`)}">🂠 ${enc.deckCount} · ♻ ${enc.discardCount}${enc.burned.length ? ` · 🔥 ${enc.burned.length}` : ''}${enc.corpses ? ` · ⚰ ${enc.corpses}` : ''}</span>`;
-    const skills = fieldSkillsOf(you).map((s, i) => this.greyBtn(`skill-${s}`, SKILL_KEYS[i], FIELD_SKILLS[s].name, `${iconize(FIELD_SKILLS[s].desc)} Only out of a fight.`, true)).join('');
+    // Field abilities can't be used in a fight: greyed, just key, picture and name (what they do on hover).
+    const skills = fieldSkillsOf(you).map((s, i) => `<button class="cb-act mini cb-field" data-pin="skill-${s}" disabled>
+      <kbd>${SKILL_KEYS[i]}</kbd> <img class="field-art" src="${fieldArtUrl(s)}" alt="">${esc(FIELD_SKILLS[s].name)}
+      <div class="cb-desc"><b>${esc(FIELD_SKILLS[s].name)}</b> (field ability): ${iconize(FIELD_SKILLS[s].desc)} Only out of a fight.</div></button>`).join('');
     const actions = `<div class="cb-actions hand">${cards}${pile}</div>
       <div class="cb-actions basics">
       ${btn('revive', 'R', 'Revive', iconize(`Get a downed ally back up (30% HP). ${CARD_RULES.reviveTime}s.`), !enc.reviveTargets.length, 'revive')}
@@ -342,14 +345,6 @@ export class CombatUi {
     return `<div class="cb-actions deck">${cards}${fieldSkillsOf(you).map((s, i) => this.skillBtn(view, s, i)).join('')}</div>`;
   }
 
-  /** An action that can't be used here (in a fight, or out of one): greyed, its description on hover or click. */
-  private greyBtn(pin: string, key: string, name: string, desc: string, fight = false): string {
-    // In a fight it's just its key and name (what it does on hover), so the usable ones keep the room.
-    return `<button class="cb-act ${fight ? 'mini' : ''}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
-      <kbd>${key}</kbd> ${esc(name)}
-      <div class="cb-desc"><b>${esc(name)}</b>: ${desc}</div></button>`;
-  }
-
   /**
    * Out of a fight, a field ability (M16; the Toll is once a run): bright when it can be used, with its cooldown
    * counting down when not; used with a click (or M / N) as your turn.
@@ -366,8 +361,8 @@ export class CombatUi {
     const cd = toggle ? ` <span class="cd ${you.sneaking ? 'on' : ''}">${you.sneaking ? 'ON' : 'off'} · Stealth ${stealthOf(you).toFixed(1)}</span>`
       : rung ? ' <span class="cd">rung</span>' : wait > 0 ? ` <span class="cd">${Math.ceil(wait)}s</span>` : '';
     const every = info.cooldown ? ` Cooldown ${skillCooldown(you, skill)}s.` : '';
-    return `<button class="cb-act live ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="${skill}">
-      <kbd>${SKILL_KEYS[i] ?? ''}</kbd> ${esc(info.name)}${cd}
+    return `<button class="cb-act live cb-field ${queued ? 'sel' : ''} ${!free ? 'cooling' : ''}" data-skill="${skill}">
+      <kbd>${SKILL_KEYS[i] ?? ''}</kbd> <img class="field-art" src="${fieldArtUrl(skill)}" alt="">${esc(info.name)}${cd}
       <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}<b>${esc(info.name)}</b> (field ability): ${iconize(info.desc)}${every}${toggle ? '' : ' Uses your turn; only out of a fight.'}</div></button>`;
   }
 

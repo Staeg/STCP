@@ -10,7 +10,7 @@ import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleBare, toggleRite, v
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
-import { cardArtUrl } from './render/card-art';
+import { cardArtUrl, fieldArtUrl } from './render/card-art';
 import { iconize, iconNum, talentStars } from './icons';
 
 declare const __BUILD__: string;
@@ -391,7 +391,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
-    ${fieldSkillsOf({ cls: id }).map((s) => `<div class="blurb"><b>Field ability: ${esc(FIELD_SKILLS[s].name)}</b>${FIELD_SKILLS[s].cooldown ? ` <span class="muted">(${FIELD_SKILLS[s].cooldown}s cooldown)</span>` : ''}. ${iconize(FIELD_SKILLS[s].desc)}</div>`).join('')}
+    ${fieldSkillsOf({ cls: id }).map((s) => `<div class="blurb field-blurb"><img class="field-art" src="${fieldArtUrl(s)}" alt=""><b>Field ability: ${esc(FIELD_SKILLS[s].name)}</b>${FIELD_SKILLS[s].cooldown ? ` <span class="muted">(${FIELD_SKILLS[s].cooldown}s cooldown)</span>` : ''}. ${iconize(FIELD_SKILLS[s].desc)}</div>`).join('')}
     <ul class="class-cards">${CLASS_CARDS[id].map((cd) => {
       const def = CARDS[cd];
       const schools = def.schools.map((x) => `<span title="${SCHOOLS[x].name}">${SCHOOLS[x].glyph}</span>`).join('');

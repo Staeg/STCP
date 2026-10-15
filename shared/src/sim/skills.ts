@@ -10,6 +10,7 @@ import { lightBy } from './gear';
 import { giveItem, hasSpace } from './loot';
 import { notify } from './notify';
 import type { Hero, World } from './world';
+import type { CardMark, CardMotif, School } from '../content/cards';
 
 /**
  * Field abilities (M16, user 2026-10-14): each class has one (the Bellwright also keeps the Toll), used outside a
@@ -41,6 +42,22 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
     desc: `Lose ${F.flagellateHp} HP and up to ${F.flagellateLight} of your light; every other hero in the room shares the light you lose.` },
   brew: { name: 'Brew', target: 'none', cooldown: F.brewCooldown,
     desc: 'Brew a random consumable into your pack.' },
+};
+
+/**
+ * Field ability pictures (user, 2026-10-15): built like a card's (a motif for the main effect, a mark for the second,
+ * on a school's tint) but struck as a round bronze medallion, so a field ability never looks like a card.
+ */
+export const FIELD_ART: Record<FieldSkill, { motif: CardMotif; mark?: CardMark; school: School }> = {
+  toll: { motif: 'waves', mark: 'eye', school: 'hinder' },
+  formup: { motif: 'gate', mark: 'swirl', school: 'guard' },
+  sneak: { motif: 'veil', mark: 'eye', school: 'hasten' },
+  rekindle: { motif: 'lamp', mark: 'sun', school: 'light' },
+  siphon: { motif: 'flame', mark: 'swirl', school: 'light' },
+  unearth: { motif: 'ghoul', school: 'conjure' },
+  ringin: { motif: 'bell', mark: 'sword', school: 'hinder' },
+  flagellate: { motif: 'whip', mark: 'sun', school: 'light' },
+  brew: { motif: 'flask', mark: 'flame', school: 'mend' },
 };
 
 export function skillTarget(_h: Hero, skill: FieldSkill): FieldTarget {

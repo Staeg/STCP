@@ -1,4 +1,4 @@
-import { CARD_ART, cardSource, CARDS, CLASSES, SCHOOLS, type CardId, type ClassId } from '@stcp/shared';
+import { CARD_ART, cardSource, CARDS, CLASSES, FIELD_ART, SCHOOLS, type CardId, type ClassId, type FieldSkill } from '@stcp/shared';
 import { CARD_PALETTE, MARK_ROWS, MOTIF_ROWS } from './card-art-data';
 import { PALETTE, SPRITES } from './sprite-data';
 
@@ -40,6 +40,19 @@ function disc(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number,
   }
 }
 
+/** A motif (or a unit's sprite, for summons) with its top-left at x, y. */
+function paintMotif(ctx: CanvasRenderingContext2D, motif: string, x: number, y: number) {
+  if (MOTIF_ROWS[motif]) paint(ctx, MOTIF_ROWS[motif], CARD_PALETTE, x, y);
+  else paint(ctx, SPRITES[motif] ?? [], PALETTE, x, y);
+}
+
+/** The mark for a second effect, in its own outlined badge 10px across, from `at`, `at`. */
+function paintMark(ctx: CanvasRenderingContext2D, mark: string, dark: string, at: number) {
+  disc(ctx, at, at, at + 9, at + 9, CARD_PALETTE.k);
+  disc(ctx, at + 1, at + 1, at + 8, at + 8, dark);
+  paint(ctx, MARK_ROWS[mark], CARD_PALETTE, at + 1, at + 1);
+}
+
 /**
  * A card's picture as a data URL (cached): its first school's tint, the main motif, the mark for its second effect, and
  * a frame telling class cards (the class colour) from Gear cards (the tier colour, with rivets).
@@ -60,13 +73,8 @@ export function cardArtUrl(card: CardId, cls: ClassId | null): string {
   ctx.fillRect(1, 1, 24, 24);
   disc(ctx, 3, 2, 22, 21, mid);
   const { motif, mark } = CARD_ART[card];
-  if (MOTIF_ROWS[motif]) paint(ctx, MOTIF_ROWS[motif], CARD_PALETTE, 5, 4);
-  else paint(ctx, SPRITES[motif] ?? [], PALETTE, 5, 4);
-  if (mark) {
-    disc(ctx, 15, 15, 24, 24, CARD_PALETTE.k);
-    disc(ctx, 16, 16, 23, 23, dark);
-    paint(ctx, MARK_ROWS[mark], CARD_PALETTE, 16, 16);
-  }
+  paintMotif(ctx, motif, 5, 4);
+  if (mark) paintMark(ctx, mark, dark, 15);
   // Gear cards: rivets in the frame's corners.
   if (cardSource(card) !== 'class') {
     ctx.fillStyle = '#1a1612';
@@ -74,6 +82,41 @@ export function cardArtUrl(card: CardId, cls: ClassId | null): string {
     ctx.fillStyle = '#e8e2d4';
     for (const [x, y] of [[0, 0], [25, 0], [0, 25], [25, 25]]) ctx.fillRect(x, y, 1, 1);
   }
+  url = cv.toDataURL();
+  urls.set(key, url);
+  return url;
+}
+
+/** A field ability medallion's rim: bronze, lit from the top left. */
+const RIM = { light: '#e0b860', mid: '#b8883a', dark: '#6e4c1c' };
+
+/**
+ * A field ability's picture as a data URL (cached), the same size as a card's but round (user, 2026-10-15): a bronze
+ * medallion with a notched rim, its school's tint inside, the motif and its mark. Corners are left clear, so at a
+ * glance it reads as a coin, never a card.
+ */
+export function fieldArtUrl(skill: FieldSkill): string {
+  const key = `field|${skill}`;
+  let url = urls.get(key);
+  if (url) return url;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = CARD_ART_SIZE;
+  const ctx = cv.getContext('2d')!;
+  const { motif, mark, school } = FIELD_ART[skill];
+  const [dark, mid] = SCHOOLS[school].tint;
+  const last = CARD_ART_SIZE - 1;
+  disc(ctx, 0, 0, last, last, CARD_PALETTE.k);
+  disc(ctx, 1, 1, last - 1, last - 1, RIM.dark);
+  disc(ctx, 1, 1, last - 2, last - 2, RIM.light);
+  disc(ctx, 2, 2, last - 2, last - 2, RIM.mid);
+  // Notches struck into the rim, like a coin's edge.
+  ctx.fillStyle = RIM.dark;
+  for (const [x, y] of [[12, 1], [13, 1], [1, 12], [1, 13], [24, 12], [24, 13], [12, 24], [13, 24], [4, 4], [21, 4], [4, 21], [21, 21]]) ctx.fillRect(x, y, 1, 1);
+  disc(ctx, 3, 3, last - 3, last - 3, CARD_PALETTE.k);
+  disc(ctx, 4, 4, last - 4, last - 4, dark);
+  disc(ctx, 6, 6, last - 6, last - 6, mid);
+  paintMotif(ctx, motif, 5, 5);
+  if (mark) paintMark(ctx, mark, dark, 13);
   url = cv.toDataURL();
   urls.set(key, url);
   return url;
