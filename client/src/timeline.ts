@@ -1,15 +1,12 @@
-import { ITEMS, LEGENDS, TIMELINE_TURNS, type CombatUnitView, type EncounterView, type TimelineTurnView } from '@stcp/shared';
+import { ABILITIES, ITEMS, TIMELINE_TURNS, type CombatUnitView, type EncounterView, type TimelineTurnView } from '@stcp/shared';
 import { spriteUrl } from './render/sprites';
+import { abilityArtUrl } from './render/ability-art';
 import { icon } from './icons';
 
 /** How long a turn takes to slide to its new place on the strip when the order changes: quick, but you see it go. */
 const SLIDE_MS = 240;
 /** How long a turn that changed places (not just moved up a slot) stays lit, so you can tell what your pick did. */
 const LIT_MS = 700;
-
-function esc(s: string) {
-  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
 
 /** A unit's sprite: a hero in their colour, a Risen ally as its class in the colour of the dead, a monster as itself. */
 export function unitSprite(u: CombatUnitView, grey = false): string {
@@ -152,19 +149,20 @@ export class TimelineStrip {
     const target = t.target ? units.get(t.target) : undefined;
     const move = t.stunned ? 'stunned: skips this turn' : t.label ? `${t.auto ? 'default: ' : ''}${t.label}${target ? ` → ${t.target === t.id ? 'self' : target.name}` : ''}` : '';
     m.el.title = `${name}${move ? `: ${move}` : ''}${t.maybe ? ' (only if the dice go a certain way)' : ''}`;
-    const badge = t.stunned ? icon('stun', 'Stunned: skips this turn') : this.badge(t);
+    const badge = t.stunned ? icon('stun', 'Stunned: skips this turn') : this.badge(t, u);
     m.el.innerHTML = `<img src="${u ? unitSprite(u) : ''}" alt="" draggable="false">${badge ? `<span class="tl-move">${badge}</span>` : ''}${t.maybe ? '<span class="tl-maybe">?</span>' : ''}<span class="tl-in"></span>`;
   }
 
-  /** What a hero's turn will be, small: the key it's on (1–3, Q), an icon for Revive/Flee/Brace, an item's glyph. */
-  private badge(t: TimelineTurnView): string {
+  /** What a hero's turn will be, small: the ability's picture, an icon for Revive/Flee/Brace, an item's glyph. */
+  private badge(t: TimelineTurnView, u: CombatUnitView | undefined): string {
     const c = t.choice;
     if (!c) return '';
+    const cls = u?.cls ?? null;
     switch (c.action) {
-      case 'a0': return '1';
-      case 'a1': return '2';
-      case 'a2': return '3';
-      case 'legend': return c.legend ? esc(LEGENDS[c.legend].name[0]) : 'Q';
+      case 'a0':
+      case 'a1':
+      case 'a2': return cls ? `<img class="tl-art" src="${abilityArtUrl(ABILITIES[cls][Number(c.action[1])].id, cls)}" alt="">` : c.action[1];
+      case 'legend': return c.legend ? `<img class="tl-art" src="${abilityArtUrl(c.legend, cls)}" alt="">` : 'Q';
       case 'item': return t.item ? ITEMS[t.item].glyph : '•';
       default: return icon(c.action, t.label ?? c.action);
     }

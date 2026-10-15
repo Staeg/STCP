@@ -279,7 +279,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .class-name { font-size: 1.45em; line-height: 1; color: var(--cls); }
 .blurb { margin-top: 0.35em; }
 .class-abilities { list-style: none; margin: 0.4em 0 0; padding: 0; font-size: 0.85em; line-height: 1.15; }
-.class-abilities li { margin-top: 0.4em; }
+.class-abilities li { margin-top: 0.4em; overflow: hidden; }
+.class-abilities .ab-art { width: 26px; height: 26px; image-rendering: pixelated; float: left; margin: 1px 6px 0 0; }
 .class-focus.scroll .class-card { overflow: auto; }
 .lb-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
 .lb-panel { border: 1px solid #2a2018; padding: 6px 10px; font-size: 19px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -346,6 +347,8 @@ button.quiet { margin-left: auto; background: transparent; }
 .tl-turn .tl-in { font-size: 12px; color: var(--muted); line-height: 1.2; }
 .tl-turn.first .tl-in { color: var(--text); }
 .tl-move { position: absolute; top: 0; left: calc(50% + 12px); min-width: 17px; height: 17px; padding: 0 2px; font-size: 13px; line-height: 15px; text-align: center; color: #000; background: var(--c); border: 1px solid #000; }
+.tl-move .tl-art { width: 17px; height: 17px; display: block; image-rendering: pixelated; }
+.tl-move:has(.tl-art) { padding: 0; width: 19px; height: 19px; background: #000; }
 .tl-move .ic svg { width: 13px; height: 13px; vertical-align: -2px; }
 /* Not picked yet: what they'll fall back on, dashed. */
 .tl-turn.auto .tl-move { background: #1e1712; color: var(--c); border: 1px dashed var(--c); }
@@ -893,3 +896,17 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 }
 .cx-twist { display: flex; gap: 6px; align-items: center; margin-top: 4px; padding: 2px 4px; border-left: 3px solid var(--cls); font-size: 15px; }
 .cx-twist img { width: 24px; height: 24px; image-rendering: pixelated; }
+
+/* Ability pictures (user, 2026-10-15), as on the beta's cards: class abilities framed in the class colour, Legendary
+   ones in Legendary orange with a double (riveted) edge, and the field-only Toll a round bronze medallion. */
+.ab-art { image-rendering: pixelated; }
+.cb-act .ab-art { width: 26px; height: 26px; vertical-align: middle; margin: -3px 4px 0 0; }
+#combat.idle .cb-act .ab-art { width: 22px; height: 22px; }
+.cb-act.mini .ab-art { width: 20px; height: 20px; }
+#combat .cb-act.ab-btn.from-class { border: 2px solid var(--frame); }
+#combat .cb-act.ab-btn.from-legend { border: 3px double var(--frame); }
+#combat .cb-act.ab-btn.from-field { border: 2px solid var(--frame); border-radius: 16px; }
+/* Out of a fight only the bright ones work now, so the rest keep their frame but dimmed. */
+#combat.idle .cb-act.ab-btn:not(.live), #combat .cb-act.ab-btn.cooling { border-color: color-mix(in srgb, var(--frame) 40%, #1a1612); }
+#combat.idle .cb-act.ab-btn:not(.live) .ab-art, #combat .cb-act.ab-btn.cooling .ab-art, #combat .cb-act.ab-btn:disabled .ab-art { opacity: 0.55; }
+#combat .cb-act.ab-btn.sel, #combat.idle .cb-act.ab-btn.pinned, #combat.idle .cb-act.ab-btn.live:not(.cooling):hover { border-color: var(--gold); }

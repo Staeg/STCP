@@ -131,3 +131,64 @@ export function abilityById(id: string): AbilityDef | undefined {
   }
   return undefined;
 }
+
+/**
+ * Ability picture backgrounds (the beta's card schools' tints): dark, then the lighter disc behind the motif, by the
+ * kind of effect.
+ */
+export const ART_TINTS = {
+  strike: ['#3a1614', '#6a2a24'],
+  guard: ['#16243a', '#2c4a6e'],
+  hinder: ['#3a2c10', '#6a5222'],
+  hasten: ['#0e2e36', '#1e5a68'],
+  venom: ['#16300f', '#2e5a22'],
+  mend: ['#1a3422', '#356446'],
+  conjure: ['#2a1636', '#6a4486'],
+  hex: ['#36122c', '#642452'],
+  light: ['#363010', '#68591e'],
+} as const satisfies Record<string, readonly [string, string]>;
+
+export type ArtTint = keyof typeof ART_TINTS;
+
+const art = (motif: string, tint: ArtTint, mark?: string) => ({ motif, tint, ...(mark ? { mark } : {}) });
+
+/**
+ * Ability pictures (user, 2026-10-15), as on the beta's cards: a 16×16 motif for the main effect and an 8×8 mark for
+ * the second (parts in `client/src/render/card-art-data.ts`, drawn by `tools/card_art.py`), on a tint by the kind of
+ * effect. Class abilities, the Toll and Legendary abilities (by `LegendId`); Talents keep an ability's picture.
+ */
+export const ABILITY_ART: Record<string, { motif: string; mark?: string; tint: ArtTint }> = {
+  bash: art('shield', 'strike', 'hourglass'),
+  vengeance: art('spikes', 'guard', 'back'),
+  rally: art('shield', 'guard', 'swirl'),
+  backstab: art('dagger', 'strike', 'back'),
+  cheap: art('stun', 'hinder', 'sword'),
+  smoke: art('smoke', 'guard'),
+  flare: art('flame', 'light', 'sun'),
+  vigil: art('lamp', 'light', 'swirl'),
+  mend: art('heal', 'mend', 'sun'),
+  hex: art('eye', 'hex', 'sword'),
+  pact: art('blood', 'hex', 'sword'),
+  wither: art('wilt', 'hex'),
+  spade: art('spade', 'strike'),
+  rites: art('skull', 'strike', 'sword'),
+  raise: art('grave', 'conjure'),
+  clang: art('bell', 'strike', 'hourglass'),
+  knell: art('bell', 'strike', 'skull'),
+  peal: art('bell', 'hasten', 'wing'),
+  scourge: art('whip', 'strike'),
+  absolution: art('swirl', 'light', 'sword'),
+  sins: art('hand', 'light', 'swirl'),
+  acid: art('flask', 'venom', 'venom'),
+  fumes: art('venom', 'venom'),
+  elixir: art('flask', 'mend', 'star'),
+  toll: art('waves', 'hinder', 'eye'),
+  promise: art('skull', 'strike'),
+  quake: art('crack', 'strike', 'star'),
+  unmake: art('void', 'hex'),
+  redeem: art('heal', 'mend', 'swirl'),
+  bastion: art('gate', 'guard'),
+  forgive: art('grave', 'mend', 'heal'),
+  howl: art('wolf', 'conjure'),
+  waystep: art('door', 'hasten'),
+};

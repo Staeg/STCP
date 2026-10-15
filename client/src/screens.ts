@@ -10,6 +10,7 @@ import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleRite, villageHtml }
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
+import { abilityArtUrl } from './render/ability-art';
 import { cooldownIcon, icon, iconize, iconNum, talentStars } from './icons';
 
 declare const __BUILD__: string;
@@ -388,7 +389,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     </div>
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
-    <ul class="class-abilities">${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab, i) => `<li><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
+    <ul class="class-abilities">${abilitiesFor(id, ch ? talentsOf(ch) : []).map((ab, i) => `<li><img class="ab-art" src="${abilityArtUrl(ab.id, id)}" alt=""><b>${i + 1}. ${esc(ab.name)}</b>${ab.cooldown ? ` ${cooldownIcon(ab.cooldown)}` : ''}${ab.field ? ` ${icon('field')}` : ''}<br>${iconize(ab.desc)}</li>`).join('')}</ul>
   </div>`;
 }
 

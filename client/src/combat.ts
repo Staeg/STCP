@@ -1,9 +1,10 @@
 import {
   abilitiesOf, FLEE_CHANCE, INSANITY, INSANITY_RULES, LEGENDS, legendsOf, STRESS, fieldSkillsOf, fmtSpeed, HOTKEY_ITEMS, ITEMS, readyAbilities,
-  skillInfo, skillTarget, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type LegendId, type PlayerView,
+  skillInfo, skillTarget, type ClassId, type CombatAction, type CombatEvent, type CombatUnitView, type EncounterView, type FieldSkill, type LegendId, type PlayerView,
 } from '@stcp/shared';
 import type { Net } from './net';
 import { TimelineStrip, unitSprite } from './timeline';
+import { abilityArtUrl, abilityFrame, abilityFrameColor } from './render/ability-art';
 import { juice } from './juice';
 import { itemName, useFromField } from './loot';
 import { cooldownIcon, icon, iconize, iconNum, type IconId } from './icons';
@@ -266,10 +267,10 @@ export class CombatUi {
     const chosen = enc?.yourChoice ?? null;
     const off = (disabled: boolean) => (!disabled ? '' : enc ? 'disabled' : 'aria-disabled="true"');
     /** `desc` is HTML. Revive, Flee and Brace are just an icon (`body`), their name in the description. */
-    const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false, body?: IconId) => {
+    const btn = (action: CombatAction, key: string, label: string, desc: string, cd = 0, disabled = false, body?: IconId, art?: string) => {
       const sel = chosen?.action === action || this.targeting === action;
-      return `<button class="cb-act ${body ? 'mini' : ''} ${sel ? 'sel' : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
-        <kbd>${key}</kbd> ${body ? icon(body, label) : esc(label)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      return `<button class="cb-act ${body ? 'mini' : ''} ${sel ? 'sel' : ''} ${art ? artFrame(art, you.cls) : ''}" data-action="${action}" ${off(!canAct || cd > 0 || disabled)}>
+        <kbd>${key}</kbd> ${art ? artImg(art, you.cls) : ''}${body ? icon(body, label) : esc(label)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
         <div class="cb-desc">${body ? `<b>${esc(label)}</b>: ` : ''}${desc}</div></button>`;
     };
     const anyDowned = !!enc?.heroes.some((h) => h.downed);
@@ -283,7 +284,7 @@ export class CombatUi {
       // The cooldown already says why; otherwise explain what's stopping it.
       const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
       const extra = ab.id === 'spade' && you.spadeBonus ? ` Now ${ab.power + you.spadeBonus} dmg.` : '';
-      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc + extra, ab.cooldown, !!ab.field) + why, cd, blocked);
+      return btn(action, String(i + 1), ab.name, abilityDesc(ab.desc + extra, ab.cooldown, !!ab.field) + why, cd, blocked, undefined, ab.id);
     };
     const actions = `<div class="cb-actions">
       ${enc ? abilities.map((_, i) => ability(i)).join('') : abilities.map((ab, i) => (ab.field ? this.fieldBtn(view, ab.id as FieldSkill, String(i + 1)) : ability(i))).join('')}
@@ -322,8 +323,8 @@ export class CombatUi {
       const blocked = !canAct || cd > 0 || !!opt?.blocked;
       const sel = (enc.yourChoice?.action === 'legend' && enc.yourChoice.legend === l) || (this.aim?.legend && this.aim.skill === l);
       const why = opt?.blocked && cd === 0 ? ` Not now: ${esc(opt.blocked)}` : '';
-      out.push(`<button class="cb-act legend ${sel ? 'sel' : ''}" data-legend="${l}" ${blocked ? 'disabled' : ''}>
-        <kbd>${key}</kbd> ${esc(def.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+      out.push(`<button class="cb-act legend ${sel ? 'sel' : ''} ${artFrame(l, you.cls)}" data-legend="${l}" ${blocked ? 'disabled' : ''}>
+        <kbd>${key}</kbd> ${artImg(l, you.cls)}${esc(def.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
         <div class="cb-desc">${iconize(def.desc)} ${cooldownIcon(def.cooldown)}${def.field ? ` ${icon('field')}` : ''}${why}</div></button>`);
     }
     return out.join('');
@@ -331,9 +332,10 @@ export class CombatUi {
 
   /** An action that can't be used here (in a fight, or out of one): greyed, its description on hover or click. */
   private greyBtn(pin: string, key: string, name: string, desc: string, cd: number, legend = false, fight = false): string {
-    // In a fight it's just its key and name (what it does on hover), so the usable ones keep the room.
-    return `<button class="cb-act ${legend ? 'legend' : ''} ${fight ? 'mini' : ''}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
-      <kbd>${key}</kbd> ${esc(name)}${cd > 0 && !fight ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
+    // In a fight it's just its key, picture and name (what it does on hover), so the usable ones keep the room.
+    // Only the Toll and Legendary abilities come here, and their frames don't depend on the class.
+    return `<button class="cb-act ${legend ? 'legend' : ''} ${fight ? 'mini' : ''} ${artFrame(pin, null)}" data-pin="${pin}" ${fight ? 'disabled' : 'aria-disabled="true"'}>
+      <kbd>${key}</kbd> ${artImg(pin, null)}${esc(name)}${cd > 0 && !fight ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}
       <div class="cb-desc"><b>${esc(name)}</b>: ${desc}</div></button>`;
   }
 
@@ -354,8 +356,8 @@ export class CombatUi {
     const rung = skill === 'toll' && you.tolled;
     const free = you.pos.kind === 'room' && you.downedAt === null && !you.dead && !rung;
     const inFights = legend ? LEGENDS[skill as LegendId].combat : !!ab;
-    return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''}" data-skill="${skill}">
-      <kbd>${key}</kbd> ${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}${rung ? ' <span class="cd">rung</span>' : ''}
+    return `<button class="cb-act live ${legend ? 'legend' : ''} ${queued || aiming ? 'sel' : ''} ${cd > 0 || !free ? 'cooling' : ''} ${artFrame(skill, you.cls)}" data-skill="${skill}">
+      <kbd>${key}</kbd> ${artImg(skill, you.cls)}${esc(info.name)}${cd > 0 ? ` <span class="cd">${cooldownIcon(0, cd)}</span>` : ''}${rung ? ' <span class="cd">rung</span>' : ''}
       <div class="cb-desc">${queued ? '✔ when your timer runs out. ' : ''}${iconize(info.desc)}${cooldown ? ` ${cooldownIcon(cooldown)}` : ''}${inFights ? ` ${icon('field')}` : ' Only out of a fight.'}</div></button>`;
   }
 
@@ -697,6 +699,16 @@ export class CombatUi {
 
 /** Your Legendary's ability (you can wear only one) is on this key. */
 const LEGEND_KEY = 'Q';
+
+/** An ability's picture, for the front of its button. */
+function artImg(id: string, cls: ClassId | null): string {
+  return `<img class="ab-art" src="${abilityArtUrl(id, cls)}" alt="">`;
+}
+
+/** An ability button's frame (classes and the --frame colour): class colour, Legendary riveted, or a round field-only one. */
+function artFrame(id: string, cls: ClassId | null): string {
+  return `ab-btn from-${abilityFrame(id)}" style="--frame:${abilityFrameColor(id, cls)}`;
+}
 
 /** Ability text (HTML) with icons for its cooldown and whether it works outside fights. */
 function abilityDesc(desc: string, cooldown: number, field: boolean): string {
