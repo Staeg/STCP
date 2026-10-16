@@ -134,7 +134,7 @@ describe("Smith's Anvil", () => {
     equip(h, 'weapon', 'dirk');
     equip(h, 'armor', 'drakehide'); // a Rare: not offered
     const v = buildView(world, 'h').event!;
-    expect(v.choices.map((c) => c.id)).toEqual(['forge-weapon']);
+    expect(v.choices.map((c) => c.id)).toEqual(['forge-weapon', 'temper']);
     expect(v.choices[0].label).toMatch(/Rusty Dirk into a Skinning Knife/);
     choose(world, 'h', 'forge-weapon');
     run(world, MORE_EVENTS.anvilTime + 0.5);

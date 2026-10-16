@@ -47,50 +47,70 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
         mem.channelling = room;
         return pick('channel');
       }
-      return undefined;
+      // The greedy sometimes take the gold and let everyone else pay for it.
+      return mem.greed > 0.6 && rng.chance(0.3) ? work('desecrate') : undefined;
     case 'vault':
       if (timeLeft > 30 && rng.chance(0.5)) {
         mem.channelling = room;
         return pick('channel');
       }
-      return undefined;
+      // In a hurry: smash it.
+      return timeLeft > 10 && healthy && rng.chance(0.3) ? work('smash') : undefined;
     case 'idol':
-      return you.cls === 'cutthroat' || mem.greed > 0.5 ? pick('take') : undefined;
+      if (you.cls === 'cutthroat') return pick('take');
+      if (mem.greed <= 0.5) return undefined;
+      // Careful ones give up something from the pack rather than risk the way back.
+      return (timeLeft > 30 && rng.chance(0.4) ? work('swap') : undefined) ?? pick('take');
     case 'stranger':
-      return you.cls === 'lampbearer' || (healthy && rng.chance(0.35)) ? pick('help') : undefined;
+      if (you.cls === 'lampbearer' || (healthy && rng.chance(0.35))) return pick('help');
+      return mem.greed > 0.6 && rng.chance(0.3) ? pick('search') : undefined;
     case 'well':
       if (you.cls === 'zealot') return you.hp < you.maxHp ? pick('drink') : undefined;
-      return you.stress > 40 || rng.chance(0.3) ? pick('drink') : undefined;
+      if (you.stress > 40 || rng.chance(0.3)) return pick('drink');
+      return rng.chance(0.3) ? pick('wish') : undefined;
     case 'chest':
-      return you.cls === 'undertaker' || (healthy && you.stress < 40 && rng.chance(0.6)) ? pick('open') : undefined;
+      if (you.cls === 'undertaker') return pick('open');
+      // With time to spare, unbind it; otherwise open it if the mind can take it.
+      if (timeLeft > 60 && rng.chance(0.4)) return work('unbind');
+      return healthy && you.stress < 40 && rng.chance(0.6) ? pick('open') : undefined;
     case 'crawlspace':
-      return view.time >= mem.returnAt && you.hp > 20 && you.items.includes('torch') ? pick('crawl') : undefined;
+      if (view.time >= mem.returnAt && you.hp > 20 && you.items.includes('torch')) return pick('crawl');
+      // Early and healthy, the greedy crawl after hidden loot.
+      return timeLeft > 120 && healthy && mem.greed > 0.6 && rng.chance(0.3) ? pick('crawl-secret') : undefined;
     case 'quicksilver':
-      return you.cls === 'alchemist' || (healthy && rng.chance(0.5)) ? pick('quaff') : undefined;
+      if (you.cls === 'alchemist' || (healthy && rng.chance(0.5))) return pick('quaff');
+      return rng.chance(0.4) ? pick('bottle') : undefined;
     case 'satchel':
-      // Greedy bots take the money; it's heavy, so mostly early, while there's time to carry it.
-      return mem.greed > 0.45 && timeLeft > 60 ? pick('haul') : undefined;
+      // Greedy bots take the money; it's heavy, so mostly early, while there's time to carry it. Late, a handful.
+      if (mem.greed > 0.45 && timeLeft > 60) return pick('haul');
+      return mem.greed > 0.3 ? pick('pocket') : undefined;
     case 'hourglass':
-      // Better with company: wait for nobody, but always turn it when someone else is here.
-      return view.allies.some((a) => a.live && a.pos.kind === 'room' && a.pos.room === room) || rng.chance(0.6) ? pick('turn') : undefined;
+      // Better with company: wait for nobody, but always turn it when someone else is here. Alone, sometimes smash it.
+      if (view.allies.some((a) => a.live && a.pos.kind === 'room' && a.pos.room === room)) return pick('turn');
+      return rng.chance(0.6) ? pick(rng.chance(0.5) ? 'shatter' : 'turn') : undefined;
     case 'clockwork':
-      return timeLeft > 120 && rng.chance(0.5) ? pick('wind') : undefined;
+      if (timeLeft > 120 && rng.chance(0.5)) return work('wind');
+      return timeLeft > 60 && rng.chance(0.3) ? work('overwind') : undefined;
     case 'coffin': {
       // Only with someone standing by to get them up again.
       const company = view.allies.some((a) => a.live && !a.downed && a.pos.kind === 'room' && a.pos.room === room);
-      return company && you.stress >= 35 && rng.chance(0.6) ? pick('lie') : undefined;
+      if (company && you.stress >= 35 && rng.chance(0.6)) return pick('lie');
+      return you.stress < 40 && rng.chance(0.3) ? pick('lining') : undefined;
     }
     case 'anvil': {
       const forge = ev.choices.find((c) => c.id.startsWith('forge-') && !c.disabled);
-      return forge && timeLeft > 30 && rng.chance(0.7) ? work(forge.id) : undefined;
+      if (forge && timeLeft > 30 && rng.chance(0.7)) return work(forge.id);
+      return timeLeft > 15 && rng.chance(0.5) ? work('temper') : undefined;
     }
     case 'loom':
-      return pick('weave');
+      return pick('weave') ?? (rng.chance(0.15) ? work('unravel') : undefined);
     case 'scrying':
-      return rng.chance(0.5) ? pick('gaze') : undefined;
+      if (rng.chance(0.5)) return pick('gaze');
+      return rng.chance(0.4) ? pick('deep') : undefined;
     case 'crowned':
-      // Only the greediest, early on and in good shape, dare wake him.
-      return mem.greed > 0.7 && timeLeft > 150 && healthy && rng.chance(0.3) ? pick('rouse') : undefined;
+      // Only the greediest, early on and in good shape, dare wake him; the merely greedy pry at the throne.
+      if (mem.greed > 0.7 && timeLeft > 150 && healthy && rng.chance(0.3)) return pick('rouse');
+      return mem.greed > 0.5 && healthy && rng.chance(0.2) ? pick('pry') : undefined;
     // ---- Elite Events (only their own class gets choices; the rest see it veiled) ----
     case 'wanderers':
     case 'uprising':
@@ -138,7 +158,16 @@ function botLocks(view: PlayerView, mem: BotMemory, room: number): Intent | unde
     return turn;
   }
   const company = view.allies.some((a) => a.live && !a.downed && a.pos.kind === 'room' && a.pos.room === room);
-  if (!company || mem.decided.includes(room)) return undefined;
+  if (mem.decided.includes(room)) return undefined;
+  if (!company) {
+    // Alone: now and then, force a wheel for the gold.
+    mem.decided.push(room);
+    const force = ev.choices.find((x) => x.id === 'force');
+    if (!force || force.disabled || mem.returnAt - view.time < 45 || !mem.rng.chance(0.3)) return undefined;
+    mem.channelling = room;
+    return { type: 'event', choice: 'force' };
+  }
+
   mem.decided.push(room);
   if (!mem.rng.chance(0.5)) return undefined;
   mem.locksUntil = view.time + BOTS.locksWait;

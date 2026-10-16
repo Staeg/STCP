@@ -159,15 +159,16 @@ export function makePack(world: World, monsters: Monster[], room: number, goal: 
 /**
  * A bell rang in `room`: every monster in the dungeon not fighting, with no heroes beside it and not already on the
  * move, heads one room closer to it by open tunnels (user, 2026-10-12; was only the rooms next to it). The Toll's
- * daze (`dazeAll`, after this) holds them where they are first.
+ * daze (`dazeAll`, after this) holds them where they are first. `within`: only monsters that many hops away or nearer
+ * (a smashed Vault is heard next door, not across the dungeon).
  */
-export function lureToward(world: World, room: number) {
+export function lureToward(world: World, room: number, within = Infinity) {
   const d = world.dungeon;
   const hops = hopsFrom(world, room, true);
   const rooms = new Set(Object.values(world.monsters).map((m) => m.room));
   for (const from of rooms) {
     const dist = hops.get(from);
-    if (from < 0 || !dist || world.encounters[from] || occupied(world, from)) continue;
+    if (from < 0 || !dist || dist > within || world.encounters[from] || occupied(world, from)) continue;
     const steps = d.rooms[from].corridors
       .filter((cid) => !world.collapsed.includes(cid))
       .map((cid) => otherEnd(d.corridors[cid], from))

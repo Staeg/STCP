@@ -52,6 +52,16 @@ export function beep(kind: 'escalate' | 'alarm' | SoundCue) {
         // The bots are left to the dark: three falling notes, the last one dying away.
         [196, 165, 110].forEach((f, i) => tone(f, i * 0.3, i === 2 ? 1.2 : 0.28, { vol: 0.05, lp: 900 }));
         break;
+      case 'desecrate':
+        // Far-off laughter: a low, wobbling cackle that falls away.
+        [233, 220, 208, 196, 185].forEach((f, i) => tone(f, i * 0.14, 0.12, { type: 'sawtooth', vol: 0.035, lp: 1200 }));
+        tone(98, 0, 1.4, { type: 'sine', vol: 0.06, to: 73 });
+        break;
+      case 'weave':
+        // A shuttle running through a loom: soft rising clicks over a hum.
+        [523, 587, 659, 784].forEach((f, i) => tone(f, i * 0.12, 0.08, { type: 'triangle', vol: 0.04 }));
+        tone(262, 0, 1.0, { type: 'sine', vol: 0.03, attack: 0.3 });
+        break;
       case 'king':
         // A funeral march: a dark, beating drone swells under four heavy strikes, a tritone creeps in beneath them,
         // and it all sinks into a long falling groan.

@@ -431,7 +431,7 @@ function eventView(world: World, you: Hero): EventView | null {
       }
     : null;
   // Twin Locks: one hero waiting on a wheel is an open invitation; two are turning it together.
-  if (worker && ev?.kind === 'locks') {
+  if (worker && ev?.kind === 'locks' && ch?.kind === 'event' && ch.choice === 'wheel') {
     const other = ev.with ? world.heroes[ev.with] : undefined;
     worker.doing = other ? `turning the wheels with ${other === you ? 'you' : other.name}` : 'holding one wheel, waiting for a second pair of hands';
     if (!other) worker.secondsLeft = null;

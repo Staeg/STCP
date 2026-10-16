@@ -8,7 +8,7 @@ import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, STAFF, isGear, type ItemId } from '../content/items';
 import { chargesForFight, clothReady, leftRoom, spendCloth, buffLength, cooldownFor, debuffCopies, debuffTurns, healBy, markWitchwood, reliefBy, staffOf, ward, witchwoodMult } from './gear';
 import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
-import { ELITE_EVENTS, STRESS } from '../content/events';
+import { ELITE_EVENTS, EVENT_CHOICES, STRESS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { notify } from './notify';
@@ -327,7 +327,7 @@ export function stressCap(h: Pick<Hero, 'elite'>): number {
 
 /** Weapon bonus (and the Zealot's stress, and Everflame): multiplies every bit of damage this hero deals. */
 export function damageMult(h: Hero, world?: World): number {
-  const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
+  const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0) + (h.tempered && h.weapon ? EVENT_CHOICES.temperPct : 0);
   const zeal = h.cls === 'zealot' ? 1 + h.stress * CLASS_RULES.zealotDmgPerStress : 1;
   return weapon * zeal * everflame(h, world) * riteMult(h);
 }

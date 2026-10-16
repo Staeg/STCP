@@ -1,5 +1,5 @@
 export type ItemId =
-  | 'bandage' | 'torch' | 'tonic' | 'firebomb' | 'salts'
+  | 'bandage' | 'torch' | 'tonic' | 'firebomb' | 'salts' | 'flask'
   | 'locket' | 'ward' | 'ember' | 'harefoot' | 'fever'
   | 'catseye' | 'bloodstone' | 'thorns' | 'quickblood' | 'ashen'
   | 'effigy' | 'gem' | 'tome' | 'relic'
@@ -176,6 +176,8 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   torch: { id: 'torch', name: 'Torch', kind: 'consumable', glyph: '🔥', desc: '+50 light.', target: 'self', combat: true, field: true },
   tonic: { id: 'tonic', name: 'Tonic', kind: 'consumable', glyph: '⚗', desc: '−17 stress.', target: 'self', combat: true, field: true },
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },
+  // Only from the Quicksilver Pool (user, 2026-10-16): never in the loot table.
+  flask: { id: 'flask', name: 'Quicksilver Flask', kind: 'consumable', glyph: '☿', desc: '−1s Speed for 60s.', target: 'self', combat: true, field: true },
   salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed ally at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
   // Amulets and rings: blessed ones only help; cursed ones hurt you but quicken your step.
   locket: jewel('locket', 'amulet', 'Iron Locket', '♡', '+20 max HP.', { maxHp: 20 }),
