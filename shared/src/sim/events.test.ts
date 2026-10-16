@@ -36,7 +36,7 @@ describe('room events', () => {
     step(world, 0.1);
     const v = buildView(world, 'h');
     expect(v.event?.kind).toBe('well');
-    expect(v.event?.choices.map((c) => c.id)).toEqual(['drink']);
+    expect(v.event?.choices.map((c) => c.id)).toEqual(['drink', 'wish']);
     expect(v.rooms.find((r) => r.id === world.dungeon.entrance)?.event).toBe('well');
   });
 
@@ -87,9 +87,8 @@ describe('room events', () => {
     expect(ambushed || rewarded).toBe(true);
   });
 
-  it('crawlspace from Escalation 5 moves you toward the exit for a price', () => {
+  it('crawlspace: toward the exit for a price, whatever the Escalation', () => {
     const { world, h, d } = withEvent('crawlspace');
-    world.escalation = 5;
     // Move the crawlspace (and the hero) somewhere deep: the exit is where everyone starts.
     const dist = hopDistances(d, d.exit);
     const far = dist.indexOf(Math.max(...dist.filter(Number.isFinite))); // (sealed secret rooms are at Infinity)
@@ -104,11 +103,11 @@ describe('room events', () => {
     expect(h.light).toBeLessThan(25);
   });
 
-  it('crawlspace before Escalation 5 breaks into a secret room you have not seen, guards and all', () => {
+  it('crawlspace: or into a secret room you have not seen, guards and all, however early', () => {
     const { world, h, d } = withEvent('crawlspace');
     expect(d.secrets.every((s) => !s.open)).toBe(true);
     const hp = h.hp;
-    choose(world, 'h', 'crawl');
+    choose(world, 'h', 'crawl-secret');
     run(world, 6.1);
     const s = d.secrets.find((x) => h.pos.kind === 'room' && x.room === h.pos.room);
     expect(s?.open).toBe(true);
@@ -162,7 +161,8 @@ describe('room events', () => {
     run(world, 6.5); // 20 ÷ Speed 3: the quick fumble it
     expect(speedOf(h, world.time)).toBe(3);
     run(world, 0.3);
-    expect(speedOf(h, world.time)).toBe(2.5);
+    expect(speedOf(h, world.time)).toBe(2);
+
     h.speedMods.push({ amount: -3, until: null, label: 'test' });
     expect(speedOf(h, world.time)).toBe(2);
   });

@@ -215,8 +215,8 @@ export const SPEED_EVENTS = {
   /** Hourglass: everyone in the room is faster for a while. */
   hourglassSpeed: -1.5,
   hourglassDuration: 90,
-  /** Clockwork Shrine: a long wind for a small, lasting edge. Winding takes this ÷ your Speed seconds: the quick fumble it. */
-  clockworkSpeed: -0.5,
+  /** Clockwork Shrine: a long wind for a lasting edge (user, 2026-10-16; was −0.5). Winding takes this ÷ your Speed seconds: the quick fumble it. */
+  clockworkSpeed: -1,
   clockworkWork: 20,
 };
 
@@ -279,8 +279,73 @@ export const CLASS_EVENTS = {
   wardenEscortSpeed: -1.5,
 };
 
+/**
+ * Every event's second choice (user, 2026-10-16): numbers for the "B" side. The first choice is what the event always
+ * did; the second is a different trade, usually quicker.
+ */
+export const EVENT_CHOICES = {
+  /** Defiled Altar, Desecrate: gold now, and every hero in the dungeon loses light. */
+  desecrateTime: 4,
+  desecrateGold: 60,
+  desecrateLight: 5,
+  /** Glittering Idol: lay a pack item on the plate in its place. */
+  swapTime: 12,
+  /** Wounded Stranger: search them instead (a sure consumable; they die, and your lamp gutters). */
+  searchTime: 2,
+  searchLight: 10,
+  /** Whispering Well: toss in a coin for a wish (a quality-3 find from the water). */
+  wishGold: 25,
+  wishTime: 3,
+  /** Locked Vault: smash it open (the packs next door come closer; one item fewer). */
+  smashTime: 5,
+  /** Cursed Chest: unbind it carefully (no curse). */
+  unbindTime: 20,
+  /** Quicksilver Pool: bottle it, for a Quicksilver Flask. */
+  bottleTime: 3,
+  /** The Quicksilver Flask it gives: a short haste. */
+  flaskSpeed: -1,
+  flaskSecs: 60,
+  /** Courier's Satchel: pocket a handful instead of the whole thing. */
+  pocketTime: 4,
+  pocketGold: 50,
+  /** Cracked Hourglass: smash it, for a small haste of your own that lasts the run. */
+  shatterTime: 3,
+  shatterSpeed: -0.5,
+  /** Clockwork Shrine: overwind it in half the time; it either holds (a bigger edge) or jams (slower for a while). */
+  overwindSpeed: -1.5,
+  overwindChance: 0.5,
+  jamSpeed: 1,
+  jamSecs: 60,
+  /** Twin Locks: force one wheel alone (the gold only). */
+  forceTime: 25,
+  /** Open Coffin: search the lining (a random amulet or ring), and your lamp gutters. */
+  liningTime: 3,
+  liningLight: 10,
+  /** Smith's Anvil: a quick temper, for this run only. */
+  temperTime: 6,
+  temperPct: 0.15,
+  /** The Loom: unravel a worn Cloth piece; it hurts, and the Loom weaves for every hero in the dungeon. */
+  unravelTime: 6,
+  unravelDamage: 10,
+  /** Scrying Pool: look for the way instead (every monster in the dungeon, and the way to the exit). */
+  deepTime: 3,
+  /** Crowned in Dread: pry a jewel from the throne (a Relic; a Bone Giant wakes). */
+  pryTime: 6,
+};
+
+/** Seconds a second choice takes (the first choice's time is the event's own, below). */
+const CHOICE_TIMES: Record<string, number> = {
+  desecrate: EVENT_CHOICES.desecrateTime, swap: EVENT_CHOICES.swapTime, search: EVENT_CHOICES.searchTime,
+  wish: EVENT_CHOICES.wishTime, smash: EVENT_CHOICES.smashTime, unbind: EVENT_CHOICES.unbindTime,
+  bottle: EVENT_CHOICES.bottleTime, pocket: EVENT_CHOICES.pocketTime, shatter: EVENT_CHOICES.shatterTime,
+  force: EVENT_CHOICES.forceTime, lining: EVENT_CHOICES.liningTime, temper: EVENT_CHOICES.temperTime,
+  unravel: EVENT_CHOICES.unravelTime, deep: EVENT_CHOICES.deepTime, pry: EVENT_CHOICES.pryTime,
+};
+
 /** Seconds an event choice takes to carry out. `speed` is the hero's current Speed. */
-export function channelTime(kind: EventKind, speed: number): number {
+export function channelTime(kind: EventKind, speed: number, choice?: string): number {
+  if (choice === 'overwind') return SPEED_EVENTS.clockworkWork / speed / 2;
+  if (choice && CHOICE_TIMES[choice] !== undefined) return CHOICE_TIMES[choice];
   switch (kind) {
     case 'liturgy': return Infinity;
     case 'barrage': return ELITE_EVENTS.barrageTime;

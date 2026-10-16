@@ -204,6 +204,8 @@ export interface Hero {
   tolled: boolean;
   /** Scrying Pool: sees every ally, and the room they're in, until this game time. */
   scryUntil: number;
+  /** Smith's Anvil, Quick Temper: the weapon deals more damage for the rest of this run (user, 2026-10-16). */
+  tempered: boolean;
   /** What this hero has come across this run (items, monsters, events), for their player's Codex in the Village. */
   codex: Codex;
   /** Open Coffin: lay down at this HP, and gets up with at least as much when revived (null: not resting). */
@@ -503,6 +505,7 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     mapRevealed: false,
     tolled: false,
     scryUntil: 0,
+    tempered: false,
     codex: emptyCodex(),
     restHp: null,
     elite: {},
@@ -1124,7 +1127,7 @@ function updateKnowledge(world: World) {
  * Scrying Pool: a room an ally is in, seen from afar: what's in it (as the scryer's eyes see it), its event and its
  * chalk, as if standing in it (but not explored: its paths stay unknown).
  */
-function scryRoom(world: World, a: Hero, room: number) {
+export function scryRoom(world: World, a: Hero, room: number) {
   if (!a.seen.includes(room)) a.seen.push(room);
   const monsters = monsterTypes(world, room);
   a.knownThreat[room] = monsters.length;

@@ -9,7 +9,7 @@ import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, isGear, type ItemId } from '../content/items';
 import { buffLength, chargesForFight, clothReady, leftRoom, spendCloth, witchwoodMult } from './gear';
 import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
-import { ELITE_EVENTS, LIGHT_LOSS } from '../content/events';
+import { ELITE_EVENTS, EVENT_CHOICES, LIGHT_LOSS } from '../content/events';
 import { maybeHitVillager } from './events';
 import { chronicle, extractHero, roomName, type Hero, type World } from './world';
 import { notify } from './notify';
@@ -403,9 +403,9 @@ export function fervourOf(h: Hero): number {
   return (LIGHT_MAX - h.light) * CLASS_RULES.zealotDmgPerDark * (h.elite.zenith ? ELITE_EVENTS.zenithFervour : 1);
 }
 
-/** Weapon bonus (and the Zealot's Fervour, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
+/** Weapon bonus (and a Quick Temper, the Zealot's Fervour, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
 export function damageMult(h: Hero, _world?: World): number {
-  const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0);
+  const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0) + (h.tempered && h.weapon ? EVENT_CHOICES.temperPct : 0);
   return weapon * (1 + fervourOf(h)) * riteMult(h);
 }
 

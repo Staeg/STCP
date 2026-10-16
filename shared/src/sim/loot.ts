@@ -11,7 +11,8 @@ import {
 import { ENEMIES, ESCALATION } from '../content/enemies';
 import { notify } from './notify';
 import { chargeable, healBy, moveCharges, pullPackCharge, ward, type ItemCharge } from './gear';
-import { CROWNED } from '../content/events';
+import { CROWNED, EVENT_CHOICES } from '../content/events';
+import { addSpeedMod } from './speed';
 import { chronicle, crGold, roomName, type Hero, type World } from './world';
 import { REGALIA_RULES, SHARDS, type ShardId } from '../content/regalia';
 
@@ -784,7 +785,9 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
     case 'torch':
       t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
       return `${h.name} lights a fresh torch.${boost}`;
-
+    case 'flask':
+      addSpeedMod(t, world.time, EVENT_CHOICES.flaskSpeed * x, EVENT_CHOICES.flaskSecs, 'Quicksilver Flask');
+      return `${h.name} downs a Quicksilver Flask. (Speed −${-EVENT_CHOICES.flaskSpeed * x}s for ${EVENT_CHOICES.flaskSecs}s)${boost}`;
     case 'salts':
       reviveHero(t, Math.min(1, healBy(h, 50 * x) / 100), world, h);
       return `${h.name} revives ${t.name} with smelling salts!${boost}${warded()}`;
