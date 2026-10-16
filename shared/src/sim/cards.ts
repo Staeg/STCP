@@ -104,7 +104,9 @@ export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardI
   const others = allies.filter((a) => a !== h);
   switch (card) {
     case 'fumble':
+    case 'snakeeyes':
       return 'It does nothing.';
+
     case 'mend':
       return hurt || allies.some((a) => a.st.poison || a.st.bleed) ? null : 'Nobody is hurt.';
     case 'soothe1':
@@ -1102,6 +1104,66 @@ function resolve(ctx: CardCtx) {
     }
     case 'fumble':
       tell(`${h.name} fumbles with an empty hand.`, 'info');
+      return;
+    // ---- Found cards (user, 2026-10-16) ----
+    case 'riposte':
+      h.st.evade = (h.st.evade ?? 0) + 1;
+      h.st.riposte = (h.st.riposte ?? 0) + 1;
+      tell(`${h.name} takes a duellist's guard.`, 'status', h.id);
+      return;
+    case 'parry':
+      h.st.evade = (h.st.evade ?? 0) + 1;
+      tell(`${h.name} readies a parry.`, 'status', h.id);
+      return;
+    case 'ember': {
+      for (const m of enemies()) strike(ctx, m, R.ember);
+      let got = 0;
+      for (const a of allies()) got = Math.round(gainLight(a, p(R.emberLight)));
+      tell(`${h.name}'s living ember flares! (every ally +${got} light)`, 'light', h.id, got);
+      return;
+    }
+    case 'shard': {
+      const last = h.lastCard;
+      if (!last) {
+        tell(`${h.name}'s shard shows only their own face.`);
+        strike(ctx, front(), R.shardBare);
+        return;
+      }
+      tell(`${h.name}'s ${CARDS[last].name} flashes again in the shard!`);
+      const inner = { ...ctx, card: last, target: undefined, selfHurry: 0 };
+      resolve(inner);
+      ctx.selfHurry += inner.selfHurry;
+      return;
+    }
+    case 'oathstrike':
+      strike(ctx, foe(), R.oathstrike);
+      return;
+    case 'snakeeyes':
+      tell(`${h.name} throws snake eyes. Nothing happens.`, 'info');
+      return;
+    case 'unmaking': {
+      const m = foe();
+      if (!m) return;
+      if (ENEMIES[m.type].tier >= R.unmakingTier) {
+        const cut = Math.ceil(m.hp / 2);
+        m.hp -= cut;
+        tell(`${h.name} speaks a Word of Unmaking. ${name(m)} comes half undone. (−${cut} HP)`, 'damage', m.id, cut);
+        return;
+      }
+      tell(`${h.name} speaks a Word of Unmaking.`, 'info', m.id);
+      applyKill(ctx, m);
+      return;
+    }
+    case 'halting': {
+      const m = foe();
+      if (!m) return;
+      debuff(ctx, m, 'stun');
+      tell(`${h.name} speaks a Halting Word. ${name(m)} is stunned.`, 'status', m.id);
+      return;
+    }
+    case 'borrowed':
+      h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
+      tell(`${h.name} borrows a moment. (next card 1s)`, 'status', h.id);
       return;
   }
 }

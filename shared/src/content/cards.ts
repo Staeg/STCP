@@ -59,6 +59,8 @@ export type CardId =
   | 'promise' | 'quake' | 'unmake' | 'redeem' | 'bastion' | 'forgive' | 'howl' | 'waystep'
   // The Journeyman Elder's Bless (user, 2026-10-14)
   | 'oil'
+  // Found cards: events add them to a deck for the rest of the run (user, 2026-10-16)
+  | 'riposte' | 'parry' | 'ember' | 'shard' | 'oathstrike' | 'snakeeyes' | 'unmaking' | 'halting' | 'borrowed'
   // An empty Gear slot
   | 'fumble';
 
@@ -165,6 +167,13 @@ export const CARD_RULES = {
   quake: 9,
   forgiveHeal: 10,
   bastionPerBlock: 3,
+  // ---- Found cards ----
+  riposte: 8, riposteDelay: 2,
+  ember: 8, emberLight: 8,
+  shardBare: 3,
+  oathstrike: 12,
+  /** Word of Unmaking: an enemy of this tier or above (Bone Giant, Queen, Lich, Dead King) loses half its HP instead of dying. */
+  unmakingTier: 2,
   // ---- Statuses ----
   /** Regen and Bleed tick this often (seconds). */
   pulse: 2,
@@ -284,7 +293,23 @@ export const CARDS: Record<CardId, CardDef> = {
   waystep: card('waystep', 'Waystep', 1, ['hasten'], 'room', 'Leave the fight for any room on your map.'),
   oil: card('oil', "Elder's Oil", 1, ['light'], 'none', "Your light to full. (The Elder's blessing, for this run.)", true),
   fumble: card('fumble', 'Fumble', 3, [], 'none', 'Nothing: an empty Gear slot.'),
+  // ---- Found cards (user, 2026-10-16): from events, for the rest of the run ----
+  riposte: card('riposte', 'Riposte', 2, ['guard', 'strike'], 'none', `The next attack aimed at you misses, and its attacker takes ${R.riposte} dmg and is Delayed ${R.riposteDelay}s.`),
+  parry: card('parry', 'Parry', 5, ['guard'], 'none', 'The next attack aimed at you misses.'),
+  ember: card('ember', 'Living Ember', 3, ['strike', 'light'], 'none', `${R.ember} dmg to every enemy; every ally +${R.emberLight} light.`),
+  shard: card('shard', 'Mirror Shard', 2, ['hasten'], 'none', `Your last card (never a Burn) happens again, at full power. With nothing to repeat, ${R.shardBare} dmg to the nearest enemy.`),
+  oathstrike: card('oathstrike', 'Oathbound Strike', 2, ['strike'], 'enemy', `${R.oathstrike} dmg.`),
+  snakeeyes: card('snakeeyes', 'Snake Eyes', 3, [], 'none', "Nothing: a losing throw at the Gambler's Table.", true),
+  unmaking: card('unmaking', 'Word of Unmaking', 3, ['hex'], 'enemy', `An enemy dies outright; a Tier ${R.unmakingTier}+ one (Bone Giant and worse) loses half its HP instead.`, true),
+  halting: card('halting', 'Halting Word', 2, ['hinder'], 'enemy', 'Stun an enemy.'),
+  borrowed: card('borrowed', 'Borrowed Moment', 1, ['hasten'], 'none', 'Your next card takes 1s.', true),
 };
+
+/** Found cards: what card events add to a deck for the rest of the run (user, 2026-10-16). */
+export const FOUND_CARDS: readonly CardId[] = ['riposte', 'parry', 'ember', 'shard', 'oathstrike', 'snakeeyes', 'unmaking', 'halting', 'borrowed'];
+
+/** What the Weapon Rack and the Gambler's Table deal from: every found card but the duel's prize and the dud. */
+export const FOUND_POOL: readonly CardId[] = ['parry', 'ember', 'shard', 'oathstrike', 'unmaking', 'halting', 'borrowed'];
 
 /** A card picture's main motif: one per kind of effect (tools/card_art.py draws them), or a summon's own sprite. */
 export type CardMotif =
@@ -398,6 +423,16 @@ export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
   waystep: art('door'),
   oil: art('lamp', 'star'),
   fumble: art('hand'),
+  riposte: art('dagger', 'shield'),
+  parry: art('dodge', 'shield'),
+  ember: art('flame', 'star'),
+  shard: art('cards', 'crack'),
+  oathstrike: art('dagger', 'star'),
+  snakeeyes: art('void', 'cards'),
+  unmaking: art('void', 'skull'),
+  halting: art('stun', 'eye'),
+  borrowed: art('hourglass', 'wing'),
+
 };
 
 export const CARD_IDS = Object.keys(CARDS) as CardId[];

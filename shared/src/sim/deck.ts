@@ -94,13 +94,23 @@ export function takeFromHand(h: Hero, card: CardId): boolean {
 export function settleCard(h: Hero, card: CardId, rng: Rng) {
   const deck = h.deck;
   if (!deck) {
-    if (CARDS[card].burn) h.burned.push(card);
+    if (burns(h, card)) h.burned.push(card);
     return;
   }
   deck.last = card;
-  if (CARDS[card].burn) h.burned.push(card);
+  if (burns(h, card)) h.burned.push(card);
   else deck.discard.push(card);
   refill(h, deck, rng);
+}
+
+/**
+ * Whether playing `card` burns it: a Burn card, or a Cracked Mirror copy (each copy burns once; with copies and the
+ * original in the deck, whichever is played first while a copy is still unburned burns).
+ */
+export function burns(h: Pick<Hero, 'burned' | 'mirrored'>, card: CardId): boolean {
+  if (CARDS[card].burn) return true;
+  const copies = h.mirrored.filter((c) => c === card).length;
+  return copies > h.burned.filter((c) => c === card).length;
 }
 
 /** Discard the first `n` cards of the hand (`n` = all of it by default) and draw again. */

@@ -615,6 +615,12 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .ev-text { color: var(--text); margin: 4px 0 8px; font-size: 19px; line-height: 1.1; }
 .ev-choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .ev-choices button { font-size: 19px; }
+/* Choices one per card (the Cracked Mirror, the Gambler's Table…): small cards under one caption. */
+.ev-group { flex-basis: 100%; font-size: 16px; color: var(--muted, #b8ad98); margin-top: 4px; }
+.ev-cards { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.ev-choices .ev-card { font-size: 15px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px; }
+.ev-choices .ev-card.queued { outline: 2px solid #e8c45a; }
+.ev-card .card-art { width: 26px; height: 26px; image-rendering: pixelated; }
 .ev-perk-icon { height: 1.3em; vertical-align: -0.3em; image-rendering: pixelated; }
 .ev-perk { color: var(--cls); font-size: 16px; margin-top: 2px; }
 .ev-progress { height: 8px; background: #221a2a; border: 1px solid #000; margin: 4px 0; }
@@ -916,6 +922,7 @@ span.stash-item { border: 1px solid #3a2e24; cursor: help; }
 /* Frames (user, 2026-10-13): class cards in the class colour, Gear cards in their tier colour with a double (riveted) edge. */
 .cb-act.cb-card.from-class { border: 2px solid var(--frame); }
 .cb-act.cb-card.from-gear { border: 3px double var(--frame); }
+.cb-act.cb-card.from-found { border: 2px dashed var(--frame); }
 .cb-act.cb-card.sel, #combat.idle .cb-act.cb-card.pinned { border-color: var(--gold); }
 .class-cards .card-art { width: 26px; height: 26px; image-rendering: pixelated; float: left; margin: 1px 6px 0 0; }
 .class-cards li { overflow: hidden; }

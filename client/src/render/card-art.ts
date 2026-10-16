@@ -7,11 +7,14 @@ export const CARD_ART_SIZE = 26;
 
 /** Frame colours: a class card wears its class's colour; Gear cards their tier's (as item names are coloured), riveted. */
 const TIER_FRAME: Record<number, string> = { 0: '#5a5a62', 1: '#cfc9bd', 2: '#5aa8ff', 3: '#c07cff', 4: '#ff9a2e' };
+const FOUND_FRAME = '#d9c48a';
 
 /** The colour of a card's frame (on its picture and its button). */
 export function cardFrameColor(card: CardId, cls: ClassId | null): string {
   const src = cardSource(card);
   if (src === 'class') return cls ? CLASSES[cls].color : '#c9a45a';
+  // Found cards (user, 2026-10-16): old bone.
+  if (src === 'found') return FOUND_FRAME;
   return TIER_FRAME[src];
 }
 
@@ -75,8 +78,8 @@ export function cardArtUrl(card: CardId, cls: ClassId | null): string {
   const { motif, mark } = CARD_ART[card];
   paintMotif(ctx, motif, 5, 4);
   if (mark) paintMark(ctx, mark, dark, 15);
-  // Gear cards: rivets in the frame's corners.
-  if (cardSource(card) !== 'class') {
+  // Gear cards: rivets in the frame's corners (found cards have none).
+  if (cardSource(card) !== 'class' && cardSource(card) !== 'found') {
     ctx.fillStyle = '#1a1612';
     for (const [x, y] of [[1, 1], [24, 1], [1, 24], [24, 24]]) ctx.fillRect(x, y, 1, 1);
     ctx.fillStyle = '#e8e2d4';

@@ -81,6 +81,10 @@ export interface Hero {
   burned: CardId[];
   /** Cards in the deck for this run only, on top of class and Gear cards (the Elder's Oil, from the Elder's Bless). */
   bonusCards: CardId[];
+  /** Cracked Mirror: copies in `bonusCards` that burn when played (one entry per copy; user, 2026-10-16). */
+  mirrored: CardId[];
+  /** Oathstone (user, 2026-10-16): Blood forbids Flee and Sneak Past for the run; Grace forbids items in fights. */
+  oath: 'blood' | 'grace' | null;
   /** The last card played (in any fight this run) that Echo can repeat. */
   lastCard: CardId | null;
   /** The free Issued Gear this hero started with, by slot (it never goes home). */
@@ -437,6 +441,8 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     deck: null,
     burned: [],
     bonusCards: loadout?.blessed ? ['oil'] : [],
+    mirrored: [],
+    oath: null,
     lastCard: null,
     issued: {},
     statusClock: 0,

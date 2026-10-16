@@ -112,7 +112,41 @@ export function botEvent(view: PlayerView, mem: BotMemory): Intent | undefined {
       // Only the greediest, early on and in good shape, dare wake him; the merely greedy pry at the throne.
       if (mem.greed > 0.7 && timeLeft > 150 && healthy && rng.chance(0.3)) return pick('rouse');
       return mem.greed > 0.5 && healthy && rng.chance(0.2) ? pick('pry') : undefined;
+    // ---- Card events (user, 2026-10-16) ----
+    case 'rack': {
+      // Searched: take the first card offered.
+      const offered = ev.choices.find((c) => c.id.startsWith('pick-') && !c.disabled);
+      if (offered) {
+        mem.channelling = null;
+        return pick(offered.id);
+      }
+      if (mem.channelling === room) return work('rummage');
+      return timeLeft > 40 && rng.chance(0.5) ? work('rummage') : pick('grab');
+    }
+    case 'duelist':
+      return healthy && mem.greed > 0.5 && rng.chance(0.4) ? pick('duel') : pick('bow');
+    case 'hearth':
+      if (you.hp < you.maxHp * 0.8 || you.light < 50) return work('warm');
+      return rng.chance(0.4) ? pick('ember') : undefined;
+    case 'mirror': {
+      if (you.hp > you.maxHp * 0.6 && rng.chance(0.4)) return pick('shard');
+      const copy = ev.choices.find((c) => c.id.startsWith('copy-') && !c.disabled);
+      return copy && rng.chance(0.5) ? work(copy.id) : undefined;
+    }
+    case 'oathstone':
+      // Bots flee now and then, so never the Oath of Blood.
+      return rng.chance(0.25) ? pick('grace') : undefined;
+    case 'gambler':
+      return rng.chance(0.3) ? pick('bet') : undefined;
+    case 'lectern':
+      return rng.chance(0.4) ? pick('skim') : undefined;
+    case 'returns': {
+      const restore = ev.choices.find((c) => c.id.startsWith('restore-') && !c.disabled);
+      if (restore) return work(restore.id);
+      return rng.chance(0.4) ? work('moment') : undefined;
+    }
     // ---- Elite Events (only their own class gets choices; the rest see it veiled) ----
+
     case 'wanderers':
     case 'uprising':
     case 'zenith':

@@ -1,4 +1,5 @@
-import { CLASSES, type EventChoice, type LootItemView, type PlayerView } from '@stcp/shared';
+import { CARDS, CLASSES, type EventChoice, type LootItemView, type PlayerView } from '@stcp/shared';
+import { cardArtUrl } from './render/card-art';
 import type { Net } from './net';
 import { iconize } from './icons';
 import { spriteUrl } from './render/sprites';
@@ -51,8 +52,16 @@ export class EventUi {
           // Picked: it starts when your timer runs out.
           const queued = view.you.queuedEvent === c.id
             ? `<div class="small">✔ starts in ${Math.max(0, view.you.turnAt - view.time).toFixed(1)}s</div>` : '';
+          const key = i < 9 ? `<kbd>${i + 1}</kbd> ` : '';
+          // One of a group of alike choices, one per card: a small card under the group's caption.
+          if (c.card) {
+            const caption = c.group && ev.choices[i - 1]?.group !== c.group ? `<div class="ev-group">${iconize(c.group)}</div>` : '';
+            const open = c.group && ev.choices[i - 1]?.group !== c.group ? '<div class="ev-cards">' : '';
+            const close = ev.choices[i + 1]?.group !== c.group ? '</div>' : '';
+            return `${caption}${open}<button class="ev-card${queued ? ' queued' : ''}" data-choice="${c.id}" ${c.disabled || channelling ? 'disabled' : ''} title="${esc(c.disabled ?? c.label)}">${key}<img class="card-art" src="${cardArtUrl(c.card, view.you.cls)}" alt=""> ${esc(CARDS[c.card].name)}</button>${close}`;
+          }
           return `<button data-choice="${c.id}" ${c.disabled || channelling ? 'disabled' : ''} title="${esc(c.disabled ?? '')}">
-          <kbd>${i + 1}</kbd> ${perkIcon(c)}${iconize(c.label)}${perkText(c)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
+          ${key}${perkIcon(c)}${iconize(c.label)}${perkText(c)}${c.disabled ? `<div class="muted small">${esc(c.disabled)}</div>` : ''}${queued}</button>`;
         }).join('');
     const html = `
       <div class="ev-head"><span class="item-glyph">${ev.glyph}</span> <b>${esc(ev.name)}</b></div>

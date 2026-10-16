@@ -156,6 +156,17 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'waystep': return 0;
     case 'oil': return burn(brighten(LIGHT_MAX, me) * 2);
     case 'fumble': return 0;
+    // Found cards (user, 2026-10-16)
+    case 'riposte': return 4 + R.riposte + R.riposteDelay * TEMPO_VALUE;
+    case 'parry': return 4;
+    case 'ember': return n * R.ember + allies.reduce((s, a) => s + brighten(R.emberLight, a), 0);
+    case 'shard': return view.you.lastCard ? cardValue(f, view.you.lastCard) : R.shardBare;
+    case 'oathstrike': return R.oathstrike;
+    case 'snakeeyes': return 0;
+    case 'unmaking': return burn(20);
+    case 'halting': return 5 * TEMPO_VALUE;
+    case 'borrowed': return burn(4);
   }
+
   return CARDS[card] ? 1 : 0;
 }

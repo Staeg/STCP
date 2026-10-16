@@ -71,6 +71,8 @@ export interface Statuses {
   expose?: boolean;
   /** Attacks aimed at this hero that miss outright (Fade, Blink, Veil), one charge each. */
   evade?: number;
+  /** Riposte: of those evades, how many strike the attacker back. */
+  riposte?: number;
   /** Hold the Gate: until this game time, every enemy whose blow lands on this hero's Shield is Delayed. */
   gate?: number;
   /** Blade Dance: every card takes 1s and Backstab always crits, until this game time. */
@@ -119,6 +121,8 @@ export interface Monster {
   cycle?: 'kneel' | 'charge';
   /** Marches in the Dead King's procession (Crowned in Dread): the last of them to fall drops his treasure. */
   procession?: true;
+  /** The Duelist's Ghost: the hero it fights alone (nobody else joins while they stand); slain, it gives them a Riposte. */
+  duel?: string;
   /** A straggler heading for the exit: no loot of its own, though it may pick something up (`carry`). */
   straggler?: true;
   /** What a straggler picked up (one thing at most): Gear helps it (`carried`); it drops where it falls. */
@@ -453,6 +457,9 @@ export function reviveHero(h: Hero, fraction = REVIVE_HP_FRACTION, world?: World
 export function onHeroInRoom(world: World, hero: Hero, room: number) {
   if (!inDungeon(hero) || hero.encounter !== null) return;
   if (monstersIn(world, room).length === 0) return;
+  // The Duelist's Ghost fights one hero alone, as long as they stand.
+  const duellist = dueling(world, room);
+  if (duellist && duellist !== hero) return;
   let enc = world.encounters[room];
   if (!enc) {
     if (unnoticed(world, room)) return;
@@ -461,7 +468,7 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     world.stats.fights++;
     // Everyone already standing here is pulled in, including the downed.
     for (const h of Object.values(world.heroes)) {
-      if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room) enlist(world, enc, h);
+      if (inDungeon(h) && h.pos.kind === 'room' && h.pos.room === room && (!duellist || h === duellist)) enlist(world, enc, h);
     }
     enc.foes = monstersIn(world, room).map((m) => ENEMIES[m.type].name);
     enc.chron = world.chronicle.length;
@@ -484,6 +491,13 @@ export function onHeroInRoom(world: World, hero: Hero, room: number) {
     onEnlist(world, enc, hero);
   }
   startTimers(world, enc);
+}
+
+/** The hero a Duelist's Ghost here is fighting alone, while they're still standing in the room (else null). */
+function dueling(world: World, room: number): Hero | null {
+  const ghost = monstersIn(world, room).find((m) => m.duel);
+  const h = ghost?.duel ? world.heroes[ghost.duel] : undefined;
+  return h && isConscious(h) && h.pos.kind === 'room' && h.pos.room === room ? h : null;
 }
 
 /**
@@ -532,7 +546,7 @@ function endAmbush(world: World, enc: Encounter) {
  * turn (the turn already counts as taken).
  */
 export function canSneakPast(world: World, enc: Encounter, h: Hero, acting = false): boolean {
-  if (!h.sneaking || !isConscious(h)) return false;
+  if (!h.sneaking || !isConscious(h) || h.oath === 'blood') return false;
   if (enc.heroes.some((id) => id !== h.id && isConscious(world.heroes[id]))) return false;
   return (enc.turns?.[h.id] ?? 0) <= (acting ? 1 : 0) || !!h.st.sneakPast;
 }
@@ -946,6 +960,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     const def = ITEMS[h.items[idx]];
     if (!def) return 'No such item.';
     if (h.rites.includes('gem') && def.kind === 'consumable') return 'The Gem Rite forbids it.';
+    if (h.oath === 'grace') return 'You swore the Oath of Grace: no items in a fight.';
     if (!def.combat) return `${def.name} can't be used in a fight.`;
     if (def.target === 'ally' || def.target === 'downed') {
       const targets = itemTargets(world, h, idx);
@@ -973,6 +988,7 @@ export function submitChoice(world: World, h: Hero, choice: Choice): string | nu
     enc.choices[h.id] = { action: 'card', card: choice.card, target: needsTarget(choice) ? choice.target : undefined };
     return null;
   }
+  if (choice.action === 'flee' && h.oath === 'blood') return 'You swore the Oath of Blood: you cannot flee.';
   if (choice.action === 'revive') {
     const targets = validTargets(world, enc, h, choice);
     if (targets.length === 0) return 'Nobody here is down.';
@@ -1439,7 +1455,7 @@ function playHand(world: World, enc: Encounter, h: Hero, c: Choice, events: Comb
   settleCard(h, card, world.rng);
   (enc.played ??= {})[h.id] = (enc.played[h.id] ?? 0) + 1;
   // Echo repeats the last card that can be repeated.
-  if (!CARDS[card].burn && card !== 'echo' && card !== 'fumble' && CARDS[card].target !== 'room') h.lastCard = card;
+  if (!CARDS[card].burn && card !== 'echo' && card !== 'shard' && card !== 'fumble' && CARDS[card].target !== 'room') h.lastCard = card;
   const schools = CARDS[card].schools;
   // Shieldwall: every Guard card the Warden plays makes the nearest enemy reel.
   if (schools.includes('guard') && hasTalent(h, 'shieldwall') && h.encounter === enc.room) {
@@ -1646,6 +1662,12 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
     if (regalia && m.room >= 0 && dropRegalia(world, m.room, regalia) > 0) {
       events.push({ actor: m.id, kind: 'info', text: `The ${ENEMIES[m.type].name}'s regalia shatters into Shards.` });
     }
+    // The Duelist's Ghost: whoever it fought earns its Riposte (user, 2026-10-16).
+    const duellist = m.duel ? world.heroes[m.duel] : undefined;
+    if (duellist && isConscious(duellist)) {
+      duellist.bonusCards.push('riposte');
+      events.push({ actor: m.id, kind: 'info', target: duellist.id, text: `The ghost lowers its blade and salutes ${duellist.name}. (Riposte joins their deck for the run)` });
+    }
     // The last of the Dead King's procession: his treasure spills where they fell.
     if (m.procession && m.room >= 0 && !Object.values(world.monsters).some((o) => o.procession)) {
       dropKingsTreasure(world, m.room);
@@ -1713,6 +1735,9 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'ghoul':
     case 'zombie':
       monsterHits(world, enc, m, nearest, ENEMIES[m.type].dmg, 'claws', events);
+      return;
+    case 'duelist':
+      monsterHits(world, enc, m, nearest, ENEMIES.duelist.dmg, 'thrusts at', events);
       return;
     case 'lich': {
       // Its raising goes the moment there's someone to raise; then Doom, again and again.
@@ -1844,8 +1869,17 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   if (t.st.evade) {
     if (--t.st.evade <= 0) delete t.st.evade;
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name}, who is not quite there.` });
+    // Riposte: and the blade comes back.
+    if (t.st.riposte) {
+      if (--t.st.riposte <= 0) delete t.st.riposte;
+      if (heroHits(world, enc, t, m, CARD_RULES.riposte, events, 'Riposte') && world.monsters[m.id] && enc.next[m.id] !== undefined) {
+        enc.next[m.id] = at(enc.next[m.id] + CARD_RULES.riposteDelay);
+        events.push({ actor: t.id, kind: 'status', target: m.id, text: `${name} is Delayed ${CARD_RULES.riposteDelay}s.` });
+      }
+    }
     return null;
   }
+
   const dodge = Math.max(inSmoke(world, t.st) ? 0.5 : 0, t.st.sidestep ?? 0, wornStat(t, 'dodge'));
   if (dodge > 0 && world.rng.chance(dodge)) {
     events.push({ actor: m.id, kind: 'miss', target: t.id, text: `${name} ${verb} at ${t.name} — dodged!` });

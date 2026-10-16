@@ -1,16 +1,16 @@
 import { CLASSES, type ClassId } from '../content/classes';
-import { CARDS } from '../content/cards';
-import { unburn } from './deck';
+import { CARDS, FOUND_POOL, type CardId } from '../content/cards';
+import { liveCards, unburn } from './deck';
 import { LIGHT_DIM, LIGHT_MAX, lightStage } from '../content/constants';
 import { ENEMIES, ESCALATION, type EnemyId } from '../content/enemies';
 import {
-  channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_CHOICES, EVENT_SEEDING, EVENTS, LIGHT_LOSS, MORE_EVENTS, SPEED_EVENTS,
+  CARD_EVENTS, channelTime, CLASS_ELITE, CROWNED, CLASS_EVENTS, ELITE_EVENTS, EVENT_CHOICES, EVENT_SEEDING, EVENTS, LIGHT_LOSS, MORE_EVENTS, SPEED_EVENTS,
   type EventKind,
 } from '../content/events';
 import { Rng } from '../rng';
 import { anvilInto, forgeable, reforged } from '../content/forge';
 import { corridorBetween, neighbours, otherEnd, theRoom } from '../dungeon/gen';
-import { afterBlock, downHero, gainLight, hurtHero, inDungeon, isConscious, loseLight, monstersIn, onHeroInRoom, pickGroup, spawnGroup } from './combat';
+import { afterBlock, downHero, gainLight, hurtHero, inDungeon, isConscious, loseLight, monstersIn, onHeroInRoom, pickGroup, spawnGroup, spendLight } from './combat';
 import { collapseCorridor, lureToward, makePack } from './escalation';
 import { callReadyIn, hopsFrom } from './call';
 import { addToPile, equip, giveItem, hasSpace, rollItem, rollResource, takeItem } from './loot';
@@ -28,6 +28,11 @@ export interface RoomEvent {
   room: number;
   kind: Exclude<EventKind, 'villager'>;
   done: boolean;
+  /** Weapon Rack: the cards found by searching it, and who searched (theirs to choose while they're here). */
+  offer?: CardId[];
+  offerFor?: string;
+  /** Ember Hearth: who has warmed themself here already (once each). */
+  warmed?: string[];
   /** Fraction of the work done, 0..1. Lost if the hero stops before it's done. */
   progress: number;
   /** The hero who chose it first and is carrying it out; nobody else can while they are. */
@@ -65,6 +70,12 @@ export interface EventChoice {
   disabled?: string;
   /** This hero's class does it differently: shown with the class icon, saying only what's special. */
   perk?: { cls: ClassId; text: string };
+  /**
+   * One of several alike choices, one per card (the Cracked Mirror, the Gambler's Table…): shown as a small card under
+   * the group's caption, with `label` as its tooltip.
+   */
+  card?: CardId;
+  group?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +171,9 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
   if (!quiet(world, room)) return { kind: ev.kind, choices: [] };
   // First come, first served: once someone has started, it's theirs.
   const taken = ev.by && ev.by !== h.id ? `${world.heroes[ev.by]?.name ?? 'Someone'} is already doing it.` : undefined;
+  const secsOf = (id: string) => Math.ceil(eventTime(world, h, ev.kind, id) * (1 - ev.progress));
   const c = (id: string, label: string, disabled?: string): EventChoice => {
-    const secs = Math.ceil(eventTime(world, h, ev.kind, id) * (1 - ev.progress));
+    const secs = secsOf(id);
     return { id, label: `${label} (${secs}s)`, disabled: taken ?? disabled };
   };
   /** The same choice, done this hero's class's way. */
@@ -294,6 +306,68 @@ export function eventChoices(world: World, h: Hero): { kind: EventKind; choices:
         c('rouse', 'Wake the king (his procession sets out for the exit; stop it to take his treasure)'),
         c('pry', 'Pry a jewel from the throne: a Relic, but something stirs'),
       );
+    // ---- Card events (user, 2026-10-16): found cards for the rest of the run ----
+    case 'rack': {
+      if (ev.offer) {
+        const chooser = ev.offerFor ? world.heroes[ev.offerFor] : undefined;
+        if (!rackIsYours(world, ev, h)) {
+          const who = chooser?.name ?? 'Someone';
+          return one({ id: 'wait', label: `${who} is choosing a card from the rack.`, disabled: `${who} searched it: theirs to choose.` });
+        }
+        return { kind: ev.kind, progress, choices: ev.offer.map((card) => ({ id: `pick-${card}`, label: `Take ${cardBlurb(card)}`, card, group: 'Take one for your deck:' })) };
+      }
+      return two(c('rummage', `Search the rack: choose one of ${CARD_EVENTS.rackOffer} cards for your deck`), c('grab', 'Grab one and go: a random card for your deck'));
+    }
+    case 'duelist':
+      return two(c('duel', `Accept the duel: fight it alone. Win, and ${cardBlurb('riposte')}`), c('bow', `Bow out: ${cardBlurb('parry')}`));
+    case 'hearth':
+      return two(
+        c('ember', `Take the ember: ${cardBlurb('ember')} The fire dies, and everyone here drops to Dim`),
+        c('warm', `Warm yourself: heal ${CARD_EVENTS.warmHeal}, +${CARD_EVENTS.warmLight} light`,
+          ev.warmed?.includes(h.id) ? 'You have warmed yourself here already.' : undefined),
+      );
+    case 'mirror':
+      return {
+        kind: ev.kind, progress,
+        choices: [
+          ...deckCards(h).map((card) => ({
+            ...c(`copy-${card}`, `Gaze: a copy of ${CARDS[card].name} joins your deck, and burns once played`),
+            card, group: `Gaze: a copy of one of your cards joins your deck, and burns once played (${secsOf('copy-x')}s)`,
+          })),
+          c('shard', `Shatter it: ${cardBlurb('shard')} The glass cuts you (−${CARD_EVENTS.shardHp} HP)`),
+        ],
+      };
+    case 'oathstone': {
+      const sworn = h.oath ? `You have sworn the Oath of ${h.oath === 'blood' ? 'Blood' : 'Grace'}.` : undefined;
+      return two(
+        c('blood', `Swear the Oath of Blood: ${cardBlurb('oathstrike')} You can never Flee or Sneak Past again this run`, sworn),
+        c('grace', `Swear the Oath of Grace: Speed ${signed(CARD_EVENTS.graceSpeed)} for the run, but no items in a fight`, sworn),
+      );
+    }
+    case 'gambler':
+      return {
+        kind: ev.kind, progress,
+        choices: [
+          c('bet', `Bet ${CARD_EVENTS.betGold} gold: a random card for your deck (${Math.round(CARD_EVENTS.snakeEyesChance * 100)}%: Snake Eyes, a dud that burns)`,
+            h.gold >= CARD_EVENTS.betGold ? undefined : `You need ${CARD_EVENTS.betGold} gold.`),
+          ...deckCards(h).map((card) => ({
+            ...c(`stake-${card}`, `Bet your ${CARDS[card].name}: ${Math.round(CARD_EVENTS.stakeWin * 100)}% a second copy, else it's gone (until a Loom)`),
+            card, group: `Or bet one of your cards: ${Math.round(CARD_EVENTS.stakeWin * 100)}% a second copy, else it's gone until a Loom (${secsOf('stake-x')}s)`,
+          })),
+        ],
+      };
+    case 'lectern':
+      return two(
+        c('study', `Read it all: ${cardBlurb('unmaking')} Your light goes out`),
+        c('skim', `Skim a page: ${cardBlurb('halting')} (−${CARD_EVENTS.skimLight} light)`),
+      );
+    case 'returns': {
+      const burned = [...new Set(h.burned)];
+      const restore = burned.length
+        ? burned.map((card) => ({ ...c(`restore-${card}`, `Restore ${CARDS[card].name}: it comes back into your deck`), card, group: `Restore a burned card to your deck (${secsOf('restore-x')}s)` }))
+        : [c('restore', 'Restore a burned card', 'You have burned nothing yet.')];
+      return { kind: ev.kind, progress, choices: [...restore, c('moment', `Take a moment: ${cardBlurb('borrowed')}`)] };
+    }
     // ---- Elite Events: only their own class gets this far ----
     case 'wanderers':
       return one(perk(c('gather', 'Gather them up'), 'warden', 'They will not leave your side until you leave the dungeon.'));
@@ -358,6 +432,36 @@ function clothWorn(h: Hero): ItemId | null {
   return h.armor && ITEMS[h.armor].cloth ? h.armor : null;
 }
 
+/** "Riposte (2s): the next attack…", for an event button. */
+function cardBlurb(card: CardId): string {
+  const d = CARDS[card];
+  return `${d.name} (${d.time}s card${d.burn ? ', Burn' : ''}: ${d.desc})`;
+}
+
+/** The distinct cards in this hero's deck now (burned ones aside), for the Cracked Mirror and the Gambler's Table. */
+function deckCards(h: Hero): CardId[] {
+  return [...new Set(liveCards(h))].filter((card) => card !== 'fumble');
+}
+
+/** Weapon Rack: the searcher chooses while they're in the room; once they've gone, anyone here may. */
+function rackIsYours(world: World, ev: RoomEvent, h: Hero): boolean {
+  const chooser = ev.offerFor ? world.heroes[ev.offerFor] : undefined;
+  if (!chooser || chooser === h) return true;
+  return !(inDungeon(chooser) && chooser.pos.kind === 'room' && chooser.pos.room === ev.room);
+}
+
+/** A found card joins the deck for the rest of the run. */
+function giveCard(world: World, h: Hero, card: CardId, how: string) {
+  h.bonusCards.push(card);
+  notify(world, h, `${how} ${CARDS[card].name} joins your deck for the rest of the run.`);
+}
+
+/** Done, but still there for the next hero (or the next go). */
+function reopen(ev: RoomEvent) {
+  ev.done = false;
+  ev.progress = 0;
+}
+
 /** "−1s" / "+1s" */
 function signed(seconds: number): string {
   return `${seconds < 0 ? '−' : '+'}${fmtSpeed(Math.abs(seconds))}`;
@@ -387,6 +491,9 @@ export function eventTime(world: World, h: Hero, kind: EventKind, choice?: strin
 export function choiceVerb(kind: EventKind, choice: string): string {
   if (choice === 'channel') return kind === 'altar' ? 'cleansing the altar' : 'picking the lock';
   if (choice.startsWith('forge')) return 'working at the anvil';
+  if (choice.startsWith('copy-')) return 'gazing into the mirror';
+  if (choice.startsWith('stake-')) return 'betting at the table';
+  if (choice.startsWith('restore-')) return 'kneeling at the altar';
   const verbs: Record<string, string> = {
     take: 'taking the idol', help: 'bandaging the stranger', drink: 'drinking from the well',
     open: 'opening the chest', crawl: 'squeezing into the crawlspace',
@@ -399,6 +506,10 @@ export function choiceVerb(kind: EventKind, choice: string): string {
     bottle: 'bottling the quicksilver', pocket: 'pocketing a handful of coin', shatter: 'smashing the hourglass', overwind: 'overwinding the shrine',
     force: 'forcing a wheel alone', lining: 'searching the coffin', temper: 'tempering their weapon', unravel: 'unravelling into the loom',
     deep: 'gazing into the pool', pry: 'prying at the throne',
+    rummage: 'searching the weapon rack', grab: 'grabbing from the rack', duel: 'saluting the ghost', bow: 'bowing to the ghost',
+    ember: 'reaching into the hearth', warm: 'warming at the hearth', shard: 'smashing the mirror', blood: 'swearing an oath', grace: 'swearing an oath',
+    bet: 'betting at the table', study: 'reading the forbidden book', skim: 'skimming the forbidden book', moment: 'sifting the ash',
+
   };
   return verbs[choice] ?? 'busy';
 }
@@ -435,6 +546,16 @@ export function chooseEvent(world: World, h: Hero, choiceId: string, check = fal
   if (h.channel?.kind === 'event' && h.channel.room === room) return null;
   h.path = [];
   if (ev.kind === 'locks' && choiceId === 'wheel') return takeWheel(world, ev, h);
+  // Weapon Rack: choosing from what the search turned up is instant.
+  if (ev.kind === 'rack' && choiceId.startsWith('pick-')) {
+    const card = choiceId.slice('pick-'.length) as CardId;
+    giveCard(world, h, card, 'You lift it from the rack.');
+    ev.offer = undefined;
+    ev.offerFor = undefined;
+    ev.done = true;
+    chronicle(world, `${h.name} took ${CARDS[card].name} from a Weapon Rack.`);
+    return null;
+  }
   // A half-cleansed altar is only half done for the Cleanse; desecrating it starts from nothing.
   if (ev.kind === 'altar' && choiceId !== 'channel') ev.progress = 0;
   ev.by = h.id;
@@ -794,6 +915,92 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
     case 'deep':
       lookForTheWay(world, h, room);
       return;
+    // ---- Card events (user, 2026-10-16) ----
+    case 'rummage': {
+      reopen(ev);
+      ev.offer = world.rng.shuffle([...FOUND_POOL]).slice(0, CARD_EVENTS.rackOffer);
+      ev.offerFor = h.id;
+      notify(world, h, `Among the rust you find ${ev.offer.map((card) => CARDS[card].name).join(', ')}. Choose one.`);
+      return;
+    }
+    case 'grab': {
+      const card = rng.pick(FOUND_POOL);
+      giveCard(world, h, card, 'You snatch something from the rack.');
+      chronicle(world, `${h.name} grabbed ${CARDS[card].name} from a Weapon Rack.`);
+      return;
+    }
+    case 'duel': {
+      const [ghost] = spawnGroup(world, room, ['duelist'], world.escalation);
+      if (ghost) ghost.duel = h.id;
+      notify(world, h, 'You return the salute. The ghost comes on guard. Nobody else may interfere.');
+      for (const o of othersHere(world, h)) notify(world, o, `${h.name} accepts the ghost's duel. It is theirs alone to fight.`);
+      chronicle(world, `${h.name} accepted a ghost's duel.`);
+      onHeroInRoom(world, h, room);
+      return;
+    }
+    case 'bow':
+      giveCard(world, h, 'parry', 'The ghost returns your bow and shows you a parry before it fades.');
+      return;
+    case 'ember': {
+      giveCard(world, h, 'ember', 'You close your hand around the ember. It does not burn you.');
+      for (const x of [h, ...othersHere(world, h)]) {
+        x.light = Math.min(x.light, LIGHT_DIM - 1);
+        if (x !== h) notify(world, x, `${h.name} takes the ember, and the hearth goes cold. The room drops into dimness.`);
+      }
+      chronicle(world, `${h.name} took the ember from an Ember Hearth.`);
+      return;
+    }
+    case 'warm': {
+      reopen(ev);
+      (ev.warmed ??= []).push(h.id);
+      const before = h.hp;
+      h.hp = Math.min(h.maxHp, h.hp + CARD_EVENTS.warmHeal);
+      const got = Math.round(gainLight(h, CARD_EVENTS.warmLight));
+      notify(world, h, `You warm your hands at the hearth. (+${h.hp - before} HP, +${got} light)`);
+      return;
+    }
+    case 'shard': {
+      const cut = Math.min(h.hp - 1, CARD_EVENTS.shardHp);
+      h.hp -= Math.max(0, cut);
+      giveCard(world, h, 'shard', `The mirror bursts, and you keep the sharpest piece. (−${Math.max(0, cut)} HP)`);
+      chronicle(world, `${h.name} shattered a Cracked Mirror.`);
+      return;
+    }
+    case 'blood':
+      reopen(ev);
+      h.oath = 'blood';
+      giveCard(world, h, 'oathstrike', 'You swear the Oath of Blood: you will not run. The stone grows warm.');
+      chronicle(world, `${h.name} swore the Oath of Blood.`);
+      return;
+    case 'grace':
+      reopen(ev);
+      h.oath = 'grace';
+      addSpeedMod(h, world.time, CARD_EVENTS.graceSpeed, null, 'Oath of Grace');
+      notify(world, h, `You swear the Oath of Grace: nothing in your hands but your craft. You feel lighter. (Speed ${signed(CARD_EVENTS.graceSpeed)}; no items in a fight)`);
+      chronicle(world, `${h.name} swore the Oath of Grace.`);
+      return;
+    case 'bet': {
+      reopen(ev);
+      h.gold = Math.max(0, h.gold - CARD_EVENTS.betGold);
+      const card = rng.chance(CARD_EVENTS.snakeEyesChance) ? 'snakeeyes' : rng.pick(FOUND_POOL);
+      giveCard(world, h, card, card === 'snakeeyes'
+        ? `The bones come up snake eyes. The skeleton slides you a worthless card. (−${CARD_EVENTS.betGold} gold)`
+        : `The skeleton turns over a card and slides it across. (−${CARD_EVENTS.betGold} gold)`);
+      return;
+    }
+    case 'study':
+      h.light = 0;
+      giveCard(world, h, 'unmaking', 'You read to the last page as the dark closes in. One word stays with you.');
+      chronicle(world, `${h.name} read the Forbidden Lectern to the end.`);
+      return;
+    case 'skim': {
+      const lost = Math.round(spendLight(h, CARD_EVENTS.skimLight));
+      giveCard(world, h, 'halting', `You skim a page before the book drinks too much of your light. (−${lost} light)`);
+      return;
+    }
+    case 'moment':
+      giveCard(world, h, 'borrowed', 'You take a pinch of the warm ash. It holds a moment, if you need one.');
+      return;
     case 'pry': {
       addToPile(world, room, 0, ['relic']);
       spawnGroup(world, room, ['giant'], world.escalation);
@@ -861,6 +1068,36 @@ function finishEvent(world: World, ev: RoomEvent, h: Hero, choice: string) {
       return;
   }
   if (choice.startsWith('forge-')) forge(world, ev, h, choice.slice('forge-'.length) as GearSlot);
+  // Cracked Mirror, Gaze: a copy of a card from the deck, that burns once played.
+  if (choice.startsWith('copy-')) {
+    const card = choice.slice('copy-'.length) as CardId;
+    h.mirrored.push(card);
+    giveCard(world, h, card, 'Your reflection hands you something, and is gone. A copy of');
+    chronicle(world, `${h.name} took a copy of ${CARDS[card].name} from a Cracked Mirror.`);
+  }
+  // Gambler's Table: a card on the table, doubled or lost.
+  if (choice.startsWith('stake-')) {
+    reopen(ev);
+    const card = choice.slice('stake-'.length) as CardId;
+    if (!liveCards(h).includes(card)) {
+      notify(world, h, 'You no longer have that card to bet.');
+      return;
+    }
+    if (rng.chance(CARD_EVENTS.stakeWin)) {
+      giveCard(world, h, card, 'The skeleton nods and deals you its twin. A second');
+    } else {
+      h.burned.push(card);
+      notify(world, h, `The skeleton takes your ${CARDS[card].name}. It's gone (until a Loom weaves it back).`);
+    }
+  }
+  // Altar of Returns: a burned card comes back.
+  if (choice.startsWith('restore-')) {
+    const card = choice.slice('restore-'.length) as CardId;
+    const i = h.burned.indexOf(card);
+    if (i >= 0) h.burned.splice(i, 1);
+    notify(world, h, `The ash stirs and gives it back: ${CARDS[card].name} is in your deck again.`);
+    chronicle(world, `${h.name} restored ${CARDS[card].name} at an Altar of Returns.`);
+  }
 }
 
 /**

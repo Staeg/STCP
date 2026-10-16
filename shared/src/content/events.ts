@@ -31,9 +31,13 @@ export type EventKind =
   | 'altar' | 'villager' | 'idol' | 'stranger' | 'well' | 'vault' | 'chest' | 'crawlspace'
   | 'quicksilver' | 'satchel' | 'hourglass' | 'clockwork'
   | 'locks' | 'coffin' | 'anvil' | 'loom' | 'scrying' | 'crowned'
+  | CardEventKind
   | EliteEventKind
   /** How an Elite Event looks to every class but its own. */
   | 'veiled';
+
+/** Card events (user, 2026-10-16): each adds a powerful card to a deck for the rest of the run, or trades for one. */
+export type CardEventKind = 'rack' | 'duelist' | 'hearth' | 'mirror' | 'oathstone' | 'gambler' | 'lectern' | 'returns';
 
 /** Class-specific Elite Events (user, 2026-10-10): one per class, only that class can carry it out. */
 export type EliteEventKind = 'wanderers' | 'cant' | 'liturgy' | 'sacrament' | 'uprising' | 'barrage' | 'zenith' | 'alacrity';
@@ -124,6 +128,39 @@ export const EVENTS: Record<EventKind, EventDef> = {
     kind: 'crowned', name: 'Crowned in Dread', glyph: '♔', weight: 0.5,
     text: 'An empty throne of black iron, and above it, carved deep: HE WHO WAKES THE KING MAY TAKE WHAT HE CARRIES. '
       + 'Far off, something old is waiting to be woken, with riches beyond your wildest imagining.',
+  },
+  // ---- Card events (user, 2026-10-16): they add found cards to a deck for the rest of the run ----
+  rack: {
+    kind: 'rack', name: 'Weapon Rack', glyph: '⚔', weight: 1,
+    text: 'A rack of old weapons, still oiled, each with a mark scratched beside it: a way of fighting, left for whoever comes next.',
+  },
+  duelist: {
+    kind: 'duelist', name: "Duelist's Ghost", glyph: '†', weight: 1,
+    text: 'A pale fencer stands at guard in the middle of the room, waiting. It raises its blade to you in salute.',
+  },
+  hearth: {
+    kind: 'hearth', name: 'Ember Hearth', glyph: '♨', weight: 1,
+    text: 'A fire burns in a cold grate with nothing to feed it. It has burned like this for a very long time.',
+  },
+  mirror: {
+    kind: 'mirror', name: 'Cracked Mirror', glyph: '◫', weight: 1,
+    text: 'A tall mirror, split down the middle. Your reflection is a moment late, and it has something in its hand.',
+  },
+  oathstone: {
+    kind: 'oathstone', name: 'Oathstone', glyph: '⚑', weight: 1,
+    text: 'A standing stone worn smooth by hands. Words are cut into it, and they are promises. Whatever you swear here, you keep.',
+  },
+  gambler: {
+    kind: 'gambler', name: "Gambler's Table", glyph: '⚅', weight: 1,
+    text: 'A skeleton deals from a deck of bone cards at a table set for two. It gestures at the empty chair.',
+  },
+  lectern: {
+    kind: 'lectern', name: 'Forbidden Lectern', glyph: '✍', weight: 1,
+    text: 'A book lies open on a lectern, its pages drinking the light around it. The words would cost you to read.',
+  },
+  returns: {
+    kind: 'returns', name: 'Altar of Returns', glyph: '↺', weight: 1,
+    text: 'An altar heaped with ash, still warm. What was spent here can be had again, or a little time borrowed.',
   },
   // ---- Elite Events: seeded per hero (see ELITE_EVENTS), not by weight ----
   veiled: {
@@ -333,8 +370,46 @@ export const EVENT_CHOICES = {
   pryTime: 6,
 };
 
+/** The card events (user, 2026-10-16): times, costs and odds. */
+export const CARD_EVENTS = {
+  /** Weapon Rack: search it to choose 1 of `rackOffer` found cards, or grab one at random and go. */
+  rackTime: 12,
+  rackOffer: 3,
+  grabTime: 1,
+  /** Duelist's Ghost: accepting the duel (then a fight, alone), or bowing out for a Parry. */
+  duelTime: 2,
+  bowTime: 3,
+  /** Ember Hearth: taking the ember (the room drops to Dim), or warming yourself (once each, until the ember is taken). */
+  emberTime: 3,
+  warmTime: 5,
+  warmHeal: 15,
+  warmLight: 40,
+  /** Cracked Mirror: gazing (copy a card from your deck, as a Burn), or shattering it (a Mirror Shard, and it cuts). */
+  gazeTime: 4,
+  shardTime: 2,
+  shardHp: 8,
+  /** Oathstone: swearing either oath. Grace: this much Speed for the run. */
+  oathTime: 3,
+  graceSpeed: -1,
+  /** Gambler's Table: a bet of gold (a random found card, or the dud), or of a card (doubled or lost). */
+  betTime: 3,
+  betGold: 50,
+  snakeEyesChance: 0.3,
+  stakeWin: 0.5,
+  /** Forbidden Lectern: read it all (your light goes out) or skim a page (some of it). */
+  readTime: 6,
+  skimTime: 2,
+  skimLight: 15,
+  /** Altar of Returns: restore a burned card, or take a Borrowed Moment. */
+  returnsTime: 5,
+};
+
 /** Seconds a second choice takes (the first choice's time is the event's own, below). */
 const CHOICE_TIMES: Record<string, number> = {
+  rummage: CARD_EVENTS.rackTime, grab: CARD_EVENTS.grabTime, duel: CARD_EVENTS.duelTime, bow: CARD_EVENTS.bowTime,
+  ember: CARD_EVENTS.emberTime, warm: CARD_EVENTS.warmTime, copy: CARD_EVENTS.gazeTime, shard: CARD_EVENTS.shardTime,
+  blood: CARD_EVENTS.oathTime, grace: CARD_EVENTS.oathTime, bet: CARD_EVENTS.betTime, stake: CARD_EVENTS.betTime,
+  study: CARD_EVENTS.readTime, skim: CARD_EVENTS.skimTime, restore: CARD_EVENTS.returnsTime, moment: CARD_EVENTS.returnsTime,
   desecrate: EVENT_CHOICES.desecrateTime, swap: EVENT_CHOICES.swapTime, search: EVENT_CHOICES.searchTime,
   wish: EVENT_CHOICES.wishTime, smash: EVENT_CHOICES.smashTime, unbind: EVENT_CHOICES.unbindTime,
   bottle: EVENT_CHOICES.bottleTime, pocket: EVENT_CHOICES.pocketTime, shatter: EVENT_CHOICES.shatterTime,
@@ -346,6 +421,10 @@ const CHOICE_TIMES: Record<string, number> = {
 export function channelTime(kind: EventKind, speed: number, choice?: string): number {
   if (choice === 'overwind') return SPEED_EVENTS.clockworkWork / speed / 2;
   if (choice && CHOICE_TIMES[choice] !== undefined) return CHOICE_TIMES[choice];
+  // A choice per card ('copy-hex', 'stake-bash', 'restore-dawn'): its kind's time.
+  const head = choice?.split('-')[0];
+  if (head && head !== choice && CHOICE_TIMES[head] !== undefined && kind !== 'crawlspace') return CHOICE_TIMES[head];
+
   switch (kind) {
     case 'liturgy': return Infinity;
     case 'barrage': return ELITE_EVENTS.barrageTime;

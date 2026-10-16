@@ -280,14 +280,16 @@ export class CombatUi {
 
   /** A card button's frame: the class colour for class cards, the Gear's tier colour for the rest. */
   private static cardFrame(card: CardId, cls: ClassId): string {
-    return `${cardSource(card) === 'class' ? 'from-class' : 'from-gear'}" style="--frame:${cardFrameColor(card, cls)}`;
+    const src = cardSource(card);
+    return `${src === 'class' ? 'from-class' : src === 'found' ? 'from-found' : 'from-gear'}" style="--frame:${cardFrameColor(card, cls)}`;
   }
 
   /** A card's text, for its hover box. */
   private static cardDesc(card: CardId, time: number, extra = ''): string {
     const def = CARDS[card];
     const schools = def.schools.map((s) => SCHOOLS[s].name).join(', ');
-    const from = cardSource(card) === 'class' ? 'Class card' : card === 'fumble' ? 'Empty Gear slot' : 'Gear card';
+    const src = cardSource(card);
+    const from = src === 'class' ? 'Class card' : src === 'found' ? 'Found card' : card === 'fumble' ? 'Empty Gear slot' : 'Gear card';
     return `<b>${esc(def.name)}</b> · ${fmtSpeed(time)} until your next action${schools ? ` · ${schools}` : ''}${def.burn ? ' · <b>Burn</b>' : ''} · <span class="muted">${from}</span><br>${iconize(def.desc)}${extra}`;
   }
 
