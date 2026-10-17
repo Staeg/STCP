@@ -1,4 +1,3 @@
-import { talentsFor, type TalentId } from './talents';
 import type { ClassId } from './classes';
 
 /**
@@ -32,7 +31,7 @@ export const SHARDS: Record<ShardId, ShardDef> = {
 export const SHARD_IDS = Object.keys(SHARDS) as ShardId[];
 
 export const SPECS: Record<SpecId, SpecDef> = {
-  seasoned: { id: 'seasoned', name: 'Seasoned', desc: 'Learns their class’s other Talent too.' },
+  seasoned: { id: 'seasoned', name: 'Seasoned', desc: 'Holds 4 cards in a fight instead of 3.' },
 };
 export const SPEC_IDS = Object.keys(SPECS) as SpecId[];
 
@@ -53,8 +52,5 @@ export function specFits(spec: SpecId, cls: ClassId): boolean {
   return !SPECS[spec].classes || SPECS[spec].classes!.includes(cls);
 }
 
-/** The Talents a Character has: their own, plus the other one if Seasoned. */
-export function talentsOf(c: { cls: ClassId; talent: TalentId | null; spec?: SpecId | null }): TalentId[] {
-  if (!c.talent) return [];
-  return c.spec === 'seasoned' ? talentsFor(c.cls) : [c.talent];
-}
+/** Seasoned (user, 2026-10-17; it was the class's other Talent): the hand a Seasoned Character holds in a fight. */
+export const SEASONED_HAND = 4;

@@ -1,17 +1,17 @@
 import {
-  REGALIA_RULES, SPECS, talentsOf, type SpecId, FIELD_SKILLS, fieldSkillsOf,
+  REGALIA_RULES, SPECS, type SpecId, FIELD_SKILLS, fieldSkillsOf, deckError, levelPending, LEVEL_RULES,
   CARDS, CLASS_CARDS, SCHOOLS, BUILDINGS, CLASS_IDS, CLASSES, crBonus, CR_RULES, crUnitChance, ENEMIES, ESCALATION, ROSTER_RULES, TIERS, UNITS_BY_TIER, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp,
-  ITEMS, KIT_RULES, LEVEL_NAMES, RITES, talentPending, TALENTS, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
+  ITEMS, KIT_RULES, LEVEL_NAMES, RITES, VILLAGE_RULES, EMERGENCIES, emergencyWarning, KIND_NAMES, WELLBEING,
   type BuildingId, type Character, type ClassId, type EmergencyId, type FateChoice, type Injury, type ItemId, type Kit, type LeaderboardEntry, type LobbyView, type ResourceId,
-  type GearSlot, type ServiceId, type TalentId, type VillageView,
+  type CardId, type GearSlot, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { codexHtml, type CodexTab } from './codex';
-import { addToKit, loadoutHtml, PICKED, removeFromKit, toggleBare, toggleRite, villageHtml } from './village';
+import { addToKit, characterHtml, loadoutHtml, PICKED, removeFromKit, toggleBare, toggleRite, villageHtml } from './village';
 import type { Net } from './net';
 import { SOLO } from './local';
 import { spriteUrl } from './render/sprites';
 import { cardArtUrl, fieldArtUrl } from './render/card-art';
-import { iconize, iconNum, talentStars } from './icons';
+import { iconize, iconNum, levelStars } from './icons';
 
 declare const __BUILD__: string;
 /** Built by vite.config.ts: one group per deploy, newest first; `at` is the push time (null = not pushed yet). */
@@ -72,6 +72,14 @@ export class Screens {
   private picking: ServiceId | null = null;
   /** The Armory, Bestiary or Archive, open over the Village. */
   private codexTab: CodexTab | null = null;
+  /** The Character screen (user, 2026-10-17): whose deck is open, over the Village. */
+  private charOpen: string | null = null;
+  /** On the Character screen: a card clicked, waiting for the card it swaps with. */
+  private charPick: CardId | null = null;
+  /** On the Character screen: why the last swap didn't happen. */
+  private charNote: string | null = null;
+  /** A card is being dragged on the Character screen: don't re-render under it. */
+  private dragging = false;
 
   constructor(private net: Net) {
     root().addEventListener('pointerdown', () => (this.pressing = true));
@@ -83,6 +91,64 @@ export class Screens {
     root().addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.target as HTMLElement).id === 'code-input') this.join();
     });
+    // The Character screen: drag a card onto one in the other panel to swap them.
+    root().addEventListener('dragstart', (e) => {
+      const tile = (e.target as HTMLElement).closest<HTMLElement>('.cv-card[data-card]');
+      if (!tile || !e.dataTransfer) return;
+      e.dataTransfer.setData('text/plain', tile.dataset.card!);
+      e.dataTransfer.effectAllowed = 'move';
+      this.dragging = true;
+      this.charPick = tile.dataset.card as CardId;
+      tile.classList.add('dragged');
+    });
+    root().addEventListener('dragover', (e) => {
+      const over = (e.target as HTMLElement).closest<HTMLElement>('.cv-card[data-card], .cv-panel');
+      if (!over || !this.dragging) return;
+      e.preventDefault();
+      for (const el of root().querySelectorAll('.drop-on')) el.classList.remove('drop-on');
+      over.classList.add('drop-on');
+    });
+    root().addEventListener('drop', (e) => {
+      e.preventDefault();
+      const tile = (e.target as HTMLElement).closest<HTMLElement>('.cv-card[data-card]');
+      const from = e.dataTransfer?.getData('text/plain') as CardId | undefined;
+      this.dragging = false;
+      if (from && tile?.dataset.card) this.swapCards(from, tile.dataset.card as CardId);
+      else if (from) {
+        this.charNote = 'Drop it on the card it should swap with: a deck always holds exactly 6.';
+        this.charPick = null;
+      }
+      this.update();
+    });
+    root().addEventListener('dragend', () => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.charPick = null;
+      this.update();
+    });
+  }
+
+  /** Swap two cards on the Character screen (one from the deck, one from the rest), if that makes a valid deck. */
+  private swapCards(a: CardId, b: CardId) {
+    this.charPick = null;
+    this.charNote = null;
+    const c = this.net.village?.characters.find((x) => x.id === this.charOpen);
+    if (!c || a === b) return;
+    const inDeck = (x: CardId) => c.deck.includes(x);
+    if (inDeck(a) === inDeck(b)) {
+      this.charNote = inDeck(a) ? 'Both are in the deck already: swap a deck card with one from the right.' : 'Neither is in the deck: drop one onto a deck card.';
+      return;
+    }
+    const [out, inn] = inDeck(a) ? [a, b] : [b, a];
+    const deck = c.deck.map((x) => (x === out ? inn : x));
+    const err = deckError(c.cls, deck, c.learned);
+    if (err) {
+      this.charNote = err;
+      return;
+    }
+    // Show it at once; the server's Village view confirms it.
+    c.deck = deck;
+    this.net.send({ t: 'setDeck', charId: c.id, deck });
   }
 
   /** Re-render when the lobby changes. Returns true if a screen is covering the game. */
@@ -97,10 +163,12 @@ export class Screens {
     el.hidden = false;
     const body = lobby === undefined ? `<div class="card"><h1>So They Can Prosper</h1><p>Connecting…</p></div>`
       : this.net.villageOpen && this.net.village && this.codexTab ? codexHtml(this.net.village, this.codexTab)
+      : this.net.villageOpen && this.net.village && this.charOpen && this.net.village.characters.some((c) => c.id === this.charOpen)
+        ? characterHtml(this.net.village, this.charOpen, this.charPick, this.charNote, lobby)
       : this.net.villageOpen && this.net.village ? villageHtml(this.net.village, lobby, this.picking, emergencyHtml(this.net.village, lobby), this.net.village.fate ? fateHtml(this.net.village) : null)
       : lobby === null ? this.menuHtml() : this.lobbyHtml(lobby);
     const html = `${body}${this.patchNotes ? patchNotesHtml() : ''}<button class="build-tag" data-act="patch-notes" title="Branch @ commit this build came from. Click for patch notes.">${esc(__BUILD__)}</button>`;
-    if (html !== this.rendered && !this.pressing) {
+    if (html !== this.rendered && !this.pressing && !this.dragging) {
       // Preserve typed text and focus across re-renders (other players' changes trigger these).
       const values = new Map([...el.querySelectorAll('input')].map((i) => [i.id, i.value]));
       const focused = document.activeElement?.id;
@@ -169,7 +237,7 @@ export class Screens {
         const bch = bot.character;
         slots.push(`<li class="slot bot">
           <span class="swatch" style="background:${bc.color}"></span>
-          <span class="slot-name">${esc(bot.name)}${bch ? talentStars(talentsOf({ ...bch, cls: bot.cls })) : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
+          <span class="slot-name">${esc(bot.name)}${bch ? levelStars(bch.learned.length) : ''}${bot.owner ? ` <span class="muted">(borrowed from ${esc(bot.owner)})</span>` : ''}</span>
           ${bch && bch.injuries.length ? `<span class="danger small" title="No healthy Character was free to borrow">hurt</span>` : ''}
           <span class="slot-meta"><span class="muted">${bc.name}</span> · <span class="muted">BOT</span></span>
         </li>`);
@@ -177,7 +245,7 @@ export class Screens {
       }
       const cls = m.cls ? CLASSES[m.cls] : null;
       const ch = m.character;
-      const who = ch ? `${esc(ch.name)}${m.cls ? talentStars(talentsOf({ ...ch, cls: m.cls })) : ''} <span class="muted">(${esc(m.name)})</span>` : esc(m.name);
+      const who = ch ? `${esc(ch.name)}${levelStars(ch.learned.length)} <span class="muted">(${esc(m.name)})</span>` : esc(m.name);
       slots.push(`<li class="slot">
         <span class="swatch" style="background:${cls?.color ?? '#333'}"></span>
         <span class="slot-name">${who} <span class="title-tag">${esc(m.title)}</span>${m.id === lobby.hostId ? ' <span class="muted">(host)</span>' : ''}${m.id === lobby.youId ? ' <span class="muted">(you)</span>' : ''}</span>
@@ -194,8 +262,8 @@ export class Screens {
       const hurt = ch && ch.injuries.length;
       return `<button class="class-row ${you.cls === id ? 'selected' : ''}" data-act="class" data-cls="${id}" style="--cls:${c.color}" title="${esc(`${c.name}: ${c.role}`)}">
         <img class="cr-sprite" src="${spriteUrl(id, c.color)}" alt="">
-        <span class="cr-name">${c.name}${ch ? talentStars(talentsOf(ch)) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
-        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${fieldSkillsOf({ cls: id }).map((s) => `<span class="ab-chip field" title="${esc(`Field ability: ${FIELD_SKILLS[s].desc}${FIELD_SKILLS[s].cooldown ? ` Cooldown ${FIELD_SKILLS[s].cooldown}s.` : ''}`)}">${esc(FIELD_SKILLS[s].name)}</span>`).join('')}${CLASS_CARDS[id].map((cd) => `<span class="ab-chip ${CARDS[cd].burn ? 'burn' : ''}" title="${esc(`${CARDS[cd].name} · ${CARDS[cd].time}s${CARDS[cd].burn ? ' · Burn' : ''}: ${CARDS[cd].desc}`)}">${esc(CARDS[cd].name)}</span>`).join('')}</span>
+        <span class="cr-name">${c.name}${ch ? levelStars(ch.learned.length) : ''}${hurt ? ' <span class="injury major">✚</span>' : ''}</span>
+        <span class="cr-abs"><span class="ab-chip innate" title="${esc(`Innate: ${c.innate.desc}`)}">${esc(c.innate.name)}</span>${fieldSkillsOf({ cls: id }).map((s) => `<span class="ab-chip field" title="${esc(`Field ability: ${FIELD_SKILLS[s].desc}${FIELD_SKILLS[s].cooldown ? ` Cooldown ${FIELD_SKILLS[s].cooldown}s.` : ''}`)}">${esc(FIELD_SKILLS[s].name)}</span>`).join('')}${(ch?.deck ?? CLASS_CARDS[id]).map((cd) => `<span class="ab-chip ${CARDS[cd].burn ? 'burn' : ''}" title="${esc(`${CARDS[cd].name} · ${CARDS[cd].time}s${CARDS[cd].burn ? ' · Burn' : ''}: ${CARDS[cd].desc}`)}">${esc(CARDS[cd].name)}</span>`).join('')}</span>
         ${others.length ? `<span class="cr-others" title="${esc(`Also: ${others.join(', ')}`)}">${others.map((n) => esc(n[0])).join('')}</span>` : ''}
       </button>`;
     }).join('');
@@ -274,6 +342,32 @@ export class Screens {
         net.villageOpen = false;
         this.picking = null;
         this.codexTab = null;
+        this.charOpen = null;
+        break;
+      case 'char-open':
+        this.charOpen = btn.dataset.char!;
+        this.charPick = null;
+        this.charNote = null;
+        this.picking = null;
+        break;
+      case 'char-close':
+        this.charOpen = null;
+        this.charPick = null;
+        this.charNote = null;
+        break;
+      case 'cv-pick': {
+        // Click a card, then the one it swaps with (the same click again lets go).
+        const card = btn.dataset.card as CardId;
+        if (!this.charPick || this.charPick === card) {
+          this.charPick = this.charPick === card ? null : card;
+          this.charNote = null;
+        } else this.swapCards(this.charPick, card);
+        break;
+      }
+      case 'learn':
+        net.send({ t: 'learnCard', charId: btn.dataset.char!, card: btn.dataset.card as CardId });
+        this.charPick = null;
+        this.charNote = null;
         break;
       case 'codex':
         this.codexTab = btn.dataset.tab as CodexTab;
@@ -316,9 +410,6 @@ export class Screens {
       case 'cr-help':
         this.crHelp = !this.crHelp;
         this.update();
-        break;
-      case 'talent':
-        net.send({ t: 'chooseTalent', charId: btn.dataset.char!, talent: btn.dataset.talent as TalentId });
         break;
       case 'spec': {
         const spec = btn.dataset.spec as SpecId;
@@ -392,7 +483,7 @@ function classCard(id: ClassId, ch: Character | undefined): string {
     ${ch ? `<div class="class-char">${characterLine(ch)}</div>` : ''}
     <div class="blurb"><b>Innate: ${esc(c.innate.name)}</b>. ${iconize(c.innate.desc)}</div>
     ${fieldSkillsOf({ cls: id }).map((s) => `<div class="blurb field-blurb"><img class="field-art" src="${fieldArtUrl(s)}" alt=""><b>Field ability: ${esc(FIELD_SKILLS[s].name)}</b>${FIELD_SKILLS[s].cooldown ? ` <span class="muted">(${FIELD_SKILLS[s].cooldown}s cooldown)</span>` : ''}. ${iconize(FIELD_SKILLS[s].desc)}</div>`).join('')}
-    <ul class="class-cards">${CLASS_CARDS[id].map((cd) => {
+    <ul class="class-cards">${(ch?.deck ?? CLASS_CARDS[id]).map((cd) => {
       const def = CARDS[cd];
       const schools = def.schools.map((x) => `<span title="${SCHOOLS[x].name}">${SCHOOLS[x].glyph}</span>`).join('');
       return `<li><img class="card-art" src="${cardArtUrl(cd, id)}" alt=""><b>${esc(def.name)}</b> <span class="muted">${def.time}s</span> ${schools}${def.burn ? ' <span title="Burn: once a run (a Loom brings it back).">🔥</span>' : ''}<br>${iconize(def.desc)}</li>`;
@@ -449,21 +540,21 @@ function fateHtml(v: VillageView): string {
   </div>`;
 }
 
-/** "Ilse · XP 1/2 · ★ Iron Oath · Minor Injury" for a Character on a lobby class card. */
+/** "Ilse · Level 1 · Minor Injury" for a Character on a lobby class card. */
 function characterLine(c: Character): string {
   const bits = [`<b>${esc(c.name)}</b>`];
-  if (c.talent) bits.push(...talentsOf(c).map((t) => `<span class="talent-star" title="${esc(TALENTS[t].desc)}">★ ${esc(TALENTS[t].name)}</span>`));
-  else bits.push(talentPending(c) ? '<span class="gold">Talent ready!</span>' : `XP ${c.xp}/${VILLAGE_RULES.xpForTalent}`);
+  bits.push(`Level ${c.learned.length}/${LEVEL_RULES.maxLevel}${levelStars(c.learned.length)}`);
+  if (levelPending(c)) bits.push('<span class="gold">Level up waiting in the Village!</span>');
   for (const i of c.injuries) bits.push(`<span class="injury ${i}">${INJURY_NAMES[i]}</span>`);
   if (c.blessed) bits.push('<span class="chip blessed" title="Blessed by the Elder: Elder’s Oil is in their deck next run.">Blessed ✦</span>');
   if (c.spec) bits.push(`<span class="spec-tag" title="${esc(SPECS[c.spec].desc)}">${esc(SPECS[c.spec].name)}</span>`);
   return bits.join(' · ');
 }
 
-/** A marker on the Village button when a Talent is waiting to be chosen. */
+/** A marker on the Village button when a level-up is waiting. */
 function villageBadge(v: VillageView | null): string {
-  const talents = v?.characters.filter(talentPending).length ?? 0;
-  return talents ? ` <span class="gold">(★ ${talents})</span>` : '';
+  const n = v?.characters.filter(levelPending).length ?? 0;
+  return n ? ` <span class="gold" title="${n} level-up${n === 1 ? '' : 's'} waiting">(★ ${n})</span>` : '';
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -490,7 +581,7 @@ function crHelpHtml(cr: number): string {
     <div><b>Each run</b> picks its monsters at random: ${ROSTER_RULES.defaults[0]} T0, ${ROSTER_RULES.defaults[1]} T1 and ${ROSTER_RULES.defaults[2]} T2 are its default monsters.
       T0 are there from the start, T1 join at Escalation ${ROSTER_RULES.escalation[1]} and T2 at Escalation ${ROSTER_RULES.escalation[2]} (lairs and hidden rooms don't wait).
       One more of each tier (the T3 always: there is only the ${ENEMIES.lich.name}) is the run's <i>CR unit</i>, which only Challenge Rating brings.</div>
-    <div><b>Challenge Rating</b> is 1 per hero with a Talent (bots included), +${KIT_RULES.crPerGearLevel} per level of Gear brought from the Stash, +${KIT_RULES.effigyCr} for an Effigy Rite and ${KIT_RULES.gemCr} for a Gem Rite. A fraction is the chance of the next CR up. Each CR: +${pct(CR_RULES.goldPerCr)} gold found.</div>
+    <div><b>Challenge Rating</b> is ${(1 / LEVEL_RULES.maxLevel).toFixed(2)} per level of every hero (bots included), +${KIT_RULES.crPerGearLevel} per level of Gear brought from the Stash, +${KIT_RULES.effigyCr} for an Effigy Rite and ${KIT_RULES.gemCr} for a Gem Rite. A fraction is the chance of the next CR up. Each CR: +${pct(CR_RULES.goldPerCr)} gold found.</div>
     <ul>
       <li>Each group of monsters rolls separately for each CR unit: T0 from CR ${u[0].from} (${pct(u[0].chance)}), T1 from CR ${u[1].from} (${pct(u[1].chance)}), T2 from CR ${u[2].from} (${pct(u[2].chance)}), T3 from CR ${u[3].from} (${pct(u[3].chance)}). Lairs bring every one unlocked.</li>
       <li>CR ${CR_RULES.lowCr}: T0 and T1 monsters get +${pct(CR_RULES.lowBonus)} HP and damage.</li>

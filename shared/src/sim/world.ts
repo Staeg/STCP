@@ -3,7 +3,6 @@ import { COLLAPSE_AT, LIGHT_DIM, LIGHT_DRAIN, LIGHT_MAX, ESCALATION_INTERVAL, MA
 import { CR_RULES, ESCALATION, rollRoster, type EnemyId, type Roster } from '../content/enemies';
 import type { EmergencyId } from '../content/emergencies';
 import { forceRoster, seedEmergencies } from './emergency';
-import type { TalentId } from '../content/talents';
 import type { ShardId } from '../content/regalia';
 import { injuredMaxHp, KIT_RULES, RITES, sightMatches, VILLAGE_RULES, type Injury, type Loadout, type Sight } from '../village';
 import { GEAR_KIND_PLURALS } from '../content/forge';
@@ -16,11 +15,11 @@ import { relearnPaths, tickForgetting } from './mind';
 import { corridorBetween, generateDungeon, neighbours, otherEnd, theRoom, type Corridor, type Dungeon } from '../dungeon/gen';
 import { Rng } from '../rng';
 import {
-  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, stepToEnd, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldTurns, tickClocks,
+  dieOut, closeFights, inDungeon, MAJOR_INJURY_LABEL, riteMult, syncInjuries, isConscious, monstersIn, onHeroInRoom, REVIVE_CHANNEL, reviveHero, spawnInitialMonsters, stepToEnd, submitChoice, tickCombat, tickRisings, fieldTurn, fieldTurnEnd, fieldTurnStart, tickDowned, tickFieldTurns, tickClocks, lightFloor,
   type Choice, type Encounter, type Monster, type Risen, type Rising, type Statuses,
 } from './combat';
 import type { GearSlot, ItemId, ResourceId } from '../content/items';
-import type { CardId } from '../content/cards';
+import { CARD_RULES, CLASS_CARDS, type CardId } from '../content/cards';
 import type { Deck } from './deck';
 import { CLOTH, GEAR_SLOTS, ISSUED_KIT, ITEMS, pluralName, slotOf } from '../content/items';
 import { emptyCodex, TWIST_IDS, TWISTS, type Codex } from '../content/codex';
@@ -123,6 +122,12 @@ export interface Hero {
   spadeBonus: number;
   /** Elixir: this hero's next item has double effect. */
   elixir: boolean;
+  /** Bottomless Flask: this hero's next item isn't used up. */
+  bottomless: boolean;
+  /** Eternal Lamp (for the run): light never below CARD_RULES.eternalFloor, and every card does a little more. */
+  eternal: boolean;
+  /** The most undead the Undertaker's following holds (Lord of the Dead raises it for the run). */
+  followCap: number;
   /** Field abilities (M16): the game time each one is ready again (absent: ready). */
   fieldReady: Partial<Record<FieldSkill, number>>;
   /** The Cutthroat's Sneak (M16), toggled out of fights: Speed ×2, Ambushes, Sneak Past, and their cards' Sneaking bonuses. */
@@ -182,8 +187,12 @@ export interface Hero {
   charId: string | null;
   /** The player whose Village it came from. */
   owner: string | null;
-  /** Every Talent the Character has (two if Seasoned). */
-  talents: TalentId[];
+  /** The class cards in their deck: their Character's chosen six (the class's own six for a hero without one). */
+  classCards: CardId[];
+  /** Their Character's level (level-up cards learned). */
+  level: number;
+  /** Cards held in a fight (Seasoned: 4). */
+  handSize: number;
   /** The Shards the player's Village already has; null for bots, who have no Village and can't carry one. */
   villageShards: ShardId[] | null;
   /** The Shard this hero carries (one at most): carried out, it's their Village's. */
@@ -481,6 +490,9 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     queuedItem: null,
     spadeBonus: 0,
     elixir: false,
+    bottomless: false,
+    eternal: false,
+    followCap: CLASS_RULES.followingMax,
     fieldReady: {},
     sneaking: false,
     anima: 0,
@@ -498,7 +510,9 @@ export function addHero(world: World, opts: { id: string; name: string; cls: Cla
     seen: [d.exit],
     charId: loadout?.charId ?? null,
     owner: loadout?.owner ?? null,
-    talents: [...(loadout?.talents ?? [])],
+    classCards: [...(loadout?.deck ?? CLASS_CARDS[opts.cls])],
+    level: loadout?.level ?? 0,
+    handSize: loadout?.hand ?? CARD_RULES.handSize,
     villageShards: opts.isBot ? null : [...(loadout?.shards ?? [])],
     shard: null,
     shardSaved: false,
@@ -578,7 +592,7 @@ export function step(world: World, dt: number): void {
     // Lying in the Open Coffin is no wound: it counts the HP they lay down with.
     hero.lowestHp = Math.min(hero.lowestHp, (hero.restHp ?? hero.hp) / hero.maxHp);
     syncInjuries(hero);
-    hero.light = Math.max(0, hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * wornMult(hero, 'lightDrainMult') * dt);
+    hero.light = Math.max(Math.min(hero.light, lightFloor(hero)), hero.light - drain * (hero.cls === 'lampbearer' ? CLASS_RULES.lampLightDrain : 1) * wornMult(hero, 'lightDrainMult') * dt);
     // Bloodstone Ring: slowly mends while exploring.
     const regen = wornStat(hero, 'regen');
     if (regen > 0 && isConscious(hero) && hero.encounter === null) hero.hp = Math.min(hero.maxHp, hero.hp + dt / regen);

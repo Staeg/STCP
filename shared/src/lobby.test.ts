@@ -201,22 +201,26 @@ describe('LobbyManager', () => {
 
   it('brings Village Characters: bots borrow healthy ones, and only players’ Characters carry the run home', () => {
     const stash = new Stash(null);
-    // Ann's Village: everything but the Sorceress and the Zealot is hurt; her Warden has a Talent.
+    // Ann's Village: everything but the Sorceress and the Zealot is hurt; her Warden is level 3, Rally swapped for a learned card.
     for (const c of stash.characters('Ann')) {
       if (c.cls === 'sorceress' || c.cls === 'zealot' || c.cls === 'warden') continue;
       stash.recordCharacter('Ann', c.id, { escaped: true, lowestHp: 0.4, downedMajor: false });
     }
     const warden = stash.characterFor('Ann', 'warden');
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
-    expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
+    for (let i = 0; i < 3; i++) {
+      stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
+      expect(stash.learnCard('Ann', warden.id, stash.characterFor('Ann', 'warden').offer![0])).toBeNull();
+    }
+    const learned = stash.characterFor('Ann', 'warden').learned;
+    const deck = stash.characterFor('Ann', 'warden').deck.map((c) => (c === 'rally' ? learned[0] : c));
+    expect(stash.setDeck('Ann', warden.id, deck)).toBeNull();
 
     const mgr = new LobbyManager(stash);
     const a = client(mgr, 'tokenAAAA', 'Ann');
     a.say({ t: 'create' });
     a.say({ t: 'pickClass', cls: 'warden' });
     expect(a.ws.lastLobby()!.cr).toBe(1);
-    expect(a.ws.lastLobby()!.members[0].character?.talent).toBe('shieldwall');
+    expect(a.ws.lastLobby()!.members[0].character?.learned).toHaveLength(3);
     a.say({ t: 'ready', ready: true });
     a.say({ t: 'start' });
 
@@ -224,7 +228,8 @@ describe('LobbyManager', () => {
     const heroes = Object.values(lobby.game.world.heroes);
     const you = heroes.find((h) => !h.isBot)!;
     expect(you.name).toBe(`${warden.name} (Ann)`);
-    expect(you.talents).toEqual(['shieldwall']);
+    expect(you.level).toBe(3);
+    expect(you.classCards).toEqual(deck);
     const bots = heroes.filter((h) => h.isBot);
     // The two healthy ones first (Sorceress, Zealot), then a hurt one, since nobody healthy is left.
     expect(bots.map((h) => h.cls).slice(0, 2).sort()).toEqual(['sorceress', 'zealot']);

@@ -14,13 +14,13 @@ export interface PlayerSlot {
   name: string;
   cls: ClassId;
   isBot: boolean;
-  /** The Village Character this hero is, if any (its Talent, injuries and the Elder's blessing come with it). */
+  /** The Village Character this hero is, if any (its deck, level, injuries and the Elder's blessing come with it). */
   loadout?: Loadout;
 }
 
-/** The party's combined CR before the roll: a point per Talent, plus each player's Gear and Rites. */
+/** The party's combined CR before the roll: a third of a point per level, plus each player's Gear and Rites. */
 export function combinedCr(slots: PlayerSlot[]): number {
-  return Math.round(slots.reduce((s, x) => s + heroCr(x.loadout?.talents, x.loadout?.kit), 0) * 100) / 100;
+  return Math.round(slots.reduce((s, x) => s + heroCr(x.loadout?.level, x.loadout?.kit), 0) * 100) / 100;
 }
 
 /** A running expedition: the world plus the bots that inhabit it. Shared by the server and the headless sim. */
@@ -29,7 +29,7 @@ export class Game {
   readonly bots = new Map<string, BotMemory>();
 
   constructor(seed: number, slots: PlayerSlot[], opts: WorldOptions = {}) {
-    // Challenge Rating: rolled from the heroes' combined CR (Talents, Gear, Rites), unless the caller fixes it.
+    // Challenge Rating: rolled from the heroes' combined CR (levels, Gear, Rites), unless the caller fixes it.
     const cr = opts.cr ?? rollCr(combinedCr(slots), new Rng(seed ^ 0x2545f491));
     // Relic Rite: anyone's makes it the whole party's run.
     const relic = slots.some((s) => s.loadout?.kit?.rites.includes('relic'));

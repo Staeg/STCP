@@ -1,7 +1,6 @@
 import { GEAR_SLOTS } from './content/items';
 import { Stash } from './stash';
-import { heroCr, isHealthy, loadoutOf, type Character } from './village';
-import { talentsOf } from './content/regalia';
+import { heroCr, isHealthy, levelOf, loadoutOf, lobbyCharacter, type Character } from './village';
 import { Rng } from './rng';
 import { CLASS_IDS, type ClassId } from './content/classes';
 import { titleFor } from './content/titles';
@@ -90,17 +89,17 @@ export class Lobby {
         const c = m.cls ? this.stash.characterFor(m.name, m.cls) : null;
         return {
           id: m.id, name: m.name, cls: m.cls, ready: m.ready, connected: !!m.ws, stash: this.stash.get(m.name), title: titleFor(this.stash.get(m.name)),
-          character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, blessed: c.blessed },
+          character: c && lobbyCharacter(c),
           kit: this.stash.kitOf(m.name),
           emergency: this.stash.emergencyOf(m.name),
         };
       }),
       bots: this.bots.map((b) => {
         const c = this.botCharacter(b);
-        return { name: b.name, cls: b.cls, owner: b.owner, character: c && { name: c.name, talent: c.talent, spec: c.spec ?? null, xp: c.xp, injuries: c.injuries, blessed: c.blessed } };
+        return { name: b.name, cls: b.cls, owner: b.owner, character: c && lobbyCharacter(c) };
       }),
-      cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? talentsOf(this.stash.characterFor(m.name, m.cls)) : [], this.stash.kitOf(m.name)), 0)
-        + this.bots.reduce((s, b) => s + heroCr(talentsOf(this.botCharacter(b) ?? { cls: b.cls, talent: null }), undefined), 0)) * 100) / 100,
+      cr: Math.round((this.members.reduce((s, m) => s + heroCr(m.cls ? levelOf(this.stash.characterFor(m.name, m.cls)) : 0, this.stash.kitOf(m.name)), 0)
+        + this.bots.reduce((s, b) => { const c = this.botCharacter(b); return s + heroCr(c ? levelOf(c) : 0, undefined); }, 0)) * 100) / 100,
       relic: this.members.some((m) => this.stash.kitOf(m.name).rites.includes('relic')),
     };
   }
@@ -165,7 +164,7 @@ export class Lobby {
    * Bots fill the empty slots once every player has picked a class, and stay put until they must change: a bot
    * leaves if its Character's owner left, a player now brings it, or the lobby filled up. New bots borrow
    * Characters from the players' Villages: a random healthy one nobody brought, preferring classes nobody has, or
-   * any one at all if none is healthy. They use its Talent and suffer its injuries, but what happens to them in the
+   * any one at all if none is healthy. They use its deck and suffer its injuries, but what happens to them in the
    * run never goes back to the Village.
    */
   syncBots() {
@@ -273,7 +272,8 @@ export class LobbyManager {
       case 'village':
         send(ws, { t: 'village', village: this.stash.village(name) });
         return;
-      case 'chooseTalent':
+      case 'learnCard':
+      case 'setDeck':
       case 'chooseSpec':
       case 'build':
       case 'demolish':
@@ -289,10 +289,11 @@ export class LobbyManager {
           : msg.t === 'chooseFate' ? (busy ?? this.stash.chooseFate(name, msg.choice))
           : msg.t === 'setKit' ? (found?.lobby.state === 'game' ? 'Not while your expedition is underway.' : this.stash.setKit(name, msg.kit))
           : msg.t === 'chooseSpec' ? (busy ?? this.stash.chooseSpec(name, msg.charId, msg.spec))
-          : this.stash.chooseTalent(name, msg.charId, msg.talent);
+          : msg.t === 'setDeck' ? this.stash.setDeck(name, msg.charId, msg.deck)
+          : this.stash.learnCard(name, msg.charId, msg.card);
         if (problem) err(problem);
         send(ws, { t: 'village', village: this.stash.village(name) });
-        // Lobby cards show your Character, and the CR counts Talents.
+        // Lobby cards show your Character, and the CR counts levels.
         if (found?.lobby.state === 'lobby') found.lobby.broadcast();
         return;
       }

@@ -1,48 +1,97 @@
 import { describe, expect, it } from 'vitest';
 import { CLASS_IDS, CLASSES } from './content/classes';
 import { Stash } from './stash';
-import { applyRun, BUILDINGS, injuredMaxHp, loadoutOf, upkeepOf, VILLAGE_RULES, VILLAGE_UPKEEP, type Character } from './village';
+import { applyRun, BUILDINGS, injuredMaxHp, learnCard, levelPending, loadoutOf, migrateCharacter, newCharacter, setDeck, upkeepOf, VILLAGE_UPKEEP, type Character } from './village';
+import { CLASS_CARDS, LEVEL_RULES, LEVELUP_CARDS, type CardId } from './content/cards';
+import { Rng } from './rng';
 import { isGear, ITEMS, itemTier, type ItemId } from './content/items';
 import { gearKind } from './content/forge';
 import { addHero, createWorld } from './sim/world';
 import { addToPile } from './sim/loot';
 
-const fresh = (): Character => ({ id: 'c1', name: 'Ilse', cls: 'warden', xp: 0, survived: 0, talent: null, injuries: [] });
+const fresh = (): Character => newCharacter('c1', 'warden', new Rng(1), []);
+const rng = new Rng(3);
 const ok = { escaped: true, lowestHp: 1, downedMajor: false };
 
 describe('applyRun', () => {
-  it('gives 1 XP per run survived; 2 XP earns a Talent choice', () => {
+  it('gives 1 XP per run survived, up to level 3; each XP offers 3 level-up cards', () => {
     const c = fresh();
-    applyRun(c, ok);
+    const { lines } = applyRun(c, ok, rng);
     expect(c.xp).toBe(1);
-    const { lines } = applyRun(c, ok);
-    expect(c.xp).toBe(VILLAGE_RULES.xpForTalent);
-    expect(lines.join(' ')).toMatch(/choose a Talent/);
-    applyRun(c, ok);
-    expect(c.xp).toBe(VILLAGE_RULES.xpForTalent);
+    expect(levelPending(c)).toBe(true);
+    expect(lines.join(' ')).toMatch(/level-up waits/);
+    expect(c.offer).toHaveLength(LEVEL_RULES.offer);
+    expect(c.offer!.every((x) => LEVELUP_CARDS.warden.includes(x))).toBe(true);
+    applyRun(c, ok, rng);
+    applyRun(c, ok, rng);
+    applyRun(c, ok, rng);
+    expect(c.xp).toBe(LEVEL_RULES.maxLevel);
+  });
+
+  it('learns one card per level, never one already known; the last offer is 3 of the 3 left', () => {
+    const c = fresh();
+    expect(learnCard(c, 'aegis', rng)).toMatch(/no level-up/);
+    for (let i = 0; i < 3; i++) applyRun(c, ok, rng);
+    const offers: CardId[][] = [];
+    while (levelPending(c)) {
+      offers.push([...c.offer!]);
+      expect(learnCard(c, 'bash', rng)).toMatch(/isn't on offer/);
+      expect(learnCard(c, c.offer![0], rng)).toBeNull();
+    }
+    expect(c.learned).toHaveLength(3);
+    expect(new Set(c.learned).size).toBe(3);
+    expect(offers.every((o) => o.length === 3 && o.every((x) => !c.learned.slice(0, offers.indexOf(o)).includes(x)))).toBe(true);
+    expect(c.offer).toBeNull();
+  });
+
+  it('the deck holds exactly 6 class cards of their own, at most 2 Burns', () => {
+    const c = { ...fresh(), xp: 2, learned: ['aegis', 'phalanx'] } as Character;
+    expect(c.deck).toEqual(CLASS_CARDS.warden);
+    const swap = (out: CardId, inn: CardId) => c.deck.map((x) => (x === out ? inn : x));
+    expect(setDeck(c, swap('rally', 'aegis'))).toBeNull();
+    expect(setDeck(c, c.deck.slice(0, 5))).toMatch(/exactly 6/);
+    expect(setDeck(c, swap('bash', 'linked'))).toMatch(/isn't one of theirs/);
+    expect(setDeck(c, swap('bash', 'aegis'))).toMatch(/One of each/);
+    expect(setDeck(c, swap('cover', 'phalanx'))).toBeNull();
+    expect(c.deck.filter((x) => x === 'gate' || x === 'phalanx')).toHaveLength(2);
+    expect(loadoutOf('Ann', c).deck).toEqual(c.deck);
+    expect(loadoutOf('Ann', c).level).toBe(2);
+  });
+
+  it('old saves lose their Talent without a trace; XP still short of one carries over', () => {
+    const had = { ...fresh(), xp: 2, talent: 'shieldwall' } as Character & { talent?: string };
+    delete (had as Partial<Character>).learned;
+    migrateCharacter(had, rng);
+    expect(had.talent).toBeUndefined();
+    expect(had.xp).toBe(0);
+    expect(had.deck).toEqual(CLASS_CARDS.warden);
+    const short = { ...fresh(), xp: 1, talent: null } as Character & { talent?: string | null };
+    migrateCharacter(short, rng);
+    expect(levelPending(short)).toBe(true);
+    expect(short.offer).toHaveLength(3);
   });
 
   it('leaves a Minor below 50%, only a Major below 25%, and another Major for going down', () => {
     const c = fresh();
-    applyRun(c, { ...ok, lowestHp: 0.4 });
+    applyRun(c, { ...ok, lowestHp: 0.4 }, rng);
     expect(c.injuries).toEqual(['minor']);
-    applyRun(c, { ...ok, lowestHp: 0.2 });
+    applyRun(c, { ...ok, lowestHp: 0.2 }, rng);
     expect(c.injuries).toEqual(['minor', 'major']);
     c.injuries = [];
-    applyRun(c, { ...ok, lowestHp: 0, downedMajor: true });
+    applyRun(c, { ...ok, lowestHp: 0, downedMajor: true }, rng);
     expect(c.injuries).toEqual(['major', 'major']);
   });
 
   it("the Elder's blessing lasts one run", () => {
     const c = { ...fresh(), blessed: true };
     expect(loadoutOf('Ann', c).blessed).toBe(true);
-    applyRun(c, ok);
+    applyRun(c, ok, rng);
     expect(c.blessed).toBeUndefined();
     expect(loadoutOf('Ann', c).blessed).toBeUndefined();
   });
 
   it('reports a death (the Stash replaces them)', () => {
-    expect(applyRun(fresh(), { ...ok, escaped: false }).died).toBe(true);
+    expect(applyRun(fresh(), { ...ok, escaped: false }, rng).died).toBe(true);
   });
 });
 
@@ -65,16 +114,20 @@ describe('Stash villages', () => {
     expect(stash.village('ann').characters).toEqual(v.characters);
   });
 
-  it('only lets an earned Talent of the right class be chosen', () => {
+  it('learns only a card on offer, and keeps the deck valid', () => {
     const stash = new Stash(null);
     const c = stash.characterFor('Ann', 'warden');
-    expect(stash.chooseTalent('Ann', c.id, 'shieldwall')).toMatch(/XP first/);
+    expect(stash.learnCard('Ann', c.id, 'aegis')).toMatch(/no level-up/);
     stash.recordCharacter('Ann', c.id, ok);
-    stash.recordCharacter('Ann', c.id, ok);
-    expect(stash.chooseTalent('Ann', c.id, 'sleightOfHand')).toMatch(/not a Warden Talent/);
-    expect(stash.chooseTalent('Ann', c.id, 'shieldwall')).toBeNull();
-    expect(stash.characterFor('Ann', 'warden').talent).toBe('shieldwall');
-    expect(stash.chooseTalent('Ann', c.id, 'unbrokenLine')).toMatch(/already/);
+    const offer = stash.characterFor('Ann', 'warden').offer!;
+    expect(stash.learnCard('Ann', c.id, 'marked')).toMatch(/isn't on offer/);
+    expect(stash.learnCard('Ann', c.id, offer[1])).toBeNull();
+    expect(stash.characterFor('Ann', 'warden').learned).toEqual([offer[1]]);
+    expect(stash.learnCard('Ann', c.id, offer[0])).toMatch(/no level-up/);
+    const deck = CLASS_CARDS.warden.map((x) => (x === 'cover' ? offer[1] : x));
+    expect(stash.setDeck('Ann', c.id, deck)).toBeNull();
+    expect(stash.setDeck('Ann', c.id, [...deck, 'cover'])).toMatch(/exactly 6/);
+    expect(stash.characterFor('Ann', 'warden').deck).toEqual(deck);
   });
 
   it('replaces a Character who dies with a fresh recruit', () => {
@@ -235,7 +288,7 @@ describe('Village buildings', () => {
     const far = world.dungeon.rooms.filter((r) => r.kind === 'normal').map((r) => r.id).slice(-2);
     addToPile(world, far[0], 0, ['salts']);
     addToPile(world, far[1], 0, ['torch']);
-    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', talents: [], injuries: [], sight } });
+    const h = addHero(world, { id: 'h0', name: 'Ann', cls: 'warden', loadout: { charId: 'c', charName: 'A', owner: 'Ann', injuries: [], sight } });
     expect(h.seen).toContain(far[0]);
     expect(h.knownContents[far[0]].items).toContain('salts');
     expect(h.knownContents[far[1]]?.items ?? []).not.toContain('torch');

@@ -6,7 +6,7 @@ import {
 import { beep } from './sound';
 import { juice } from './juice';
 import type { Net } from './net';
-import { icon, ICON_TIPS, talentStars, type IconId } from './icons';
+import { icon, ICON_TIPS, levelStars, type IconId } from './icons';
 import { statusIcons } from './statuses';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -113,7 +113,7 @@ export class Hud {
 
     const you = view.you;
     const cls = CLASSES[you.cls];
-    const talent = talentStars(you.talents);
+    const stars = levelStars(you.level);
     // Village Rites for this run: the Resource's glyph, hover for what it does.
     const rites = (you.rites ?? []).map((r) => ` <span class="rite-tag" title="${escape(`${RITES[r].name}: ${RITES[r].desc}`)}">${ITEMS[r].glyph}</span>`).join('');
     // Every buff and debuff on you, right of your class, in a fight or out (hover for what each does). Anima and Sneak too.
@@ -123,7 +123,7 @@ export class Hud {
       ...(you.sneaking ? [`<span title="${escape(`Sneaking: Speed ×${CLASS_RULES.sneakSpeedMult}; Stealth ${stealthOf(you).toFixed(1)} (your light ÷ ${CLASS_RULES.stealthPerLight}).`)}">👣</span>`] : []),
       ...statusIcons(you.st, time),
     ].join('');
-    setHtml($('hero-name'), `<span style="color:${you.color}">■</span> ${escape(you.name)}${talent}${rites} <span style="color:var(--muted)">· ${cls.name}</span>${status ? ` <span class="hero-status">${status}</span>` : ''}`);
+    setHtml($('hero-name'), `<span style="color:${you.color}">■</span> ${escape(you.name)}${stars}${rites} <span style="color:var(--muted)">· ${cls.name}</span>${status ? ` <span class="hero-status">${status}</span>` : ''}`);
 
     // Injuries beside your HP: a small drop for each Minor, a small and a big one for each Major.
     setHtml($('injuries'), injuriesHtml([...you.injuries, ...(you.runInjuries ?? [])]));
@@ -291,7 +291,7 @@ function rosterTitle(view: PlayerView): string {
     const u = r.cr[t];
     return u ? [`T${t} ${name(u)}: ${crUnitChance(t, view.cr) > 0 ? `${Math.round(crUnitChance(t, view.cr) * 100)}% per group` : `from CR ${CR_RULES.units[t].from}`}`] : [];
   });
-  return `Challenge Rating ${view.cr}: rolled from the heroes' Talents, Gear and Rites. More gold, and worse things in the dark.\n\nThis run's monsters: ${main.join(' · ')}.\nCR units: ${cr.join(' · ')}.`;
+  return `Challenge Rating ${view.cr}: rolled from the heroes' levels, Gear and Rites. More gold, and worse things in the dark.\n\nThis run's monsters: ${main.join(' · ')}.\nCR units: ${cr.join(' · ')}.`;
 }
 
 function rosterHtml(view: PlayerView): string {

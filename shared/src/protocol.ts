@@ -8,7 +8,6 @@ import type { PlayerView } from './sim/views';
 import type { Intent } from './sim/world';
 import { FIELD_SKILLS, type FieldSkill } from './sim/skills';
 import { isCardId, type CardId } from './content/cards';
-import { TALENTS, type TalentId } from './content/talents';
 import { SPECS, type SpecId } from './content/regalia';
 import type { FateChoice, ServiceRequest, VillageView } from './stash';
 import { EMERGENCIES, type EmergencyId } from './content/emergencies';
@@ -16,6 +15,9 @@ import { BUILDINGS, emptyKit, SERVICES, type BuildingId, type Character, type Ki
 import { GEAR_SLOTS, RESOURCE_IDS, type GearSlot, type ResourceId } from './content/items';
 
 export type LobbyState = 'lobby' | 'game';
+
+/** A Character as a lobby card shows it: who they are, their level and deck, wounds and blessing. */
+export type LobbyCharacter = Pick<Character, 'name' | 'xp' | 'learned' | 'deck' | 'injuries' | 'blessed'> & { spec: SpecId | null };
 
 export interface LobbyMemberView {
   id: string;
@@ -27,7 +29,7 @@ export interface LobbyMemberView {
   stash: number;
   title: string;
   /** The Village Character they bring (for the class they picked). */
-  character: (Pick<Character, 'name' | 'talent' | 'xp' | 'injuries' | 'blessed'> & { spec: SpecId | null }) | null;
+  character: LobbyCharacter | null;
   /** What they're bringing from their Village Stash. */
   kit: Kit;
   /** Their Village's Emergency for this run (M13), if picked. */
@@ -43,7 +45,7 @@ export interface LobbyView {
   /** The bots filling the empty slots (none until every player has picked a class). */
   bots: { name: string; cls: ClassId; owner: string; character: LobbyMemberView['character'] }[];
   maxPlayers: number;
-  /** Combined CR so far: the players' Talents, Gear and Rites and the bots' borrowed Talents (a fraction is rolled at the start). */
+  /** Combined CR so far: the players' levels, Gear and Rites and the bots' borrowed levels (a fraction is rolled at the start). */
   cr: number;
   /** Someone is bringing a Relic Rite: the run starts at Escalation 5. */
   relic: boolean;
@@ -62,9 +64,10 @@ export type ClientMsg =
   | { t: 'start' }
   | { t: 'toLobby' }
   | { t: 'intent'; intent: Intent }
-  /** The Village (keyed by your name): ask for it, pick an earned Talent. */
+  /** The Village (keyed by your name): ask for it, learn a level-up card, set a Character's class cards. */
   | { t: 'village' }
-  | { t: 'chooseTalent'; charId: string; talent: TalentId }
+  | { t: 'learnCard'; charId: string; card: CardId }
+  | { t: 'setDeck'; charId: string; deck: CardId[] }
   /** Give a Character a Specialization (once the Village's Shards unlock it). */
   | { t: 'chooseSpec'; charId: string; spec: SpecId }
   /** Build a building's next level, or tear its top level down. */
@@ -143,9 +146,11 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'toLobby':
     case 'village':
       return { t: msg.t };
-    case 'chooseTalent':
-      return str(msg.charId, 16) && typeof msg.talent === 'string' && msg.talent in TALENTS
-        ? { t: 'chooseTalent', charId: msg.charId as string, talent: msg.talent as TalentId }
+    case 'learnCard':
+      return str(msg.charId, 16) && isCardId(msg.card) ? { t: 'learnCard', charId: msg.charId as string, card: msg.card } : null;
+    case 'setDeck':
+      return str(msg.charId, 16) && Array.isArray(msg.deck) && msg.deck.length <= 12 && msg.deck.every(isCardId)
+        ? { t: 'setDeck', charId: msg.charId as string, deck: msg.deck as CardId[] }
         : null;
     case 'chooseSpec':
       return str(msg.charId, 16) && typeof msg.spec === 'string' && msg.spec in SPECS

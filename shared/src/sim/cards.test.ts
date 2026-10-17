@@ -81,7 +81,7 @@ describe('the deck', () => {
 
   it('a kit can leave slots bare: nothing issued there, and a Fumble in the deck', () => {
     const game = new Game(4, [{ id: 'a', name: 'A', cls: 'zealot', isBot: false, loadout: {
-      charId: 'c', charName: 'A', owner: 'A', talents: [], injuries: [],
+      charId: 'c', charName: 'A', owner: 'A', injuries: [],
       kit: { gear: {}, consumables: [], rites: [], bare: ['ring', 'amulet'] },
     } }], { monsters: false });
     const a = game.world.heroes.a;

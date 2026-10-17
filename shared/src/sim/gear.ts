@@ -1,3 +1,4 @@
+import { CARD_RULES } from '../content/cards';
 import { ITEMS, STAFF, type ClothEffect, type GearSlot, type ItemId, type StaffEffect } from '../content/items';
 import type { Statuses } from './combat';
 import type { Hero } from './world';
@@ -7,15 +8,18 @@ export function staffOf(h: Pick<Hero, 'weapon'>): StaffEffect | null {
   return h.weapon ? ITEMS[h.weapon].staff ?? null : null;
 }
 
-/** Shepherd's Crook: healing this hero gives (to anyone, themself included). */
-export function healBy(h: Pick<Hero, 'weapon'>, n: number): number {
-  return staffOf(h) === 'heal' ? Math.round(n * STAFF.healMult) : n;
+/** Shepherd's Crook: healing this hero gives (to anyone, themself included). The Eternal Lamp adds its bonus first. */
+export function healBy(h: Pick<Hero, 'weapon'> & { eternal?: boolean }, n: number): number {
+  const m = n > 0 && h.eternal ? n + CARD_RULES.eternalBonus : n;
+  return staffOf(h) === 'heal' ? Math.round(m * STAFF.healMult) : m;
 }
 
-/** Censer Staff: light this hero gives someone else (Vigil, Take Their Sins, Rekindle…; it was stress relief until 2026-10-14). */
-export function lightBy(h: Pick<Hero, 'weapon'>, t: unknown, n: number): number {
-  return staffOf(h) === 'relief' && t !== h ? Math.round(n * STAFF.reliefMult) : n;
+/** Censer Staff: light this hero gives someone else (Vigil, Take Their Sins, Rekindle…; it was stress relief until 2026-10-14). The Eternal Lamp adds its bonus first. */
+export function lightBy(h: Pick<Hero, 'weapon'> & { eternal?: boolean }, t: unknown, n: number): number {
+  const m = n > 0 && h.eternal ? n + CARD_RULES.eternalBonus : n;
+  return staffOf(h) === 'relief' && t !== h ? Math.round(m * STAFF.reliefMult) : m;
 }
+
 
 /** Rowan Staff: turns a debuff this hero places lasts. */
 export function debuffTurns(h: Pick<Hero, 'weapon'>, turns: number): number {

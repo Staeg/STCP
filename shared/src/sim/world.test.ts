@@ -231,7 +231,7 @@ describe('auto-pathing', () => {
 describe('arriving Blessed', () => {
   it("a Character the Elder blessed has Elder's Oil in their deck for the run", () => {
     const world = createWorld(1, { monsters: false, loot: false, escalates: false, events: false });
-    const base = { charId: 'c', charName: 'C', owner: 'p', talents: [], injuries: [] };
+    const base = { charId: 'c', charName: 'C', owner: 'p', injuries: [] };
     const plain = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: base });
     const blessed = addHero(world, { id: 'b', name: 'B', cls: 'warden', loadout: { ...base, charId: 'd', blessed: true } });
     expect(deckList(plain)).not.toContain('oil');

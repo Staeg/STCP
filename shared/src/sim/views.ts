@@ -6,7 +6,6 @@ import type { Corridor, RoomKind } from '../dungeon/gen';
 import type { ClassId } from '../content/classes';
 import { ENEMIES, type EnemyId, type Roster } from '../content/enemies';
 import { CLASS_RULES } from '../content/innates';
-import type { TalentId } from '../content/talents';
 import type { ShardId } from '../content/regalia';
 import { ITEMS, packFree, slotOf, type ItemId } from '../content/items';
 import { EVENTS, type EventKind } from '../content/events';
@@ -144,7 +143,8 @@ export interface ResultHero {
   cls: ClassId;
   color: string;
   isBot: boolean;
-  talents: TalentId[];
+  /** Their Character's level (level-up cards learned). */
+  level: number;
   outcome: 'escaped' | 'dead';
   fate: string;
   gold: number;
@@ -296,7 +296,7 @@ export interface PlayerView {
   tolls: { room: number; by: string; ago: number }[];
   /** Calls for help you made or heard in the last minute: where, who, and how long ago. */
   calls: { room: number; by: string; ago: number }[];
-  /** Challenge Rating of this run (heroes with a Talent). */
+  /** Challenge Rating of this run (rolled from levels, Gear and Rites). */
   cr: number;
   /** The monsters this run uses. */
   roster: Roster;
@@ -475,7 +475,7 @@ function revealRoom(world: World, room: number): RoomReveal {
 function resultsView(world: World): ResultsView {
   return {
     heroes: Object.values(world.heroes).map((h) => ({
-      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, talents: h.talents,
+      id: h.id, name: h.name, cls: h.cls, color: h.color, isBot: h.isBot, level: h.level,
       outcome: h.extracted ? 'escaped' : 'dead',
       fate: (h.fate ?? 'was lost') + (!h.extracted && h.legacy > 0 ? `; ${h.legacy} of their gold went home${h.rites.includes('tome') ? ' (the Tome Rite)' : ''}` : ''),
       gold: h.extracted ? h.gold : h.legacy,

@@ -3,12 +3,24 @@
  *   npm run sim -- --games 100 --seed 1
  *   npm run sim -- --games 60 --set ESCALATION.capPerEscalation=2 --set ENEMIES.ghoul.dmg=3 --json
  *   npm run sim -- --classes warden,cutthroat,lampbearer,sorceress
- *   npm run sim -- --cr 2        (the first N heroes get a random Talent of their class: Challenge Rating N)
+ *   npm run sim -- --cr 2        (the first N heroes are level 3, with 3 random level-up cards swapped into their deck)
+ *   npm run sim -- --cr 4 --worldcr 0   (level-3 decks, but the run's CR held at 0 instead of rolled from them)
  * --set may repeat; it overrides any number in the tunable content tables below.
  * Parties are 4 different classes: the ones given by --classes, else a random 4 per game (from the seed).
  */
 import * as shared from '@stcp/shared';
-import { CLASS_IDS, COLLAPSE_AT, WAVES_AT, Game, Rng, talentsFor, ESCALATION_INTERVAL, type ClassId } from '@stcp/shared';
+import { CARDS, CLASS_CARDS, CLASS_IDS, COLLAPSE_AT, LEVELUP_CARDS, WAVES_AT, Game, Rng, ESCALATION_INTERVAL, type CardId, type ClassId } from '@stcp/shared';
+
+/** A level-3 deck for the sim: three random level-up cards, each in place of a random class card (at most 2 Burns). */
+function levelledDeck(cls: ClassId, rng: Rng): CardId[] {
+  const deck = [...CLASS_CARDS[cls]];
+  for (const c of rng.shuffle([...LEVELUP_CARDS[cls]]).slice(0, 3)) {
+    const burns = deck.filter((x) => CARDS[x].burn).length;
+    const out = rng.shuffle(deck.filter((x) => !LEVELUP_CARDS[cls].includes(x) && (!CARDS[c].burn || burns < 2 || CARDS[x].burn)));
+    if (out.length) deck[deck.indexOf(out[0])] = c;
+  }
+  return deck;
+}
 
 const args = new Map<string, string>();
 const sets: string[] = [];
@@ -40,7 +52,7 @@ for (const s of sets) {
 }
 const games = Number(args.get('games') ?? 50);
 const seed0 = Number(args.get('seed') ?? 1);
-const worldOpts = { events: args.get('events') !== '0' };
+const worldOpts = { events: args.get('events') !== '0', ...(args.has('worldcr') ? { cr: Number(args.get('worldcr')) } : {}) };
 const fixedParty = args.get('classes')?.split(',') as ClassId[] | undefined;
 if (fixedParty?.some((c) => !CLASS_IDS.includes(c))) throw new Error(`--classes: pick from ${CLASS_IDS.join(', ')}`);
 const cr = Math.max(0, Math.min(4, Number(args.get('cr') ?? 0)));
@@ -58,10 +70,10 @@ const t0 = performance.now();
 
 for (let g = 0; g < games; g++) {
   const party = fixedParty ?? new Rng(seed0 + g).shuffle([...CLASS_IDS]).slice(0, 4);
-  const talentRng = new Rng((seed0 + g) * 31 + 7);
+  const deckRng = new Rng((seed0 + g) * 31 + 7);
   const game = new Game(seed0 + g, party.map((cls, i) => ({
     id: `b${i}`, name: cls, cls, isBot: true,
-    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', talents: [talentRng.pick(talentsFor(cls))], injuries: [] } : undefined,
+    loadout: i < cr ? { charId: `c${i}`, charName: cls, owner: 'sim', deck: levelledDeck(cls, deckRng), level: 3, injuries: [] } : undefined,
   })), worldOpts);
   const w = game.world;
   // The climax check: when the waves start, is someone waiting there while someone else is still alive out there?

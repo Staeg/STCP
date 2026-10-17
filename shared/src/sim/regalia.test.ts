@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { REGALIA_RULES, specsUnlocked, talentsOf, type ShardId } from '../content/regalia';
+import { REGALIA_RULES, SEASONED_HAND, specsUnlocked, type ShardId } from '../content/regalia';
 import { Stash } from '../stash';
-import { chooseSpec, heroCr, loadoutOf, newCharacter, type Character } from '../village';
+import { chooseSpec, heroCr, levelOf, loadoutOf, newCharacter, type Character } from '../village';
 import { Rng } from '../rng';
 import { downHero, onHeroInRoom, spawnGroup } from './combat';
 import { dropEverything, dropRegalia, risenAllyEscapes, shardHome } from './loot';
+import { dealDeck } from './deck';
 import { addHero, createWorld, step, type World } from './world';
 
 function run(world: World, seconds: number) {
@@ -120,22 +121,24 @@ describe('Boss regalia', () => {
 });
 
 describe('Specializations', () => {
-  const char = (talent: Character['talent']): Character => ({ ...newCharacter('c1', 'warden', new Rng(1), []), talent });
+  const char = (learned: Character['learned']): Character => ({ ...newCharacter('c1', 'warden', new Rng(1), []), xp: learned.length, learned });
 
-  it('Seasoned gives the class’s other Talent too, and counts for CR', () => {
-    const c = char('shieldwall');
-    expect(talentsOf(c)).toEqual(['shieldwall']);
+  it('Seasoned holds 4 cards in a fight', () => {
+    const c = char(['aegis']);
+    expect(loadoutOf('Ann', c).hand).toBeUndefined();
     expect(chooseSpec(c, 'seasoned', ['crown'], 300)).toBeNull();
-    expect(talentsOf(c)).toEqual(['shieldwall', 'unbrokenLine']);
-    expect(loadoutOf('Ann', c).talents).toEqual(['shieldwall', 'unbrokenLine']);
-    expect(heroCr(talentsOf(c), undefined)).toBe(2);
+    expect(loadoutOf('Ann', c).hand).toBe(SEASONED_HAND);
+    const world = createWorld(5, { monsters: false });
+    const h = addHero(world, { id: 'a', name: 'A', cls: 'warden', loadout: loadoutOf('Ann', c) });
+    expect(dealDeck(h, world.rng).hand).toHaveLength(SEASONED_HAND);
+    expect(heroCr(levelOf(c), undefined)).toBe(0.33);
   });
 
-  it('needs the Shard, a Talent and the gold; one Spec for good', () => {
-    expect(chooseSpec(char('shieldwall'), 'seasoned', [], 300)).toMatch(/Shard/);
-    expect(chooseSpec(char(null), 'seasoned', ['crown'], 300)).toMatch(/Talent first/);
-    expect(chooseSpec(char('shieldwall'), 'seasoned', ['crown'], 249)).toMatch(/250 gold/);
-    const c = char('shieldwall');
+  it('needs the Shard, a level and the gold; one Spec for good', () => {
+    expect(chooseSpec(char(['aegis']), 'seasoned', [], 300)).toMatch(/Shard/);
+    expect(chooseSpec(char([]), 'seasoned', ['crown'], 300)).toMatch(/level first/);
+    expect(chooseSpec(char(['aegis']), 'seasoned', ['crown'], 249)).toMatch(/250 gold/);
+    const c = char(['aegis']);
     chooseSpec(c, 'seasoned', ['crown'], 300);
     expect(chooseSpec(c, 'seasoned', ['crown'], 300)).toMatch(/already/);
   });
@@ -150,11 +153,10 @@ describe('Specializations', () => {
     expect(specsUnlocked(stash.shardsOf('Ann'))).toEqual(['seasoned']);
     const warden = stash.characterFor('Ann', 'warden');
     stash.recordRun('Ann', true, 300);
-    expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toMatch(/Talent first/);
-    // Fast-track a Talent.
+    expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toMatch(/level first/);
+    // Fast-track a level.
     stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
-    stash.recordCharacter('Ann', warden.id, { escaped: true, lowestHp: 1, downedMajor: false });
-    expect(stash.chooseTalent('Ann', warden.id, 'shieldwall')).toBeNull();
+    expect(stash.learnCard('Ann', warden.id, stash.characterFor('Ann', 'warden').offer![0])).toBeNull();
     expect(stash.chooseSpec('Ann', warden.id, 'seasoned')).toBeNull();
     expect(stash.purse('Ann')).toBe(50);
     expect(stash.characterFor('Ann', 'warden').spec).toBe('seasoned');

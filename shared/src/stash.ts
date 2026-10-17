@@ -1,13 +1,13 @@
 import { titleFor, type CareerStats, type LeaderboardEntry } from './content/titles';
 import { CLASSES, type ClassId } from './content/classes';
-import { migrateTalentId, type TalentId } from './content/talents';
+import { LEVEL_RULES, type CardId } from './content/cards';
 import { Rng } from './rng';
 import { emptyCodex, mergeCodex, type Codex } from './content/codex';
 import { EMERGENCIES, emergenciesAt, emergencyBans, WELLBEING, type EmergencyId } from './content/emergencies';
 import { isResource, ITEMS, migrateItemId, pluralName, RESOURCE_IDS, type ItemId, type ResourceId } from './content/items';
 import {
-  applyRun, BUILDING_IDS, BUILDINGS, chooseSpec, chooseTalent, riteCost, emptyKit, foundVillage, INJURY_NAMES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
-  SERVICE_RELICS, serviceHome, SERVICES, talentPending, upkeepOf, VILLAGE_RULES,
+  applyRun, BUILDING_IDS, BUILDINGS, chooseSpec, learnCard, migrateCharacter, riteCost, setDeck, emptyKit, foundVillage, INJURY_NAMES, kitError, LEVEL_NAMES, newCharacter, noBuildings,
+  rollOffer, SERVICE_RELICS, serviceHome, SERVICES, upkeepOf,
   type BuildingId, type Buildings, type Character, type Injury, type Kit, type RunOutcome, type ServiceId, type Sight,
 } from './village';
 import { REGALIA_RULES, SHARDS, SPECS, specsUnlocked, type ShardId, type SpecId } from './content/regalia';
@@ -133,8 +133,8 @@ export class Stash {
         for (const c of (r.village ?? []) as (Character & { affliction?: string | null; insane?: boolean })[]) {
           delete c.affliction;
           delete c.insane;
-          // Talents were rewritten around cards (M15): an old one loads as its class's new one.
-          if (c.talent) c.talent = migrateTalentId(c.talent);
+          // Talents are gone (2026-10-17): level-up cards took their place.
+          migrateCharacter(c, this.rng(key));
         }
       }
     } catch {
@@ -387,11 +387,20 @@ export class Stash {
     return structuredClone(this.villageOf(name).chars);
   }
 
-  /** Returns an error, or null. */
-  chooseTalent(name: string, charId: string, talent: TalentId): string | null {
+  /** Learn one of the level-up cards a Character is offered. Returns an error, or null. */
+  learnCard(name: string, charId: string, card: CardId): string | null {
     const c = this.villageOf(name).chars.find((x) => x.id === charId);
     if (!c) return 'No such Character.';
-    const err = chooseTalent(c, talent);
+    const err = learnCard(c, card, this.rng(name + charId));
+    if (!err) this.save();
+    return err;
+  }
+
+  /** Set the class cards in a Character's deck. Returns an error, or null. */
+  setDeck(name: string, charId: string, deck: CardId[]): string | null {
+    const c = this.villageOf(name).chars.find((x) => x.id === charId);
+    if (!c) return 'No such Character.';
+    const err = setDeck(c, deck);
     if (!err) this.save();
     return err;
   }
@@ -407,7 +416,7 @@ export class Stash {
     const had = r.shards ?? [];
     if (had.includes(shard)) return [];
     const lines = [`The ${SHARDS[shard].name} is the Village's now.`];
-    if (!had.length) lines.push('Specializations are unlocked: a Character with a Talent can be given one in the Village.');
+    if (!had.length) lines.push('Specializations are unlocked: a Character with a level can be given one in the Village.');
     lines.push(`It unlocks a Specialization, ${SPECS[SHARDS[shard].spec].name}: ${SPECS[SHARDS[shard].spec].desc}`);
     r.shards = [...had, shard];
     (r.report ??= []).push(...lines);
@@ -543,9 +552,10 @@ export class Stash {
       case 'train': {
         const c = char();
         if (!c) return 'Pick a Character.';
-        if (c.talent || talentPending(c)) return `${c.name} has nothing more to learn for now.`;
-        c.xp = Math.min(VILLAGE_RULES.xpForTalent, c.xp + 1);
-        notice = talentPending(c) ? `${c.name} learned enough to choose a Talent.` : `${c.name} gained XP (${c.xp}/${VILLAGE_RULES.xpForTalent}).`;
+        if (c.xp >= LEVEL_RULES.maxLevel) return `${c.name} has nothing more to learn for now.`;
+        c.xp++;
+        rollOffer(c, this.rng(name + c.id));
+        notice = `${c.name} gained XP (${c.xp}/${LEVEL_RULES.maxLevel}): a level-up is waiting.`;
         break;
       }
     }
@@ -630,7 +640,7 @@ export class Stash {
     const i = chars.findIndex((x) => x.id === charId);
     if (i < 0) return [];
     const c = chars[i];
-    const { died, lines } = applyRun(c, out);
+    const { died, lines } = applyRun(c, out, this.rng(name + charId));
     if (died) {
       r.nextChar ??= 1;
       const recruit = newCharacter(`c${r.nextChar++}`, c.cls, this.rng(name + charId), chars.map((x) => x.name));

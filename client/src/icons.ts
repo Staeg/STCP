@@ -2,7 +2,7 @@
  * The game's stat and keyword icons: little pixel-art SVGs, each with a hover explanation. `iconize` swaps the
  * words in a rules text (card and item descriptions, event choices) for them.
  */
-import { FORGETTING_RULES, LIGHT_BRIGHT, LIGHT_DIM, TALENTS, type TalentId } from '@stcp/shared';
+import { FORGETTING_RULES, LIGHT_BRIGHT, LIGHT_DIM, LEVEL_RULES } from '@stcp/shared';
 
 export type IconId = 'hp' | 'speed' | 'cooldown' | 'field' | 'dmg' | 'stun' | 'light' | 'poison' | 'shield'
   | 'revive' | 'flee' | 'brace';
@@ -61,10 +61,10 @@ function attr(s: string) {
 }
 
 /** An icon with its explanation on hover (`tip` replaces the standard one). */
-/** A ★ per Talent (a Seasoned Character has two), hover for its name and what it does. */
-export function talentStars(talents: readonly TalentId[] | undefined): string {
-  const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  return (talents ?? []).map((t) => ` <span class="talent-star" title="${attr(`${TALENTS[t].name}: ${TALENTS[t].desc}`)}">★</span>`).join('');
+/** A ★ per level (a level-up card learned), hover for the level. */
+export function levelStars(level: number | undefined): string {
+  if (!level) return '';
+  return ` <span class="level-star" title="Level ${level} of ${LEVEL_RULES.maxLevel}: ${level} level-up card${level === 1 ? '' : 's'} learned">${'★'.repeat(level)}</span>`;
 }
 
 export function icon(id: IconId, tip = ICON_TIPS[id]): string {

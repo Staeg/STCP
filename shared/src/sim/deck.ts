@@ -1,6 +1,5 @@
-import { CARD_RULES, CARDS, CLASS_CARDS, type CardId } from '../content/cards';
+import { CARDS, type CardId } from '../content/cards';
 import { GEAR_SLOTS, gearCard, type GearSlot } from '../content/items';
-import { hasTalent, TALENT_RULES } from '../content/talents';
 import type { Rng } from '../rng';
 import type { Hero } from './world';
 
@@ -24,15 +23,15 @@ export function slotCard(h: Pick<Hero, GearSlot>, slot: GearSlot): CardId {
 }
 
 /**
- * Every card this hero's deck holds right now: class cards first, then one per Gear slot, then any extra for this run
+ * Every card this hero's deck holds right now: their six class cards first, then one per Gear slot, then any extra for this run
  * (the Elder's Oil). Burned cards included.
  */
-export function deckList(h: Pick<Hero, 'cls' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
-  return [...CLASS_CARDS[h.cls], ...GEAR_SLOTS.map((s) => slotCard(h, s)), ...(h.bonusCards ?? [])];
+export function deckList(h: Pick<Hero, 'classCards' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
+  return [...h.classCards, ...GEAR_SLOTS.map((s) => slotCard(h, s)), ...(h.bonusCards ?? [])];
 }
 
 /** The cards that go into a fight: the deck less one copy of each card burned this run. */
-export function liveCards(h: Pick<Hero, 'cls' | 'burned' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
+export function liveCards(h: Pick<Hero, 'classCards' | 'burned' | GearSlot> & { bonusCards?: readonly CardId[] }): CardId[] {
   const out = deckList(h);
   for (const b of h.burned) {
     const i = out.indexOf(b);
@@ -41,33 +40,22 @@ export function liveCards(h: Pick<Hero, 'cls' | 'burned' | GearSlot> & { bonusCa
   return out;
 }
 
-export function handSize(h: Pick<Hero, 'talents'>): number {
-  return hasTalent(h, 'sleightOfHand') || hasTalent(h, 'grimoire') ? TALENT_RULES.bigHand : CARD_RULES.handSize;
-}
-
-/** Cards some Talents put in the opening hand. */
-function openingCards(h: Pick<Hero, 'talents'>): CardId[] {
-  const out: CardId[] = [];
-  if (hasTalent(h, 'unbrokenLine')) out.push('cover', 'bash');
-  if (hasTalent(h, 'prepared')) out.push('elixir');
-  return out;
+/** Cards held in a fight: 3, or 4 for a Seasoned Character. */
+export function handSize(h: Pick<Hero, 'handSize'>): number {
+  return h.handSize;
 }
 
 /** Deal a fresh deck for a fight: shuffle what's left of it and draw a hand. */
 export function dealDeck(h: Hero, rng: Rng): Deck {
   const draw = rng.shuffle(liveCards(h));
   const deck: Deck = { draw, hand: [], discard: [], last: null };
-  for (const c of openingCards(h)) {
-    const i = deck.draw.indexOf(c);
-    if (i >= 0 && deck.hand.length < handSize(h)) deck.hand.push(...deck.draw.splice(i, 1));
-  }
   refill(h, deck, rng);
   h.deck = deck;
   return deck;
 }
 
 /** Draw until the hand is full again; an empty draw pile takes the discard, shuffled. */
-export function refill(h: Pick<Hero, 'talents'>, deck: Deck, rng: Rng) {
+export function refill(h: Pick<Hero, 'handSize'>, deck: Deck, rng: Rng) {
   while (deck.hand.length < handSize(h)) {
     if (deck.draw.length === 0) {
       if (deck.discard.length === 0) return;

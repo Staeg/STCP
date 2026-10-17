@@ -1,13 +1,14 @@
 import {
   BUILDING_IDS, BUILDINGS, ISSUED_KIT, ISSUED_WEIGHT, issuedDesc, CLASSES, GEAR_KIND_NAMES, GEAR_KIND_PLURALS, GEAR_KINDS, GEAR_SLOTS, INJURY_NAMES, injuredMaxHp, isGear, ITEMS, gearCr, KIT_RULES, kitCr, LEVEL_NAMES,
-  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, talentPending, TALENTS, talentsFor, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
-  REGALIA_RULES, SHARDS, SPECS, specFits, talentsOf, CARDS, cardText,
-  type BuildingId, type ClassId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
+  LOOT_TABLE, pluralName, RESOURCE_IDS, rerollPool, riteCost, RITES, SERVICES, slotOf, VILLAGE_RULES, VILLAGE_UPKEEP, forgeable, anvilInto,
+  REGALIA_RULES, SHARDS, SPECS, specFits, CARDS, cardText, CLASS_CARDS, LEVEL_RULES, levelPending, SCHOOLS,
+  type BuildingId, type CardId, type ClassId, type GearKind, type GearSlot, type ItemId, type Kit, type LobbyView, type ResourceId, type ServiceId, type VillageView,
 } from '@stcp/shared';
 import { itemName } from './loot';
 import { CODEX_TABS } from './codex';
 import { spriteUrl } from './render/sprites';
-import { iconNum } from './icons';
+import { iconize, iconNum, levelStars } from './icons';
+import { cardArtUrl, cardFrameColor } from './render/card-art';
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -71,7 +72,7 @@ export function villageHtml(v: VillageView, lobby: LobbyView | null, picking: Se
   </div>`;
 }
 
-/** A Character: name, class, HP and Speed, XP or Talent, and wounds (the Elder's services work right on them). */
+/** A Character: name, class, HP and Speed, level and XP, and wounds (the Elder's services work right on them). Click them for their deck. */
 function characterCard(v: VillageView, c: VillageView['characters'][number], lobby: LobbyView | null): string {
   const cls = CLASSES[c.cls];
   const locked = lobby?.state === 'game';
@@ -81,10 +82,13 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
   const heal = serviceState(v, 'heal') === 'ready';
   const bless = serviceState(v, 'bless') === 'ready';
   const train = serviceState(v, 'train') === 'ready' && !relicShort(v, 'train');
-  let growth: string;
-  // Talents show by name (hover for what they do), except when one is waiting to be chosen.
-  if (c.talent) {
-    growth = talentsOf(c).map((t) => `<span class="talent-star" title="${esc(TALENTS[t].desc)}">★ ${esc(TALENTS[t].name)}</span>`).join(' ');
+  const level = c.learned.length;
+  const pips = Array.from({ length: LEVEL_RULES.maxLevel }, (_, i) => (i < c.xp ? '●' : '○')).join('');
+  // Level and XP; a waiting level-up shows loud (it's picked on the Character screen).
+  let growth = `<div>Level ${level}/${LEVEL_RULES.maxLevel}${levelStars(level)} <span class="gold" title="XP: one per run survived; each is a level.">${pips}</span>${
+    train && c.xp < LEVEL_RULES.maxLevel ? ` <button class="mini" data-act="service" data-service="train" data-char="${c.id}" title="Elder: ${esc(SERVICES.train.desc)} Costs a Relic.">+1 ♛</button>` : ''}</div>`;
+  if (levelPending(c)) growth += `<button class="vc-levelup" data-act="char-open" data-char="${c.id}" title="Choose a card to learn on ${esc(c.name)}'s screen.">★ Level up! Choose a card</button>`;
+  if (level) {
     if (c.spec) {
       growth += ` <span class="spec-tag" title="${esc(`Specialization: ${SPECS[c.spec].desc}`)}">${esc(SPECS[c.spec].name)}</span>`;
     } else {
@@ -96,15 +100,6 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
         return ` <button class="mini spec-buy" data-act="spec" data-char="${c.id}" data-spec="${sp}" ${short || locked ? 'disabled' : ''} title="${esc(tip)}">${esc(SPECS[sp].name)} ${REGALIA_RULES.specCost}g</button>`;
       }).join('');
     }
-  } else if (talentPending(c)) {
-    growth = `<div class="vc-pick">${talentsFor(c.cls).map((t) =>
-      `<button data-act="talent" data-char="${c.id}" data-talent="${t}"><span class="gold">★ ${esc(TALENTS[t].name)}</span><span class="vc-desc">${esc(TALENTS[t].desc)}</span></button>`).join('')}</div>`;
-  } else {
-    const pips = Array.from({ length: VILLAGE_RULES.xpForTalent }, (_, i) => (i < c.xp ? '●' : '○')).join('');
-    const options = talentsFor(c.cls).map((t) => `<span class="chip" title="${esc(TALENTS[t].desc)}">${esc(TALENTS[t].name)}</span>`).join('');
-    growth = `<div>XP <span class="gold">${pips}</span>${
-      train ? ` <button class="mini" data-act="service" data-service="train" data-char="${c.id}" title="Elder: ${esc(SERVICES.train.desc)} Costs a Relic.">+1 ♛</button>` : ''}</div>
-      <div class="vc-talents"><span class="muted small" title="A Talent at ${VILLAGE_RULES.xpForTalent} XP: one of these.">Talent at ${VILLAGE_RULES.xpForTalent}:</span>${options}</div>`;
   }
   const wounds = [
     ...c.injuries.map((i) => heal
@@ -114,15 +109,73 @@ function characterCard(v: VillageView, c: VillageView['characters'][number], lob
       ? [`<span class="chip blessed" title="${esc(`Blessed by the Elder: next run ${CARDS.oil.name} is in their deck. ${cardText('oil')}`)}">Blessed ✦</span>`]
       : bless ? [`<button class="chip blessed" data-act="service" data-service="bless" data-char="${c.id}" title="${esc(`Elder: ${SERVICES.bless.desc}`)}">Bless ✦</button>`] : []),
   ];
-  return `<div class="vc ${coming ? 'coming' : ''}" style="--cls:${cls.color}">
-    <img class="vc-sprite" src="${spriteUrl(c.cls, cls.color)}" alt="">
+  return `<div class="vc ${coming ? 'coming' : ''} ${levelPending(c) ? 'levelup' : ''}" style="--cls:${cls.color}">
+    <button class="vc-open" data-act="char-open" data-char="${c.id}" title="${esc(`Open ${c.name}'s deck: swap cards in and out, and level up.`)}"><img class="vc-sprite" src="${spriteUrl(c.cls, cls.color)}" alt=""></button>
     <div class="vc-body">
-      <div class="vc-name">${esc(c.name)}</div>
+      <button class="vc-name" data-act="char-open" data-char="${c.id}" title="${esc(`Open ${c.name}'s deck`)}">${esc(c.name)}</button>
       <div class="vc-meta">${cls.name}${coming ? ' · <span class="gold">coming</span>' : ''}</div>
       <div class="vc-meta">${iconNum('hp', hp)}${hp < cls.maxHp ? `<span class="muted">/${cls.maxHp}</span>` : ''} ${iconNum('speed', `${cls.speed + majors * VILLAGE_RULES.majorSpeed}s`)} <span class="muted" title="Runs survived">✓${c.survived}</span></div>
     </div>
     <div class="vc-growth">${growth}</div>
     <div class="vc-wounds">${wounds.join('')}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// The Character screen (user, 2026-10-17)
+
+/** A card as a tile: picture, name, time, schools, Burn, and its text. `act` makes it a button that does that. */
+function cardTile(card: CardId, cls: ClassId, act: string, extra = '', cssClass = ''): string {
+  const def = CARDS[card];
+  const schools = def.schools.map((s) => `<span title="${SCHOOLS[s].name}: ${esc(SCHOOLS[s].desc)}">${SCHOOLS[s].glyph}</span>`).join('');
+  return `<button class="cv-card ${def.burn ? 'burn' : ''} ${cssClass}" style="--frame:${cardFrameColor(card, cls)}" data-act="${act}" data-card="${card}" ${extra} title="${esc(cardText(card))}">
+    <span class="cv-head"><img class="card-art" src="${cardArtUrl(card, cls)}" alt=""><span class="cv-name">${esc(def.name)}</span><span class="cv-time">${def.time}s</span><span class="schools">${schools}</span>${def.burn ? '<span class="burn" title="Burn: gone for the rest of the run once played (a Loom brings it back).">🔥</span>' : ''}</span>
+    <span class="cv-desc">${iconize(def.desc)}</span>
+  </button>`;
+}
+
+/**
+ * A Character's own screen, over the Village: their six class cards in the deck on the left, the cards they know but
+ * left out on the right (drag one onto the other, or click both, to swap), and below both the level-up waiting, if any.
+ */
+export function characterHtml(v: VillageView, charId: string, pick: CardId | null, note: string | null, lobby: LobbyView | null): string {
+  const c = v.characters.find((x) => x.id === charId)!;
+  const cls = CLASSES[c.cls];
+  const level = c.learned.length;
+  const known = [...CLASS_CARDS[c.cls], ...c.learned];
+  const out = known.filter((x) => !c.deck.includes(x));
+  const burns = c.deck.filter((x) => CARDS[x].burn).length;
+  const locked = lobby?.state === 'game';
+  const tile = (card: CardId, zone: 'deck' | 'bench') =>
+    cardTile(card, c.cls, 'cv-pick', `draggable="true" data-zone="${zone}" ${locked ? 'disabled' : ''}`, pick === card ? 'picked' : '');
+  const pips = Array.from({ length: LEVEL_RULES.maxLevel }, (_, i) => (i < c.xp ? '●' : '○')).join('');
+  let levelUp: string;
+  if (levelPending(c) && c.offer?.length) {
+    levelUp = `<h2 class="gold">★ Level up! ${esc(c.name)} reaches level ${level + 1}: learn one card</h2>
+      <div class="muted small">It joins the cards on the right; swap it into the deck whenever you like.${c.xp > level + 1 ? ` (${c.xp - level} level-ups are waiting.)` : ''}</div>
+      <div class="cv-cards cv-offer">${c.offer.map((card) => cardTile(card, c.cls, 'learn', `data-char="${c.id}" ${locked ? 'disabled' : ''}`)).join('')}</div>`;
+  } else if (c.xp < LEVEL_RULES.maxLevel) {
+    levelUp = `<div class="muted">Survive a run for the next level (XP <span class="gold">${pips}</span>): you'll be offered ${LEVEL_RULES.offer} cards to learn one from.</div>`;
+  } else levelUp = `<div class="muted">Level ${LEVEL_RULES.maxLevel}: every level learned.</div>`;
+  return `<div class="card village charview" style="--cls:${cls.color}">
+    <div class="vv-head">
+      <img class="vc-sprite" src="${spriteUrl(c.cls, cls.color)}" alt="">
+      <h1 style="color:${cls.color}">${esc(c.name)}</h1>
+      <span class="vv-stat">${cls.name} · Level ${level}/${LEVEL_RULES.maxLevel}${levelStars(level)} <span class="gold" title="XP: one per run survived; each is a level.">${pips}</span></span>
+      ${note ? `<span class="vv-notice">${esc(note)}</span>` : pick ? `<span class="vv-notice">Now click the card to swap ${esc(CARDS[pick].name)} with (or drag it there).</span>` : ''}
+      <button class="primary vv-back" data-act="char-close">Back to the Village</button>
+    </div>
+    <div class="cv-main">
+      <section class="cv-panel" data-zone="deck">
+        <h2>Deck <span class="muted small">${LEVEL_RULES.deckSize} class cards, at most ${LEVEL_RULES.maxBurns} Burns (${burns} now). Gear adds one card a slot in the dungeon.</span></h2>
+        <div class="cv-cards">${c.deck.map((x) => tile(x, 'deck')).join('')}</div>
+      </section>
+      <section class="cv-panel" data-zone="bench">
+        <h2>Swapped out and learned <span class="muted small">drag one onto a deck card to swap them</span></h2>
+        <div class="cv-cards">${out.length ? out.map((x) => tile(x, 'bench')).join('') : '<div class="muted cv-empty">Nothing yet: cards learned at each level wait here, and so does any class card you swap out.</div>'}</div>
+      </section>
+    </div>
+    <section class="cv-levelup">${levelUp}</section>
   </div>`;
 }
 
@@ -143,7 +196,7 @@ function regaliaHtml(v: VillageView): string {
     return `<div class="vv-regalia muted small" title="A Boss killed drops a Shard of its regalia for every player inside whose Village lacks it. Carry one out: the first unlocks Specializations.">Regalia: none yet. Bosses carry Shards.</div>`;
   }
   const tiles = v.shards.map((x) => `<span class="shard-tile" title="${esc(`${SHARDS[x].name}: unlocks the ${SPECS[SHARDS[x].spec].name} Specialization (${SPECS[SHARDS[x].spec].desc})`)}">${SHARDS[x].glyph} ${esc(SHARDS[x].name)}</span>`).join('');
-  return `<div class="vv-regalia"><span class="muted" title="Specializations: a Character with a Talent can take one, for ${REGALIA_RULES.specCost} gold, for good.">Regalia</span>${tiles}</div>`;
+  return `<div class="vv-regalia"><span class="muted" title="Specializations: a Character with a level can take one, for ${REGALIA_RULES.specCost} gold, for good.">Regalia</span>${tiles}</div>`;
 }
 
 /** Rite toggles for the New Run loadout: a click performs (or cancels) one for the next run. */

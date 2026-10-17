@@ -166,6 +166,56 @@ export function cardValue(f: BotFight, card: CardId): number {
     case 'unmaking': return burn(20);
     case 'halting': return 5 * TEMPO_VALUE;
     case 'borrowed': return burn(4);
+    // Level-up cards (user, 2026-10-17)
+    case 'aegis': {
+      const s = Math.max(R.aegisMin, me.st.shield ?? 0);
+      return s * (1 - R.aegisBounce ** n) / (1 - R.aegisBounce) - (me.st.shield ?? 0) * R.aegisCost * SHIELD_VALUE;
+    }
+    case 'linked': return R.linkedShield * SHIELD_VALUE + (allies.length > 1 ? 3 : 0);
+    case 'mirror': return R.mirrorShield * SHIELD_VALUE + (enemies.some((m) => m.enemy === 'crawler' || m.enemy === 'lich' || m.enemy === 'king') ? 4 : 1);
+    case 'banner': return allies.length * R.bannerShield * SHIELD_VALUE * 3;
+    case 'phalanx': return burn(allies.length * 5);
+    case 'marked': return R.markedHits * 5;
+    case 'flurry': return R.flurryHits * R.flurry * (enemies.some((m) => m.st.stun || m.st.exposed) ? 1.6 : 1);
+    case 'coup': return R.coup + (enemies.some((m) => m.hp <= R.coup) ? 8 : 0);
+    case 'misdirect': return 5 + (view.you.sneaking ? 5 : 0);
+    case 'cuts': return burn(18);
+    case 'hymn': return allies.reduce((s, a) => s + brighten(R.hymnLight, a), 0) + allies.length * 2;
+    case 'lightwell': return allies.length * 5;
+    case 'halo': return 4 + (hurtest.hp < hurtest.maxHp ? 3 : 0);
+    case 'march': return Math.floor(view.you.light / R.marchPer) * Math.max(1, allies.length - 1) * 0.9;
+    case 'eternal': return burn(36);
+    case 'puppet': return 6 + ((view.you.anima ?? 0) > 0 ? 6 : 0);
+    case 'surge': return (view.you.anima ?? 0) >= 2 ? 3 * (view.you.anima ?? 0) : 1;
+    case 'witching': return burn(n * 6);
+    case 'bloodmoon': return (view.you.anima ?? 0) > 0 || me.hp > R.bloodMoonHp * 2 ? 4 + allies.length * 2 : 0;
+    case 'wander': return R.wander + 3 + (n > 1 ? 3 : 0);
+    case 'danse': return (enc.legion ?? []).length ? (enc.legion ?? []).length * 4 : 3;
+    case 'plague': return (enc.legion ?? []).length * 4 + 2;
+    case 'preserve': return (enc.legion ?? []).some((u) => u.decay !== undefined) ? 5 : R.preserveBare * SHIELD_VALUE;
+    case 'claim': return enemies.some((m) => m.hp < m.maxHp * 0.3) ? 9 : 3;
+    case 'lord': return burn(12);
+    case 'bellguard': return Math.max(R.bellguardMin, R.bellguardPer * clang) * SHIELD_VALUE + clang;
+    case 'resonant': return R.resonant + 2;
+    case 'discord': return 5;
+    case 'metronome': return allies.length * 2;
+    case 'tollthee': return burn((R.tollthee + R.tolltheePer * clang) * 3);
+    case 'eclipse': return burn(allies.length * 6);
+    case 'brand': return R.brand * fervour + Math.floor((LIGHT_MAX - view.you.light) / R.brandPer) * 3;
+    case 'bloodforblood': {
+      const other = allies.filter((a) => a.id !== me.id).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      return other ? heal(R.bloodHeal, other) - (me.hp > R.bloodHp * 2 ? 3 : 20) : R.bloodBare * SHIELD_VALUE;
+    }
+    case 'purge': return R.purge * n * fervour;
+    case 'litany': return Math.min(R.litanyMax, 1 + Math.floor((LIGHT_MAX - view.you.light) / R.litanyPer)) * R.litany * fervour;
+    case 'mutagen': return 6;
+    case 'bottomless': return view.you.items.length ? 4 : 1;
+    case 'corrosive': return burn(n * 7);
+    case 'flash': return n * (R.flash + 3);
+    case 'distill': {
+      const most = Math.max(0, ...enemies.map((m) => (m.st.poison ?? []).reduce((t, pz) => t + pz.dmg * pz.rounds, 0)));
+      return most ? most * R.distillMult * 0.8 : R.distillPoison * R.distillTurns;
+    }
   }
 
   return CARDS[card] ? 1 : 0;

@@ -1,5 +1,4 @@
 import { LIGHT_MAX } from '../content/constants';
-import { hasTalent, TALENT_RULES } from '../content/talents';
 import { CLASS_RULES, FIELD_RULES as F } from '../content/innates';
 import { ITEMS, LOOT_TABLE, type ItemId } from '../content/items';
 import { theRoom } from '../dungeon/gen';
@@ -25,9 +24,9 @@ export type FieldTarget = 'none';
 /** Display name, who it can be aimed at, what it does out of a fight, and its cooldown in seconds (0: none). */
 export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarget; desc: string; cooldown: number }> = {
   toll: { name: 'Toll', target: 'none', cooldown: 0,
-    desc: `Once a run. Every ally hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
+    desc: `Once a run. Every other character hears where you are and sees you for ${CLASS_RULES.tollReveal}s. Every monster in the dungeon reels: those fighting lose their next turn, the rest stop for ${CLASS_RULES.tollDaze}s, then come one room closer to the bell.` },
   formup: { name: 'Form Up', target: 'none', cooldown: F.formUpCooldown,
-    desc: `You and every ally in the room +${F.formUpShield} Shield (never past ${F.formUpCap}).` },
+    desc: `Every character in the room +${F.formUpShield} Shield (never past ${F.formUpCap}).` },
   sneak: { name: 'Sneak', target: 'none', cooldown: 0,
     desc: `On or off, at once and without using your turn. While Sneaking your Speed is doubled, and your cards get their Sneaking bonuses. Walk in on monsters Sneaking and alone, with Stealth (your light ÷ ${CLASS_RULES.stealthPerLight}) below every one's Speed, and it's an Ambush: none of them acts until you do. On your first turn, Flee becomes Sneak Past: the fight is off and you stay there unnoticed (no loot or event while they're there). Turning Sneak off there starts the fight.` },
   siphon: { name: 'Siphon the Flame', target: 'none', cooldown: F.siphonCooldown,
@@ -35,11 +34,11 @@ export const FIELD_SKILLS: Record<FieldSkill, { name: string; target: FieldTarge
   unearth: { name: 'Unearth', target: 'none', cooldown: F.unearthCooldown,
     desc: `A Ghoul claws up from the floor and follows you for good (at most ${CLASS_RULES.followingMax} undead; past that the most decayed crumbles).` },
   rekindle: { name: 'Rekindle', target: 'none', cooldown: F.rekindleCooldown,
-    desc: `Every hero in the room, you included, +${F.rekindleLight} light.` },
+    desc: `Every character in the room +${F.rekindleLight} light.` },
   ringin: { name: 'Ring In', target: 'none', cooldown: F.ringInCooldown,
     desc: `+${F.ringInClang} Clang, ready for the next fight (they fade as usual, one every 2 of your turns).` },
   flagellate: { name: 'Flagellate', target: 'none', cooldown: F.flagellateCooldown,
-    desc: `Lose ${F.flagellateHp} HP and up to ${F.flagellateLight} of your light; every other hero in the room shares the light you lose.` },
+    desc: `Lose ${F.flagellateHp} HP and up to ${F.flagellateLight} of your light; every other character in the room shares the light you lose.` },
   brew: { name: 'Brew', target: 'none', cooldown: F.brewCooldown,
     desc: 'Brew a random consumable into your pack.' },
 };
@@ -83,10 +82,9 @@ export function skillTargeted(h: Hero, skill: FieldSkill): boolean {
   return skillTarget(h, skill) !== 'none';
 }
 
-/** Seconds this skill's cooldown takes for this hero (Scourged halves Flagellate's). */
-export function skillCooldown(h: Pick<Hero, 'talents'>, skill: FieldSkill): number {
-  const cd = FIELD_SKILLS[skill].cooldown;
-  return skill === 'flagellate' && hasTalent(h, 'scourged') ? cd * TALENT_RULES.scourgedCooldown : cd;
+/** Seconds this skill's cooldown takes. */
+export function skillCooldown(_h: Pick<Hero, 'cls'>, skill: FieldSkill): number {
+  return FIELD_SKILLS[skill].cooldown;
 }
 
 /** Seconds until this skill is ready again (0: ready). */
@@ -117,7 +115,7 @@ export function checkSkill(world: World, h: Hero, skill: FieldSkill): string | n
     case 'siphon':
       return h.light >= F.siphonLight ? null : `You need ${F.siphonLight} light to burn.`;
     case 'flagellate':
-      if (h.light <= 0 && (hasTalent(h, 'scourged') || h.hp <= 1)) return 'There is nothing left to scourge.';
+      if (h.light <= 0 && h.hp <= 1) return 'There is nothing left to scourge.';
       return null;
     case 'brew':
       if (h.rites.includes('gem')) return 'The Gem Rite forbids it.';
@@ -202,8 +200,7 @@ function formUp(world: World, h: Hero) {
 
 /** Zealot: blood and darkness, and the light they give up goes to the others in the room. */
 function flagellate(world: World, h: Hero) {
-  const scourged = hasTalent(h, 'scourged');
-  const cost = scourged ? 0 : Math.min(h.hp - 1, F.flagellateHp);
+  const cost = Math.min(h.hp - 1, F.flagellateHp);
   if (cost > 0) h.hp -= cost;
   const lost = spendLight(h, F.flagellateLight);
   const others = roomMates(world, h).filter((o) => o !== h);

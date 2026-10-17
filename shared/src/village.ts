@@ -1,14 +1,14 @@
 import { CLASSES, CLASS_IDS, type ClassId } from './content/classes';
-import { TALENTS, talentsFor, type TalentId } from './content/talents';
+import { CARDS, CLASS_CARDS, deckError, LEVEL_RULES, LEVELUP_CARDS, type CardId } from './content/cards';
 import { GEAR_SLOTS, isGear, itemTier, ITEMS, pluralName, RESOURCE_IDS, slotOf, type GearSlot, type ItemId, type ResourceId } from './content/items';
 import type { Rng } from './rng';
 import { gearKind, type GearKind } from './content/forge';
 import { EMERGENCIES, emergencyBans, type EmergencyId } from './content/emergencies';
-import { REGALIA_RULES, SPECS, specFits, specsUnlocked, talentsOf, type ShardId, type SpecId } from './content/regalia';
+import { REGALIA_RULES, SEASONED_HAND, SPECS, specFits, specsUnlocked, type ShardId, type SpecId } from './content/regalia';
 
 /**
  * The Village (M12): every player keeps a roster of Characters, one per class for now (stored as a list so
- * there can be more later). Characters gain XP by surviving runs, pick a Talent, and carry lasting injuries
+ * there can be more later). Characters gain XP by surviving runs, learn a level-up card for each, and carry lasting injuries
  * home, which only the Village Elder can heal. Bots borrow Characters but leave no mark on them.
  */
 export type Injury = 'minor' | 'major';
@@ -17,12 +17,17 @@ export interface Character {
   id: string;
   name: string;
   cls: ClassId;
-  /** Survived runs since the last level (0..xpForTalent). */
+  /** XP earned (0..LEVEL_RULES.maxLevel): one per run survived. Each is a level, once its card is learned. */
   xp: number;
   /** Runs survived in total, for the record. */
   survived: number;
-  talent: TalentId | null;
-  /** Their Specialization (bought in the Village once Shards unlock it; needs a Talent; for good). */
+  /** Level-up cards learned (user, 2026-10-17), in the order learned: the Character's level is how many. */
+  learned: CardId[];
+  /** The class cards in their deck: always LEVEL_RULES.deckSize, from their class's six and what they've learned. */
+  deck: CardId[];
+  /** The level-up cards on offer for their next level (rolled when the XP comes in; null when none is waiting). */
+  offer: CardId[] | null;
+  /** Their Specialization (bought in the Village once Shards unlock it; needs a level; for good). */
   spec?: SpecId | null;
   injuries: Injury[];
   /** The Elder blessed them (Journeyman Elder's Bless; user, 2026-10-14): Elder's Oil in their deck next run. */
@@ -30,9 +35,8 @@ export interface Character {
 }
 
 export const VILLAGE_RULES = {
-  /** XP per run survived, and the XP that earns a Talent. */
+  /** XP per run survived (each XP is a level, up to LEVEL_RULES.maxLevel). */
   xpPerRun: 1,
-  xpForTalent: 2,
   /** A run where HP ever dropped below these fractions of max leaves a Minor / a Major Injury (the worse one only). */
   minorBelow: 0.5,
   majorBelow: 0.25,
@@ -214,9 +218,9 @@ export function kitCr(kit: Kit | undefined): number {
   return Math.round(cr * 100) / 100;
 }
 
-/** A hero's CR: 1 per Talent (a Seasoned Character has two), plus what their kit adds. */
-export function heroCr(talents: readonly TalentId[] | undefined, kit: Kit | undefined): number {
-  return (talents?.length ?? 0) + kitCr(kit);
+/** A hero's CR: a third per level (user, 2026-10-17: a level-3 Character adds 1), plus what their kit adds. */
+export function heroCr(level: number | undefined, kit: Kit | undefined): number {
+  return Math.round(((level ?? 0) / LEVEL_RULES.maxLevel + kitCr(kit)) * 100) / 100;
 }
 
 /**
@@ -273,8 +277,12 @@ export interface Loadout {
   charName: string;
   /** The player whose Village it is. */
   owner: string;
-  /** Every Talent they have (their own, and the other one if Seasoned). */
-  talents: TalentId[];
+  /** The class cards in their deck (their Character's chosen six). */
+  deck?: CardId[];
+  /** Their level (cards learned): it counts for CR. */
+  level?: number;
+  /** Cards held in a fight, if not the usual 3 (Seasoned). */
+  hand?: number;
   injuries: Injury[];
   /** Blessed by the Elder: Elder's Oil goes in their deck for this run. */
   blessed?: boolean;
@@ -307,7 +315,31 @@ const NAMES = [
 export function newCharacter(id: string, cls: ClassId, rng: Rng, taken: string[]): Character {
   const free = NAMES.filter((n) => !taken.includes(n));
   const name = free.length ? rng.pick(free) : `${rng.pick(NAMES)} ${taken.length + 1}`;
-  return { id, name, cls, xp: 0, survived: 0, talent: null, spec: null, injuries: [] };
+  return { id, name, cls, xp: 0, survived: 0, learned: [], deck: [...CLASS_CARDS[cls]], offer: null, spec: null, injuries: [] };
+}
+
+/**
+ * A Character saved before level-up cards (2026-10-17) gets the new fields. Talents are gone without a trace (user):
+ * the XP a Talent was bought with is spent, while XP still short of one carries over as levels to come.
+ */
+export function migrateCharacter(c: Character & { talent?: string | null }, rng: Rng) {
+  if (c.talent) c.xp = 0;
+  delete c.talent;
+  c.learned ??= [];
+  c.deck ??= [...CLASS_CARDS[c.cls]];
+  c.offer ??= null;
+  c.xp = Math.min(LEVEL_RULES.maxLevel, c.xp);
+  rollOffer(c, rng);
+}
+
+/** What a lobby card shows of a Character. */
+export function lobbyCharacter(c: Character) {
+  return { name: c.name, xp: c.xp, learned: [...c.learned], deck: [...c.deck], injuries: [...c.injuries], blessed: c.blessed, spec: c.spec ?? null };
+}
+
+/** Their level: how many level-up cards they've learned. */
+export function levelOf(c: Pick<Character, 'learned'>): number {
+  return c.learned.length;
 }
 
 /** No injuries: fit to go down. */
@@ -315,9 +347,38 @@ export function isHealthy(c: { injuries: Injury[] }): boolean {
   return c.injuries.length === 0;
 }
 
-/** Earned a Talent but hasn't picked one yet. */
-export function talentPending(c: Character): boolean {
-  return !c.talent && c.xp >= VILLAGE_RULES.xpForTalent;
+/** Has XP for a level whose card isn't learned yet: a level-up is waiting in the Village. */
+export function levelPending(c: Pick<Character, 'xp' | 'learned'>): boolean {
+  return c.xp > c.learned.length;
+}
+
+/** Deal the next level's offer (the cards of their class they don't know yet, up to LEVEL_RULES.offer), if one is due. */
+export function rollOffer(c: Character, rng: Rng) {
+  if (!levelPending(c)) {
+    c.offer = null;
+    return;
+  }
+  if (c.offer?.length) return;
+  const left = LEVELUP_CARDS[c.cls].filter((x) => !c.learned.includes(x));
+  c.offer = rng.shuffle(left).slice(0, LEVEL_RULES.offer);
+}
+
+/** Learn a card on offer: it joins the cards they can swap into their deck. Returns an error, or null. */
+export function learnCard(c: Character, card: CardId, rng: Rng): string | null {
+  if (!levelPending(c) || !c.offer) return `${c.name} has no level-up waiting.`;
+  if (!c.offer.includes(card)) return `${CARDS[card]?.name ?? 'That card'} isn't on offer.`;
+  c.learned.push(card);
+  c.offer = null;
+  rollOffer(c, rng);
+  return null;
+}
+
+/** Set the class cards in their deck. Returns an error, or null. */
+export function setDeck(c: Character, deck: CardId[]): string | null {
+  const err = deckError(c.cls, deck, c.learned);
+  if (err) return err;
+  c.deck = [...deck];
+  return null;
 }
 
 /** Max HP with these injuries (never below hpFloor of the class's base). */
@@ -328,24 +389,26 @@ export function injuredMaxHp(cls: ClassId, injuries: Injury[]): number {
 }
 
 export function loadoutOf(owner: string, c: Character): Loadout {
-  return { charId: c.id, charName: c.name, owner, talents: talentsOf(c), injuries: [...c.injuries], ...(c.blessed ? { blessed: true } : {}) };
+  return {
+    charId: c.id, charName: c.name, owner, deck: [...c.deck], level: levelOf(c), injuries: [...c.injuries],
+    ...(c.spec === 'seasoned' ? { hand: SEASONED_HAND } : {}), ...(c.blessed ? { blessed: true } : {}),
+  };
 }
 
 /**
  * Apply a finished run to a Character. A death wipes them out: the caller replaces them with a recruit.
  * Returns the story for the results screen.
  */
-export function applyRun(c: Character, out: RunOutcome): { died: boolean; lines: string[] } {
+export function applyRun(c: Character, out: RunOutcome, rng: Rng): { died: boolean; lines: string[] } {
   // The Elder's blessing was for this run, used or not.
   delete c.blessed;
   if (!out.escaped) return { died: true, lines: [`${c.name} the ${CLASSES[c.cls].name} did not come back.`] };
   const lines: string[] = [];
   c.survived++;
-  if (!c.talent) {
-    c.xp = Math.min(VILLAGE_RULES.xpForTalent, c.xp + VILLAGE_RULES.xpPerRun);
-    lines.push(talentPending(c)
-      ? `${c.name} gained XP (${c.xp}/${VILLAGE_RULES.xpForTalent}) and can choose a Talent in the Village.`
-      : `${c.name} gained XP (${c.xp}/${VILLAGE_RULES.xpForTalent}).`);
+  if (c.xp < LEVEL_RULES.maxLevel) {
+    c.xp = Math.min(LEVEL_RULES.maxLevel, c.xp + VILLAGE_RULES.xpPerRun);
+    rollOffer(c, rng);
+    lines.push(`${c.name} gained XP (${c.xp}/${LEVEL_RULES.maxLevel}): a level-up waits in the Village.`);
   }
   const hurt: Injury[] = [];
   if (out.lowestHp < VILLAGE_RULES.majorBelow) hurt.push('major');
@@ -356,20 +419,11 @@ export function applyRun(c: Character, out: RunOutcome): { died: boolean; lines:
   return { died: false, lines };
 }
 
-/** Pick a Talent (only once earned, and only one of the class's). Returns an error, or null. */
-export function chooseTalent(c: Character, talent: TalentId): string | null {
-  if (c.talent) return `${c.name} already has a Talent.`;
-  if (!talentPending(c)) return `${c.name} needs ${VILLAGE_RULES.xpForTalent} XP first.`;
-  if (!talentsFor(c.cls).includes(talent)) return `${TALENTS[talent].name} is not a ${CLASSES[c.cls].name} Talent.`;
-  c.talent = talent;
-  return null;
-}
-
-/** Give a Character a Spec this Village's Shards unlock (needs a Talent; for good). Returns an error, or null. */
+/** Give a Character a Spec this Village's Shards unlock (needs a level; for good). Returns an error, or null. */
 export function chooseSpec(c: Character, spec: SpecId, shards: readonly ShardId[], purse: number): string | null {
   if (!SPECS[spec]) return 'No such Specialization.';
   if (!specsUnlocked(shards).includes(spec)) return `${SPECS[spec].name} isn't unlocked: bring home its Shard first.`;
-  if (!c.talent) return `${c.name} needs a Talent first.`;
+  if (!levelOf(c)) return `${c.name} needs a level first.`;
   if (c.spec) return `${c.name} is already ${SPECS[c.spec].name}.`;
   if (!specFits(spec, c.cls)) return `A ${CLASSES[c.cls].name} can't be ${SPECS[spec].name}.`;
   if (purse < REGALIA_RULES.specCost) return `${SPECS[spec].name} costs ${REGALIA_RULES.specCost} gold; you have ${purse}.`;

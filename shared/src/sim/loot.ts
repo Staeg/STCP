@@ -336,6 +336,12 @@ export function equipFromPack(world: World, h: Hero, index: number): string | nu
   return null;
 }
 
+/** A consumable is used: gone from the pack, unless a Bottomless Flask keeps it there (once). */
+function useUp(h: Hero, index: number) {
+  if (h.bottomless) h.bottomless = false;
+  else takeItem(h, index);
+}
+
 export function takeItem(h: Hero, index: number): ItemId | null {
   const item = h.items[index];
   if (item === undefined) return null;
@@ -757,7 +763,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   if (def.target === 'enemies') {
     const room = h.encounter;
     if (room === null) return '!Only in a fight.';
-    takeItem(h, index);
+    useUp(h, index);
     const doubled = h.elixir;
     h.elixir = false;
     return `${h.name} hurls a Firebomb!${doubled ? ' (Elixir: double!)' : ''}`; // damage applied by combat
@@ -765,7 +771,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
   const err = itemTargetError(world, h, index, targetId);
   if (err) return `!${err}`;
   const t = world.heroes[itemTarget(world, h, index, targetId)!];
-  takeItem(h, index);
+  useUp(h, index);
   // Elixir: this one counts double.
   const x = h.elixir ? 2 : 1;
   h.elixir = false;
@@ -783,7 +789,7 @@ export function applyItem(world: World, h: Hero, index: number, targetId?: strin
       return `${h.name} bandages ${t === h ? 'themself' : t.name} (+${t.hp - before}).${boost}${warded()}`;
     }
     case 'torch':
-      t.light = Math.min(LIGHT_MAX, t.light + 50 * x);
+      t.light = Math.max(t.light, Math.min(LIGHT_MAX, t.light + 50 * x));
       return `${h.name} lights a fresh torch.${boost}`;
     case 'flask':
       addSpeedMod(t, world.time, EVENT_CHOICES.flaskSpeed * x, EVENT_CHOICES.flaskSecs, 'Quicksilver Flask');

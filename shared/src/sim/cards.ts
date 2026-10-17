@@ -3,11 +3,10 @@ import { ENEMIES, type EnemyId } from '../content/enemies';
 import { LIGHT_MAX, lightStage } from '../content/constants';
 import { ITEMS } from '../content/items';
 import { BOSS_TIER, LEGEND_RULES } from '../content/legends';
-import { hasTalent, TALENT_RULES } from '../content/talents';
 import {
-  addClang, addPoison, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, flare, flee, fumes, gainLight, heal, heroBlock, heroHits,
-  isConscious, leaveEncounter, makeRoom, monsterScale, monsterTakes, monstersIn, risenAll, risenName, risenSt, risenTakes, spendLight, stepToEnd,
-  type CombatEvent, type Encounter, type Monster, type Risen, type Slain, type Statuses,
+  addClang, addPoison, afterBlock, applyMonsterDamage, at, combatOrder, damageMult, eternalBonus, flare, flee, followingOf, fumes, gainLight, gainShield,
+  heal, heroBlock, heroHits, isConscious, leaveEncounter, makeRoom, monsterScale, monsterTakes, monstersIn, onDelayed, risenAll, risenName,
+  risenSt, risenTakes, shieldPool, spendLight, stepToEnd, takeShield, type CombatEvent, type Encounter, type Monster, type Risen, type Slain, type Statuses,
 } from './combat';
 import { cycle, returnLast } from './deck';
 import { buffLength, debuffCopies, debuffTurns, healBy, lightBy, markWitchwood, ward } from './gear';
@@ -38,6 +37,10 @@ export interface CardCtx {
   prev: CardId | null;
   /** Seconds this hero's own next action comes sooner (Hand Signal or Peal on themself). */
   selfHurry: number;
+  /** Coup de Grâce killed: the hero acts again at once. */
+  chain?: boolean;
+  /** Discord on yourself: the monster you trade places with on the timeline (after the card's time is known). */
+  discord?: string;
 }
 
 const R = CARD_RULES;
@@ -69,7 +72,6 @@ export function cardTime(world: World, enc: Encounter | null, h: Hero, card: Car
   if ((st.dance ?? 0) > world.time) t = 1;
   if (def.schools.includes('conjure') && st.conjureHalf) t /= 2;
   if (def.schools.includes('venom')) t -= wornStat(h, 'venomCut');
-  if ((card === 'mend' || card === 'sanctuary') && hasTalent(h, 'steadyHands')) t -= TALENT_RULES.steadyCut;
   t += wornTempo(h);
   t -= (st.clang?.stacks ?? 0) * R.clangHaste;
   if (st.haste && st.haste.until > world.time) t -= st.haste.amount;
@@ -79,19 +81,18 @@ export function cardTime(world: World, enc: Encounter | null, h: Hero, card: Car
     t -= st.quick.cut;
     if (consume) delete st.quick;
   }
-  if (enc && playedIn(enc, h) === 0) {
-    if (hasTalent(h, 'openingAct')) t = Math.min(t, TALENT_RULES.openingCard);
-    t -= wornStat(h, 'firstCardCut');
-  }
+  if (enc && playedIn(enc, h) === 0) t -= wornStat(h, 'firstCardCut');
+  // Metronome's Cadence: every card takes exactly this long.
+  if ((st.cadence ?? 0) > world.time) t = R.metronomeTime;
   return Math.max(MIN_CARD_TIME, Math.round(t * 10) / 10);
 }
 
-/** How long a basic action takes: Brace, Flee, Revive, or using an item (Opus Magnum and Prepared make items quick). */
+/** How long a basic action takes: Brace, Flee, Revive, or using an item (Opus Magnum makes items quick). */
 export function actionTime(h: Hero, action: 'brace' | 'flee' | 'revive' | 'item'): number {
   if (action === 'brace') return R.braceTime;
   if (action === 'flee') return R.fleeTime;
   if (action === 'revive') return R.reviveTime;
-  return h.st.quickItems || hasTalent(h, 'prepared') ? TALENT_RULES.preparedItemTime : R.itemTime;
+  return h.st.quickItems ? R.opusItemTime : R.itemTime;
 }
 
 /**
@@ -129,6 +130,14 @@ export function uselessReason(world: World, enc: Encounter, h: Hero, card: CardI
       return hurt ? null : 'Nobody needs redeeming.';
     case 'forgive':
       return hurt || Object.values(world.heroes).some((o) => o !== h && !o.extracted && (o.dead ? !o.raised : o.downedAt !== null) && bodyHere(o, enc.room)) ? null : 'Nobody here needs forgiving.';
+    case 'bloodforblood':
+      return others.length === 0 || others.some((a) => a.hp < a.maxHp) ? null : 'Nobody else is hurt.';
+    case 'halo':
+      return null;
+    case 'bottomless':
+      return h.items.some((i) => ITEMS[i].kind === 'consumable') || hasSpace(h) ? null : 'Your pack is full of things that aren\'t items.';
+    case 'surge':
+      return null;
     default:
       return null;
   }
@@ -216,6 +225,7 @@ export function delay(ctx: CardCtx, m: Monster, secs: number): number {
   if (total <= 0) return 0;
   enc.next[m.id] = at(enc.next[m.id] + total);
   events.push({ actor: h.id, kind: 'status', target: m.id, text: `${ENEMIES[m.type].name} is Delayed ${total}s.` });
+  onDelayed(m, events, h.id);
   return total;
 }
 
@@ -234,7 +244,7 @@ export function hurry(ctx: CardCtx, a: Hero | Risen, secs: number) {
 function shieldOf(ctx: CardCtx, t: { st: Statuses }, n: number) {
   const guard = CARDS[ctx.card].schools.includes('guard') ? wornStat(ctx.h, 'guardShield') : 0;
   const add = Math.max(0, Math.round(n * ctx.power)) + guard;
-  t.st.shield = (t.st.shield ?? 0) + add;
+  gainShield(ctx.world, ctx.enc, t.st, add);
   return add + ward(ctx.h, t);
 }
 
@@ -284,6 +294,8 @@ export function debuff(ctx: CardCtx, m: Monster, kind: DebuffKind, turns = 2, am
       st.blind = true;
       break;
   }
+  // Witching Hour: every debuff Hexes too.
+  if (kind !== 'hexed' && (ctx.enc.witching ?? 0) > world.time) (st.hexed ??= []).push(t);
   placed(ctx, kind, m);
 }
 
@@ -292,7 +304,7 @@ function strike(ctx: CardCtx, m: Monster | null | undefined, base: number, opts:
   const { world, enc, h, events } = ctx;
   if (!m || !world.monsters[m.id]) return false;
   const schools = CARDS[ctx.card].schools;
-  let n = base * ctx.power;
+  let n = base * ctx.power + eternalBonus(h);
   if (schools.includes('strike') && m.st.poison?.length) n += wornStat(h, 'poisonedBonus');
   if (schools.includes('hinder')) n += wornStat(h, 'hinderDmg');
   if (opts.crit) n *= opts.critMult ?? 2;
@@ -355,7 +367,7 @@ function resolve(ctx: CardCtx) {
     // ---- Warden ----
     case 'bash': {
       const m = front();
-      if (strike(ctx, m, R.bash + Math.floor((h.st.shield ?? 0) * R.bashPerShield)) && m) delay(ctx, m, R.bashDelay);
+      if (strike(ctx, m, R.bash + Math.floor(shieldPool(world, h) * R.bashPerShield)) && m) delay(ctx, m, R.bashDelay);
       return;
     }
     case 'cover': {
@@ -381,7 +393,7 @@ function resolve(ctx: CardCtx) {
     case 'slam': {
       const m = front();
       if (!m) return;
-      const base = Math.max(R.slamMin, heroBlock(h) + (h.st.shield ?? 0));
+      const base = Math.max(R.slamMin, heroBlock(h) + shieldPool(world, h));
       const before = m.hp;
       strike(ctx, m, base);
       const dealt = Math.max(0, before - Math.max(0, world.monsters[m.id]?.hp ?? 0));
@@ -461,7 +473,7 @@ function resolve(ctx: CardCtx) {
     }
     // ---- Lampbearer ----
     case 'flare':
-      flare(world, enc, h, events, false, p(R.flare));
+      flare(world, enc, h, events, false, p(R.flare) + eternalBonus(h));
       return;
     case 'mend': {
       const t = friend();
@@ -509,7 +521,7 @@ function resolve(ctx: CardCtx) {
     }
     case 'dawn':
       for (const a of allies()) {
-        a.light = LIGHT_MAX;
+        a.light = Math.max(a.light, LIGHT_MAX);
         heal(a, healBy(h, p(R.dawnHeal)));
         ward(h, a);
       }
@@ -541,30 +553,25 @@ function resolve(ctx: CardCtx) {
       return;
     }
     case 'pact': {
-      const price = hasTalent(h, 'bloodPrice');
       // Anima: the pact is sealed with something other than blood.
       if (anima(ctx)) {
         tell(`${h.name} seals the pact with Anima instead of blood.`);
         for (const m of enemies()) strike(ctx, m, R.pact);
         return;
       }
-      const payers = price ? [h] : allies();
-      const mult = price ? TALENT_RULES.bloodPriceMult : 1;
-      for (const a of payers) {
-        const cost = Math.min(a.hp - 1, afterBlock(a, R.pactCost * mult));
+      for (const a of allies()) {
+        const cost = Math.min(a.hp - 1, afterBlock(a, R.pactCost));
         if (cost > 0) {
           a.hp -= cost;
           tell(a === h ? `${h.name} spills their own blood.` : `The pact takes its due from ${a.name}.`, 'damage', a.id, cost);
         }
       }
-      // The summoned and risen pay in blood too (Blood Price spares them like everyone else).
-      if (!price) {
-        for (const r of risen()) {
-          const cost = Math.min(r.hp - 1, risenTakes(world, r, R.pactCost));
-          if (cost <= 0) continue;
-          r.hp -= cost;
-          tell(`The pact takes its due from the ${risenName(world, r)}.`, 'damage', r.id, cost);
-        }
+      // The summoned and risen pay in blood too.
+      for (const r of risen()) {
+        const cost = Math.min(r.hp - 1, risenTakes(world, r, R.pactCost));
+        if (cost <= 0) continue;
+        r.hp -= cost;
+        tell(`The pact takes its due from the ${risenName(world, r)}.`, 'damage', r.id, cost);
       }
       for (const m of enemies()) strike(ctx, m, R.pact);
       return;
@@ -710,7 +717,7 @@ function resolve(ctx: CardCtx) {
         return;
       }
       tell(`${h.name}'s ${CARDS[last].name} echoes!`);
-      const mult = hasTalent(h, 'resounding') || (h.st.clang?.stacks ?? 0) >= R.echoFullAt ? 1 : R.echoMult;
+      const mult = (h.st.clang?.stacks ?? 0) >= R.echoFullAt ? 1 : R.echoMult;
       const inner = { ...ctx, card: last, power: ctx.power * mult, target: undefined, selfHurry: 0 };
       resolve(inner);
       ctx.selfHurry += inner.selfHurry;
@@ -735,7 +742,7 @@ function resolve(ctx: CardCtx) {
       const each = Math.ceil((R.absolutionBase + dark) / Math.max(1, targets.length));
       tell(`${h.name} pours out the dark!${dark ? ` (+${dark} damage)` : ''}`);
       for (const m of targets) strike(ctx, m, each);
-      const back = hasTalent(h, 'penitent') ? Math.floor(dark / 2) : dark;
+      const back = dark;
       if (back > 0) {
         gainLight(h, back);
         tell(`${h.name} is absolved. (+${back} light)`, 'light', h.id, back);
@@ -1165,7 +1172,410 @@ function resolve(ctx: CardCtx) {
       h.st.quick = { set: 1, cut: h.st.quick?.cut ?? 0 };
       tell(`${h.name} borrows a moment. (next card 1s)`, 'status', h.id);
       return;
+    default:
+      levelUpCard(ctx);
   }
+}
+
+/**
+ * Level-up cards (user, 2026-10-17): what a Character learns as they level, five a class. Numbers in CARD_RULES; the
+ * fight-long effects they leave are kept on the Encounter and the units' statuses (see combat.ts).
+ */
+function levelUpCard(ctx: CardCtx) {
+  const { world, enc, h, events } = ctx;
+  const p = (n: number) => Math.max(1, Math.round(n * ctx.power));
+  const enemies = () => monstersIn(world, enc.room);
+  const front = () => combatOrder(world, enc).monsters[0] ?? null;
+  const allies = () => enc.heroes.map((id) => world.heroes[id]).filter(isConscious);
+  const others = () => allies().filter((a) => a !== h);
+  const risen = () => risenAll(enc);
+  const foe = (): Monster | null => {
+    const m = ctx.target ? world.monsters[ctx.target] : undefined;
+    return m && m.room === enc.room ? m : front();
+  };
+  /** The picked character if they're still standing here, else `fallback`. */
+  const picked = (fallback: () => Hero | undefined): Hero | undefined => {
+    const t = ctx.target ? world.heroes[ctx.target] : undefined;
+    return t && isConscious(t) && t.encounter === enc.room ? t : fallback();
+  };
+  const name = (m: Monster) => ENEMIES[m.type].name;
+  const tell = (text: string, kind: CombatEvent['kind'] = 'status', target?: string, amount?: number) =>
+    events.push({ actor: h.id, kind, text, target, amount });
+  const secs = (n: number) => world.time + buffLength(h, n);
+
+  switch (ctx.card) {
+    // ---- Warden ----
+    case 'aegis': {
+      const m = foe();
+      if (!m) return;
+      const pool = shieldPool(world, h);
+      let dmg = Math.max(R.aegisMin, pool) * ctx.power;
+      takeShield(world, h, Math.floor(pool * R.aegisCost));
+      // It ricochets back down the line from the one it hit, half as hard each time.
+      const line = combatOrder(world, enc).monsters;
+      tell(`${h.name} hurls their shield!`, 'info', m.id);
+      for (const o of line.slice(line.indexOf(m))) {
+        if (dmg < 1) break;
+        strike(ctx, o, dmg / ctx.power - eternalBonus(h) / ctx.power);
+        dmg = Math.floor(dmg * R.aegisBounce);
+      }
+      return;
+    }
+    case 'linked': {
+      const t = picked(() => undefined);
+      if (!t || t === h) {
+        const got = shieldOf(ctx, h, R.linkedShield);
+        tell(`${h.name} sets their shield. (+${got} Shield)`, 'status', h.id);
+        return;
+      }
+      // Undo any old links first: a Shield is shared with one other at a time.
+      for (const x of [h, t]) {
+        const old = x.st.link ? world.heroes[x.st.link] : undefined;
+        if (old && old.st.link === x.id) delete old.st.link;
+      }
+      h.st.link = t.id;
+      t.st.link = h.id;
+      const got = shieldOf(ctx, h, R.linkedShield);
+      tell(`${h.name} links shields with ${t.name}: one wall between them. (+${got} Shield, ${shieldPool(world, h)} together)`, 'status', t.id);
+      return;
+    }
+    case 'mirror': {
+      const got = shieldOf(ctx, h, R.mirrorShield);
+      enc.mirror = (enc.mirror ?? 0) + 1;
+      tell(`${h.name} raises a mirror-bright guard. (+${got} Shield; the next debuff from an enemy turns back)`, 'status', h.id);
+      return;
+    }
+    case 'banner':
+      (enc.banners ??= []).push(h.id);
+      tell(`${h.name} plants a war banner! (every ally +${R.bannerShield} Shield at the start of each of their turns)`);
+      return;
+    case 'phalanx':
+      enc.phalanx = true;
+      tell(`${h.name} locks the line into a phalanx. (Shield anyone gains spills half to every other ally)`);
+      return;
+    // ---- Cutthroat ----
+    case 'marked': {
+      const m = foe();
+      if (!m) return;
+      m.st.marked = (m.st.marked ?? 0) + R.markedHits;
+      placed(ctx, 'exposed', m);
+      tell(`${h.name} marks the ${name(m)} for death. (next ${m.st.marked} hits crit)`, 'status', m.id);
+      return;
+    }
+    case 'flurry': {
+      for (let i = 0; i < R.flurryHits; i++) {
+        const m = foe();
+        if (!m) return;
+        strike(ctx, m, R.flurry, { crit: !!(m.st.stun || m.st.exposed) });
+      }
+      return;
+    }
+    case 'coup': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.coup);
+      if (!world.monsters[m.id]) {
+        ctx.chain = true;
+        tell(`${h.name} chains into the next move!`, 'status', h.id);
+      }
+      return;
+    }
+    case 'misdirect': {
+      const m = foe();
+      if (!m) return;
+      const n = h.sneaking ? R.misdirectSneak : R.misdirect;
+      m.st.misdirect = (m.st.misdirect ?? 0) + n;
+      placed(ctx, 'blind', m);
+      tell(`${h.name} misdirects the ${name(m)}. (its next ${n > 1 ? `${n} attacks hit` : 'attack hits'} its own)`, 'status', m.id);
+      return;
+    }
+    case 'cuts':
+      h.st.cuts = Math.max(h.st.cuts ?? 0, R.cutsStart);
+      tell(`${h.name} starts to work with a thousand small cuts.`, 'status', h.id);
+      return;
+    // ---- Lampbearer ----
+    case 'hymn': {
+      let got = 0;
+      for (const a of allies()) {
+        a.st.overfill = true;
+        got = Math.round(gainLight(a, lightBy(h, a, p(R.hymnLight))));
+      }
+      tell(`${h.name} sings a radiant hymn! (every character +${got} light, overfilling to ${R.hymnCap})`, 'light', h.id, got);
+      return;
+    }
+    case 'lightwell':
+      (enc.wells ??= []).push(h.id);
+      tell(`${h.name} opens a Lightwell. (every card played here: +${R.wellLight} light, +${R.wellHeal} HP)`);
+      return;
+    case 'halo': {
+      const t = picked(() => allies().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0]) ?? h;
+      t.st.halo = { until: secs(R.haloSecs), by: h.id };
+      ward(h, t);
+      tell(`A halo settles over ${t === h ? h.name : t.name}. (${R.haloSecs}s: every blow on them heals every ally ${R.haloHeal})`, 'status', t.id);
+      return;
+    }
+    case 'march': {
+      const n = Math.floor(h.light / R.marchPer);
+      for (const a of [...allies(), ...risen()]) hurry(ctx, a, n);
+      tell(`${h.name} leads the march by lamplight. (every ally ${n}s sooner)`);
+      return;
+    }
+    case 'eternal':
+      h.eternal = true;
+      if (h.light < R.eternalFloor) h.light = R.eternalFloor;
+      tell(`${h.name}'s lamp becomes eternal. (light never below ${R.eternalFloor}; +${R.eternalBonus} to every hit, heal and light, for the run)`, 'light', h.id);
+      return;
+    // ---- Sorceress ----
+    case 'puppet': {
+      const m = foe();
+      if (!m) return;
+      const n = anima(ctx) ? R.puppetAnima : R.puppet;
+      m.st.charm = (m.st.charm ?? 0) + n;
+      placed(ctx, 'hexed', m);
+      tell(`${h.name} pulls the ${name(m)}'s strings. (its next ${n > 1 ? `${n} actions are` : 'action is'} against its own)`, 'status', m.id);
+      return;
+    }
+    case 'surge': {
+      const spent = h.anima;
+      h.anima = 0;
+      h.st.surge = 1 + (spent ? R.surgePer * spent : R.surgeBare);
+      tell(`${h.name} gathers ${spent ? `all ${spent} Anima` : 'what power she has'} into her next spell. (×${h.st.surge})`, 'status', h.id);
+      return;
+    }
+    case 'witching':
+      enc.witching = secs(R.witchingSecs);
+      tell(`The witching hour falls. (${R.witchingSecs}s: every debuff Hexes too)`);
+      return;
+    case 'bloodmoon': {
+      if (anima(ctx)) tell(`${h.name} raises the blood moon on Anima alone.`);
+      else {
+        const cost = Math.min(h.hp - 1, afterBlock(h, R.bloodMoonHp));
+        if (cost > 0) {
+          h.hp -= cost;
+          tell(`${h.name} bleeds to raise the blood moon.`, 'damage', h.id, cost);
+        }
+      }
+      const until = secs(R.bloodMoonSecs);
+      for (const a of allies()) a.st.lifesteal = until;
+      for (const r of risen()) risenSt(world, r).lifesteal = until;
+      tell(`A blood moon rises. (${R.bloodMoonSecs}s: every ally heals half the damage they deal)`);
+      return;
+    }
+    case 'wander': {
+      const m = foe();
+      if (!m) return;
+      const n = anima(ctx) ? R.wanderAnima : 1;
+      m.st.wander = Math.max(m.st.wander ?? 0, n);
+      strike(ctx, m, R.wander);
+      debuff(ctx, m, 'hexed', R.hexedTurns);
+      if (world.monsters[m.id]) tell(`${name(m)} carries a wandering curse. (Hexed ×${m.st.hexed?.length ?? 0})`, 'status', m.id);
+      return;
+    }
+    // ---- Undertaker ----
+    case 'danse': {
+      const all = risen().filter((r) => enc.next[r.id] !== undefined);
+      if (!all.length) {
+        addAlly(ctx, 'rat');
+        tell(`${h.name} calls the dance, and a Rat answers.`);
+        return;
+      }
+      for (const r of all) enc.next[r.id] = at(world.time);
+      tell(`${h.name} calls the danse macabre! Every summon moves now.`);
+      return;
+    }
+    case 'plague': {
+      enc.plague = true;
+      const all = risen();
+      for (const r of all) heal(r, healBy(h, p(R.plagueHeal)));
+      if (!all.length) {
+        const m = front();
+        if (m) debuff(ctx, m, 'poison', R.plagueTurns, R.plaguePoison);
+      }
+      tell(`${h.name} spreads the plague among the dead. (every summon's attack Poisons)`);
+      return;
+    }
+    case 'preserve': {
+      const r = followingOf(world, h).filter((x) => !x.preserved).sort((a, b) => b.maxHp - a.maxHp)[0];
+      if (!r) {
+        const got = shieldOf(ctx, h, R.preserveBare);
+        tell(`${h.name} has nothing to preserve, and braces. (+${got} Shield)`, 'status', h.id);
+        return;
+      }
+      r.preserved = true;
+      r.decay = 0;
+      tell(`${h.name} preserves their ${risenName(world, r)}. It will not rot.`, 'status', r.id);
+      return;
+    }
+    case 'claim': {
+      const m = foe();
+      if (!m) return;
+      m.st.claimed = h.id;
+      placed(ctx, 'hexed', m);
+      tell(`${h.name} claims the ${name(m)}'s grave before it's dug.`, 'status', m.id);
+      return;
+    }
+    case 'lord': {
+      h.followCap = R.lordCap;
+      for (const r of followingOf(world, h)) r.decay = 0;
+      tell(`${h.name} is Lord of the Dead. (following ${R.lordCap}; all decay shed)`, 'status', h.id);
+      return;
+    }
+    // ---- Bellwright ----
+    case 'bellguard': {
+      const got = shieldOf(ctx, h, Math.max(R.bellguardMin, R.bellguardPer * (h.st.clang?.stacks ?? 0)));
+      h.st.clangHold = true;
+      tell(`${h.name} stands under the bell. (+${got} Shield; Clang holds this fight)`, 'status', h.id);
+      return;
+    }
+    case 'resonant': {
+      const m = front();
+      if (!m) return;
+      strike(ctx, m, R.resonant);
+      if (world.monsters[m.id]) {
+        m.st.ringing = true;
+        placed(ctx, 'stun', m);
+        tell(`${name(m)} is Ringing.`, 'status', m.id);
+      }
+      return;
+    }
+    case 'discord': {
+      addClang(h, R.discordClang);
+      const next = enemies().filter((m) => enc.next[m.id] !== undefined).sort((a, b) => enc.next[a.id] - enc.next[b.id])[0];
+      const t = picked(() => h) ?? h;
+      if (!next) return;
+      if (t === h) {
+        ctx.discord = next.id;
+        tell(`${h.name} strikes a discord: they and the ${name(next)} trade places in time.`, 'status', next.id);
+        return;
+      }
+      if (enc.next[t.id] !== undefined && enc.next[t.id] > enc.next[next.id]) {
+        const theirs = enc.next[next.id];
+        enc.next[next.id] = enc.next[t.id];
+        enc.next[t.id] = theirs;
+        tell(`${h.name} strikes a discord: ${t.name} and the ${name(next)} trade places in time.`, 'status', t.id);
+      } else tell(`${h.name} strikes a discord, but ${t.name} is ahead already.`, 'info', t.id);
+      return;
+    }
+    case 'metronome': {
+      const until = secs(R.metronomeSecs);
+      for (const a of allies()) a.st.cadence = until;
+      tell(`${h.name} sets a steady cadence. (${R.metronomeSecs}s: every card takes ${R.metronomeTime}s)`);
+      return;
+    }
+    case 'tollthee': {
+      const m = foe();
+      if (!m) return;
+      (m.st.knelled ??= []).push(h.id);
+      placed(ctx, 'stun', m);
+      tell(`Send not for me: the bell tolls for the ${name(m)}.`, 'status', m.id);
+      return;
+    }
+    // ---- Zealot ----
+    case 'eclipse': {
+      const lost = Math.round(spendLight(h, h.light));
+      (enc.eclipse ??= []).push(h.id);
+      tell(`${h.name} eclipses their own light. Their fervour burns in everyone. (−${lost} light)`, 'light', h.id, -lost);
+      return;
+    }
+    case 'brand': {
+      const m = foe();
+      if (!m) return;
+      strike(ctx, m, R.brand);
+      if (world.monsters[m.id]) {
+        m.st.brand = h.id;
+        placed(ctx, 'exposed', m);
+        tell(`${name(m)} is Branded.`, 'status', m.id);
+      }
+      return;
+    }
+    case 'bloodforblood': {
+      const t = picked(() => undefined);
+      const other = t && t !== h ? t : others().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      if (!other) {
+        const got = shieldOf(ctx, h, R.bloodBare);
+        tell(`${h.name} has nobody to bleed for, and steels themself. (+${got} Shield)`, 'status', h.id);
+        return;
+      }
+      const cost = Math.min(h.hp - 1, afterBlock(h, R.bloodHp));
+      if (cost > 0) h.hp -= cost;
+      const healed = heal(other, healBy(h, p(R.bloodHeal)));
+      ward(h, other);
+      tell(`${h.name} gives blood for blood. (−${Math.max(0, cost)} HP; ${other.name} +${healed})`, 'heal', other.id, healed);
+      return;
+    }
+    case 'purge': {
+      const lost = Math.round(spendLight(h, R.purgeLight));
+      tell(`${h.name} burns their own light in a purging fire. (−${lost} light)`, 'light', h.id, -lost);
+      for (const m of enemies()) strike(ctx, m, R.purge);
+      return;
+    }
+    case 'litany': {
+      const hits = Math.min(R.litanyMax, 1 + Math.floor(Math.max(0, LIGHT_MAX - h.light) / R.litanyPer));
+      for (let i = 0; i < hits; i++) {
+        const m = foe();
+        if (!m) return;
+        strike(ctx, m, R.litany);
+      }
+      return;
+    }
+    // ---- Alchemist ----
+    case 'mutagen': {
+      const t = picked(() => h) ?? h;
+      const until = secs(R.mutagenSecs);
+      t.st.mutated = until;
+      t.st.regen = { amount: Math.max(R.mutagenRegen, t.st.regen?.amount ?? 0), until: Math.max(until, t.st.regen?.until ?? 0), next: world.time + R.pulse };
+      ward(h, t);
+      tell(`${t === h ? h.name : t.name} drinks the mutagen. (+${R.mutagenMult * 100}% damage, Regen ${R.mutagenRegen} for ${R.mutagenSecs}s; then Weak)`, 'status', t.id);
+      return;
+    }
+    case 'bottomless':
+      if (h.items.some((i) => ITEMS[i].kind === 'consumable')) {
+        h.bottomless = true;
+        tell(`${h.name} uncorks a bottomless flask. (their next item isn't used up)`, 'status', h.id);
+      } else if (hasSpace(h)) {
+        giveItem(h, 'bandage');
+        tell(`${h.name} finds a Bandage at the bottom of the flask.`, 'status', h.id);
+      } else tell(`${h.name}'s flask comes up empty.`, 'info');
+      return;
+    case 'corrosive':
+      enc.corrosive = (enc.corrosive ?? 0) + 1;
+      for (const m of enemies()) {
+        debuff(ctx, m, 'acid', R.acidTurns);
+        if (m.st.poison?.length) debuff(ctx, m, 'acid', R.acidTurns);
+      }
+      tell(`${h.name} looses a corrosive cloud. It hangs in the air.`);
+      return;
+    case 'flash':
+      for (const m of enemies()) {
+        strike(ctx, m, R.flash);
+        debuff(ctx, m, 'blind');
+      }
+      tell(`${h.name} sets off flash powder! Every foe is Blinded.`);
+      return;
+    case 'distill': {
+      const m = foe();
+      if (!m) return;
+      const left = (m.st.poison ?? []).reduce((s, pz) => s + pz.dmg * pz.rounds, 0);
+      if (!left) {
+        debuff(ctx, m, 'poison', R.distillTurns, R.distillPoison);
+        tell(`${h.name} poisons the ${name(m)} to distil later.`, 'status', m.id);
+        return;
+      }
+      delete m.st.poison;
+      tickOn(world, m, Math.round(left * R.distillMult * ctx.power), events, 'distilled poison');
+      return;
+    }
+  }
+}
+
+/** Claim the Grave: the claimed monster, slain, rises at once for its Undertaker at part of its HP. */
+export function claimRise(world: World, enc: Encounter, h: Hero, dead: Slain, events: CombatEvent[]) {
+  const ctx: CardCtx = { world, enc, h, card: 'claim', events, power: 1, prev: null, selfHurry: 0 };
+  if (dead.id) world.risings = world.risings.filter((r) => r.id !== dead.id);
+  const hp = Math.max(1, Math.round(dead.maxHp * R.claimHp));
+  const unit = addAlly(ctx, dead.type, { maxHp: dead.maxHp, hp, dmgMult: dead.dmgMult });
+  enc.next[unit.id] = at(world.time + 0.5);
+  events.push({ actor: h.id, kind: 'status', target: unit.id, text: `The ${ENEMIES[dead.type].name} rises at once for ${h.name}: its grave was claimed.` });
 }
 
 /** Is `o`'s body (downed or dead) lying in `room`? */

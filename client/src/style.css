@@ -787,12 +787,7 @@ button.mini { font-size: 15px; padding: 0 6px; }
 .vc-name { color: var(--cls); font-size: 21px; line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vc-meta { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .vc-growth, .vc-wounds { grid-column: 1 / -1; }
-.vc-pick { display: flex; flex-direction: column; gap: 3px; }
-.card.village .vc-pick button { text-align: left; display: flex; flex-direction: column; padding: 2px 5px; border-color: var(--gold); }
-.vc-desc { font-size: 14px; line-height: 1.1; color: var(--text); margin-top: 1px; }
-.vc-wounds, .vc-talents { display: flex; flex-wrap: wrap; gap: 3px; align-content: flex-start; align-items: baseline; }
-.vc-talents .chip { cursor: help; }
-.vc-growth > .talent-star { cursor: help; }
+.vc-wounds { display: flex; flex-wrap: wrap; gap: 3px; align-content: flex-start; align-items: baseline; }
 .chip { font-size: 14px; padding: 0 4px; border: 1px solid #3a2e24; line-height: 1.3; }
 .card.village button.chip { font-size: 14px; padding: 0 4px; border-color: currentColor; }
 .vv-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
@@ -822,7 +817,7 @@ span.vs.ready { color: var(--text); cursor: help; }
 .vv-sub { display: flex; gap: 6px; align-items: baseline; }
 .card.village .stash-item.target { border-color: var(--gold); color: var(--gold); }
 .v-report, .results-report { margin-top: 10px; padding: 6px 10px; border-left: 3px solid var(--gold); background: #1a140f; }
-.talent-star { color: var(--gold); }
+.level-star { color: var(--gold); cursor: help; }
 .injury.minor { color: #d9a64a; }
 .injury.major { color: var(--danger); }
 .chip.blessed { color: var(--gold); }
@@ -833,6 +828,39 @@ span.vs.ready { color: var(--text); cursor: help; }
 .cr-help { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--gold); background: #1a140f; font-size: 17px; line-height: 1.25; display: flex; flex-direction: column; gap: 6px; }
 .cr-help ul { margin: 0; padding-left: 20px; }
 .cr-help .tier { color: var(--gold); }
+
+/* ---- The Character screen (user 2026-10-17): deck left, the rest right, level-ups below ---- */
+.card.village button.vc-open { border: 0; padding: 0; background: none; grid-row: 1; cursor: pointer; }
+.card.village button.vc-name { border: 0; padding: 0; background: none; display: block; max-width: 100%; text-align: left; cursor: pointer; font-size: 21px; }
+.card.village button.vc-name:hover { text-decoration: underline; }
+.vc.levelup { box-shadow: inset 0 0 0 2px var(--gold); }
+.card.village button.vc-levelup { display: block; width: 100%; margin-top: 3px; border-color: var(--gold); color: var(--gold); font-size: 17px; }
+.card.village.charview { grid-template-rows: auto minmax(0, 1fr) auto; }
+.charview .vv-head .vc-sprite { align-self: center; }
+.cv-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; min-height: 0; }
+.cv-panel { border: 1px solid #2a2018; border-top: 3px solid var(--cls); padding: 6px 8px; min-height: 0; overflow: auto; }
+.cv-panel[data-zone="bench"] { border-top-color: #6a5a48; }
+.cv-panel h2, .cv-levelup h2 { font-size: 22px; margin: 0 0 6px; }
+.cv-panel.drop-on { background: #221a12; }
+.cv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+.cv-offer { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.card.village button.cv-card {
+  display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 5px 7px; font-size: 16px;
+  border: 2px solid var(--frame); background: #18120d; cursor: grab;
+}
+.card.village .cv-offer button.cv-card { cursor: pointer; border-color: var(--gold); }
+.card.village button.cv-card:hover { background: #241b13; }
+.card.village button.cv-card.picked { outline: 2px solid var(--gold); background: #2e2214; }
+.card.village button.cv-card.drop-on { outline: 2px dashed var(--gold); }
+.cv-card.dragged { opacity: 0.45; }
+.cv-head { display: flex; align-items: center; gap: 6px; }
+.cv-head .card-art { width: 52px; height: 52px; image-rendering: pixelated; flex: 0 0 auto; }
+.cv-name { font-size: 19px; color: var(--text); }
+.cv-time { color: var(--muted); }
+.cv-head .schools { margin-left: auto; }
+.cv-desc { font-size: 15px; line-height: 1.15; color: var(--text); }
+.cv-empty { padding: 8px 0; }
+.cv-levelup { border: 1px solid #2a2018; padding: 6px 8px; }
 
 /* ---- The Village Stash and the kit (user 2026-10-10) ---- */
 .kit-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }

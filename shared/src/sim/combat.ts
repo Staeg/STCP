@@ -4,10 +4,9 @@ import { escalationAt, LIGHT_MAX, MIN_SPEED } from '../content/constants';
 import {
   crBonus, crUnitChance, CR_RULES, ENCOUNTER_GROUPS, ENEMIES, ESCALATION, KING_RULES, LAIR_GROUPS, ROSTER_RULES, TIERS, type EnemyId, type GroupTemplate,
 } from '../content/enemies';
-import { hasTalent, TALENT_RULES } from '../content/talents';
 import { corridorBetween, neighbours, theRoom } from '../dungeon/gen';
 import { CLOTH, ITEMS, LOOT, isGear, type ItemId } from '../content/items';
-import { buffLength, chargesForFight, clothReady, leftRoom, spendCloth, witchwoodMult } from './gear';
+import { buffLength, chargesForFight, clothReady, healBy, leftRoom, lightBy, spendCloth, witchwoodMult } from './gear';
 import { addToPile, applyItem, bodyRoom, dropBounty, dropEverything, dropKingsTreasure, dropRegalia, itemTargets, monsterPoints, risenAllyFalls, wornMult, wornStat } from './loot';
 import { ELITE_EVENTS, EVENT_CHOICES, LIGHT_LOSS } from '../content/events';
 import { maybeHitVillager } from './events';
@@ -15,7 +14,7 @@ import { chronicle, extractHero, roomName, type Hero, type World } from './world
 import { notify } from './notify';
 import { speedOf } from './speed';
 import { injuredMaxHp, KIT_RULES, VILLAGE_RULES, type Injury } from '../village';
-import { actionTime, cardTime, playCard, tickOn, uselessReason, type DebuffKind } from './cards';
+import { actionTime, cardTime, claimRise, playCard, tickOn, uselessReason, type DebuffKind } from './cards';
 import { dealDeck, gatherDeck, settleCard, takeFromHand } from './deck';
 
 export const DEATH_TIMER = 36;
@@ -96,6 +95,41 @@ export interface Statuses {
   sidestep?: number;
   /** Scale Ward: whatever hits this hero takes this much, until their own next turn. */
   spikes?: number;
+  // ---- Level-up cards (user, 2026-10-17). Fight-long unless a time is given. ----
+  /** Linked Shields: the hero whose Shield this one shares (each soaks from the other's once their own is gone). */
+  link?: string;
+  /** Marked for Death (monster): the next this many hits on it crit. */
+  marked?: number;
+  /** Misdirected (monster): its next this many attacks hit another enemy (or itself). */
+  misdirect?: number;
+  /** Thousand Cuts: after each card this hero plays, a random enemy takes this much (then 1 more). */
+  cuts?: number;
+  /** Radiant Hymn: this hero's light can overfill to CARD_RULES.hymnCap this fight. */
+  overfill?: boolean;
+  /** Halo: until this game time, each blow on this hero heals every ally (the Lampbearer's `by`). */
+  halo?: { until: number; by: string };
+  /** Charmed (monster, Puppet Strings): its next this many actions are attacks on its own side. */
+  charm?: number;
+  /** Anima Surge: the next card this hero plays has this power. */
+  surge?: number;
+  /** Lifesteal (Blood Moon): until this game time, heals half the damage dealt. */
+  lifesteal?: number;
+  /** Wandering Curse (monster): when it dies, its Hexed stacks leap to this many other enemies. */
+  wander?: number;
+  /** Claim the Grave (monster): the Undertaker it rises for when it dies. */
+  claimed?: string;
+  /** Bellguard: Clang doesn't fade this fight. */
+  clangHold?: boolean;
+  /** Ringing (monster, Resonant Strike): the next time it's Delayed, it's Stunned too. */
+  ringing?: boolean;
+  /** Cadence (Metronome): until this game time, every card this hero plays takes exactly CARD_RULES.metronomeTime. */
+  cadence?: number;
+  /** Send not for me (monster, Toll for Thee): the Bellwrights whose toll hurts it at the start of each of its turns. */
+  knelled?: string[];
+  /** Branded (monster): the Zealot whose missing light it suffers from, +1 damage taken per CARD_RULES.brandPer. */
+  brand?: string;
+  /** Mutated (Mutagen): +50% damage until this game time, then Weak. */
+  mutated?: number;
 }
 
 export interface Poison {
@@ -169,8 +203,11 @@ export interface Risen {
    * stack: +2s Speed, −2 Block. Set (0 or more) only on his following; their number is capped.
    */
   decay?: number;
-  /** Fights it has come through (Restless Dead decays it every other one). */
+  /** Fights it has come through. */
   age?: number;
+  /** Preserve: it never decays, and the first blow that would destroy it leaves it at 1 HP (`saved` once used). */
+  preserved?: boolean;
+  saved?: boolean;
   /** Called up by a card for this fight only: gone when it ends (M15). */
   summon?: boolean;
   /** What "every ally" cards left on it this fight (Shield, Dodge, Regen…). A Risen ally uses its hero's instead. */
@@ -238,8 +275,23 @@ export interface Encounter {
   front?: string[];
   /** Turns each unit has taken in this fight (the timeline keys each upcoming turn by it). */
   turns?: Record<string, number>;
-  /** Heroes who have had their first timer in this fight (Opening Act only speeds up the first). */
-  opened?: string[];
+  // ---- Level-up cards (user, 2026-10-17): what lasts the rest of this fight ----
+  /** War Banners planted here (by whom): each gives every ally Shield at the start of their turns. */
+  banners?: string[];
+  /** Phalanx: Shield an ally gains spills half to every other ally. */
+  phalanx?: boolean;
+  /** Mirror Guard: debuffs from enemies this many times turn back on them. */
+  mirror?: number;
+  /** Lightwells here (by whom): every character who plays a card gains light and heals. */
+  wells?: string[];
+  /** Witching Hour: until this game time, every debuff laid on an enemy also Hexes it. */
+  witching?: number;
+  /** Plague Bearers: every summon's attack Poisons. */
+  plague?: boolean;
+  /** Eclipse: the Zealots whose Fervour adds to every ally's damage here. */
+  eclipse?: string[];
+  /** Corrosive Clouds hanging here: each adds Acid at the start of every enemy's turn. */
+  corrosive?: number;
   /** Dead King's Charges so far: every monster in the fight is this many × KING_RULES.chargeHaste faster until it ends. */
   charge?: number;
   /** The whole play-by-play, for the results screen (shared with this fight's chronicle entry). */
@@ -383,20 +435,30 @@ export function isConscious(h: Hero): boolean {
 export function loseLight(h: Hero, amount: number): number {
   if (amount <= 0) return 0;
   const before = h.light;
-  h.light = Math.max(0, h.light - amount * wornMult(h, 'lightLossMult'));
+  h.light = Math.max(Math.min(before, lightFloor(h)), h.light - amount * wornMult(h, 'lightLossMult'));
   return before - h.light;
 }
 
-/** A hero gains light (never past full). Returns how much they gained. */
+/** The lowest a hero's light can fall: 0, or the Eternal Lamp's floor. */
+export function lightFloor(h: Pick<Hero, 'eternal'>): number {
+  return h.eternal ? CARD_RULES.eternalFloor : 0;
+}
+
+/** The most light a hero can hold: full, or more this fight after a Radiant Hymn. */
+export function lightCap(h: Pick<Hero, 'st'>): number {
+  return h.st.overfill ? CARD_RULES.hymnCap : LIGHT_MAX;
+}
+
+/** A hero gains light (never past full, unless overfilled). Returns how much they gained. */
 export function gainLight(h: Hero, amount: number): number {
   const before = h.light;
-  h.light = Math.max(0, Math.min(LIGHT_MAX, h.light + amount));
+  h.light = Math.max(Math.min(before, lightFloor(h)), Math.min(Math.max(before, lightCap(h)), h.light + amount));
   return h.light - before;
 }
 
 /** A hero spends their own light (Kindle, Siphon, the Zealot's cards): no charm softens it. Returns how much went. */
 export function spendLight(h: Hero, amount: number): number {
-  const spent = Math.max(0, Math.min(h.light, amount));
+  const spent = Math.max(0, Math.min(h.light - lightFloor(h), amount));
   h.light -= spent;
   return spent;
 }
@@ -404,13 +466,26 @@ export function spendLight(h: Hero, amount: number): number {
 /** Zealot's Fervour: +1% damage per point of light below full (twice that after the Zen Zenith). */
 export function fervourOf(h: Hero): number {
   if (h.cls !== 'zealot') return 0;
-  return (LIGHT_MAX - h.light) * CLASS_RULES.zealotDmgPerDark * (h.elite.zenith ? ELITE_EVENTS.zenithFervour : 1);
+  return Math.max(0, LIGHT_MAX - h.light) * CLASS_RULES.zealotDmgPerDark * (h.elite.zenith ? ELITE_EVENTS.zenithFervour : 1);
+}
+
+/** Eclipse: the Fervour of every Zealot who eclipsed in this fight adds to an ally's damage (not twice to their own). */
+export function eclipseOf(world: World | undefined, enc: Encounter | undefined, self?: Hero): number {
+  if (!world || !enc?.eclipse) return 0;
+  return enc.eclipse.reduce((s, id) => {
+    const z = world.heroes[id];
+    return z && z !== self && inDungeon(z) ? s + fervourOf(z) : s;
+  }, 0);
 }
 
 /** Weapon bonus (and a Quick Temper, the Zealot's Fervour, and the Effigy or Tome Rite): multiplies every bit of damage this hero deals. */
-export function damageMult(h: Hero, _world?: World): number {
+export function damageMult(h: Hero, world?: World): number {
   const weapon = 1 + (h.weapon ? ITEMS[h.weapon].dmgPct ?? 0 : 0) + (h.tempered && h.weapon ? EVENT_CHOICES.temperPct : 0);
-  return weapon * (1 + fervourOf(h)) * riteMult(h);
+  const enc = world && h.encounter !== null ? world.encounters[h.encounter] : undefined;
+  // Radiant (light past full, after a Radiant Hymn) and Mutated hit harder.
+  const radiant = h.light > LIGHT_MAX ? 1 + CARD_RULES.radiantMult : 1;
+  const mutated = world && (h.st.mutated ?? 0) > world.time ? 1 + CARD_RULES.mutagenMult : 1;
+  return weapon * (1 + fervourOf(h) + eclipseOf(world, enc, h)) * riteMult(h) * radiant * mutated;
 }
 
 /** Effigy Rite: +20% damage and max HP; Tome Rite: −20%. */
@@ -556,17 +631,12 @@ export function addClang(h: Hero, stacks: number) {
   h.st.clang = { stacks: (h.st.clang?.stacks ?? 0) + stacks, turns: buffLength(h, CARD_RULES.clangTurns) };
 }
 
-/** What happens as a hero walks into a fight: Talents, Gear and the dead who follow them. */
+/** What happens as a hero walks into a fight: Gear and the dead who follow them. */
 function onEnlist(world: World, enc: Encounter, h: Hero) {
   if (!isConscious(h)) return;
   // Brigandine: into every fight behind a ready Shield.
   const start = wornStat(h, 'startShield');
   if (start > 0) h.st.shield = (h.st.shield ?? 0) + start;
-  // Gravedigger: a Corpse lies ready for the Undertaker.
-  if (hasTalent(h, 'gravedigger')) {
-    for (let i = 0; i < TALENT_RULES.gravediggerCorpses; i++) (enc.slain ??= []).push({ type: 'ghoul', maxHp: ENEMIES.ghoul.maxHp, dmgMult: 1 });
-    say(world, enc, `${h.name} has a grave ready. (+${TALENT_RULES.gravediggerCorpses} Corpse)`);
-  }
   // Unholy Uprising: the Undertaker's dead come too (and Howl's wolves).
   if (h.legion.length) {
     // A Risen ally keeps its hero's id, so the fight screen can show what it does.
@@ -581,7 +651,7 @@ function onEnlist(world: World, enc: Encounter, h: Hero) {
 
 /**
  * When a hero leaves a fight (or it ends), what fights for them goes with them: the Uprising's dead, Howl's wolves,
- * and (Restless Dead) what they Raised. What a card summoned for this fight only stays behind and is gone.
+ * and the Undertaker's following. What a card summoned for this fight only stays behind and is gone.
  */
 function keepRisen(enc: Encounter, h: Hero) {
   if (enc.legion && inDungeon(h)) {
@@ -589,10 +659,10 @@ function keepRisen(enc: Encounter, h: Hero) {
     // Like a monster's, its statuses end with the fight.
     for (const { id: _id, by: _by, st: _st, ...r } of mine) {
       if (r.hp <= 0 || r.summon) continue;
-      // The Undertaker's following decays a little after every fight (every other one with Restless Dead).
+      // The Undertaker's following decays a little after every fight (never, once Preserved).
       if (r.decay !== undefined) {
         r.age = (r.age ?? 0) + 1;
-        if (!hasTalent(h, 'restlessDead') || r.age % 2 === 0) r.decay++;
+        if (!r.preserved) r.decay++;
       }
       h.legion.push(r);
     }
@@ -613,8 +683,10 @@ export function followingOf(world: World, h: Hero): Risen[] {
  */
 export function makeRoom(world: World, h: Hero): string | null {
   const all = followingOf(world, h);
-  if (all.length < CLASS_RULES.followingMax) return null;
-  const worst = all.reduce((a, b) => ((b.decay ?? 0) > (a.decay ?? 0) ? b : a));
+  if (all.length < h.followCap) return null;
+  // The Preserved go last.
+  const pool = all.some((r) => !r.preserved) ? all.filter((r) => !r.preserved) : all;
+  const worst = pool.reduce((a, b) => ((b.decay ?? 0) > (a.decay ?? 0) ? b : a));
   const name = risenName(world, worst);
   const i = h.legion.indexOf(worst);
   if (i >= 0) h.legion.splice(i, 1);
@@ -664,21 +736,14 @@ function resetAfterFight(h: Hero) {
   h.statusClock = 0;
   gatherDeck(h);
   const kept = h.cls === 'warden' && isConscious(h) ? Math.floor((h.st.shield ?? 0) * CLASS_RULES.stalwartKeep) : 0;
-  const { poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance } = h.st;
-  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance }).filter(([, v]) => v !== undefined));
+  const { poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance, mutated } = h.st;
+  h.st = Object.fromEntries(Object.entries({ poison, acid, hexed, weak, dodge, clang, doom, bleed, regen, slow, haste, gate, dance, mutated }).filter(([, v]) => v !== undefined));
   if (kept > 0) h.st.shield = kept;
+  // A Radiant Hymn's overfill fades with the fight.
+  h.light = Math.min(h.light, LIGHT_MAX);
 }
 
 function endEncounter(world: World, enc: Encounter) {
-  // Undying Flame: a fight that ends with every ally standing gives the Lampbearer their Dawn back.
-  const standing = enc.heroes.every((id) => isConscious(world.heroes[id]));
-  for (const id of enc.heroes) {
-    const h = world.heroes[id];
-    if (standing && hasTalent(h, 'undyingFlame') && h.burned.includes('dawn')) {
-      h.burned.splice(h.burned.indexOf('dawn'), 1);
-      notify(world, h, 'The dawn kindles again in you. (Dawn is back in your deck)');
-    }
-  }
   // Unholy Uprising: fighting beside the restless dead wears on the living.
   const raisers = new Set((enc.legion ?? []).filter((r) => r.type !== 'wolf' && r.uprising).map((r) => r.by));
   for (const by of raisers) {
@@ -761,10 +826,7 @@ export function startTimers(world: World, enc: Encounter) {
     const h = world.heroes[id];
     if (!isConscious(h)) delete enc.next[id];
     else if (enc.next[id] === undefined) {
-      // Opening Act: the Cutthroat's first turn of the fight comes at half their Speed.
-      const first = !(enc.opened ??= []).includes(id);
-      if (first) enc.opened.push(id);
-      const wait = speedOf(h, world.time) * (first && hasTalent(h, 'openingAct') ? TALENT_RULES.openingFraction : 1);
+      const wait = speedOf(h, world.time);
       enc.next[id] = at(world.time + wait);
       (enc.span ??= {})[id] = wait;
     }
@@ -1107,7 +1169,8 @@ function heroDot(h: Hero, n: number): number {
 
 /** Statuses of a hero's own that tick at the start of their turn. */
 function startOfTurn(st: Statuses) {
-  if (st.clang && --st.clang.turns <= 0) {
+  // Bellguard: the bell holds its ring this fight.
+  if (st.clang && !st.clangHold && --st.clang.turns <= 0) {
     if (--st.clang.stacks <= 0) delete st.clang;
     else st.clang.turns = CARD_RULES.clangTurns;
   }
@@ -1179,6 +1242,16 @@ export function tickClocks(world: World) {
     if (st.slow && st.slow.until <= now) delete st.slow;
     if (st.gate !== undefined && st.gate <= now) delete st.gate;
     if (st.dance !== undefined && st.dance <= now) delete st.dance;
+    if (st.halo && st.halo.until <= now) delete st.halo;
+    if (st.cadence !== undefined && st.cadence <= now) delete st.cadence;
+    if (st.lifesteal !== undefined && st.lifesteal <= now) delete st.lifesteal;
+    // Mutagen: the change wears off, and leaves them Weak.
+    if (st.mutated !== undefined && st.mutated <= now) {
+      delete st.mutated;
+      st.weak = { stacks: (st.weak?.stacks ?? 0) + 1, turns: CARD_RULES.mutagenWeak };
+      if (enc) events.push({ actor: h.id, kind: 'status', target: h.id, text: `${h.name}'s mutation wears off, leaving them Weak.` });
+      else notify(world, h, 'The mutagen wears off, and leaves you Weak.');
+    }
     if (enc && events.length) record(world, enc, events);
   }
   for (const enc of Object.values(world.encounters)) {
@@ -1256,8 +1329,14 @@ function monsterBlow(m: Monster, base: number): number {
 
 /** What a monster actually takes from a hit of `dmg`: its Block takes some off (at least 1 gets through) or, below 0, adds to it. */
 export function monsterTakes(world: World, m: Monster, dmg: number): number {
-  const taken = dmg > 0 ? Math.max(1, dmg - monsterBlock(world, m)) : dmg;
+  const taken = dmg > 0 ? Math.max(1, dmg - monsterBlock(world, m)) + brandOf(world, m) : dmg;
   return Math.round(taken * witchwoodMult(m.st));
+}
+
+/** Branded: +1 damage taken per CARD_RULES.brandPer light its Zealot lacks. */
+function brandOf(world: World, m: Monster): number {
+  const z = m.st.brand ? world.heroes[m.st.brand] : undefined;
+  return z && inDungeon(z) ? Math.floor(Math.max(0, LIGHT_MAX - z.light) / CARD_RULES.brandPer) : 0;
 }
 
 /** What a risen takes from a blow: a Risen ally's own Block counts, a risen monster's its kind's. */
@@ -1275,6 +1354,7 @@ function heroTurn(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) 
   delete h.st.sidestep;
   delete h.st.spikes;
   delete h.st.thornwall;
+  bannerShield(world, enc, h.st, h.name, h.id, events);
   const { choice, auto } = resolveChoice(world, enc, h);
   delete enc.choices[h.id];
   if (auto) events.push({ actor: h.id, kind: 'info', text: choice.card ? `${h.name} hesitates, then plays ${CARDS[choice.card].name}.` : `${h.name} hesitates and braces.` });
@@ -1363,9 +1443,28 @@ function leftmostTarget(world: World, enc: Encounter, h: Hero, choice: Choice): 
 
 function monsterTurn(world: World, enc: Encounter, m: Monster, events: CombatEvent[]) {
   endLingering(world, enc, m.id);
+  // Send not for me (Toll for Thee): the bell tolls for it as its turn begins.
+  for (const id of m.st.knelled ?? []) {
+    const b = world.heroes[id];
+    if (!b || !world.monsters[m.id]) continue;
+    heroHits(world, enc, b, m, CARD_RULES.tollthee + CARD_RULES.tolltheePer * (b.st.clang?.stacks ?? 0), events, 'toll');
+  }
+  // Corrosive Cloud: the air itself eats at it.
+  if (enc.corrosive && world.monsters[m.id]) {
+    const n = enc.corrosive * CARD_RULES.corrosive * (m.st.poison?.length ? 2 : 1);
+    m.st.acid = { stacks: (m.st.acid?.stacks ?? 0) + n, turns: CARD_RULES.acidTurns };
+    events.push({ actor: m.id, kind: 'status', target: m.id, text: `The corrosive cloud eats at ${ENEMIES[m.type].name}. (+${n} Acid)` });
+  }
+  if (!world.monsters[m.id]) return;
   if (m.st.stun) {
     m.st.stun = false;
     events.push({ actor: m.id, kind: 'status', text: `${ENEMIES[m.type].name} is stunned!` });
+  } else if (m.st.charm) {
+    // Puppet Strings: it turns on its own.
+    if (--m.st.charm <= 0) delete m.st.charm;
+    const others = monstersIn(world, enc.room).filter((o) => o !== m);
+    hitOwnSide(world, m, others.length ? world.rng.pick(others) : m, ENEMIES[m.type].dmg, 'turns on', events);
+    if (world.monsters[m.id]) m.st.acted = true;
   } else {
     monsterAct(world, enc, m, events);
     if (world.monsters[m.id]) m.st.acted = true;
@@ -1384,13 +1483,23 @@ function risenTurn(world: World, enc: Encounter, r: Risen, events: CombatEvent[]
   const ally = r.hero ? world.heroes[r.hero] : undefined;
   if (ally) return risenAllyTurn(world, enc, ally, events);
   const name = risenName(world, r);
+  const rst = risenSt(world, r);
+  bannerShield(world, enc, rst, name, r.id, events);
   const foes = combatOrder(world, enc).monsters;
   if (foes.length) {
-    const dmg = Math.max(1, Math.round(ENEMIES[r.type!].dmg * r.dmgMult));
+    // Eclipse: the Zealot's Fervour drives the dead too.
+    const dmg = Math.max(1, Math.round(ENEMIES[r.type!].dmg * r.dmgMult * (1 + eclipseOf(world, enc))));
     const hit = (m: Monster, verb: string) => {
-      const taken = monsterTakes(world, m, dmg);
-      events.push({ actor: r.id, kind: 'damage', target: m.id, amount: taken, text: `${name} ${verb} ${ENEMIES[m.type].name} for ${taken}.` });
+      const marked = takeMark(m);
+      const taken = monsterTakes(world, m, marked ? dmg * 2 : dmg);
+      events.push({ actor: r.id, kind: 'damage', target: m.id, amount: taken, crit: marked, text: `${name} ${verb} ${ENEMIES[m.type].name} for ${taken}.` });
       applyMonsterDamage(world, m, taken, events);
+      if ((rst.lifesteal ?? 0) > world.time) heal(r, Math.floor(taken * CARD_RULES.lifesteal));
+      // Plague Bearers: every summon's attack carries the plague.
+      if (enc.plague && world.monsters[m.id]) {
+        addPoison(m.st, CARD_RULES.plaguePoison, CARD_RULES.plagueTurns);
+        if ((enc.witching ?? 0) > world.time) (m.st.hexed ??= []).push(CARD_RULES.hexedTurns);
+      }
     };
     switch (r.type) {
       case 'crawler': {
@@ -1448,26 +1557,122 @@ function risenAllyTurn(world: World, enc: Encounter, dead: Hero, events: CombatE
 /** Play a card from the hand: it leaves the hand, does what it does, then goes to the discard (or burns). Returns its time. */
 function playHand(world: World, enc: Encounter, h: Hero, c: Choice, events: CombatEvent[]): number {
   const card = c.card!;
-  const wait = cardTime(world, enc, h, card, true);
+  let wait = cardTime(world, enc, h, card, true);
   const prev = h.deck?.last ?? null;
+  // Anima Surge: this card is the stronger one.
+  const power = h.st.surge ?? 1;
+  delete h.st.surge;
   takeFromHand(h, card);
-  const ctx = playCard(world, enc, h, card, c.target, c.room, events, 1, prev);
+  const ctx = playCard(world, enc, h, card, c.target, c.room, events, power, prev);
   settleCard(h, card, world.rng);
   (enc.played ??= {})[h.id] = (enc.played[h.id] ?? 0) + 1;
   // Echo repeats the last card that can be repeated.
   if (!CARDS[card].burn && card !== 'echo' && card !== 'shard' && card !== 'fumble' && CARDS[card].target !== 'room') h.lastCard = card;
-  const schools = CARDS[card].schools;
-  // Shieldwall: every Guard card the Warden plays makes the nearest enemy reel.
-  if (schools.includes('guard') && hasTalent(h, 'shieldwall') && h.encounter === enc.room) {
-    const m = combatOrder(world, enc).monsters[0];
-    if (m && enc.next[m.id] !== undefined) {
-      enc.next[m.id] = at(enc.next[m.id] + TALENT_RULES.shieldwallDelay + wornStat(h, 'delayBonus'));
-      events.push({ actor: h.id, kind: 'status', target: m.id, text: `${ENEMIES[m.type].name} staggers back from the shieldwall.` });
-    }
+  afterCard(world, enc, h, events);
+  // Coup de Grâce's Chain: they act again at once.
+  if (ctx.chain) return 0;
+  wait = Math.max(0, wait - ctx.selfHurry);
+  // Discord on yourself: you and the next enemy trade places on the timeline, if it would act first.
+  const m = ctx.discord ? world.monsters[ctx.discord] : undefined;
+  if (m && enc.next[m.id] !== undefined && enc.next[m.id] < world.time + wait) {
+    const theirs = enc.next[m.id];
+    enc.next[m.id] = at(world.time + wait);
+    wait = Math.max(0, theirs - world.time);
   }
-  // Carillon: a Hinder card rings on into the Bellwright's next one.
-  if (schools.includes('hinder') && hasTalent(h, 'carillon')) h.st.quick = { ...(h.st.quick ?? { cut: 0 }), cut: (h.st.quick?.cut ?? 0) + TALENT_RULES.carillonCut };
-  return Math.max(0, wait - ctx.selfHurry);
+  return wait;
+}
+
+/** After any card a hero plays: Thousand Cuts bites, and every Lightwell here gives light and healing. */
+function afterCard(world: World, enc: Encounter, h: Hero, events: CombatEvent[]) {
+  const foes = monstersIn(world, enc.room);
+  if (h.st.cuts && foes.length) {
+    const m = world.rng.pick(foes);
+    const taken = monsterTakes(world, m, h.st.cuts);
+    events.push({ actor: h.id, kind: 'damage', target: m.id, amount: taken, text: `A thousand cuts: ${ENEMIES[m.type].name} takes ${taken}.` });
+    applyMonsterDamage(world, m, taken, events);
+    h.st.cuts++;
+  }
+  for (const id of enc.wells ?? []) {
+    const lamp = world.heroes[id];
+    if (!lamp || !isConscious(h)) continue;
+    const lit = Math.round(gainLight(h, lightBy(lamp, h, CARD_RULES.wellLight)));
+    const healed = heal(h, healBy(lamp, CARD_RULES.wellHeal));
+    if (lit || healed) events.push({ actor: lamp.id, kind: 'heal', target: h.id, amount: healed, text: `The Lightwell rises around ${h.name}. (+${healed} HP, +${lit} light)` });
+  }
+}
+
+/** Eternal Lamp: what this hero's cards add to each hit, light and healing. */
+export function eternalBonus(h: Pick<Hero, 'eternal'>): number {
+  return h.eternal ? CARD_RULES.eternalBonus : 0;
+}
+
+/**
+ * Shield gained in a fight: Phalanx spreads half of it to every other ally (no further). `st` is the gainer's statuses.
+ * Returns what the gainer got.
+ */
+export function gainShield(world: World, enc: Encounter | undefined, st: Statuses, n: number): number {
+  if (n <= 0) return 0;
+  st.shield = (st.shield ?? 0) + n;
+  const spill = Math.floor(n / 2);
+  if (enc?.phalanx && spill > 0) {
+    for (const o of sideStatuses(world, enc)) if (o !== st) o.shield = (o.shield ?? 0) + spill;
+  }
+  return n;
+}
+
+/** The statuses of everyone standing on the heroes' side of a fight: conscious heroes, then the summoned and risen. */
+export function sideStatuses(world: World, enc: Encounter): Statuses[] {
+  const heroes = enc.heroes.map((id) => world.heroes[id]).filter((x) => x && isConscious(x) && x.encounter === enc.room).map((x) => x.st);
+  return [...heroes, ...risenAll(enc).map((r) => risenSt(world, r))];
+}
+
+/** War Banners: at the start of each turn on the heroes' side, Shield for every banner planted here. */
+function bannerShield(world: World, enc: Encounter, st: Statuses, name: string, id: string, events: CombatEvent[]) {
+  const n = (enc.banners?.length ?? 0) * CARD_RULES.bannerShield;
+  if (n <= 0) return;
+  gainShield(world, enc, st, n);
+  events.push({ actor: id, kind: 'status', target: id, text: `${name} stands under the banner. (+${n} Shield)` });
+}
+
+/** The Shield a hero can call on: their own, plus a Linked Shields partner's. */
+export function shieldPool(world: World, h: Hero): number {
+  const p = linkedTo(world, h);
+  return (h.st.shield ?? 0) + (p?.st.shield ?? 0);
+}
+
+/** Their Linked Shields partner, if they're still standing in the same fight. */
+export function linkedTo(world: World, h: Hero): Hero | null {
+  const p = h.st.link ? world.heroes[h.st.link] : undefined;
+  return p && isConscious(p) && p.encounter !== null && p.encounter === h.encounter && p.st.link === h.id ? p : null;
+}
+
+/** Take Shield from a hero's pool (their own first, then a Linked partner's). Returns how much was taken. */
+export function takeShield(world: World, h: Hero, n: number): number {
+  let left = n;
+  for (const x of [h, linkedTo(world, h)]) {
+    if (!x || left <= 0 || !x.st.shield) continue;
+    const t = Math.min(x.st.shield, left);
+    x.st.shield -= t;
+    left -= t;
+    if (x.st.shield <= 0) delete x.st.shield;
+  }
+  return n - left;
+}
+
+/** Ringing (Resonant Strike): a monster just Delayed is Stunned too, once. */
+export function onDelayed(m: Monster, events: CombatEvent[], by: string) {
+  if (!m.st.ringing) return;
+  delete m.st.ringing;
+  m.st.stun = true;
+  events.push({ actor: by, kind: 'status', target: m.id, text: `${ENEMIES[m.type].name} is still ringing, and the jolt Stuns it.` });
+}
+
+/** Mirror Guard: a debuff an enemy lays on the heroes' side turns back on it instead. Returns true if it did. */
+function mirrored(enc: Encounter, m: Monster, what: string, events: CombatEvent[]): boolean {
+  if (!enc.mirror) return false;
+  if (--enc.mirror <= 0) delete enc.mirror;
+  events.push({ actor: m.id, kind: 'status', target: m.id, text: `The mirror turns the ${ENEMIES[m.type].name}'s ${what} back on it!` });
+  return true;
 }
 
 /** Do what the hero picked. Returns the seconds until their next action. */
@@ -1521,8 +1726,6 @@ function heroAct(world: World, enc: Encounter, h: Hero, c: Choice, events: Comba
       const t = c.target ?? h.id;
       events.push({ actor: h.id, kind: item === 'bandage' || item === 'salts' ? 'heal' : 'status', target: t, text: result });
     }
-    // Volatile: every flask the Alchemist opens in a fight sets off a Catalyst.
-    if (hasTalent(h, 'volatile') && enemies().length) playCard(world, enc, h, 'catalyst', undefined, undefined, events);
     return actionTime(h, 'item');
   }
   if (c.action === 'revive') {
@@ -1549,7 +1752,7 @@ export function fumes(world: World, enc: Encounter, h: Hero, events: CombatEvent
 /** Light for everyone in the room (Flare). */
 export function flareLight(world: World, room: number) {
   for (const x of Object.values(world.heroes)) {
-    if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) x.light = Math.min(LIGHT_MAX, x.light + CARD_RULES.flareLight);
+    if (inDungeon(x) && x.pos.kind === 'room' && x.pos.room === room) gainLight(x, CARD_RULES.flareLight);
   }
 }
 
@@ -1584,6 +1787,11 @@ export function hitDamage(h: Hero, base: number, world?: World): number {
 /** Hero damages a monster. Returns true if it connected. */
 export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base: number, events: CombatEvent[], what: string, crit = false): boolean {
   let raw = hitDamage(h, base, world);
+  // Marked for Death: this one crits, whoever lands it.
+  if (takeMark(m) && !crit) {
+    raw *= 2;
+    crit = true;
+  }
   // Misericorde: the nearly dead are struck true.
   const low = wornStat(h, 'lowCrit');
   if (!crit && low > 0 && m.hp < m.maxHp * low) {
@@ -1620,7 +1828,27 @@ export function heroHits(world: World, enc: Encounter, h: Hero, m: Monster, base
     hurtHero(world, h, back, events, enc);
   }
   applyMonsterDamage(world, m, dmg, events);
+  // Blood Moon: what they spill comes back to them.
+  if ((h.st.lifesteal ?? 0) > world.time && dmg > 0 && isConscious(h)) {
+    const healed = heal(h, Math.floor(dmg * CARD_RULES.lifesteal));
+    if (healed) events.push({ actor: h.id, kind: 'heal', target: h.id, amount: healed, text: `${h.name} drinks it in. (+${healed})` });
+  }
   return true;
+}
+
+/** Marked for Death: use up one of a monster's marked hits. Returns true if it was marked. */
+function takeMark(m: Monster): boolean {
+  if (!m.st.marked) return false;
+  if (--m.st.marked <= 0) delete m.st.marked;
+  return true;
+}
+
+/** A monster's blow into its own side (Misdirect, Puppet Strings): its full blow, through the victim's Block. */
+function hitOwnSide(world: World, m: Monster, o: Monster, base: number, verb: string, events: CombatEvent[]) {
+  const taken = monsterTakes(world, o, Math.max(1, Math.round(monsterBlow(m, base) * weakMult(m.st))));
+  const who = o === m ? 'itself' : ENEMIES[o.type].name;
+  events.push({ actor: m.id, kind: 'damage', target: o.id, amount: taken, text: `${ENEMIES[m.type].name} ${verb} ${who} for ${taken}!` });
+  applyMonsterDamage(world, o, taken, events);
 }
 
 export function applyMonsterDamage(world: World, m: Monster, dmg: number, events: CombatEvent[]) {
@@ -1644,8 +1872,22 @@ export function applyMonsterDamage(world: World, m: Monster, dmg: number, events
       enc.lastSlain = slain;
       (enc.slain ??= []).push(slain);
     }
+    // Wandering Curse: its Hexed stacks leap to others.
+    if (enc && m.st.wander && m.st.hexed?.length) {
+      const rest = world.rng.shuffle(monstersIn(world, m.room)).slice(0, m.st.wander);
+      for (const o of rest) (o.st.hexed ??= []).push(...m.st.hexed);
+      if (rest.length) events.push({ actor: m.id, kind: 'status', text: `The curse wanders on to ${rest.map((o) => ENEMIES[o.type].name).join(' and ')}. (Hexed ×${m.st.hexed.length})` });
+    }
+    // Claim the Grave: it rises at once for the Undertaker who claimed it.
+    const claimer = m.st.claimed ? world.heroes[m.st.claimed] : undefined;
+    const rose = !!(enc && claimer && isConscious(claimer) && claimer.encounter === enc.room);
+    if (enc && claimer && rose) {
+      enc.slain = enc.slain!.filter((s) => s !== slain);
+      if (enc.lastSlain === slain) enc.lastSlain = null;
+      claimRise(world, enc, claimer, slain, events);
+    }
     // A Zombie gets back up where it fell (unless an Undertaker raises it first: see 'raise').
-    if (m.type === 'zombie' && m.room >= 0) {
+    if (m.type === 'zombie' && m.room >= 0 && !rose) {
       world.risings.push({ ...slain, id: m.id, room: m.room, at: world.time + CR_RULES.zombieRise });
       events.push({ actor: m.id, kind: 'info', text: 'The Zombie twitches. It will not stay down.' });
     }
@@ -1748,6 +1990,10 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
         events.push({ actor: m.id, kind: 'status', target: back.id, text: `${name} speaks a word, and the ${ENEMIES[back.type].name} rises whole.` });
         return;
       }
+      if (mirrored(enc, m, 'Doom', events)) {
+        m.st.exposed = Math.max(m.st.exposed ?? 0, CARD_RULES.exposed);
+        return;
+      }
       for (const id of enc.heroes) {
         const h = world.heroes[id];
         if (h && isConscious(h)) h.st.doom = (h.st.doom ?? 0) + 1;
@@ -1758,7 +2004,10 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
     case 'crawler': {
       const t = monsterHits(world, enc, m, rng.pick(side), ENEMIES.crawler.dmg, 'bites', events);
       // Warded Mail: what clings to you lets go sooner.
-      if (t && isConscious(t)) addPoison(t.st, 1, Math.max(1, 3 - wornStat(t, 'debuffResist')));
+      if (t && isConscious(t)) {
+        if (mirrored(enc, m, 'venom', events)) addPoison(m.st, 1, 3);
+        else addPoison(t.st, 1, Math.max(1, 3 - wornStat(t, 'debuffResist')));
+      }
       return;
     }
     case 'acolyte':
@@ -1789,6 +2038,10 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
       const move = (m.cycle ??= rng.chance(0.5) ? 'kneel' : 'charge');
       m.cycle = move === 'kneel' ? 'charge' : 'kneel';
       if (move === 'kneel') {
+        if (mirrored(enc, m, 'command', events)) {
+          m.st.stun = true;
+          return;
+        }
         for (const t of heroes) t.st.stun = true;
         events.push({ actor: m.id, kind: 'status', text: `${name} bids them kneel, and they do. Every hero is Stunned!` });
         return;
@@ -1822,6 +2075,14 @@ function monsterAct(world: World, enc: Encounter, m: Monster, events: CombatEven
  */
 function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, base: number, verb: string, events: CombatEvent[]): Hero | null {
   const name = ENEMIES[m.type].name;
+  // Misdirected: the blow goes into another of its own kind (alone, into itself).
+  if (m.st.misdirect) {
+    if (--m.st.misdirect <= 0) delete m.st.misdirect;
+    const others = monstersIn(world, enc.room).filter((o) => o !== m);
+    const o = others.length ? world.rng.pick(others) : m;
+    hitOwnSide(world, m, o, base, verb, events);
+    return null;
+  }
   const villagerText = maybeHitVillager(world, enc.room, Math.round(monsterBlow(m, base)), name);
   if (villagerText) {
     events.push({ actor: m.id, kind: 'info', text: villagerText });
@@ -1851,6 +2112,12 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     }
     r.hp = Math.max(0, r.hp - dmg);
     events.push({ actor: m.id, kind: 'damage', target: r.id, amount: dmg, text: dmg > 0 ? `${name} ${verb} ${rname} for ${dmg}.` : `${name} ${verb} ${rname}, but its Shield soaks it up.` });
+    // Preserved: the first blow that would destroy it leaves it standing.
+    if (r.hp <= 0 && r.preserved && !r.saved) {
+      r.hp = 1;
+      r.saved = true;
+      events.push({ actor: r.id, kind: 'status', target: r.id, text: `${rname} is preserved: it will not fall apart. Not yet.` });
+    }
     if (r.hp <= 0) {
       events.push({ actor: r.id, kind: 'death', target: r.id, text: r.type === 'wolf' ? `${rname} yelps and falls.` : `${rname} falls apart.` });
       delete enc.next[r.id];
@@ -1875,6 +2142,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
       if (heroHits(world, enc, t, m, CARD_RULES.riposte, events, 'Riposte') && world.monsters[m.id] && enc.next[m.id] !== undefined) {
         enc.next[m.id] = at(enc.next[m.id] + CARD_RULES.riposteDelay);
         events.push({ actor: t.id, kind: 'status', target: m.id, text: `${name} is Delayed ${CARD_RULES.riposteDelay}s.` });
+        onDelayed(m, events, t.id);
       }
     }
     return null;
@@ -1907,18 +2175,22 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
   // Bulwark Plate: steadier at the front.
   const front = nearest ? wornStat(t, 'frontBlock') : 0;
   dmg = Math.max(1, afterBlock(t, Math.max(1, Math.round(dmg))) - front) + doomOf(t);
-  let absorbed = 0;
-  if (t.st.shield) {
-    absorbed = Math.min(t.st.shield, dmg);
-    t.st.shield -= absorbed;
-    dmg -= absorbed;
-    if (t.st.shield <= 0) delete t.st.shield;
-  }
+  // Shield soaks it up: theirs, then a Linked Shields partner's.
+  const absorbed = takeShield(world, t, dmg);
+  dmg -= absorbed;
   events.push({
     actor: m.id, kind: 'damage', target: t.id, amount: dmg,
     text: dmg > 0 ? `${name} ${verb} ${t.name} for ${dmg}.` : `${name} ${verb} ${t.name}, but their Shield soaks it up.`,
   });
   applyHeroDamage(world, enc, t, dmg, events);
+  // Halo: a blow on its wearer heals every ally.
+  const halo = t.st.halo && t.st.halo.until > world.time ? world.heroes[t.st.halo.by] : undefined;
+  if (halo) {
+    const n = healBy(halo, CARD_RULES.haloHeal);
+    for (const a of enc.heroes.map((id) => world.heroes[id]).filter((x) => x && isConscious(x))) heal(a, n);
+    for (const r of risenAll(enc)) heal(r, n);
+    events.push({ actor: t.id, kind: 'heal', target: t.id, amount: n, text: `${t.name}'s halo flares: every ally heals ${n}.` });
+  }
   // Thornwall: what the Shield stopped goes back into the attacker.
   if (t.st.thornwall && absorbed > 0 && world.monsters[m.id]) {
     const back = monsterTakes(world, m, absorbed);
@@ -1930,6 +2202,7 @@ function monsterHits(world: World, enc: Encounter, m: Monster, victim: Victim, b
     const secs = CARD_RULES.gateDelay + wornStat(t, 'delayBonus');
     enc.next[m.id] = at(enc.next[m.id] + secs);
     events.push({ actor: t.id, kind: 'status', target: m.id, text: `${name} is thrown back from the gate. (Delayed ${secs}s)` });
+    onDelayed(m, events, t.id);
   }
   // Scale Ward: the scales bite back.
   if (t.st.spikes && world.monsters[m.id]) {

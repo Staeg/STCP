@@ -15,7 +15,7 @@ export type ItemId =
 
 /** Gear types (user 2026-10-11). Daggers, Leather and Cloth are light (never slower); the rest are heavy. */
 import { legendNote, type LegendId } from './legends';
-import { cardText, CLASS_CARDS, FOUND_CARDS, TYPE_CARDS, type CardId, type CardKind } from './cards';
+import { cardText, CLASS_CARDS, FOUND_CARDS, LEVELUP_CARDS, TYPE_CARDS, type CardId, type CardKind } from './cards';
 import type { ClassId } from './classes';
 
 export type GearType = 'dagger' | 'hammer' | 'staff' | 'leather' | 'mail' | 'cloth';
@@ -217,7 +217,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   firebomb: { id: 'firebomb', name: 'Firebomb', kind: 'consumable', glyph: '✹', desc: '8 damage to every enemy.', target: 'enemies', combat: true, field: false },
   // Only from the Quicksilver Pool (user, 2026-10-16): never in the loot table.
   flask: { id: 'flask', name: 'Quicksilver Flask', kind: 'consumable', glyph: '☿', desc: '−1s Speed for 60s.', target: 'self', combat: true, field: true },
-  salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed ally at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
+  salts: { id: 'salts', name: 'Smelling Salts', kind: 'consumable', glyph: '❖', desc: 'Revive a downed character at 50% HP — even from the next room.', target: 'downed', combat: true, field: true },
   // Amulets and rings: blessed ones only help; cursed ones hurt you but quicken your step.
   locket: jewel('locket', 'amulet', 'Iron Locket', '♡', '+20 max HP.', { maxHp: 20 }),
   ward: jewel('ward', 'amulet', 'Ward Charm', '☥', '−67% light lost to monsters and events.', { lightLossMult: 0.33 }),
@@ -588,7 +588,7 @@ export function itemTier(item: ItemId): ItemTier {
  * card an event added (user, 2026-10-16).
  */
 export function cardSource(card: CardId): 'class' | 'found' | ItemTier | 0 {
-  if (Object.values(CLASS_CARDS).some((cards) => cards.includes(card))) return 'class';
+  if ([...Object.values(CLASS_CARDS), ...Object.values(LEVELUP_CARDS)].some((cards) => cards.includes(card))) return 'class';
   if (FOUND_CARDS.includes(card)) return 'found';
   if (card === 'fumble') return 0;
   for (const pair of Object.values(TYPE_CARDS)) if (pair.includes(card)) return pair[0] === card ? 1 : 2;
