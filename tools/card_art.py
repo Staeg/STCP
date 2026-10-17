@@ -3,8 +3,8 @@
     python tools/card_art.py client/src/render/card-art-data.ts [preview.png]
 
 Motifs are 16x16 (a card's main picture), marks 8x8 (the small badge for its second effect). Each is drawn in fill
-colours only; every empty pixel touching a filled one becomes the outline. The card -> (motif, mark) table lives in
-shared/src/content/cards.ts (CARD_ART); the client composes the picture (client/src/render/card-art.ts).
+colours only; every empty pixel touching a filled one becomes the outline. The card -> (motif, mark) table comes from
+shared/src/content/cards.ts (CARD_ART, from each card's schools); the client composes the picture (client/src/render/card-art.ts).
 """
 import sys, json, re
 from PIL import Image, ImageDraw
@@ -125,6 +125,28 @@ M['gate'] = (G().rect(2, 2, 13, 14, 'n').rect(3, 4, 12, 14, 'D').ell(2, 0, 13, 6
 
 M['dagger'] = (G().line([(13, 2), (7, 8)], 'w', 2).line([(13, 1), (7, 7)], 'o')
                .line([(4, 7), (8, 11)], 'Y').line([(6, 10), (3, 13)], 'n', 2).px(2, 13, 'Y').px(2, 14, 'Y').px(1, 13, 'Y'))
+
+M['sword'] = (G().line([(14, 1), (6, 9)], 'w', 2).line([(14, 0), (6, 8)], 'o').line([(13, 3), (7, 9)], 'W')
+              .line([(2, 7), (8, 13)], 'Y', 2).line([(5, 11), (2, 14)], 'n', 2).px(1, 14, 'Y').px(2, 14, 'Y').px(1, 13, 'Y'))
+
+M['wing'] = grid("""
+................
+.............o..
+............ow..
+...........oww..
+........ooowwW..
+.....ooowwwwwW..
+...oowwwwwwwWW..
+..owwwwwwwwwWW..
+...WWWWWwwwwW...
+....owwwwwwwW...
+.....WWWWwwwW...
+......owwwwW....
+.......WWWwW....
+........owW.....
+................
+................
+""")
 
 M['hammer'] = (G().line([(4, 13), (10, 7)], 'n', 2).poly([(6, 4), (10, 0), (15, 5), (11, 9)], 'W')
                .poly([(7, 4), (10, 1), (14, 5), (11, 8)], 'w').line([(10, 1), (14, 5)], 'o'))
@@ -588,13 +610,19 @@ for name, rows in {**MOTIFS, **MARKS}.items():
 # Preview: compose every card as the client does, for checking by eye.
 
 def ts_table():
-    """CARD_ART and SCHOOL_TINT from shared/src/content/cards.ts (a light parse, enough for the preview)."""
+    """The card -> (motif, mark) table and the school tints, from shared/src/content/cards.ts (a light parse, enough for
+    the preview): a card's motif is its first school's icon (or its summon), its mark its second school's."""
     src = open('shared/src/content/cards.ts', encoding='utf8').read()
-    art = dict((m[0], (m[1], m[2] or None)) for m in re.findall(r"^\s+(\w+): art\('(\w+)'(?:, '(\w+)')?\)", src, re.M))
     tints = dict(re.findall(r"^\s+(\w+): \{ name: '[^']+', glyph: '[^']+', tint: \['(#\w+)'", src, re.M))
     tint2 = dict(re.findall(r"^\s+(\w+): \{ name: '[^']+', glyph: '[^']+', tint: \['#\w+', '(#\w+)'\]", src, re.M))
-    schools = dict((m[0], m[1].split(', ')) for m in re.findall(r"^\s+(\w+): card\('\w+', '[^']+', [\d.]+, \[([^\]]*)\]", src, re.M))
+    schools = dict((m[0], m[1].split(', ')) for m in re.findall(r"^\s+(\w+): card\('\w+', (?:'[^']+'|\"[^\"]+\"), [\d.]+, \[([^\]]*)\]", src, re.M))
     schools = {k: [s.strip("'") for s in v if s] for k, v in schools.items()}
+    icons = dict((m[0], (m[1], m[2])) for m in re.findall(r"^\s+(\w+): \{ motif: '(\w+)', mark: '(\w+)' \},", src, re.M))
+    summons = dict(re.findall(r"(\w+): '(\w+)'", re.search(r"SUMMON_ART[^=]*= \{([^}]*)\}", src).group(1)))
+    art = {}
+    for card, sc in schools.items():
+        motif = summons.get(card) or (icons[sc[0]][0] if sc else ('void' if card == 'snakeeyes' else 'hand'))
+        art[card] = (motif, icons[sc[1]][1] if len(sc) > 1 else None)
     return art, tints, tint2, schools
 
 

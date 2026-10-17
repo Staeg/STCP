@@ -9,7 +9,7 @@ import type { GearSlot, GearType } from './items';
  * fallback is written into the text of the ones that need something to work on).
  */
 
-/** Card schools: an icon on the card. Gear passives key off them. */
+/** Card schools: what a card does, its main effect first (its picture shows the first two). Gear passives key off them. */
 export type School = 'strike' | 'guard' | 'hinder' | 'hasten' | 'venom' | 'mend' | 'conjure' | 'hex' | 'light';
 
 /** `tint`: a card picture's background (dark, then the lighter disc behind its motif), by its first school. */
@@ -21,7 +21,7 @@ export const SCHOOLS: Record<School, { name: string; glyph: string; tint: [strin
   venom: { name: 'Venom', glyph: '☣', tint: ['#16300f', '#2e5a22'], desc: 'Poison, Bleed and Acid.' },
   mend: { name: 'Mend', glyph: '✚', tint: ['#1a3422', '#356446'], desc: 'Healing and Regen.' },
   conjure: { name: 'Conjure', glyph: '✦', tint: ['#2a1636', '#6a4486'], desc: 'Summons and Corpses.' },
-  hex: { name: 'Hex', glyph: '⛧', tint: ['#36122c', '#642452'], desc: 'Hexed, Weak and Exposed.' },
+  hex: { name: 'Hex', glyph: '⛧', tint: ['#36122c', '#642452'], desc: 'Hexed, Weak, Exposed and Blind.' },
   light: { name: 'Light', glyph: '☀', tint: ['#363010', '#68591e'], desc: 'Light, spent or shared.' },
 };
 
@@ -242,30 +242,30 @@ export const CARDS: Record<CardId, CardDef> = {
   // ---- Warden: Shield above all (M16): gained, shared, kept (Stalwart) and turned into damage ----
   bash: card('bash', 'Shield Bash', 4, ['strike', 'hinder'], 'enemyFirst', `${R.bash} dmg +1 per ${1 / R.bashPerShield} Shield you have to the nearest enemy; Delay it ${R.bashDelay}s.`),
   cover: card('cover', 'Cover', 3, ['guard'], 'ally', `A character +${R.coverShield} Shield; you step to the front of the line.`),
-  thornwall: card('thornwall', 'Thornwall', 3, ['guard'], 'none', `+${R.thornwallShield} Shield. Until your next turn, whatever your Shield stops is dealt back to the attacker.`),
+  thornwall: card('thornwall', 'Thornwall', 3, ['guard', 'strike'], 'none', `+${R.thornwallShield} Shield. Until your next turn, whatever your Shield stops is dealt back to the attacker.`),
   rally: card('rally', 'Rally', 4, ['guard'], 'none', `Every ally +${R.rallyShield} Shield.`),
-  slam: card('slam', 'Shield Slam', 5, ['guard', 'hinder'], 'enemyFirst', `Damage equal to your Block + Shield (at least ${R.slamMin}) to the nearest enemy; Delay it 1s per ${R.slamDelayPer} damage dealt.`),
+  slam: card('slam', 'Shield Slam', 5, ['strike', 'hinder'], 'enemyFirst', `Damage equal to your Block + Shield (at least ${R.slamMin}) to the nearest enemy; Delay it 1s per ${R.slamDelayPer} damage dealt.`),
   gate: card('gate', 'Hold the Gate', 6, ['guard', 'hinder'], 'none', `Every ally +${R.gateShield} Shield. For ${R.gateSecs}s, every enemy whose blow lands on a character's Shield is Delayed ${R.gateDelay}s.`, true),
   // ---- Cutthroat: Ambush and quick cards ----
   backstab: card('backstab', 'Backstab', 2.5, ['strike'], 'enemy', `${R.backstab} dmg; ×2 against an enemy that is Stunned, Exposed or hasn't acted yet. Sneaking: ×${R.backstabSneakCrit} instead.`),
-  cheap: card('cheap', 'Cheap Shot', 3, ['hinder'], 'enemy', `${R.cheap} dmg and Stun. Sneaking: it's Exposed too.`),
-  envenom: card('envenom', 'Envenom', 2, ['venom'], 'enemy', `${R.envenom} dmg and Poison ${R.envenomPoison} for ${R.envenomTurns} turns. Sneaking: for ${R.envenomSneakTurns} turns.`),
-  signal: card('signal', 'Hand Signal', 1, ['hasten'], 'ally', `Hurry a character ${R.signalHurry}s, and their next hit Exposes its target. Not Sneaking: Hurry ${R.signalLoudHurry}s.`),
+  cheap: card('cheap', 'Cheap Shot', 3, ['hinder', 'strike'], 'enemy', `${R.cheap} dmg and Stun. Sneaking: it's Exposed too.`),
+  envenom: card('envenom', 'Envenom', 2, ['venom', 'strike'], 'enemy', `${R.envenom} dmg and Poison ${R.envenomPoison} for ${R.envenomTurns} turns. Sneaking: for ${R.envenomSneakTurns} turns.`),
+  signal: card('signal', 'Hand Signal', 1, ['hasten', 'hex'], 'ally', `Hurry a character ${R.signalHurry}s, and their next hit Exposes its target. Not Sneaking: Hurry ${R.signalLoudHurry}s.`),
   smoke: card('smoke', 'Smoke Bomb', 3, ['guard', 'hasten'], 'none', `Every ally: 50% Dodge, and fleeing always works, for ${R.smokeSecs}s. Sneaking: your next Flee is a Sneak Past.`),
   dance: card('dance', 'Blade Dance', 1, ['hasten'], 'none', `For ${R.danceSecs}s every card you play takes 1s, and Backstab always crits. Sneaking: ${R.danceSneakSecs}s.`, true),
   // ---- Lampbearer: light as a resource ----
-  flare: card('flare', 'Flare', 4, ['light', 'strike'], 'none', `${R.flare} dmg to every enemy; +${R.flareLight} light to everyone here.`),
+  flare: card('flare', 'Flare', 4, ['strike', 'light'], 'none', `${R.flare} dmg to every enemy; +${R.flareLight} light to everyone here.`),
   mend: card('mend', 'Mend', 4, ['mend'], 'ally', `Heal a character ${R.mend} and cure Poison and Bleed. Bright: heal ${R.mendBright}.`),
   vigil: card('vigil', 'Vigil', 4, ['light'], 'ally', `A character +${R.vigilLight} light. If you're the only character in the fight, every enemy action until your next turn sets off a free Flare.`),
-  kindle: card('kindle', 'Kindle', 5, ['light', 'strike'], 'enemy', `Spend up to ${R.kindleLight} of your light: ${R.kindleBase} dmg +1 per 2 light spent (at most ${R.kindleMax}); Blind it if you spent the full ${R.kindleLight}.`),
+  kindle: card('kindle', 'Kindle', 5, ['strike', 'light'], 'enemy', `Spend up to ${R.kindleLight} of your light: ${R.kindleBase} dmg +1 per 2 light spent (at most ${R.kindleMax}); Blind it if you spent the full ${R.kindleLight}.`),
   sanctuary: card('sanctuary', 'Sanctuary', 5, ['mend', 'light'], 'none', `Every ally: Regen ${R.sanctuaryRegen} every ${R.pulse}s for ${R.sanctuarySecs}s. Bright: for ${R.sanctuaryBrightSecs}s.`),
-  dawn: card('dawn', 'Dawn', 6, ['light', 'mend'], 'none', `Every ally heals ${R.dawnHeal}; every character's light goes to full. Every enemy is Blinded.`, true),
+  dawn: card('dawn', 'Dawn', 6, ['mend', 'light', 'hex'], 'none', `Every ally heals ${R.dawnHeal}; every character's light goes to full. Every enemy is Blinded.`, true),
   // ---- Sorceress: Hex, blood and familiars; each "Anima:" clause spends 1 Anima, if she has any (M16) ----
-  hex: card('hex', 'Hex', 3.5, ['hex'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack. Anima: two stacks.`),
+  hex: card('hex', 'Hex', 3.5, ['hex', 'strike'], 'enemy', `${R.hex} dmg and Hexed for ${R.hexedTurns} turns: Hex deals +100% to it per Hexed stack. Anima: two stacks.`),
   wither: card('wither', 'Wither', 3, ['hex'], 'none', `Every enemy is Weak for ${R.witherTurns} turns (−50% damage per stack). Anima: Hexed too.`),
-  pact: card('pact', 'Blood Pact', 6, ['hex', 'strike'], 'none', `Every ally loses ${R.pactCost} HP (never below 1). ${R.pact} dmg to every enemy. Anima: it costs nobody any HP.`),
+  pact: card('pact', 'Blood Pact', 6, ['strike'], 'none', `Every ally loses ${R.pactCost} HP (never below 1). ${R.pact} dmg to every enemy. Anima: it costs nobody any HP.`),
   familiar: card('familiar', 'Bound Familiar', 5, ['conjure'], 'none', `Summon an Imp for this fight (its bite adds Hexed). At most ${R.familiarMax}; with more, heal your Imps instead. Anima: two at once.`),
-  bargain: card('bargain', 'Mad Bargain', 1, ['hex', 'hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1): +1 Anima, and your next card takes 1s.`),
+  bargain: card('bargain', 'Mad Bargain', 1, ['hasten'], 'none', `Lose ${R.bargainHp} HP (never below 1): +1 Anima, and your next card takes 1s.`),
   ages: card('ages', 'Curse of Ages', 4, ['hex', 'hinder'], 'none', `Every enemy gains ${R.agesStacks} Hexed stacks, then is Delayed ${R.agesDelayPer}s per Hexed stack it carries. Anima: spends all of it, +1 Hexed stack per Anima first.`, true),
   // ---- Undertaker: Corpses, executions, and a following of the dead that decays (M16) ----
   spade: card('spade', 'Spade', 5, ['strike'], 'enemy', `${R.spade} dmg, +${R.spadePerRites} for every enemy your Last Rites has killed this run.`),
@@ -275,7 +275,7 @@ export const CARDS: Record<CardId, CardDef> = {
   embalm: card('embalm', 'Embalm', 2, ['mend', 'conjure'], 'none', `Every undead of yours here heals ${R.embalmHeal} and sheds one decay. With none, +${R.embalmBare} Shield.`),
   graves: card('graves', 'Open the Graves', 6, ['conjure'], 'none', 'Every Corpse here rises and follows you for good (at least one Ghoul claws up).', true),
   // ---- Bellwright: Clang as a resource (M16): Clang, Peal, Reverberate and Ring In build it; Knell and Ring Out spend it ----
-  clang: card('clang', 'Clang', 6, ['strike', 'hinder'], 'enemyFirst', `${R.clang} dmg to the nearest enemy; Delay it ${R.clangDelay}s. You gain a Clang stack (your cards take ${R.clangHaste}s less per stack; one fades every ${R.clangTurns} turns).`),
+  clang: card('clang', 'Clang', 6, ['strike', 'hinder', 'hasten'], 'enemyFirst', `${R.clang} dmg to the nearest enemy; Delay it ${R.clangDelay}s. You gain a Clang stack (your cards take ${R.clangHaste}s less per stack; one fades every ${R.clangTurns} turns).`),
   knell: card('knell', 'Knell', 8, ['strike'], 'none', `${R.knell} dmg to every enemy, −${R.knellPerAlly} for each other character standing in the fight (at least ${R.knellMin}), +${R.knellPerClang} per Clang stack. Spends every Clang.`),
   peal: card('peal', 'Peal', 4, ['hasten'], 'none', `Hurry every other ally ${R.pealHurry}s, +${R.pealPerClang}s per Clang stack. With no other character here: +${R.pealAloneClang} Clang.`),
   ringout: card('ringout', 'Ring Out', 4, ['hinder'], 'none', `Delay every enemy ${R.ringOutDelay}s, +${R.ringOutPerClang}s per Clang stack. Spends every Clang.`),
@@ -283,27 +283,27 @@ export const CARDS: Record<CardId, CardDef> = {
   reverberate: card('reverberate', 'Reverberate', 3, ['hinder', 'hasten'], 'none', "Every enemy is Stunned; every other ally's next action comes now. +1 Clang per enemy.", true),
   // ---- Zealot: darkness as fuel ----
   scourge: card('scourge', 'Scourge', 3.5, ['strike'], 'enemy', `${R.scourge} dmg.`),
-  absolution: card('absolution', 'Absolution', 5, ['light', 'strike'], 'none', `${R.absolutionBase} dmg plus the light you lack below ${R.absolutionFloor}, split across enemies; you regain that much light.`),
+  absolution: card('absolution', 'Absolution', 5, ['strike', 'light'], 'none', `${R.absolutionBase} dmg plus the light you lack below ${R.absolutionFloor}, split across enemies; you regain that much light.`),
   sins: card('sins', 'Take Their Sins', 3, ['light'], 'ally', `Give a character up to ${R.sinsLight} of your light (on yourself: snuff ${R.sinsSelf} of it).`),
-  martyrdom: card('martyrdom', 'Martyrdom', 1, ['light', 'hasten'], 'none', `Snuff ${R.martyrdomLight} of your light; your next card takes 1s.`),
+  martyrdom: card('martyrdom', 'Martyrdom', 1, ['hasten', 'light'], 'none', `Snuff ${R.martyrdomLight} of your light; your next card takes 1s.`),
   penance: card('penance', 'Penance', 2, ['guard', 'light'], 'none', `Snuff ${R.penanceLight} of your light, then gain Shield equal to a third of the light you lack.`),
-  rapture: card('rapture', 'Rapture', 5, ['light', 'strike'], 'enemy', `Every other character gains up to ${R.raptureLight} light, taken from yours; deal ${R.rapture} + half the light you lack to one enemy.`, true),
+  rapture: card('rapture', 'Rapture', 5, ['strike', 'light'], 'enemy', `Every other character gains up to ${R.raptureLight} light, taken from yours; deal ${R.rapture} + half the light you lack to one enemy.`, true),
   // ---- Alchemist: brews and poisons ----
-  acid: card('acid', 'Acid Flask', 4, ['venom'], 'enemy', `${R.acid} dmg and a stack of Acid (−${R.acidBonus} Block each; one fades every ${R.acidTurns} of its turns); two stacks if it's Poisoned.`),
+  acid: card('acid', 'Acid Flask', 4, ['venom', 'strike'], 'enemy', `${R.acid} dmg and a stack of Acid (−${R.acidBonus} Block each; one fades every ${R.acidTurns} of its turns); two stacks if it's Poisoned.`),
   fumes: card('fumes', 'Fumes', 5, ['venom'], 'none', `Poison ${R.fumesPoison} for ${R.fumesTurns} turns on every enemy.`),
   contagion: card('contagion', 'Contagion', 3, ['venom'], 'enemy', `Every Poison on an enemy spreads: each other enemy gets a copy. With none on it, Poison ${R.contagionPoison} for ${R.contagionTurns} turns on it.`),
   elixir: card('elixir', 'Elixir', 2, ['mend'], 'ally', "A character's next item has double effect."),
   catalyst: card('catalyst', 'Catalyst', 4, ['venom'], 'none', `Every enemy gets Poison ${R.catalystPoison} for ${R.catalystTurns} turns; then every Poison and Bleed on every enemy ticks once now.`),
   opus: card('opus', 'Opus Magnum', 4, ['mend', 'venom'], 'none', `Fill up to ${R.opusItems} empty pack slots with random consumables; your items take 1s for the rest of the fight.`, true),
   // ---- Level-up cards (user, 2026-10-17): a Character learns one a level; each swaps in for a class card ----
-  aegis: card('aegis', 'Aegis Toss', 4, ['strike', 'guard'], 'enemy', `Hurl your shield: damage equal to your Shield (at least ${R.aegisMin}) to an enemy, then it ricochets back down the line, each enemy behind it taking half what the one before took. Costs half your Shield.`),
+  aegis: card('aegis', 'Aegis Toss', 4, ['strike'], 'enemy', `Hurl your shield: damage equal to your Shield (at least ${R.aegisMin}) to an enemy, then it ricochets back down the line, each enemy behind it taking half what the one before took. Costs half your Shield.`),
   linked: card('linked', 'Linked Shields', 3, ['guard'], 'ally', `You and another character share one Shield pool for the rest of the fight (both Shields added together), +${R.linkedShield}. On yourself: +${R.linkedShield} Shield.`),
   mirror: card('mirror', 'Mirror Guard', 2, ['guard', 'hex'], 'none', `+${R.mirrorShield} Shield. The next debuff an enemy lays on any ally this fight is turned back on that enemy.`),
   banner: card('banner', 'War Banner', 4, ['guard'], 'none', `Plant a banner: for the rest of the fight every ally gains +${R.bannerShield} Shield at the start of each of their turns.`),
   phalanx: card('phalanx', 'Phalanx', 5, ['guard'], 'none', 'For the rest of the fight, whenever an ally gains Shield, every other ally gains half as much.', true),
   marked: card('marked', 'Marked for Death', 1, ['hex'], 'enemy', `Mark an enemy: the next ${R.markedHits} hits on it, from any ally, crit (×2).`),
   flurry: card('flurry', 'Flurry', 2.5, ['strike'], 'enemy', `${R.flurryHits} hits of ${R.flurry} on an enemy; each crits if it's Stunned or Exposed.`),
-  coup: card('coup', 'Coup de Grâce', 2.5, ['strike'], 'enemy', `${R.coup} dmg. If it kills, it Chains: you act again at once.`),
+  coup: card('coup', 'Coup de Grâce', 2.5, ['strike', 'hasten'], 'enemy', `${R.coup} dmg. If it kills, it Chains: you act again at once.`),
   misdirect: card('misdirect', 'Misdirect', 1.5, ['hinder'], 'enemy', `Misdirected: the enemy's next attack hits another enemy (alone, itself). Sneaking: its next ${R.misdirectSneak}.`),
   cuts: card('cuts', 'Thousand Cuts', 1, ['strike'], 'none', `For the rest of the fight, after every card you play a random enemy takes ${R.cutsStart} dmg, and 1 more each time after.`, true),
   hymn: card('hymn', 'Radiant Hymn', 4, ['light'], 'none', `Every character +${R.hymnLight} light, which can overfill to ${R.hymnCap} this fight. Radiant characters (above 100 light) deal +${R.radiantMult * 100}%.`),
@@ -314,10 +314,10 @@ export const CARDS: Record<CardId, CardDef> = {
   puppet: card('puppet', 'Puppet Strings', 4, ['hex', 'hinder'], 'enemy', `Charmed: the enemy's next action is an attack on its own side (alone, on itself). Anima: its next ${R.puppetAnima}.`),
   surge: card('surge', 'Anima Surge', 1, ['hex', 'hasten'], 'none', `Spend all your Anima: your next card is +${R.surgePer * 100}% stronger per Anima spent. With none, +${R.surgeBare * 100}%.`),
   witching: card('witching', 'Witching Hour', 3, ['hex'], 'none', `For ${R.witchingSecs}s, every debuff any ally lays on an enemy also adds a Hexed stack.`, true),
-  bloodmoon: card('bloodmoon', 'Blood Moon', 4, ['hex', 'mend'], 'none', `Lose ${R.bloodMoonHp} HP (never below 1). Lifesteal for ${R.bloodMoonSecs}s: every ally heals half the damage they deal. Anima: it costs no HP.`),
-  wander: card('wander', 'Wandering Curse', 3, ['hex'], 'enemy', `${R.wander} dmg and Hexed. When it dies, its Hexed stacks leap to another enemy. Anima: to ${R.wanderAnima} others.`),
-  danse: card('danse', 'Danse Macabre', 3, ['conjure', 'hasten'], 'none', 'Every summon on your side acts now. With none, a Rat claws up and follows you.'),
-  plague: card('plague', 'Plague Bearers', 3, ['venom', 'conjure'], 'none', `Every summon here heals ${R.plagueHeal}, and for the rest of the fight every summon's attack Poisons ${R.plaguePoison} for ${R.plagueTurns} turns. With none here, the nearest enemy is Poisoned ${R.plaguePoison} for ${R.plagueTurns} turns too.`),
+  bloodmoon: card('bloodmoon', 'Blood Moon', 4, ['mend'], 'none', `Lose ${R.bloodMoonHp} HP (never below 1). Lifesteal for ${R.bloodMoonSecs}s: every ally heals half the damage they deal. Anima: it costs no HP.`),
+  wander: card('wander', 'Wandering Curse', 3, ['hex', 'strike'], 'enemy', `${R.wander} dmg and Hexed. When it dies, its Hexed stacks leap to another enemy. Anima: to ${R.wanderAnima} others.`),
+  danse: card('danse', 'Danse Macabre', 3, ['hasten', 'conjure'], 'none', 'Every summon on your side acts now. With none, a Rat claws up and follows you.'),
+  plague: card('plague', 'Plague Bearers', 3, ['venom', 'conjure', 'mend'], 'none', `Every summon here heals ${R.plagueHeal}, and for the rest of the fight every summon's attack Poisons ${R.plaguePoison} for ${R.plagueTurns} turns. With none here, the nearest enemy is Poisoned ${R.plaguePoison} for ${R.plagueTurns} turns too.`),
   preserve: card('preserve', 'Preserve', 2, ['conjure'], 'none', `Your strongest follower not yet Preserved is Preserved: it never decays, and the first blow that would destroy it leaves it at 1 HP. With none, +${R.preserveBare} Shield.`),
   claim: card('claim', 'Claim the Grave', 1, ['conjure', 'hex'], 'enemy', `Claim an enemy: when it dies, it rises at once at ${R.claimHp * 100}% HP and follows you (no Corpse needed).`),
   lord: card('lord', 'Lord of the Dead', 4, ['conjure'], 'none', `For the rest of the run your following holds ${R.lordCap} instead of 4, and every undead of yours sheds all its decay now.`, true),
@@ -325,16 +325,16 @@ export const CARDS: Record<CardId, CardDef> = {
   resonant: card('resonant', 'Resonant Strike', 4, ['strike', 'hinder'], 'enemyFirst', `${R.resonant} dmg to the nearest enemy, and it's Ringing: the next time it's Delayed, it's Stunned too.`),
   discord: card('discord', 'Discord', 3, ['hinder', 'hasten'], 'ally', `The next enemy to act and a character trade places on the timeline, if the enemy would act first. +${R.discordClang} Clang.`),
   metronome: card('metronome', 'Metronome', 3, ['hasten'], 'none', `Cadence for ${R.metronomeSecs}s: every card any character here plays, yours included, takes exactly ${R.metronomeTime}s.`),
-  tollthee: card('tollthee', 'Toll for Thee', 4, ['strike', 'hinder'], 'enemy', `Send not for me: for the rest of the fight, at the start of each of this enemy's turns it takes ${R.tollthee} + ${R.tolltheePer} per Clang you hold then.`, true),
+  tollthee: card('tollthee', 'Toll for Thee', 4, ['strike'], 'enemy', `Send not for me: for the rest of the fight, at the start of each of this enemy's turns it takes ${R.tollthee} + ${R.tolltheePer} per Clang you hold then.`, true),
   eclipse: card('eclipse', 'Eclipse', 2, ['light'], 'none', "Your light falls to 0. For the rest of the fight your Fervour adds to every ally's damage.", true),
   brand: card('brand', 'Brand', 4, ['strike', 'hex'], 'enemy', `${R.brand} dmg and Branded for the fight: it takes +1 from every source per ${R.brandPer} light you lack.`),
   bloodforblood: card('bloodforblood', 'Blood for Blood', 3, ['mend'], 'ally', `Lose ${R.bloodHp} HP (never below 1): another character heals ${R.bloodHeal}. With nobody else here, +${R.bloodBare} Shield instead (no HP lost).`),
-  purge: card('purge', 'Purging Fire', 4, ['light', 'strike'], 'none', `Snuff ${R.purgeLight} of your light: ${R.purge} dmg to every enemy.`),
+  purge: card('purge', 'Purging Fire', 4, ['strike', 'light'], 'none', `Snuff ${R.purgeLight} of your light: ${R.purge} dmg to every enemy.`),
   litany: card('litany', 'Litany', 4, ['strike'], 'enemy', `${R.litany} dmg, again once for every ${R.litanyPer} light you lack (at most ${R.litanyMax} hits).`),
   mutagen: card('mutagen', 'Mutagen', 3, ['mend', 'venom'], 'ally', `A character is Mutated for ${R.mutagenSecs}s: +${R.mutagenMult * 100}% damage and Regen ${R.mutagenRegen}; then Weak for ${R.mutagenWeak} turns.`),
   bottomless: card('bottomless', 'Bottomless Flask', 2, ['mend'], 'none', "Your next item isn't used up. With an empty pack, a Bandage into it instead."),
   corrosive: card('corrosive', 'Corrosive Cloud', 4, ['venom'], 'none', `Every enemy gets ${R.corrosive} Acid stack (2 if Poisoned), and again at the start of each of its turns for the rest of the fight.`, true),
-  flash: card('flash', 'Flash Powder', 3, ['hinder'], 'none', `${R.flash} dmg to every enemy, and every enemy is Blinded.`),
+  flash: card('flash', 'Flash Powder', 3, ['hex', 'strike'], 'none', `${R.flash} dmg to every enemy, and every enemy is Blinded.`),
   distill: card('distill', 'Distillation', 4, ['venom'], 'enemy', `Every Poison on an enemy deals all it has left at once, ×${R.distillMult}. With none on it, Poison ${R.distillPoison} for ${R.distillTurns} turns.`),
   // ---- Gear types: Commons are underwhelming, Uncommons match the nearest class card ----
   stab1: card('stab1', 'Stab', 2.5, ['strike'], 'enemy', `${R.stab1} dmg.`),
@@ -352,25 +352,25 @@ export const CARDS: Record<CardId, CardDef> = {
   mutter1: card('mutter1', 'Mutter', 5, ['conjure'], 'none', `Summon a Rat for this fight. At most ${R.summonMax}; with more, heal them instead.`),
   mutter2: card('mutter2', 'Mutter', 6, ['conjure'], 'none', `Summon a Shade for this fight. At most ${R.summonMax}; with more, heal them instead.`),
   evillook1: card('evillook1', 'Evil Look', 2, ['hex'], 'enemy', `Exposed: its next hit taken does +${R.evillook1 * 100}%.`),
-  evillook2: card('evillook2', 'Evil Look', 4, ['hex'], 'enemy', `${R.evillook2Dmg} dmg and Exposed: its next hit taken does +${R.evillook2 * 100}%.`),
+  evillook2: card('evillook2', 'Evil Look', 4, ['hex', 'strike'], 'enemy', `${R.evillook2Dmg} dmg and Exposed: its next hit taken does +${R.evillook2 * 100}%.`),
   // ---- Rare Gear ----
   mercy: card('mercy', 'Mercy Stroke', 2, ['strike'], 'enemy', `${R.mercy} dmg; a non-Boss enemy below ${R.mercyBelow * 100}% HP dies outright.`),
-  whispercut: card('whispercut', 'Whisper Cut', 1, ['venom', 'hasten'], 'enemy', `${R.whispercut} dmg and Bleed ${R.whispercutBleed} every ${R.pulse}s for ${R.whispercutSecs}s; your next card takes ${R.whispercutCut}s less.`),
+  whispercut: card('whispercut', 'Whisper Cut', 1, ['venom', 'strike', 'hasten'], 'enemy', `${R.whispercut} dmg and Bleed ${R.whispercutBleed} every ${R.pulse}s for ${R.whispercutSecs}s; your next card takes ${R.whispercutCut}s less.`),
   shatter: card('shatter', 'Shatter', 5, ['strike', 'hinder'], 'enemy', `${R.shatter} dmg, −${R.shatterSunder} Block on it for the fight, and Delay it ${R.shatterDelay}s.`),
   earthblow: card('earthblow', 'Earthblow', 7, ['strike', 'hinder'], 'none', `${R.earthblow} dmg to the two nearest enemies; both are Slowed (+${R.earthblowSlow}s on each action) for ${R.earthblowSecs}s.`),
   doublehex: card('doublehex', 'Double Hex', 1.5, ['hex'], 'enemy', 'Copy the last debuff you placed in this fight onto an enemy (with none: Exposed).'),
   bloom: card('bloom', 'Verdant Bloom', 5, ['mend'], 'none', `Every ally: Regen ${R.bloomRegen} every ${R.pulse}s for ${R.bloomSecs}s.`),
   glass: card('glass', 'Turn the Glass', 1, ['hasten'], 'none', 'The last card you played in this fight goes back into your hand (with none: discard your leftmost card and draw).'),
-  scaleward: card('scaleward', 'Scale Ward', 3, ['guard'], 'none', `+${R.scaleWard} Shield; until your next turn, whatever hits you takes ${R.scaleWardSpikes}.`),
+  scaleward: card('scaleward', 'Scale Ward', 3, ['guard', 'strike'], 'none', `+${R.scaleWard} Shield; until your next turn, whatever hits you takes ${R.scaleWardSpikes}.`),
   fade: card('fade', 'Fade', 1, ['guard', 'hasten'], 'none', `The next attack aimed at you misses; your next card takes ${R.fadeCut}s less.`),
   runeward: card('runeward', 'Rune Ward', 2, ['guard'], 'none', `Every ally +${R.runeWard} Shield.`),
   bulwark: card('bulwark', 'Bulwark', 4, ['guard', 'hinder'], 'none', `+${R.bulwark} Shield; step to the front of the line; Delay the nearest enemy ${R.bulwarkDelay}s.`),
   liestill: card('liestill', 'Lie Still', 2, ['mend'], 'none', `Heal yourself ${R.lieStillHeal}; snuff ${R.lieStillLight} of your light; step to the back of the line.`),
   slipaway: card('slipaway', 'Slip Away', 1, ['hasten'], 'none', 'Flee for certain, losing no light, down any tunnel (at the exit: escape).'),
-  blink: card('blink', 'Blink', 1, ['hasten'], 'none', 'Step to the back of the line; the next attack aimed at you misses.'),
+  blink: card('blink', 'Blink', 1, ['guard'], 'none', 'Step to the back of the line; the next attack aimed at you misses.'),
   veil: card('veil', 'Veil', 1, ['guard'], 'ally', "A character's next incoming attack misses."),
   luckybreak: card('luckybreak', 'Lucky Break', 1, ['hasten'], 'none', 'Discard your hand and draw a new one.'),
-  feverdream: card('feverdream', 'Fever Dream', 1, ['conjure'], 'none', `Snuff ${R.feverLight} of your light; your Conjure cards take half their time for the rest of this fight.`),
+  feverdream: card('feverdream', 'Fever Dream', 1, ['hasten', 'conjure'], 'none', `Snuff ${R.feverLight} of your light; your Conjure cards take half their time for the rest of this fight.`),
   bloodrush: card('bloodrush', 'Blood Rush', 1, ['hasten'], 'none', `Lose ${R.bloodRushHp} HP; Haste: your cards take ${R.bloodRushHaste}s less for ${R.bloodRushSecs}s.`),
   ashes: card('ashes', 'Ashes', 2, ['hex', 'light'], 'none', `Spend up to ${R.ashesLight} light: every enemy is Weak for 1 turn (2 turns if you spent the full ${R.ashesLight}).`),
   // ---- Legendary ----
@@ -385,7 +385,7 @@ export const CARDS: Record<CardId, CardDef> = {
   oil: card('oil', "Elder's Oil", 1, ['light'], 'none', "Your light to full. (The Elder's blessing, for this run.)", true),
   fumble: card('fumble', 'Fumble', 3, [], 'none', 'Nothing: an empty Gear slot.'),
   // ---- Found cards (user, 2026-10-16): from events, for the rest of the run ----
-  riposte: card('riposte', 'Riposte', 2, ['guard', 'strike'], 'none', `The next attack aimed at you misses, and its attacker takes ${R.riposte} dmg and is Delayed ${R.riposteDelay}s.`),
+  riposte: card('riposte', 'Riposte', 2, ['guard', 'strike', 'hinder'], 'none', `The next attack aimed at you misses, and its attacker takes ${R.riposte} dmg and is Delayed ${R.riposteDelay}s.`),
   parry: card('parry', 'Parry', 5, ['guard'], 'none', 'The next attack aimed at you misses.'),
   ember: card('ember', 'Living Ember', 3, ['strike', 'light'], 'none', `${R.ember} dmg to every enemy; every character +${R.emberLight} light.`),
   shard: card('shard', 'Mirror Shard', 2, ['hasten'], 'none', `Your last card (never a Burn) happens again, at full power. With nothing to repeat, ${R.shardBare} dmg to the nearest enemy.`),
@@ -402,169 +402,45 @@ export const FOUND_CARDS: readonly CardId[] = ['riposte', 'parry', 'ember', 'sha
 /** What the Weapon Rack and the Gambler's Table deal from: every found card but the duel's prize and the dud. */
 export const FOUND_POOL: readonly CardId[] = ['parry', 'ember', 'shard', 'oathstrike', 'unmaking', 'halting', 'borrowed'];
 
-/** A card picture's main motif: one per kind of effect (tools/card_art.py draws them), or a summon's own sprite. */
+/** A card picture's main motif: its first school's icon, a summon's own sprite, or (for the two cards with no school) its own. */
 export type CardMotif =
-  | 'shield' | 'crack' | 'spikes' | 'gate' | 'dagger' | 'hammer' | 'stun' | 'hand' | 'smoke' | 'flame' | 'heal' | 'lamp' | 'leaf'
-  | 'sun' | 'eye' | 'wilt' | 'blood' | 'swirl' | 'hourglass' | 'spade' | 'skull' | 'grave' | 'burst' | 'bell' | 'waves' | 'whip'
-  | 'flask' | 'venom' | 'dodge' | 'target' | 'veil' | 'door' | 'cards' | 'void'
+  | 'sword' | 'shield' | 'heal' | 'hourglass' | 'wing' | 'venom' | 'eye' | 'sun' | 'grave'
+  | 'crack' | 'spikes' | 'gate' | 'dagger' | 'hammer' | 'stun' | 'hand' | 'smoke' | 'flame' | 'lamp' | 'leaf' | 'wilt' | 'blood'
+  | 'swirl' | 'spade' | 'skull' | 'burst' | 'bell' | 'waves' | 'whip' | 'flask' | 'dodge' | 'target' | 'veil' | 'door' | 'cards' | 'void'
   | 'rat' | 'shade' | 'imp' | 'ghoul' | 'wolf';
-/** The small badge for a card's second effect. */
+/** The small badge for a card's second school. */
 export type CardMark =
   | 'hourglass' | 'front' | 'back' | 'swirl' | 'shield' | 'spikes' | 'sword' | 'venom' | 'wing' | 'sun' | 'heal' | 'eye' | 'star'
   | 'bone' | 'skull' | 'blood' | 'cards' | 'crack' | 'flask' | 'flame';
 
-const art = (motif: CardMotif, mark?: CardMark) => ({ motif, ...(mark ? { mark } : {}) });
+/** Each school's icon: big in the middle when it's a card's first school, small in the badge when it's the second. */
+export const SCHOOL_ART: Record<School, { motif: CardMotif; mark: CardMark }> = {
+  strike: { motif: 'sword', mark: 'sword' },
+  guard: { motif: 'shield', mark: 'shield' },
+  hinder: { motif: 'hourglass', mark: 'hourglass' },
+  hasten: { motif: 'wing', mark: 'wing' },
+  venom: { motif: 'venom', mark: 'venom' },
+  mend: { motif: 'heal', mark: 'heal' },
+  conjure: { motif: 'grave', mark: 'bone' },
+  hex: { motif: 'eye', mark: 'eye' },
+  light: { motif: 'sun', mark: 'sun' },
+};
+
+/** Conjure cards that call up one creature show it in place of the grave. */
+const SUMMON_ART: Partial<Record<CardId, CardMotif>> = { familiar: 'imp', mutter1: 'rat', mutter2: 'shade', howl: 'wolf' };
 
 /**
- * Card pictures (user, 2026-10-13): the motif is the card's main effect, the mark its second, so alike cards look alike
- * (every Shield card shows the shield, every Hurry the wing…). The background is the first school's tint. Only a
- * Common and Uncommon of one kind share a picture (their frames differ).
+ * Card pictures (user, 2026-10-17): the big motif is the card's main effect, which is its first school (a sword for
+ * damage, a shield for Shield, a heart for healing…), and the badge its second school, so every card reads at a glance.
+ * The background is the first school's tint. A card's schools list its effects, main one first.
  */
-export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = {
-  bash: art('shield', 'hourglass'),
-  cover: art('shield', 'front'),
-  thornwall: art('spikes', 'shield'),
-  rally: art('shield', 'swirl'),
-  slam: art('crack', 'shield'),
-  gate: art('gate', 'spikes'),
-  backstab: art('dagger', 'back'),
-  cheap: art('stun', 'sword'),
-  envenom: art('dagger', 'venom'),
-  signal: art('hand', 'wing'),
-  smoke: art('smoke'),
-  dance: art('dagger', 'wing'),
-  flare: art('flame', 'sun'),
-  mend: art('heal', 'sun'),
-  vigil: art('lamp', 'swirl'),
-  kindle: art('lamp', 'flame'),
-  sanctuary: art('leaf', 'sun'),
-  dawn: art('sun', 'heal'),
-  hex: art('eye', 'sword'),
-  wither: art('wilt'),
-  pact: art('blood', 'sword'),
-  familiar: art('imp'),
-  bargain: art('swirl', 'wing'),
-  ages: art('hourglass', 'eye'),
-  spade: art('spade'),
-  rites: art('skull', 'sword'),
-  raise: art('grave'),
-  explode: art('burst', 'bone'),
-  embalm: art('heal', 'bone'),
-  graves: art('ghoul', 'bone'),
-  clang: art('bell', 'hourglass'),
-  knell: art('bell', 'skull'),
-  peal: art('bell', 'wing'),
-  ringout: art('waves', 'hourglass'),
-  echo: art('waves', 'cards'),
-  reverberate: art('bell', 'star'),
-  scourge: art('whip'),
-  absolution: art('swirl', 'sword'),
-  sins: art('hand', 'swirl'),
-  martyrdom: art('flame', 'wing'),
-  penance: art('swirl', 'shield'),
-  rapture: art('swirl', 'sun'),
-  acid: art('flask', 'venom'),
-  fumes: art('venom'),
-  contagion: art('venom', 'swirl'),
-  elixir: art('flask', 'star'),
-  catalyst: art('venom', 'star'),
-  opus: art('flask', 'cards'),
-  stab1: art('dagger'),
-  stab2: art('dagger'),
-  thump1: art('hammer', 'hourglass'),
-  thump2: art('hammer', 'hourglass'),
-  soothe1: art('heal'),
-  soothe2: art('heal'),
-  sidestep1: art('dodge'),
-  sidestep2: art('dodge'),
-  braceup1: art('shield'),
-  braceup2: art('shield'),
-  wick1: art('lamp'),
-  wick2: art('lamp', 'heal'),
-  mutter1: art('rat'),
-  mutter2: art('shade'),
-  evillook1: art('target'),
-  evillook2: art('target', 'sword'),
-  mercy: art('dagger', 'skull'),
-  whispercut: art('dagger', 'blood'),
-  shatter: art('crack', 'hourglass'),
-  earthblow: art('hammer', 'crack'),
-  doublehex: art('eye', 'cards'),
-  bloom: art('leaf'),
-  glass: art('hourglass', 'cards'),
-  scaleward: art('shield', 'spikes'),
-  fade: art('veil', 'wing'),
-  runeward: art('shield', 'sun'),
-  bulwark: art('gate', 'shield'),
-  liestill: art('heal', 'back'),
-  slipaway: art('door', 'wing'),
-  blink: art('veil', 'back'),
-  veil: art('veil'),
-  luckybreak: art('cards'),
-  feverdream: art('swirl', 'bone'),
-  bloodrush: art('blood', 'wing'),
-  ashes: art('wilt', 'sun'),
-  promise: art('skull'),
-  quake: art('crack', 'star'),
-  unmake: art('void'),
-  redeem: art('heal', 'swirl'),
-  bastion: art('gate'),
-  forgive: art('grave', 'heal'),
-  howl: art('wolf'),
-  waystep: art('door'),
-  oil: art('lamp', 'star'),
-  fumble: art('hand'),
-  riposte: art('dagger', 'shield'),
-  parry: art('dodge', 'shield'),
-  ember: art('flame', 'star'),
-  shard: art('cards', 'crack'),
-  oathstrike: art('dagger', 'star'),
-  snakeeyes: art('void', 'cards'),
-  unmaking: art('void', 'skull'),
-  halting: art('stun', 'eye'),
-  borrowed: art('hourglass', 'wing'),
-  aegis: art('shield', 'wing'),
-  linked: art('shield', 'back'),
-  mirror: art('shield', 'eye'),
-  banner: art('gate', 'wing'),
-  phalanx: art('gate', 'star'),
-  marked: art('target', 'skull'),
-  flurry: art('dagger', 'cards'),
-  coup: art('dagger', 'crack'),
-  misdirect: art('hand', 'eye'),
-  cuts: art('blood', 'star'),
-  hymn: art('sun', 'star'),
-  lightwell: art('sun', 'swirl'),
-  halo: art('heal', 'star'),
-  march: art('sun', 'wing'),
-  eternal: art('lamp', 'shield'),
-  puppet: art('hand', 'skull'),
-  surge: art('swirl', 'star'),
-  witching: art('eye', 'hourglass'),
-  bloodmoon: art('blood', 'heal'),
-  wander: art('eye', 'wing'),
-  danse: art('skull', 'wing'),
-  plague: art('venom', 'bone'),
-  preserve: art('grave', 'shield'),
-  claim: art('grave', 'eye'),
-  lord: art('skull', 'star'),
-  bellguard: art('bell', 'shield'),
-  resonant: art('bell', 'crack'),
-  discord: art('waves', 'wing'),
-  metronome: art('hourglass', 'star'),
-  tollthee: art('bell', 'blood'),
-  eclipse: art('void', 'sun'),
-  brand: art('flame', 'sword'),
-  bloodforblood: art('blood', 'swirl'),
-  purge: art('flame', 'skull'),
-  litany: art('whip', 'cards'),
-  mutagen: art('flask', 'blood'),
-  bottomless: art('flask', 'swirl'),
-  corrosive: art('venom', 'crack'),
-  flash: art('sun', 'eye'),
-  distill: art('flask', 'crack'),
-
-};
+export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = Object.fromEntries(
+  (Object.keys(CARDS) as CardId[]).map((id) => {
+    const [first, second] = CARDS[id].schools;
+    const motif: CardMotif = SUMMON_ART[id] ?? (first ? SCHOOL_ART[first].motif : id === 'snakeeyes' ? 'void' : 'hand');
+    return [id, second ? { motif, mark: SCHOOL_ART[second].mark } : { motif }];
+  }),
+) as Record<CardId, { motif: CardMotif; mark?: CardMark }>;
 
 export const CARD_IDS = Object.keys(CARDS) as CardId[];
 

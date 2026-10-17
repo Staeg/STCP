@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, SCHOOLS, TYPE_CARDS } from '../content/cards';
+import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, SCHOOL_ART, SCHOOLS, TYPE_CARDS } from '../content/cards';
 import { FIELD_ART } from './skills';
 import { MARK_ROWS, MOTIF_ROWS } from '../../../client/src/render/card-art-data';
 import { SPRITES } from '../../../client/src/render/sprite-data';
@@ -630,17 +630,28 @@ describe('summoned and risen allies', () => {
 });
 
 describe('card art', () => {
-  it('every card has its own picture (only a Common and Uncommon of one kind share), drawn from parts that exist', () => {
-    const seen = new Map<string, string>();
+  it("every card's picture is its first school's icon with its second's badge, drawn from parts that exist", () => {
     for (const id of CARD_IDS) {
       const { motif, mark } = CARD_ART[id];
       expect(MOTIF_ROWS[motif] ?? SPRITES[motif], `${id}: ${motif}`).toBeDefined();
       if (mark) expect(MARK_ROWS[mark], `${id}: ${mark}`).toBeDefined();
-      const key = `${motif}/${mark ?? ''}`;
-      const other = seen.get(key);
-      if (other) expect(Object.values(TYPE_CARDS).some((pair) => pair.includes(id) && pair.includes(other as never)), `${id} looks like ${other}`).toBe(true);
-      seen.set(key, id);
+      const [first, second] = CARDS[id].schools;
+      if (first && !SPRITES[motif]) expect(motif, id).toBe(SCHOOL_ART[first].motif);
+      if (SPRITES[motif]) expect(first, `${id} shows a summon`).toBe('conjure');
+      expect(mark, id).toBe(second ? SCHOOL_ART[second].mark : undefined);
     }
+    // The examples the user gave (2026-10-17).
+    expect(CARD_ART.slam.motif).toBe('sword');
+    expect(CARDS.slam.schools).toContain('strike');
+    expect(CARD_ART.rally.motif).toBe('shield');
+    expect(CARD_ART.mend.motif).toBe('heal');
+  });
+
+  it('a card is tagged with every school its text does, once each', () => {
+    for (const id of CARD_IDS) expect(new Set(CARDS[id].schools).size, id).toBe(CARDS[id].schools.length);
+    // Damage is Strike.
+    for (const id of ['bash', 'slam', 'cheap', 'envenom', 'hex', 'acid', 'flare', 'kindle', 'aegis', 'flash', 'riposte', 'thornwall'] as const)
+      expect(CARDS[id].schools, id).toContain('strike');
   });
 
   it('frames tell class cards from Gear cards, and Gear cards by tier', () => {
