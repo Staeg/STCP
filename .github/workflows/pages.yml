@@ -1,5 +1,4 @@
-# Publishes the solo build (you + 3 bots, no server) to GitHub Pages on every push to main, with the `cards` branch's
-# build alongside it at /beta (https://staeg.github.io/STCP/beta/). A push to `cards` asks for a redeploy (beta.yml).
+# Publishes the solo build (you + 3 bots, no server) to GitHub Pages on every push to main.
 name: Deploy solo build to Pages
 
 on:
@@ -36,25 +35,9 @@ jobs:
       - run: npm run build
         env:
           VITE_SOLO: '1'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # The beta: the `cards` branch, built the same way into /beta, with its own save slot in the browser.
-      - id: beta
-        run: git ls-remote --exit-code --heads origin cards && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
-      - if: steps.beta.outputs.exists == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: cards
-          path: beta-src
-          fetch-depth: 0
-      - if: steps.beta.outputs.exists == 'true'
-        working-directory: beta-src
-        run: npm ci && npm run build
-        env:
-          VITE_SOLO: '1'
+          # The card game was the /beta and kept its save slot there; it keeps it, and the pre-card game's saves stay apart.
           VITE_STASH_KEY: stcp-stash-beta
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - if: steps.beta.outputs.exists == 'true'
-        run: rm -rf client/dist/beta && cp -r beta-src/client/dist client/dist/beta
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

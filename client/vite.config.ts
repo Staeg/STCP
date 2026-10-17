@@ -9,8 +9,7 @@ function git(cmd: string): string {
     return '';
   }
 }
-// CI checkouts can be detached; GITHUB_REF_NAME names the branch there. The checked-out branch comes first: the beta is
-// built from `cards` inside main's run, where GITHUB_REF_NAME says main (and a step can't override it).
+// CI checkouts can be detached; GITHUB_REF_NAME names the branch there. The checked-out branch comes first.
 const head = git('rev-parse --abbrev-ref HEAD');
 const branch = (head && head !== 'HEAD' ? head : process.env.GITHUB_REF_NAME) || 'unknown';
 const commit = git('rev-parse --short HEAD');

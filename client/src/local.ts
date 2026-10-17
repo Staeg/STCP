@@ -6,7 +6,7 @@ import { LobbyManager, parseClientMsg, send, SERVER_TICK, Stash, type ServerMsg,
  */
 export const SOLO = import.meta.env.VITE_SOLO === '1' || new URLSearchParams(location.search).has('solo');
 
-/** Where solo play keeps the Stash; the beta build (/beta, same origin) keeps its own so the two never mix. */
+/** Where solo play keeps the Stash; Pages builds pass `stcp-stash-beta`, the slot the card game kept while it was the /beta. */
 const STASH_KEY = import.meta.env.VITE_STASH_KEY || 'stcp-stash';
 
 let manager: LobbyManager | null = null;
