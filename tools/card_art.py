@@ -391,6 +391,9 @@ M['cards'] = (G().poly([(1, 4), (7, 2), (9, 12), (3, 14)], 'c').poly([(6, 2), (1
               .rect(7, 3, 12, 12, 'o').rect(8, 4, 11, 11, 'c').px(9, 6, 'r').px(10, 6, 'r').rect(9, 7, 10, 8, 'r')
               .px(3, 6, 'C').px(4, 9, 'C'))
 
+M['portal'] = (G().ell(2, 0, 13, 15, 'M').ell(3, 1, 12, 14, 'm').ell(4, 2, 11, 13, 'P').ell(5, 3, 10, 12, 'x')
+               .ell(6, 5, 9, 10, 'D').px(7, 4, 'p').px(9, 6, 'p').px(6, 9, 'p').px(8, 11, 'p').px(3, 4, 'o').px(12, 10, 'o'))
+
 M['void'] = (G().ell(1, 2, 14, 13, 'P').ell(3, 4, 12, 11, 'p').ell(4, 5, 11, 10, 'D').ell(6, 6, 9, 9, 'x')
              .px(2, 1, 'o').px(13, 14, 'o').px(14, 3, 'w'))
 
@@ -599,6 +602,58 @@ K['flask'] = grid("""
 ........
 """, 8)
 
+# Creature marks: the summon a portal brings (the small part of a summoning card's picture).
+K['imp'] = grid("""
+........
+.r....r.
+.rr..rr.
+.rrrrrr.
+.ryrryr.
+..rrrr..
+..rRRr..
+........
+""", 8)
+K['rat'] = grid("""
+........
+........
+.....h..
+..nnnnh.
+.nnnnen.
+.NnnnnN.
+..N..N..
+........
+""", 8)
+K['shade'] = grid("""
+........
+..pppp..
+.pPxxPp.
+.pexxep.
+.pPxxPp.
+.pppppp.
+.p.pp.p.
+........
+""", 8)
+K['wolf'] = grid("""
+........
+.W....W.
+.WW..WW.
+.WWWWWW.
+.WeWWeW.
+..WwwW..
+...xx...
+........
+""", 8)
+K['ghoul'] = grid("""
+........
+..gggg..
+.gggggg.
+.geggeg.
+.gggggg.
+..gccg..
+..gggg..
+........
+""", 8)
+
 MOTIFS = {k: v.rows() for k, v in M.items()}
 MARKS = {k: v.rows() for k, v in K.items()}
 for name, rows in {**MOTIFS, **MARKS}.items():
@@ -621,7 +676,10 @@ def ts_table():
     summons = dict(re.findall(r"(\w+): '(\w+)'", re.search(r"SUMMON_ART[^=]*= \{([^}]*)\}", src).group(1)))
     art = {}
     for card, sc in schools.items():
-        motif = summons.get(card) or (icons[sc[0]][0] if sc else ('void' if card == 'snakeeyes' else 'hand'))
+        if card in summons:
+            art[card] = ('portal', summons[card])
+            continue
+        motif = icons[sc[0]][0] if sc else ('void' if card == 'snakeeyes' else 'hand')
         art[card] = (motif, icons[sc[1]][1] if len(sc) > 1 else None)
     return art, tints, tint2, schools
 

@@ -38,6 +38,7 @@ export const MOTIF_ROWS: Record<string, string[]> = {
   veil: ['.....k..........', '....kck.....k...', '...kcck....kok..', '..kcck....koook.', '.kccck.....kok..', 'kcccck......k...', 'kccCck..........', 'kcccck..........', 'kccccck.......k.', 'kcccCck......kok', 'kcccccckk.....k.', '.kccccccckkk....', '..kcccCccccck...', '...kccccccck....', '....kccccck.....', '.....kkkkk......'],
   door: ['......kkkk......', '....kkNNNNkk....', '...kNNyyyyNNk...', '..kNNyyyyyyNNk..', '..kNnyyyyyyyNk..', '..kNnnooooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '..kNnYYnooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '..kNnnnnooyyNk..', '...kkkkkkkkkk...'],
   cards: ['................', '......kkkkkkkk..', '....kkooooooook.', '.kkkccooooooook.', 'kcccccooccccook.', 'kcccccooccccook.', 'kccCccoocrrcook.', '.kccccoocrrcook.', '.kccccoocrrcook.', '.kccCcooccccook.', '.kccccooccccook.', '.kccccooccccook.', '..kcccooooooook.', '..kcccooooooook.', '..kckkkkkkkkkk..', '...k............'],
+  portal: ['.....kMMMMk.....', '....kMmmmmMk....', '...kMmmPPmmMk...', '..kMmmPxxPmmMk..', '..komPxpxxPmMk..', '.kMmPxxDDxxPmMk.', '.kMmPxDDDpxPmMk.', '.kMmPxDDDDxPmMk.', '.kMmPxDDDDxPmMk.', '.kMmPxpDDDxPmMk.', '.kMmPxxDDxxPoMk.', '..kMmPxxpxPmMk..', '..kMmmPxxPmmMk..', '...kMmmPPmmMk...', '....kMmmmmMk....', '.....kMMMMk.....'],
   void: ['..k.............', '.kok.kkkkkk.....', '..k.kPPPPPPk..k.', '...kPPPPPPPPkkwk', '..kPPPppppPPPkk.', '.kPPppDDDDppPPk.', 'kPPppDDxxDDppPPk', 'kPPpDDxxxxDDpPPk', 'kPPpDDxxxxDDpPPk', 'kPPppDDxxDDppPPk', '.kPPppDDDDppPPk.', '..kPPPppppPPPk..', '...kPPPPPPPPk...', '....kPPPPPPk.k..', '.....kkkkkk.kok.', '.............k..'],
 };
 
@@ -62,4 +63,9 @@ export const MARK_ROWS: Record<string, string[]> = {
   crack: ['...kyk..', '..kyok..', '.kyykk..', 'kyyyyyk.', '.kkyyk..', '.kyok...', '.kyk....', '..k.....'],
   flame: ['...k....', '..kTk...', '.kTtTk..', '.kTtttk.', 'kTtyytTk', 'kTtyoytk', '.kTtttTk', '..kkkkk.'],
   flask: ['...kk...', '..kwwk..', '..kwwk..', '.kwwwwk.', 'kwlllLwk', 'kllLlllk', '.kllllk.', '..kkkk..'],
+  imp: ['.k....k.', 'krk..krk', 'krrkkrrk', 'krrrrrrk', 'kryrryrk', '.krrrrk.', '.krRRrk.', '..kkkk..'],
+  rat: ['........', '.....k..', '..kkkhk.', '.knnnnhk', 'knnnnenk', 'kNnnnnNk', '.kNkkNk.', '..k..k..'],
+  shade: ['..kkkk..', '.kppppk.', 'kpPxxPpk', 'kpexxepk', 'kpPxxPpk', 'kppppppk', 'kpkppkpk', '.k.kk.k.'],
+  wolf: ['.k....k.', 'kWk..kWk', 'kWWkkWWk', 'kWWWWWWk', 'kWeWWeWk', '.kWwwWk.', '..kxxk..', '...kk...'],
+  ghoul: ['..kkkk..', '.kggggk.', 'kggggggk', 'kgeggegk', 'kggggggk', '.kgccgk.', '.kggggk.', '..kkkk..'],
 };

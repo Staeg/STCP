@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, SCHOOL_ART, SCHOOLS, TYPE_CARDS } from '../content/cards';
+import { CARD_ART, CARD_IDS, CARD_RULES as R, CARDS, CLASS_CARDS, MIN_CARD_TIME, SCHOOL_ART, SCHOOLS, SUMMON_ART, TYPE_CARDS } from '../content/cards';
 import { FIELD_ART } from './skills';
 import { MARK_ROWS, MOTIF_ROWS } from '../../../client/src/render/card-art-data';
 import { SPRITES } from '../../../client/src/render/sprite-data';
@@ -636,8 +636,14 @@ describe('card art', () => {
       expect(MOTIF_ROWS[motif] ?? SPRITES[motif], `${id}: ${motif}`).toBeDefined();
       if (mark) expect(MARK_ROWS[mark], `${id}: ${mark}`).toBeDefined();
       const [first, second] = CARDS[id].schools;
-      if (first && !SPRITES[motif]) expect(motif, id).toBe(SCHOOL_ART[first].motif);
-      if (SPRITES[motif]) expect(first, `${id} shows a summon`).toBe('conjure');
+      const summon = SUMMON_ART[id];
+      if (summon) {
+        // Summoning cards: a portal, with the creature small in the badge.
+        expect(first, id).toBe('conjure');
+        expect([motif, mark], id).toEqual(['portal', summon]);
+        continue;
+      }
+      if (first) expect(motif, id).toBe(SCHOOL_ART[first].motif);
       expect(mark, id).toBe(second ? SCHOOL_ART[second].mark : undefined);
     }
     // The examples the user gave (2026-10-17).
@@ -645,6 +651,7 @@ describe('card art', () => {
     expect(CARDS.slam.schools).toContain('strike');
     expect(CARD_ART.rally.motif).toBe('shield');
     expect(CARD_ART.mend.motif).toBe('heal');
+    expect(CARD_ART.familiar).toEqual({ motif: 'portal', mark: 'imp' });
   });
 
   it('a card is tagged with every school its text does, once each', () => {
@@ -665,8 +672,8 @@ describe('card art', () => {
     for (const id of CARD_IDS) expect(cardSource(id)).toBeDefined();
   });
 
-  it('every field ability has its own medallion, drawn from parts that exist, unlike any card', () => {
-    const cards = new Set(CARD_IDS.map((id) => `${CARD_ART[id].motif}/${CARD_ART[id].mark ?? ''}`));
+  it('every field ability has its own medallion, drawn from parts that exist, unlike any card but a summoning one', () => {
+    const cards = new Set(CARD_IDS.filter((id) => !SUMMON_ART[id]).map((id) => `${CARD_ART[id].motif}/${CARD_ART[id].mark ?? ''}`));
     const seen = new Set<string>();
     for (const [id, { motif, mark, school }] of Object.entries(FIELD_ART)) {
       expect(MOTIF_ROWS[motif] ?? SPRITES[motif], `${id}: ${motif}`).toBeDefined();

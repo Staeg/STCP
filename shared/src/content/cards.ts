@@ -402,16 +402,16 @@ export const FOUND_CARDS: readonly CardId[] = ['riposte', 'parry', 'ember', 'sha
 /** What the Weapon Rack and the Gambler's Table deal from: every found card but the duel's prize and the dud. */
 export const FOUND_POOL: readonly CardId[] = ['parry', 'ember', 'shard', 'oathstrike', 'unmaking', 'halting', 'borrowed'];
 
-/** A card picture's main motif: its first school's icon, a summon's own sprite, or (for the two cards with no school) its own. */
+/** A card picture's main motif: its first school's icon, a portal for a summoning card, or (for the two cards with no school) its own. */
 export type CardMotif =
-  | 'sword' | 'shield' | 'heal' | 'hourglass' | 'wing' | 'venom' | 'eye' | 'sun' | 'grave'
+  | 'sword' | 'shield' | 'heal' | 'hourglass' | 'wing' | 'venom' | 'eye' | 'sun' | 'grave' | 'portal'
   | 'crack' | 'spikes' | 'gate' | 'dagger' | 'hammer' | 'stun' | 'hand' | 'smoke' | 'flame' | 'lamp' | 'leaf' | 'wilt' | 'blood'
-  | 'swirl' | 'spade' | 'skull' | 'burst' | 'bell' | 'waves' | 'whip' | 'flask' | 'dodge' | 'target' | 'veil' | 'door' | 'cards' | 'void'
-  | 'rat' | 'shade' | 'imp' | 'ghoul' | 'wolf';
-/** The small badge for a card's second school. */
+  | 'swirl' | 'spade' | 'skull' | 'burst' | 'bell' | 'waves' | 'whip' | 'flask' | 'dodge' | 'target' | 'veil' | 'door' | 'cards' | 'void';
+/** The small badge for a card's second school, or the creature a summoning card's portal brings. */
 export type CardMark =
   | 'hourglass' | 'front' | 'back' | 'swirl' | 'shield' | 'spikes' | 'sword' | 'venom' | 'wing' | 'sun' | 'heal' | 'eye' | 'star'
-  | 'bone' | 'skull' | 'blood' | 'cards' | 'crack' | 'flask' | 'flame';
+  | 'bone' | 'skull' | 'blood' | 'cards' | 'crack' | 'flask' | 'flame'
+  | 'imp' | 'rat' | 'shade' | 'wolf' | 'ghoul';
 
 /** Each school's icon: big in the middle when it's a card's first school, small in the badge when it's the second. */
 export const SCHOOL_ART: Record<School, { motif: CardMotif; mark: CardMark }> = {
@@ -426,18 +426,21 @@ export const SCHOOL_ART: Record<School, { motif: CardMotif; mark: CardMark }> = 
   light: { motif: 'sun', mark: 'sun' },
 };
 
-/** Conjure cards that call up one creature show it in place of the grave. */
-const SUMMON_ART: Partial<Record<CardId, CardMotif>> = { familiar: 'imp', mutter1: 'rat', mutter2: 'shade', howl: 'wolf' };
+/** Summoning cards (user, 2026-10-18): a portal, with the creature it brings small in the badge. */
+export const SUMMON_ART: Partial<Record<CardId, CardMark>> = { familiar: 'imp', mutter1: 'rat', mutter2: 'shade', howl: 'wolf', raise: 'ghoul', graves: 'ghoul' };
 
 /**
  * Card pictures (user, 2026-10-17): the big motif is the card's main effect, which is its first school (a sword for
  * damage, a shield for Shield, a heart for healing…), and the badge its second school, so every card reads at a glance.
+ * A summoning card shows a portal instead, with its creature in the badge.
  * The background is the first school's tint. A card's schools list its effects, main one first.
  */
 export const CARD_ART: Record<CardId, { motif: CardMotif; mark?: CardMark }> = Object.fromEntries(
   (Object.keys(CARDS) as CardId[]).map((id) => {
+    const summon = SUMMON_ART[id];
+    if (summon) return [id, { motif: 'portal', mark: summon }];
     const [first, second] = CARDS[id].schools;
-    const motif: CardMotif = SUMMON_ART[id] ?? (first ? SCHOOL_ART[first].motif : id === 'snakeeyes' ? 'void' : 'hand');
+    const motif: CardMotif = first ? SCHOOL_ART[first].motif : id === 'snakeeyes' ? 'void' : 'hand';
     return [id, second ? { motif, mark: SCHOOL_ART[second].mark } : { motif }];
   }),
 ) as Record<CardId, { motif: CardMotif; mark?: CardMark }>;

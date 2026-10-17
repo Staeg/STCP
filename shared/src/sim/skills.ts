@@ -53,7 +53,7 @@ export const FIELD_ART: Record<FieldSkill, { motif: CardMotif; mark?: CardMark; 
   sneak: { motif: 'veil', mark: 'eye', school: 'hasten' },
   rekindle: { motif: 'lamp', mark: 'sun', school: 'light' },
   siphon: { motif: 'flame', mark: 'swirl', school: 'light' },
-  unearth: { motif: 'ghoul', school: 'conjure' },
+  unearth: { motif: 'portal', mark: 'ghoul', school: 'conjure' },
   ringin: { motif: 'bell', mark: 'sword', school: 'hinder' },
   flagellate: { motif: 'whip', mark: 'sun', school: 'light' },
   brew: { motif: 'flask', mark: 'flame', school: 'mend' },
